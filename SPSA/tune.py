@@ -190,12 +190,6 @@ def parse_tune_file(tune_file:str)->list[TuneBlock]:
 
 
 def apply_parameters(tune_file:str , params_file : str, target_dir:str):
-    pass
-
-
-def tune_parameters(tune_file:str, params_file : str, target_dir:str):
-    # "suisho10.tune"   ← チューニング指示ファイル
-    # "suisho10.params" ← パラメーターファイル
 
     try:
         params = read_parameters(params_file)
@@ -205,6 +199,87 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     blocks = parse_tune_file(tune_file)
     for block in blocks:
         print(block)
+
+    pass
+
+def parse_block(block:list[str], param_prefix:str):
+    """
+        blockを与えて、`123@234`のような文字列を
+        removedのほうに`@`の左側の数値を格納していき、
+        params_nameのほうに`@`右側の英数字から作った変数名を格納していく。
+        変数名にはprefixをくっつける。
+    
+        # 置換対象文字列から削除された(元あった)パラメーター
+        removed_numbers : list[str] = []
+
+        modified_block : パラメーター名で置き換えたものを返す。
+    """
+
+    modified_block:list[str] = []
+    removed_numbers:list[str] = []
+    params_name:list[str] = []
+
+    # 省略されたパラメーター番号(連番)
+    param_no = 1
+
+    # "123@234"のように左側の数値を集めてかつ削除する。
+    def collect_and_remove(match):
+        removed_numbers.append(match.group())
+        return '' # 削除
+    
+    # "@"とその後の英数字を順番に置換。
+    # "@"が省略されていれば順番に"@1","@2",...に置換。
+    def replace_at(match):
+        nonlocal param_no
+        suffix = match.group(1) # "@"の後ろの文字。なければ空。
+        if not suffix:
+            suffix = str(param_no)
+            param_no += 1
+        param_name = f"{param_prefix}_{suffix}"
+        params_name.append(param_name)
+        return param_name
+    
+    for line in block:
+        # 数字(小数含む)を削除しつつ removed_numbers に格納
+        modified = re.sub(r'-?\d+(?:\.\d+)?(?=@)', collect_and_remove, line)
+        # "@"とその後の英数字を順番に置換
+        modified = re.sub(r'@([A-Za-z0-9]*)', replace_at, modified)
+        modified_block.append(modified)
+
+    return modified_block, removed_numbers, params_name
+
+def tune_parameters(tune_file:str, params_file : str, target_dir:str):
+
+    try:
+        params = read_parameters(params_file)
+    except:
+        params : list[Entry] = []
+
+    # いったん、全部使わないパラメーターとして、使っているものだけをFalseにする。
+    for param in params:
+        param.not_used = True
+
+    blocks = parse_tune_file(tune_file)
+
+    # 変数名を列挙する。
+    for block in blocks:
+        # content blockがあるならそれを対象に。
+        modified_block , removed_numbers, params_name = parse_block(block.context_lines, block.context_name)
+
+        print("--- context")
+        print(modified_block)
+        print(removed_numbers)
+        print(params_name)
+
+        if block.add_lines:
+            # add blockがあるなら、それも対象に。
+            modified_block , removed_numbers, params_name = parse_block(block.context_lines, block.context_name)
+
+            print("--- add")
+            print(modified_block)
+            print(removed_numbers)
+            print(params_name)
+
 
 
 if __name__ == "__main__":
@@ -227,6 +302,9 @@ if __name__ == "__main__":
 
     # entries = read_parameters("suisho10.params")
     # write_parameters("suisho10-new.params", entries)
+
+    # "suisho10.tune"   ← チューニング指示ファイル
+    # "suisho10.params" ← パラメーターファイル
 
     try:
         if command == "apply":

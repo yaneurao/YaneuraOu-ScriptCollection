@@ -15,9 +15,14 @@
 
 #context conthist_offsets
 
-    static constexpr int conthist_offsets[6]{71, 106, -22, -20, 29, -74};
+    static constexpr int conthist_offsets[6]{71@, 106@, -22@, -20@, 29@, -74@};
 
 #replace
 #add
 
-    int conthist_offsets[6]{71@, 106@, -22@, -20@, 29@, -74@};
+    int conthist_offsets[6]{@, @, @, @, @, @};
+
+#context test
+
+    static constexpr int conthist_offsets[6]{71@t1, 106@t2, -22@, -20@, 29@, -74@};
+
