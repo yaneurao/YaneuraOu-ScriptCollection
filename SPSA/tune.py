@@ -1,11 +1,12 @@
 import sys
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # パラメーターファイルで、そのパラメーターを使っていないことを示す文字列。
 NOT_USED_STR = "[[NOT USED]]" 
 
+# パラメーターファイルの1行を表現する型
 @dataclass
 class Entry:
     # パラメーター名
@@ -34,6 +35,30 @@ class Entry:
 
     # このパラメーターを使わないのか
     not_used : bool
+
+# .tuneファイルの1patchを表現する型
+@dataclass
+class TuneBlock:
+    # ファイル名
+    filename : str = ""
+
+    # パラメーターのprefix。これは`#context`のあとに書かれている。
+    context_name : str = ""
+
+    # パラメーターの名前。これはパラメーターのsuffix。
+    # 💡 `@1`なら`_1`のように置換される。
+    params : list[str] = field(default_factory=list)
+
+    # 置換対象文字列
+    context_lines : list[str] = field(default_factory=list)
+
+    # これに置換する
+    replace_lines : list[str] = field(default_factory=list)
+
+    # これを追加する
+    add_lines : list[str] = field(default_factory=list)
+
+
 
 def read_parameters(params_file : str)->list[Entry]:
     """
@@ -91,9 +116,82 @@ def write_parameters(params_file : str , entries : list[Entry]):
 
     print(f"write parameter file, {len(entries)} parameters.")
 
+def parse_tune_file(tune_file:str)->list[TuneBlock]:
+
+    print(f"parse tune file , path = {tune_file}")
+
+    with open(tune_file, "r", encoding="utf-8") as f:
+        filelines = f.readlines()
+
+    r : list[TuneBlock] = []
+
+    filename = ""
+    current_block = TuneBlock()
+
+    def append_check():
+        # "#file"と"#context"とがあるとそこまでのTuneBlockを書き出す。
+        nonlocal current_block
+        # current_blockがすでに埋まっていれば、書き出す。
+        if current_block.context_name:
+            current_block.filename = filename
+            r.append(current_block)
+            current_block = TuneBlock(filename = filename)
+
+    # 次のブロックを取得する。
+    # "#..."から次の"#..."の前の行まで
+    lineNo = 0
+    def get_next_block()->list[str]:
+        nonlocal lineNo, filelines
+        l : list[str] = []
+        while lineNo < len(filelines):
+            line = filelines[lineNo]
+            if line.startswith("#"):
+                # すでにblock格納済みであれば、これは次のブロックの開始行だからwhileを抜ける。
+                if l:
+                    break
+            l.append(line)
+            lineNo += 1
+
+        print(l)
+
+        return l
+    
+    while True:
+        lines = get_next_block()
+        # ブロックがなければ終了
+        if not lines:
+            break
+
+        # 1行以上あることは保証されている。
+        line = lines[0]
+
+        stripped = line.strip()
+        if stripped.startswith("#file"):
+            match = re.match(r"^#file\s+(.+)$", stripped)
+            if match:
+                # 新しいセクションなのでいまあるものを追記する。
+                append_check()
+                filename = match.group(1)
+        elif stripped.startswith("#context"):
+            match = re.match(r"^#context\s+(.+)$", stripped)
+            if match:
+                append_check()
+                current_block.context_name = match.group(1)
+                # 次の blockまで
+                current_block.context_lines = lines[1:]
+        elif stripped.startswith("#replace"):
+            current_block.replace_lines = lines[1:]
+        elif stripped.startswith("#add"):
+            current_block.add_lines = lines[1:]
+    append_check()
+            
+    print(f"tuning file .. {len(r)} blocks.")
+    return r
+
 
 def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     pass
+
 
 def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     # "suisho10.tune"   ← チューニング指示ファイル
@@ -103,7 +201,10 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
         params = read_parameters(params_file)
     except:
         params : list[Entry] = []
-    
+
+    blocks = parse_tune_file(tune_file)
+    for block in blocks:
+        print(block)
 
 
 if __name__ == "__main__":
