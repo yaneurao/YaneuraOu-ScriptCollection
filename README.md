@@ -9,10 +9,19 @@
 
 | スクリプト名 | 種別 | 説明 |
 | -- | -- | -- | 
+| tune.py | パラメーター自動調整 | SPSAのためのツール |
 | peta_next.py | 定跡 | 定跡の次に掘ると良い局面をリストアップするスクリプト | 
 | BookMiner.py | 定跡 | 定跡の採掘スクリプト |  
 | GenSfen.py | 教師生成 | 教師生成スクリプト |
 | Bloodgate.py | 棋力計測 | 棋力計測用スクリプト |
+
+## SPSA
+
+探索部のパラメーター自動調整フレームワーク。
+
+
+https://github.com/AndyGrant/OpenBench/wiki/SPSA-Tuning-Workloads
+
 
 ## peta_next.py
 
