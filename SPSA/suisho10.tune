@@ -1,5 +1,6 @@
 #set file engine\yaneuraou-engine\yaneuraou-search.cpp
-#set tune %%TUNE_ADD_OPTIONS%%
+#set declaration %%TUNE_DECLARATION%%
+#set options %%TUNE_OPTIONS%%
 #context conthist_bonuses
 
     static constexpr std::array<ConthistBonus, 6> conthist_bonuses = {
@@ -9,7 +10,7 @@
 
     // static constexpr std::array<ConthistBonus, 6> conthist_bonuses = { ... };
 
-#add %%TUNE_GLOBAL%%
+#add %%TUNE_DECLARATION%%
 
     std::array<ConthistBonus, 6> conthist_bonuses = {
         {{1, 0 }, {2, 0 }, {3, 0 }, {4, 0 }, {5, 0 }, {6, 0 }}};
@@ -28,14 +29,15 @@
 
 #add
 
-    // static constexpr int conthist_offsets[6]{71@, 106@, -22@, -20@, 29@, -74@};
+    // static constexpr int conthist_offsets[6]{71, 106, -22, -20, 29, -74};
 
-#add %%TUNE_GLOBAL%%
+#add %%TUNE_DECLARATION%%
 
     int conthist_offsets[6];
 
 #add %%TUNE_ISREADY%%
     {
         int t[6] = {@,@,@,@,@,@};
-        std::copy(std::begin(t), std::end(t), std::begin(conthist_offsets));
+        for (size_t i = 0 ; i < conthist_offsets.size(); ++i)
+            conthist_offsets[i] = t[i];
     }

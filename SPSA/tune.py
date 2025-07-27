@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import traceback
 from dataclasses import dataclass, field
 
 # パラメーターファイルで、そのパラメーターを使っていないことを示す文字列。
@@ -131,6 +132,7 @@ def write_parameters(params_file : str , entries : list[Entry]):
 
     print(f"write parameter file, {len(entries)} parameters.")
 
+
 def parse_tune_file(tune_file:str)->list[Block]:
     print(f"parse tune file, path = {tune_file}", end="")
 
@@ -222,11 +224,13 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
         block_name = block.type
         if block_name.startswith("set"):
             if len(block.params) < 2:
-                raise Exception(f"Error : Insufficient parameters in set block, {block.params}")
+                raise Exception(f"Error : Insufficient parameters in set block, {block}")
             setblock[block.params[0]] = block.params[1]
         elif block_name.startswith("context"):
             # 新しいセクションなのでいまあるものを追記する。
             append_check()
+            if len(block.params) < 1:
+                raise Exception(f"Error : Insufficient parameter in content block, {block}")
             current_block.context_blocks.append(block)
         elif block_name.startswith("add"):
             current_block.add_blocks.append(block)
@@ -236,7 +240,7 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
     return result
 
 
-def parse_content_block(block:Block):
+def parse_content_block(block:Block, prefix:str):
     """
         blockを与えて、`123@234`のような文字列を
         removedのほうに`@`の左側の数値を格納していき、
@@ -250,7 +254,7 @@ def parse_content_block(block:Block):
     """
 
     lines        = block.content
-    param_prefix = block.params[0]
+    param_prefix = prefix
 
     modified_block:list[str] = []
     removed_numbers:list[str] = []
@@ -285,6 +289,68 @@ def parse_content_block(block:Block):
 
     return modified_block, removed_numbers, params_name
 
+def replace_context(filename:str, context:list[str], modified:list[str]):
+    """ ファイルのなかのcontextに合致したところをmodifiedに置換する。"""
+
+    path = os.path.join(target_dir, filename)
+
+    if not os.path.exists(path):
+        raise Exception(f"file not found : {path}")
+
+    # context の各文字の間に \s*（空白類0回以上）を挟む正規表現パターンを生成
+    context2 = "".join(context)
+    # a から空白・タブ・改行をすべて除去
+    context2 = re.sub(r'\s+', '', context2)
+    pattern = r'\s*'.join(map(re.escape, context2))
+
+    # これに置き換える。
+    replaced = "".join(modified)
+
+    with open(path, 'r', encoding='utf-8') as f:
+        filetext = f.read()
+
+    # re.subnを使うと (置換後のテキスト, 置換回数) が返る
+    new_text, count = re.subn(pattern, replaced , filetext, flags=re.MULTILINE | re.DOTALL)            
+
+    if count != 1:
+        print("target context : ")
+        print(context)
+        raise Exception(f"Error : replaced count = {count}")
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_text)
+
+def add_content(filename:str, marker : str, lines: list[str]):
+    """
+    ソースファイルのmarkerが書いてある行の次の行にlinesを追加する。
+    """
+    path = os.path.join(target_dir, filename)
+
+    if not os.path.exists(path):
+        raise Exception(f"file not found : {path}")
+
+    # ファイルの内容を読み込む
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.readlines()
+
+     # 新しい内容を格納するリスト
+    new_content = []
+    marker_found = False
+
+    for line in content:
+        new_content.append(line)
+        if marker in line and not marker_found:
+            # マーカーが見つかった次の行にlinesを挿入
+            new_content.extend(lines)
+            marker_found = True
+
+    if not marker_found:
+        raise Exception(f"Error : marker not found, marker = {marker} , file path = {filename}")
+
+    # ファイルに書き戻す
+    with open(path, 'w', encoding='utf-8') as f:
+        f.writelines(new_content)
+
 
 def print_block(block:list[str]):
     """
@@ -305,7 +371,8 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     # 変数名を列挙する。
     for tune_block in tune_blocks:
         content_block = tune_block.context_blocks[0]
-        modified_block , removed_numbers, params_name = parse_content_block(content_block)
+        prefix        = content_block.params[0]
+        modified_block , removed_numbers, params_name = parse_content_block(content_block , prefix)
 
         # print("modified block")
         # print(modified_block)
@@ -339,39 +406,15 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         # print("final context")
         # print_block(context_lines)
 
-        path = os.path.join(target_dir, filename)
+        context  = tune_block.context_blocks[1].content
+        replaced = context_lines
+        replace_context(filename, context, replaced)
 
-        if not os.path.exists(path):
-            raise Exception(f"file not found : {path}")
-
-        # context の各文字の間に \s*（空白類0回以上）を挟む正規表現パターンを生成
-        context2 = tune_block.context_blocks[1].content
-        context = "".join(context2)
-        # a から空白・タブ・改行をすべて除去
-        context = re.sub(r'\s+', '', context)
-        pattern = r'\s*'.join(map(re.escape, context))
-
-        # これに置き換える。
-        replaced = "".join(context_lines)
-
-        with open(path, 'r', encoding='utf-8') as f:
-            filetext = f.read()
-
-        # re.subnを使うと (置換後のテキスト, 置換回数) が返る
-        new_text, count = re.subn(pattern, replaced , filetext, flags=re.MULTILINE | re.DOTALL)            
-
-        if count != 1:
-            print("target context : ")
-            print(context)
-            raise Exception(f"Error : replaced count = {count}")
-
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(new_text)
-
-        context_name = tune_block.context_blocks[0].params[0]
-        print(f"Patch applied to {context_name} .. done.")
+        prefix = tune_block.context_blocks[0].params[0]
+        print(f"Patch applied to {prefix} .. done.")
 
     print("All patches have been applied successfully.")
+
 
 
 def tune_parameters(tune_file:str, params_file : str, target_dir:str):
@@ -390,7 +433,8 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。
         block = tune_block.context_blocks[0]
-        _ , removed_numbers, params_name = parse_content_block(block)
+        prefix = block.params[0]
+        _ , removed_numbers, params_name = parse_content_block(block, prefix)
 
         for param_name, number in zip(params_name, removed_numbers):
             try:
@@ -431,8 +475,66 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
     # block.context_blocks[1]を探して、patchを当てる。
     # あとで
-    pass
+    
+    #  add blockをparseして、ソースコードの追加場所を探し、そこに追加する。
+    for tune_block in tune_blocks:
+        filename      = tune_block.setblock['file']
+        content_block = tune_block.context_blocks[0]
+        prefix        = content_block.params[0]
+        modified_block , _, params_name = parse_content_block(content_block, prefix)
 
+        # print(params_name , modified_block)
+        # tune_block.context_blocks[1].content
+
+        # 置換対象文字列
+        context = tune_block.context_blocks[1].content
+
+        # add_blocksのなかに無名blockがあるなら、contextは、それで置き換えられる。
+        # さもなくば、↑のmodified_blockで置き換える。
+
+        replaced = False
+        for add_block in tune_block.add_blocks:
+            block_name = add_block.params[0] if len(add_block.params) >= 1 else ""
+            
+            modified_block2 , _, _ = parse_content_block(add_block, prefix)
+
+            if block_name:
+                print(f"add block, prefix = {prefix} , name = {block_name}")
+                # block_nameをマーカーとして、その次の行に追加する
+                add_content(filename, block_name, modified_block2)
+            else:
+                # context block名
+                prefix = tune_block.context_blocks[0].params[0]
+                print(f"replace block, prefix = {prefix}")
+
+                # contextが合致する箇所を探す。
+                replace_context(filename, context, modified_block2)
+                replaced = True
+
+        if not replaced:
+            replace_context(filename, context, modified_block)
+
+        # あと、ここで得られた変数を追加する。
+        #  "int myValue;"" みたいな文字列と、
+        #  "TUNE(SetRange(-100, 100), myValue, SetDefaultRange);"みたいな文字列を構築する。
+        tune_params_to_declare : list[str] = []
+        tune_params_to_options : list[str] = []
+        for param_name in params_name:
+            # 同じ名前があるはず..
+            p = next((p for p in params if p.name == param_name), None)
+            if p is None:
+                raise Exception() # この可能性はないはず..
+            v = int(p.v) if p.type == 'int' else p.v
+            tune_params_to_declare.append(f"{p.type} {p.name} = {v}; {'//' + p.comment if p.comment else ''}\n")
+            tune_params_to_options.append(f"TUNE(SetRange({p.min}, {p.max}), {p.name}, SetDefaultRange);\n")
+
+        # print(tune_params_to_declare)
+        # print(tune_params_to_options)
+        # これらをそれぞれ
+        # `#set tune`と`#set declare`で指定されたところに追加する。
+
+        add_content(filename, tune_block.setblock['declaration'], tune_params_to_declare)
+        add_content(filename, tune_block.setblock['options']    , tune_params_to_options)
 
 
 if __name__ == "__main__":
@@ -468,4 +570,6 @@ if __name__ == "__main__":
             print("Usage : python tune.py [apply|tune] tune_file target_dir")
             # tune_fileとtarget_dirのデフォルト値は、"suisho10.tune", "source"
     except Exception as e:
-        print(str(e))
+        error_msg = traceback.format_exc()
+        print(f"Exception : {e}")
+        print(error_msg)

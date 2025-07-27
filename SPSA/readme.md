@@ -72,7 +72,8 @@ C++のソースコードで、その行の`//`以降はコメント領域なの�
 - `#set`のあとには、オプション名と設定内容をスペース区切りで書くことができる。例 : `#set file movepick.cpp`。このとき、`file`は`movepick.cpp`になる。
 - `#set`のあとに書けるオプション名は、
   - `file` : 対象とするソースファイルのPathを書ける。
-  - `tune` : 対象とするソースファイルに`TUNE`マクロを追加するマーカーを指定する。
+  - `options` : 対象とするソースファイルに`TUNE`マクロを追加するマーカーを指定する。このタイミングでしこうエンジンオプションに追加される。(add_optionsのタイミングが良いと思う。)
+  - `declaration` : 対象とするソースファイルに`int my_value;`のようなオプション変数の変数宣言を追加するマーカーを指定する。(ソースファイルの冒頭付近が良いと思う。)
 
 ## `TUNE`マクロについて
 
@@ -109,8 +110,10 @@ TuneBlockとは、1つのpatchのこと。これには、対象ファイルPath�
 #set file engine\yaneuraou-engine\yaneuraou-search.cpp
   💡 置換するソースファイル名
 
-#set tune %%TUNE_ADD_OPTIONS%%
-  💡 変数名を追加するソースコード中のマーカー
+#set declaration %%TUNE_DECLARE%%
+#set options %%TUNE_OPTIONS%%
+
+  💡 オプション変数を追加するソースコード中のマーカー
 
 #context conthist_bonuses // update_continuation_histories()
 
@@ -128,7 +131,7 @@ static constexpr std::array<ConthistBonus, 6> conthist_bonuses =
 
 // static constexpr std::array<ConthistBonus, 6> conthist_bonuses = { ... };
 
-#add %%TUNE_GLOBAL%%
+#add %%TUNE_DECLARATION%%
 
 💡 tune.pyの`tune`コマンドでは、以下の内容を#fileで指定されたファイルのaddの直後の文字列(`%%TUNE_GLOBAL%%`)に合致する行の下に追加する。
 

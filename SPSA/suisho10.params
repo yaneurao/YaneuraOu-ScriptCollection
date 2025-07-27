@@ -10,3 +10,5 @@ conthist_offsets_3, int, -22.0, -44.0, 0.0, 2.2, 0.0044
 conthist_offsets_4, int, -20.0, -40.0, 0.0, 2.0, 0.004
 conthist_offsets_5, int, 29.0, 0.0, 58.0, 2.9, 0.0058
 conthist_offsets_6, int, -74.0, -148.0, 0.0, 7.4, 0.0148
+futility_mult_1, int, 93.0, 0.0, 186.0, 9.3, 0.0186
+futility_mult_2, int, 20.0, 0.0, 40.0, 2.0, 0.004
