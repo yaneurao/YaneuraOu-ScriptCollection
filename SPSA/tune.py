@@ -13,7 +13,7 @@ class Entry:
     name: str
 
     # パラメーターの型("int" | "str")
-    param_type : str
+    type : str
 
     # パラメーターの現在値
     v: float
@@ -36,31 +36,39 @@ class Entry:
     # このパラメーターを使わないのか
     not_used : bool
 
+@dataclass
+class Block:
+    # block種別('set', 'context', 'add)
+    type : str = ""
+
+    # block名の後ろに続いていた文字列。
+    params : list[str] = field(default_factory=list)
+
+    # blockの中身
+    content : list[str] = field(default_factory=list)
+
 # .tuneファイルの1patchを表現する型
 @dataclass
 class TuneBlock:
-    # ファイル名
-    filename : str = ""
+    # setblockに書いてあったパラメーター。
+    # `file`とか`tune`とか。
+    setblock : dict[str,str] = field(default_factory=dict)
 
-    # パラメーターのprefix。これは`#context`のあとに書かれている。
-    context_name : str = ""
-
-    # パラメーターの名前。これはパラメーターのsuffix。
+    # このcontext_blockに出現したパラメーターの名前。
+    # これはパラメーターのsuffix。
     # 💡 `@1`なら`_1`のように置換される。
     params : list[str] = field(default_factory=list)
 
     # contextブロック
-    context_lines : list[str] = field(default_factory=list)
+    # context[0] 元の.tuneファイルに書いてあった内容
+    # context[1] context[0]から'@123a'のような文字列を除去したもの。
+    #            これがソースコードに対する置換対象文字列。
+    # context[2] context[0]から、'123@`のような文字列を変数名に置換したもの。
+    #            applyコマンドでは、これを現在のパラメーター値で置き換える。
+    context_blocks : list[Block] = field(default_factory=list)
 
-    # contextから'@123a'のような文字列を除去したもの。これがソースコードに対する置換対象文字列。
-    context_lines_no_param : list[str] = field(default_factory=list)
-
-    # replaceブロック
-    replace_lines : list[str] = field(default_factory=list)
-
-    # addブロック
-    add_lines : list[str] = field(default_factory=list)
-
+    # addブロック(これは複数ありうる)
+    add_blocks : list[Block] = field(default_factory=list)
 
 
 def read_parameters(params_file : str)->list[Entry]:
@@ -68,6 +76,8 @@ def read_parameters(params_file : str)->list[Entry]:
         パラメーターファイルを読み込む
         パラメーターファイルにはEntry構造体の定義順でデータがカンマ区切りで並んでいるものとする。
     """
+
+    print(f"read parameters, path = {params_file}", end="")
 
     if not os.path.exists(params_file):
         raise Exception(f"Error : {params_file} not found.")
@@ -96,7 +106,7 @@ def read_parameters(params_file : str)->list[Entry]:
         if len(values) < 7:
             raise Exception(f"Error: insufficient params , {params_file}({lineNo}) : {line}")
             
-        e = Entry(name = values[0], param_type = str(values[1]),
+        e = Entry(name = values[0], type = str(values[1]),
                     v = float(values[2]),
                     min = float(values[3]), max = float(values[4]),
                     step = float(values[5]), delta = float(values[6]),
@@ -104,7 +114,7 @@ def read_parameters(params_file : str)->list[Entry]:
 
         l.append(e)
 
-    print(f"read parameter file, {len(l)} parameters.")
+    print(f", {len(l)} parameters.")
 
     return l
 
@@ -117,88 +127,116 @@ def write_parameters(params_file : str , entries : list[Entry]):
 
     with open(params_file, "w", encoding="utf-8") as f:
         for e in entries:
-            f.write(f"{e.name}, {e.param_type}, {e.v}, {e.min}, {e.max}, {e.step}, {e.delta}{' //' + e.comment if e.comment else ""}{NOT_USED_STR if e.not_used else ""}\n")
+            f.write(f"{e.name}, {e.type}, {e.v}, {e.min}, {e.max}, {e.step}, {e.delta}{' //' + e.comment if e.comment else ""}{NOT_USED_STR if e.not_used else ""}\n")
 
     print(f"write parameter file, {len(entries)} parameters.")
 
-
-def parse_tune_file(tune_file:str)->list[TuneBlock]:
-
-    print(f"parse tune file , path = {tune_file}")
+def parse_tune_file(tune_file:str)->list[Block]:
+    print(f"parse tune file, path = {tune_file}", end="")
 
     with open(tune_file, "r", encoding="utf-8") as f:
         filelines = f.readlines()
 
     # 返し値
+    blocks : list[Block] = []
+
+    # 次のブロックを取得する。
+    # "#..."から次の"#..."の前の行まで
+    lineNo = 0
+    def get_next_block()->Block | None:
+        nonlocal lineNo, filelines
+        lines : list[str] = []
+        block_type = ""
+        block_params : list[str] = []
+        while lineNo < len(filelines):
+            line = filelines[lineNo]
+            if line.startswith("#"):
+                # すでにblock_typeが格納済みであれば、これは次のブロックの開始行だからwhileを抜ける。
+                if block_type:
+                    break
+                # "//" 以降を無視
+                line = line.split("//", 1)[0].strip()
+
+                # 空白で分割（空要素を除外）
+                parts = line.split()
+                if len(parts) >= 2:
+                    block_params = parts[1:]
+                block_type = parts[0][1:]
+            else:
+                lines.append(line)
+            lineNo += 1
+
+        # ブロック名をすでに設定されてあるなら
+        if block_type:
+            return Block(block_type, block_params, lines)
+        else:
+            return None
+
+    while True:
+        block = get_next_block()
+        # ブロックがなければ終了
+        if not block:
+            break
+        blocks.append(block)
+
+    print(f", {len(blocks)} Blocks.")
+
+    # for block in blocks:
+    #     print(block)
+
+    return blocks
+
+
+def read_tune_file(tune_file:str)->list[TuneBlock]:
+
+    blocks = parse_tune_file(tune_file)
+    print(f"read tune file, path = {tune_file}", end="")
+
+    # 返し値
     result : list[TuneBlock] = []
 
-    filename = ""
+    # 現在の`#set`blockの保存内容
+    setblock : dict[str,str] = {}
+
     current_block = TuneBlock()
 
     def append_check():
         # "#file"と"#context"とがあるとそこまでのTuneBlockを書き出す。
         nonlocal current_block
         # current_blockがすでに埋まっていれば、書き出す。
-        if current_block.context_name:
-            current_block.filename = filename
+        if current_block.context_blocks:
+            # setblockの内容をコピー。これはTuneBlockを超えて設定を引き継ぐので…。
+            current_block.setblock = dict(setblock)
+
+            # contextブロックの内容
+            context = current_block.context_blocks[0]
 
             # contextから'@123a'のような文字列を除去したもの。これがソースコードに対する置換対象文字列。
-            current_block.context_lines_no_param = [re.sub(r"@[0-9A-Za-z]*", "", line) for line in current_block.context_lines]
+            context_with_no_parameters = [re.sub(r"@[0-9A-Za-z]*", "", line) for line in context.content]
+            current_block.context_blocks.append(Block(context.type, context.params , context_with_no_parameters))
 
             result.append(current_block)
-            current_block = TuneBlock(filename = filename)
+            current_block = TuneBlock()
 
-    # 次のブロックを取得する。
-    # "#..."から次の"#..."の前の行まで
-    lineNo = 0
-    def get_next_block()->list[str]:
-        nonlocal lineNo, filelines
-        l : list[str] = []
-        while lineNo < len(filelines):
-            line = filelines[lineNo]
-            if line.startswith("#"):
-                # すでにblock格納済みであれば、これは次のブロックの開始行だからwhileを抜ける。
-                if l:
-                    break
-            l.append(line)
-            lineNo += 1
-
-        # print(l)
-        return l
-    
-    while True:
-        lines = get_next_block()
-        # ブロックがなければ終了
-        if not lines:
-            break
-
-        # 1行以上あることは保証されている。
-        line = lines[0]
-
-        stripped = line.strip()
-        if stripped.startswith("#file"):
-            match = re.match(r"^#file\s+(.+)$", stripped)
-            if match:
-                # 新しいセクションなのでいまあるものを追記する。
-                append_check()
-                filename = match.group(1)
-        elif stripped.startswith("#context"):
-            match = re.match(r"^#context\s+(.+)$", stripped)
-            if match:
-                append_check()
-                current_block.context_name = match.group(1)
-                # 次の blockまで
-                current_block.context_lines = lines[1:]
-        elif stripped.startswith("#replace"):
-            current_block.replace_lines = lines[1:]
-        elif stripped.startswith("#add"):
-            current_block.add_lines = lines[1:]
+    for block in blocks:
+        block_name = block.type
+        if block_name.startswith("set"):
+            if len(block.params) < 2:
+                raise Exception(f"Error : Insufficient parameters in set block, {block.params}")
+            setblock[block.params[0]] = block.params[1]
+        elif block_name.startswith("context"):
+            # 新しいセクションなのでいまあるものを追記する。
+            append_check()
+            current_block.context_blocks.append(block)
+        elif block_name.startswith("add"):
+            current_block.add_blocks.append(block)
     append_check()
             
-    print(f"tuning file .. {len(result)} blocks.")
+    print(f", {len(result)} TuneBlocks.")
     return result
 
-def parse_block(block:list[str], param_prefix:str):
+
+def parse_content_block(block:Block):
     """
         blockを与えて、`123@234`のような文字列を
         removedのほうに`@`の左側の数値を格納していき、
@@ -210,6 +248,9 @@ def parse_block(block:list[str], param_prefix:str):
 
         modified_block : パラメーター名で置き換えたものを返す。
     """
+
+    lines        = block.content
+    param_prefix = block.params[0]
 
     modified_block:list[str] = []
     removed_numbers:list[str] = []
@@ -235,7 +276,7 @@ def parse_block(block:list[str], param_prefix:str):
         params_name.append(param_name)
         return param_name
     
-    for line in block:
+    for line in lines:
         # 数字(小数含む)を削除しつつ removed_numbers に格納
         modified = re.sub(r'-?\d+(?:\.\d+)?(?=@)', collect_and_remove, line)
         # "@"とその後の英数字を順番に置換
@@ -259,12 +300,12 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     except:
         params : list[Entry] = []
 
-    blocks = parse_tune_file(tune_file)
+    tune_blocks = read_tune_file(tune_file)
 
     # 変数名を列挙する。
-    for block in blocks:
-        # content blockがあるならそれを対象に。
-        modified_block , removed_numbers, params_name = parse_block(block.context_lines, block.context_name)
+    for tune_block in tune_blocks:
+        content_block = tune_block.context_blocks[0]
+        modified_block , removed_numbers, params_name = parse_content_block(content_block)
 
         # print("modified block")
         # print(modified_block)
@@ -275,30 +316,37 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         # contextをparamの実際の値で置き換えていく。
         for param_name in params_name:
             # このパラメーターの値
-            value = next((e.v for e in params if e.name == param_name), None)
+            value , type = next(((e.v, e.type) for e in params if e.name == param_name), (None,None))
             if value is None:
-                print_block(block.context_lines)
+                print_block(content_block.content)
                 raise Exception(f"Error! : {param_name} not found in {params_file}.")
 
             # print(f"replace : {param_name} -> {value}")
+
+            # パラメーターはfloat表記で持っているので、"int"を要求しているならintに変換する必要がある。
+            if type == "int":
+                value = int(value)
 
             # in-place文字置換           
             context_lines[:] = [line.replace(param_name, str(value)) for line in context_lines]
 
         # 前者を後者で置換する。
-        print(f"file : {block.filename}")
+        filename = tune_block.setblock['file']
+        print(f"file : {filename}")
+
         # print("target context")
         # print_block(block.context_lines_no_param)
         # print("final context")
         # print_block(context_lines)
 
-        path = os.path.join(target_dir, block.filename)
+        path = os.path.join(target_dir, filename)
 
         if not os.path.exists(path):
             raise Exception(f"file not found : {path}")
 
         # context の各文字の間に \s*（空白類0回以上）を挟む正規表現パターンを生成
-        context = "".join(block.context_lines_no_param)
+        context2 = tune_block.context_blocks[1].content
+        context = "".join(context2)
         # a から空白・タブ・改行をすべて除去
         context = re.sub(r'\s+', '', context)
         pattern = r'\s*'.join(map(re.escape, context))
@@ -320,7 +368,8 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         with open(path, 'w', encoding='utf-8') as f:
             f.write(new_text)
 
-        print(f"Patch applied to {block.context_name} .. done.")
+        context_name = tune_block.context_blocks[0].params[0]
+        print(f"Patch applied to {context_name} .. done.")
 
     print("All patches have been applied successfully.")
 
@@ -336,11 +385,12 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     for param in params:
         param.not_used = True
 
-    blocks = parse_tune_file(tune_file)
+    tune_blocks = read_tune_file(tune_file)
 
-    def check_params(block:TuneBlock, lines:list[str]):
+    def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。
-        _ , removed_numbers, params_name = parse_block(lines, block.context_name)
+        block = tune_block.context_blocks[0]
+        _ , removed_numbers, params_name = parse_content_block(block)
 
         for param_name, number in zip(params_name, removed_numbers):
             try:
@@ -370,19 +420,19 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                 raise Exception(f"{e} , param_name = {param_name}")
 
     # 変数名を列挙する。
-    for block in blocks:
-
-        # content block, replace block, add blockで使われている`@`を列挙する。
-        check_params(block, block.context_lines)
-        check_params(block, block.replace_lines)
-        check_params(block, block.add_lines)
+    for tune_block in tune_blocks:
+        # content blockで使われている`@`を列挙する。
+        check_params(tune_block)
 
     # これでパラメーターファイルは確定したので、これを書き出す。
     write_parameters(params_file, params)
 
     # このあと、sourceコードにpatchを当てにいく。
 
+    # block.context_blocks[1]を探して、patchを当てる。
+    # あとで
     pass
+
 
 
 if __name__ == "__main__":

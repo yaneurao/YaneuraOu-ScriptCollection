@@ -1,23 +1,41 @@
-#file engine\yaneuraou-engine\yaneuraou-search.cpp
+#set file engine\yaneuraou-engine\yaneuraou-search.cpp
+#set tune %%TUNE_ADD_OPTIONS%%
 #context conthist_bonuses
 
     static constexpr std::array<ConthistBonus, 6> conthist_bonuses = {
         {{1, 1092@}, {2, 631@}, {3, 294@}, {4, 517@}, {5,126@}, {6, 445@}}};
 
-#replace
+#add
 
     // static constexpr std::array<ConthistBonus, 6> conthist_bonuses = { ... };
 
-#add
+#add %%TUNE_GLOBAL%%
 
     std::array<ConthistBonus, 6> conthist_bonuses = {
-        {{1, @ }, {2, @ }, {3, @ }, {4, @ }, {5, @ }, {6, @ }}};
+        {{1, 0 }, {2, 0 }, {3, 0 }, {4, 0 }, {5, 0 }, {6, 0 }}};
+
+#add %%TUNE_ISREADY%%
+
+    {
+        int t[6] = {@,@,@,@,@,@};
+        for (size_t i = 0; i < conthist_bonuses.size(); ++i)
+            conthist_bonuses[i].weight = t[i];
+    }
 
 #context conthist_offsets
 
     static constexpr int conthist_offsets[6]{71@, 106@, -22@, -20@, 29@, -74@};
 
-#replace
 #add
 
-    int conthist_offsets[6]{@, @, @, @, @, @};
+    // static constexpr int conthist_offsets[6]{71@, 106@, -22@, -20@, 29@, -74@};
+
+#add %%TUNE_GLOBAL%%
+
+    int conthist_offsets[6];
+
+#add %%TUNE_ISREADY%%
+    {
+        int t[6] = {@,@,@,@,@,@};
+        std::copy(std::begin(t), std::end(t), std::begin(conthist_offsets));
+    }
