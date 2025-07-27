@@ -1,8 +1,8 @@
 #file engine\yaneuraou-engine\yaneuraou-search.cpp
 #context conthist_bonuses
 
-    static constexpr std::array<ConthistBonus, 6> conthist_bonuses = 
-        {{1, 1092@}, {2, 631@}, {3, 294@}, {4, 517@}, {5,126@}, {6, 445@}};
+    static constexpr std::array<ConthistBonus, 6> conthist_bonuses = {
+        {{1, 1092@}, {2, 631@}, {3, 294@}, {4, 517@}, {5,126@}, {6, 445@}}};
 
 #replace
 

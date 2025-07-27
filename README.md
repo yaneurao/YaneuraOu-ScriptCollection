@@ -19,9 +19,7 @@
 
 探索部のパラメーター自動調整フレームワーク。
 
-
-https://github.com/AndyGrant/OpenBench/wiki/SPSA-Tuning-Workloads
-
+詳しくは、こちら。📁 https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/SPSA
 
 ## peta_next.py
 

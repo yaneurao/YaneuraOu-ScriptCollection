@@ -6,6 +6,8 @@ SPSAするためのツール類。
 - Stockfishのfishtestでも使われている。
 - ここでは、やねうらおが自作したSPSAフレームワークを用いてチューニングを行う。
 
+- 参考 OpenBenchのSPSA : https://github.com/AndyGrant/OpenBench/wiki/SPSA-Tuning-Workloads
+
 # 使い方
 
 チューニング指示ファイルを用いる。

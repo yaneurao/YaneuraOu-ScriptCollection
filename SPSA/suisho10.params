@@ -1,3 +1,6 @@
-conthist_bonuses_1, int, 1092, 0, 2000, 20, 0.002 // コメントその1
-conthist_bonuses_2, int, 631, 0, 2000, 20, 0.002 // コメントその2
-conthist_bonuses_3, int, 294, 0, 2000, 20, 0.002 // コメントその3
+conthist_bonuses_1, int, 1092.0 , 0, 2000, 20, 0.002 // コメントその1
+conthist_bonuses_2, int, 631.0 , 0, 2000, 20, 0.002 // コメントその2
+conthist_bonuses_3, int, 294.0 , 0, 2000, 20, 0.002 // コメントその3
+conthist_bonuses_4, int, 517.0 , 0, 2000, 20, 0.002 // コメントその3
+conthist_bonuses_5, int, 126.0 , 0, 2000, 20, 0.002 // コメントその3
+conthist_bonuses_6, int, 445.0 , 0, 2000, 20, 0.002 // コメントその3
