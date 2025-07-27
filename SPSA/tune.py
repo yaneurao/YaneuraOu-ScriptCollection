@@ -338,25 +338,51 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
     blocks = parse_tune_file(tune_file)
 
+    def check_params(block:TuneBlock, lines:list[str]):
+        # linesのなかから、変数(`@`)を探して、なければparamに追加。
+        _ , removed_numbers, params_name = parse_block(lines, block.context_name)
+
+        for param_name, number in zip(params_name, removed_numbers):
+            try:
+                # print(f"variable {param_name}")
+                result = next((p for p in params if p.name == param_name), None)
+                if result is None:
+                    # 変数がなかったので、paramsに追加。
+                    # print("..appended")
+                    number = float(number)
+                    if number > 0:
+                        min_, max_ = 0.0 , number * 2
+                    elif number == 0: # 0 になっとる。なんぞこれ。
+                        min_, max_ = -100, 100
+                    else:
+                        min_, max_ = number * 2 , 0.0
+
+                    step  = (max_ - min_) / 20
+                    delta = (max_ - min_) / 10000
+
+                    params.append(Entry(param_name, "int", number, min_, max_ , step, delta,"", False))            
+
+                else:
+                    # print(f"..found")
+                    # 使っていた。
+                    result.not_used = False
+            except Exception as e:
+                raise Exception(f"{e} , param_name = {param_name}")
+
     # 変数名を列挙する。
     for block in blocks:
-        # content blockがあるならそれを対象に。
-        modified_block , removed_numbers, params_name = parse_block(block.context_lines, block.context_name)
 
-        print("--- context")
-        print(modified_block)
-        print(removed_numbers)
-        print(params_name)
+        # content block, replace block, add blockで使われている`@`を列挙する。
+        check_params(block, block.context_lines)
+        check_params(block, block.replace_lines)
+        check_params(block, block.add_lines)
 
-        if block.add_lines:
-            # add blockがあるなら、それも対象に。
-            modified_block , removed_numbers, params_name = parse_block(block.context_lines, block.context_name)
+    # これでパラメーターファイルは確定したので、これを書き出す。
+    write_parameters(params_file, params)
 
-            print("--- add")
-            print(modified_block)
-            print(removed_numbers)
-            print(params_name)
+    # このあと、sourceコードにpatchを当てにいく。
 
+    pass
 
 
 if __name__ == "__main__":
