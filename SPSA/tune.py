@@ -454,7 +454,10 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                     step  = (max_ - min_) / 20
                     delta = (max_ - min_) / 10000
 
-                    params.append(Entry(param_name, "int", number, min_, max_ , step, delta,"", False))            
+                    # 整数化したものと値が異なる ⇨ 小数部分がある ⇨ float
+                    type = "int" if number == int(number) else "float"
+
+                    params.append(Entry(param_name, type , number, min_, max_ , step, delta,"", False))            
 
                 else:
                     # print(f"..found")
