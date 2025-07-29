@@ -36,13 +36,33 @@ VALUE_NONE                   =   -99999
 # ============================================================
 
 def mkdir(path:str):
-    '''フォルダを(なければ)作成する'''
-    try:
-        dirpath = os.path.dirname(path)
-        os.mkdir(dirpath)
-    except:
-        # すでに存在すると例外が飛んでくるので握りつぶす。
-        pass
+    '''pathまでのフォルダを(なければすべて)作成する'''
+    dirname = os.path.dirname(path)
+    os.makedirs(dirname, exist_ok=True)
+
+
+# ログを書き出すかのフラグ
+write_log : bool = False
+# ログファイルのhandle
+log_file : Any = None # _io.TextIOWrapper
+
+def print_log(*args:Any,end:str='\n'):
+    ''' このスクリプト内で用いるprint関数。 '''
+    print(*args,end=end)
+    if write_log:
+        # argsが空の時、これは単なる改行のためのprintであるから無視する。
+        if args:
+            log_file.write(*args)
+        log_file.write(end)
+        log_file.flush()
+
+def enable_print_log():
+    '''print logを有効化する。'''        
+    global log_file , write_log
+    write_log = True
+    filename = f'log/log_{make_time_stamp()}.log'
+    mkdir(filename)
+    log_file = open(filename,'w',encoding='utf-8')
 
 
 def make_time_stamp()->str:
@@ -122,6 +142,7 @@ class KifManager:
         with self.lock:
             if self.kif_file is None:
                 kif_filename = os.path.join(self.kif_folder , f'{make_time_stamp()}.txt')
+                mkdir(kif_filename)
                 self.kif_file = open(kif_filename, 'w', encoding='utf-8')
             self.kif_file.write(kif + '\n')
             self.kif_file.flush()
@@ -146,6 +167,9 @@ class Engine:
         # readyokをエンジンから受け取ったか。
         self.readyok = False
 
+        # 現在探索中のsfen
+        self.search_sfen = ""
+
         # 思考エンジンのprocessの起動。
         # sshしたいなら、pathに"ssh 2698a suisho6"のようなsshコマンドを書いておけば良い。
         if path.startswith("ssh"):
@@ -168,18 +192,17 @@ class Engine:
                                                 cwd=working_directory,
                                                 encoding="UTF-8")
 
+        # "isready"を送信して"readyok"が返ってくるのを待つ。
+        self.isready()
+
+
+    def isready(self):
+        self.search_sfen = ""
+
         # 思考エンジンに対してisreadyコマンドを送信して、
         # エンジン側からreadyokが返ってくるのを待つ。
         self.send_usi("isready")
         self.wait_usi("readyok") # readyokを待つ
-
-        # すべてのエンジンの開始をここで待機。
-        # while not global_settings.all_readyok:
-        #     time.sleep(1)
-
-        # Debug用に実際に探索させてみる。
-        # print_log(self.go("startpos"))
-
 
     def send_usi(self, command:str):
         ''' 思考エンジンに対してUSIコマンドを送信する。 '''
@@ -205,14 +228,14 @@ class Engine:
         return mes
 
 
-    def wait_usi(self,wait_text:str):
+    def wait_usi(self, wait_text:str):
         ''' 指定したコマンドが来るまで待つ '''
         while True:
             mes = self.receive_usi()
             # エンジンから送られてきたメッセージにErrorの文字列があるなら、
             # これは致命的なエラーなので例外を出して終了。
-            if 'Error' in mes:
-                self.raise_exception(f"Engine Error! : {mes}")
+            if 'Error' in mes or 'No such option' in mes:
+                self.raise_exception(f"Engine Error! : '{mes}'")
             if mes==wait_text:
                 break
 
@@ -287,6 +310,78 @@ class Engine:
         raise Exception(f"{error_message} , search_sfen : {self.search_sfen}")
 
 # ============================================================
+#                      cshogi wrapper
+# ============================================================
+
+import cshogi
+
+class Board:
+    '''
+    cshogiがCythonで書かれていてPylacnceが機能しないのでwrapperを書く。
+    cshogi.Boardとだいたい等価。
+    '''
+    def __init__(self,position_str:str=''):
+        self.board = cshogi.Board(position_str)
+    
+    def to_svg(self)->str:
+        '''局面をSVG化した文字列を返す。'''
+        return self.board.to_svg()
+    
+    def set_position(self,position_str:str)->str:
+        '''局面を設定する。'''
+        self.board.set_position(position_str)
+
+    @property
+    def turn(self)->int:
+        return self.board.turn
+
+    def push_usi(self,move:str)->int:
+        '''
+        指し手で局面を進める。
+        move = USIプロトコルの指し手文字列
+        '''
+        return self.board.push_usi(move)
+
+    def pop(self):
+        '''局面を1つ戻す。'''
+        self.board.pop()
+
+    def is_draw(self)->int:
+        '''千日手になっているかの判定。'''
+        return self.board.is_draw()
+
+    @property
+    def legal_moves(self)->list[int]:
+        '''
+        合法手をすべて返す。型は32bit整数なので注意。
+        これはmove_to_usi()でUSIの指し手文字列に変換できる。
+        '''
+        return self.board.legal_moves
+    
+    def sfen(self)->str:
+        '''
+        sfen文字列を返す。末尾に手数がついているので注意。
+        '''
+        return self.board.sfen()
+
+    def ply(self)->int:
+        '''
+        開始からの手数を返す。
+        '''
+        # cshogiにこのmethodはないのでsfen化して末尾の数字を返す。
+        return int(self.sfen().split()[-1])
+
+def move_to_usi(m:int)->str:
+    '''legal_moves()で返ってきた32bit整数をUSIプロトコルの指し手文字列に変換する。'''
+    return cshogi.move_to_usi(m)
+
+# 先手番を表す定数
+BLACK                     = cshogi.BLACK
+
+# 後手番を表す定数
+WHITE                     = cshogi.WHITE
+
+# ============================================================
 #                      Read/Write Parameters
 # ============================================================
 
@@ -347,7 +442,7 @@ def read_parameters(params_file : str)->list[Entry]:
 
         not_used = False
         if NOT_USED_STR in line:
-            line.replace(NOT_USED_STR, "")
+            line = line.replace(NOT_USED_STR, "")
             not_used = True
 
         if "//" in line:

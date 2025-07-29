@@ -1,0 +1,32 @@
+{
+    // 対局開始を行う互角局面集のファイルPATH。
+    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+
+    // 思考エンジンの設定ファイル(以下のようなJSON5の書式で書く)
+    /*
+        [
+            {
+                "path":"engines/suisho10/YO860kai_AVX2.exe",
+                "name":"suisho10",
+                "nodes":500000,
+                "multi":32 // 32個インスタンスを起動する。
+            },
+            {
+                "path":"ssh -o ServerAliveInterval=15 9950b suisho10.bat",
+                "name":"suisho10",
+                "nodes":500000,
+                "multi":32 // ssh越しに32個インスタンスを起動する
+            }
+        ]
+    */
+    "ENGINE_SETTINGS": [
+        // 基準となる思考エンジンの設定
+        "settings/engine_settings1.json5",
+        // tuneする思考エンジンの設定
+        "settings/engine_settings2.json5"
+    ],
+
+    // tune.pyの'tune'コマンドで生成したパラメーターファイル
+    "PARAMETERS_PATH" : "suisho10.params"
+
+}

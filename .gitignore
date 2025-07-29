@@ -1,3 +1,6 @@
+engine_settings*.json5
+start_sfens*.*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -26,6 +29,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 source/
+kif/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
