@@ -22,7 +22,7 @@ SCRIPT_VERSION               = "V0.01"
 SETTING_PATH                 = "settings/SPSA-settings.json5"
 
 # レート差出力は何局に1回か
-RATE_OUTPUT_INTERVAL         = 300
+RATE_OUTPUT_INTERVAL         = 10
 
 # ============================================================
 #                         Game Match
@@ -30,34 +30,60 @@ RATE_OUTPUT_INTERVAL         = 300
 
 class WinManager:
     def __init__(self):
-        # プレイヤー1の勝ち数 , 負け数, 引き分けの回数
-        self.win_count : list[int] = [0,0,0]
+        # 勝ったプレイヤーの履歴 0..player0の勝ち、1..player1の勝ち、2..draw。
+        self.win_count : list[int] = []
 
         # ↑を書き換える時のlock
         self.lock = Lock()
     
     def update(self, winner:int):
         with self.lock:
-            self.win_count[winner] +=1
+            self.win_count.append(winner)
 
             # 途中経過の表示用に勝敗を1文字で出力してやる。
-            print("LWD"[winner], end="")
+            # print("LWD"[winner], end="")
 
-            # 対局回数の総合カウント
-            total = sum(self.win_count)
+            # 総対局回数
+            total = len(self.win_count)
 
-            if total == RATE_OUTPUT_INTERVAL:
-                # 一定回数ごとに勝率やレート差を出力
-                win  = self.win_count[1]  # player 1の勝利回数
-                lose = self.win_count[0] # player 0の勝利回数
-                draw = self.win_count[2]
-                if win + lose != 0:
-                    win_rate = win / (win + lose)
-                    rate_diff = -400 * math.log10(1 / win_rate - 1)
-                    print_log(f"\nwin {win} - lose {lose} - draw {draw} : win_rate = {win_rate:.3f}, rate_diff = R{rate_diff:.1f}")
+            if total % RATE_OUTPUT_INTERVAL == 0:
+                
+                summary = []
 
-                    # カウンターのreset
-                    self.win_count = [0, 0, 0]
+                # 直近nの勝率、レート差などを出力。
+                n = RATE_OUTPUT_INTERVAL
+                while len(self.win_count) >= n:
+                    # n が RATE_OUTPUT_INTERVAL × 2^m である
+
+                    win  = self.win_count[-n:].count(1) # player 1の勝利回数
+                    lose = self.win_count[-n:].count(0) # player 0の勝利回数
+                    draw = self.win_count[-n:].count(2)
+
+                    if win + lose == 0:
+                        win_rate = "?"
+                        rate_diff = "?"
+                    else:
+                        win_rate = win / (win + lose)
+                        if win_rate == 0:
+                            rate_diff = "-INF"
+                        elif win_rate == 1:
+                            rate_diff = "+INF"
+                        else:
+                            rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
+                            win_rate  = f"{win_rate:.3f}"
+
+                        # win-lose-draw 
+                        # print_log(f"last{n} : {win} - {lose} - {draw}, {win_rate}, R{rate_diff}")
+
+                        # レートだけ表示用に積むか。
+                        summary.append(f"R{rate_diff}")
+
+                    n *= 2
+
+                summary.append(f"last {n//2} : ")
+
+                # '|' 区切りでNの降順でRだけ出力
+                print_log(" | ".join(reversed(summary)))
 
 class GameMatcher:
     """
@@ -117,6 +143,8 @@ class GameMatcher:
 
         for shogi_match in self.shogi_matches:
             shogi_match.start()
+
+        print("All shogi games have started. Please wait.")
 
 
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
@@ -401,6 +429,12 @@ def user_input():
     # 並列対局管理用
     matcher = GameMatcher(shared)
 
+    # ログ記録を自動的に開始する。
+    enable_print_log()
+
+    # このタイミングでパラメーターを一度ログに出力しておく。(あとで比較するため)
+    shared.print_parameters()
+
     while True:
         try:
             print_log("[Q]uit [S]psa [P]rint [W]rite [H]elp> ", end='')
@@ -415,7 +449,6 @@ def user_input():
                 print_log("  S : Spsa (start games)")
                 print_log("  P : Print parameters")
                 print_log("  W : Write parameters")
-                print_log("  L : enable Log")
 
             elif i == 's':
                 print_log("spsa")
@@ -426,10 +459,6 @@ def user_input():
 
             elif i == 'w':
                 shared.write_parameters()
-
-            elif i == 'l':
-                # 以降、print_log()の内容をログファイルにも書き出す。
-                enable_print_log()
 
             elif i == 'q':
                 print_log("quit")

@@ -1,6 +1,7 @@
 engine_settings*.json5
 start_sfens*.*
 .vscode
+suisho10.params
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
