@@ -361,7 +361,12 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                     else:
                         min_, max_ = number * 2 , 0.0
 
-                    step  = (max_ - min_) / 20
+                    # stepが1未満だとint化すると同じ値になってしまうので、
+                    # 少なくとも1以上でなければならない
+                    step  = max((max_ - min_) / 20 , 1)
+
+                    # deltaは固定でいいと思う。
+                    # 一回のパラメーターを動かす量は step * delta なので stepのほうで調整がなされる。
                     delta = 0.0020
 
                     # 整数化したものと値が異なる ⇨ 小数部分がある ⇨ float

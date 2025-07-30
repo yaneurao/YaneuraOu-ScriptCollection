@@ -72,15 +72,17 @@ class WinManager:
                             rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
                             win_rate  = f"{win_rate:.3f}"
 
-                        # win-lose-draw 
-                        # print_log(f"last{n} : {win} - {lose} - {draw}, {win_rate}, R{rate_diff}")
+                        # win-draw-lose
+                        # print_log(f"last{n} : {win} - {draw} - {lose}, {win_rate}, R{rate_diff}")
+
+                        summary.append(f"last{n} : {win} - {draw} - {lose}, {win_rate}, R{rate_diff}")
 
                         # レートだけ表示用に積むか。
                         summary.append(f"R{rate_diff}")
 
                     n *= 2
 
-                summary.append(f"last {n//2} : ")
+                summary.append(f"Last {n//2} ")
 
                 # '|' 区切りでNの降順でRだけ出力
                 print_log(" | ".join(reversed(summary)))
@@ -446,6 +448,7 @@ def user_input():
             if i == 'h':
                 print_log("Help : ")
                 print_log("  Q : Quit")
+                print_log("  ! : quit without saving")
                 print_log("  S : Spsa (start games)")
                 print_log("  P : Print parameters")
                 print_log("  W : Write parameters")
@@ -461,6 +464,12 @@ def user_input():
                 shared.write_parameters()
 
             elif i == 'q':
+                # 終了時には自動セーブ
+                shared.write_parameters()
+                print_log("quit")
+                break
+            
+            elif i == '!':
                 print_log("quit")
                 break
 
