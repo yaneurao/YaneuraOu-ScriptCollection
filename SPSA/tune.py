@@ -3,7 +3,7 @@ import os
 import re
 import traceback
 from dataclasses import dataclass, field
-from ShogiCommonLib import *
+from ParamLib import *
 
 @dataclass
 class Block:
@@ -200,13 +200,14 @@ def replace_context(filename:str, context:list[str], modified:list[str]):
     """ ファイルのなかのcontextに合致したところをmodifiedに置換する。"""
 
     path = os.path.join(target_dir, filename)
+    print(path)
 
     if not os.path.exists(path):
         raise Exception(f"file not found : {path}")
 
     # context の各文字の間に \s*（空白類0回以上）を挟む正規表現パターンを生成
     context2 = "".join(context)
-    # a から空白・タブ・改行をすべて除去
+    # cintext2 から空白・タブ・改行をすべて除去
     context2 = re.sub(r'\s+', '', context2)
     pattern = r'\s*'.join(map(re.escape, context2))
 

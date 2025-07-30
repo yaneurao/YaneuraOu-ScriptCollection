@@ -33,7 +33,7 @@
 
 #add %%TUNE_DECLARATION%%
 
-    int conthist_offsets[6];
+    std::array<int,6> conthist_offsets;
 
 #add %%TUNE_ISREADY%%
     {

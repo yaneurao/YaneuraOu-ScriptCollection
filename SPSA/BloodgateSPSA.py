@@ -1,9 +1,13 @@
 import os
+import math
+import time
 import json5
 import traceback
 from dataclasses import dataclass, field
-from ShogiCommonLib import *
 from threading import Thread
+
+from ShogiCommonLib import *
+from ParamLib import *
 
 # SPSAするための対局スクリプト
 
@@ -17,13 +21,110 @@ SCRIPT_VERSION               = "V0.01"
 # 設定ファイル
 SETTING_PATH                 = "settings/SPSA-settings.json5"
 
+# レート差出力は何局に1回か
+RATE_OUTPUT_INTERVAL         = 300
+
 # ============================================================
 #                         Game Match
 # ============================================================
 
+class WinManager:
+    def __init__(self):
+        # プレイヤー1の勝ち数 , 負け数, 引き分けの回数
+        self.win_count : list[int] = [0,0,0]
+
+        # ↑を書き換える時のlock
+        self.lock = Lock()
+    
+    def update(self, winner:int):
+        with self.lock:
+            self.win_count[winner] +=1
+
+            # 途中経過の表示用に勝敗を1文字で出力してやる。
+            print("LWD"[winner], end="")
+
+            # 対局回数の総合カウント
+            total = sum(self.win_count)
+
+            if total == RATE_OUTPUT_INTERVAL:
+                # 一定回数ごとに勝率やレート差を出力
+                win  = self.win_count[1]  # player 1の勝利回数
+                lose = self.win_count[0] # player 0の勝利回数
+                draw = self.win_count[2]
+                if win + lose != 0:
+                    win_rate = win / (win + lose)
+                    rate_diff = -400 * math.log10(1 / win_rate - 1)
+                    print_log(f"\nwin {win} - lose {lose} - draw {draw} : win_rate = {win_rate:.1f}, rate_diff = R{rate_diff:.1f}")
+
+                    # カウンターのreset
+                    self.win_count = [0, 0, 0]
+
+class GameMatcher:
+    """
+    GameMatchを並列対局数分だけ起動して対局を開始させる。
+    """
+    def __init__(self, shared:"SharedState"):
+
+        engine_settings = shared.engine_settings
+        threads_all = []
+        thread_id = 0
+        for i, engine_setting in enumerate(engine_settings):
+            threads = []
+            for e in engine_setting:
+                # {
+                #     "path":"D:/doc/VSCodeProject/YaneuraOu/ShogiBookMiner2025/engines/suisho10/YO860kai_AVX2.exe",
+                #     "name":"suisho10",
+                #     "nodes":10000,
+                #     "multi":32 // 32個起動する。
+                # },
+                for _ in range(e["multi"]):
+                    t = EngineSettings()
+                    t.engine_path  = e["path"] 
+                    t.engine_name  = e["name"]
+                    t.engine_nodes = e["nodes"]
+                    t.thread_id = thread_id
+                    thread_id += 1
+                    threads.append(t)
+                    print_log(f"player {i}, engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , thread_id = {t.thread_id}")
+            threads_all.append(threads)
+
+        if len(threads_all[0]) != len(threads_all[1]):
+            print_log(f"Warnging! : Number of engines mismatch, {len(threads_all[0])} != {len(threads_all[1])}")
+
+        # 対局情報を格納
+        self.shared      = shared
+        self.threads_all = threads_all
+
+    def start_games(self):
+        """すべての並列対局を開始させる"""
+
+        print("start games")
+
+        # 並列対局数
+        num = len(self.threads_all[0])
+
+        shogi_matches = []
+        for i, (t1, t2) in enumerate(zip(self.threads_all[0], self.threads_all[1])):
+            print(f"game match No. {i}, {t1.engine_path} VS {t2.engine_path} is starting..")
+            shogi_match = ShogiMatch(t1,t2,self.shared)
+            shogi_matches.append(shogi_match)
+
+            # ここで小さなsleepがないとネットワーク越しだと、その初期化に時間がかかり、
+            # networkがtime outになる可能性がある。
+            time.sleep(0.3)
+
+        self.shogi_matches = shogi_matches
+
+        for shogi_match in self.shogi_matches:
+            shogi_match.start()
+
+
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
 class SharedState:
-    def __init__(self, settings:Any):
+    def __init__(self, settings):
+        # コンストラクタで渡された設定
+        self.settings = settings
+
         # 棋譜保存用
         self.kif_manager = KifManager()
         
@@ -34,10 +135,12 @@ class SharedState:
         self.engine_settings = self.read_engine_settings(settings["ENGINE_SETTINGS"])
 
         # パラメーターファイル
-        self.parameters = read_parameters(settings["PARAMETERS_PATH"])
+        self.parameters : list[Entry] = read_parameters(settings["PARAMETERS_PATH"])
         # ↑のvを書き換える時用のlock object
         self.param_lock = Lock()
 
+        # 勝率マネージャー
+        self.win_manager = WinManager()
 
     def read_start_sfens(self, path:str)->list[Sfen]:
         # 対局開始局面を読み込む。
@@ -57,6 +160,22 @@ class SharedState:
             with open(engine_settings_path, 'r', encoding='utf-8') as f:
                 engine_settings.append(json5.load(f))
         return engine_settings
+
+    def write_parameters(self):
+        # パラメーターを元のファイルを書き出す。
+        if self.parameters is None:
+            return
+
+        with self.param_lock:
+            write_parameters(self.settings["PARAMETERS_PATH"], self.parameters)
+
+    def print_parameters(self):
+        # 現在のパラメーターを出力する。
+        if self.parameters is None:
+            return
+
+        for param in self.parameters:
+            print(f"{param.name} {param.v:.2f} [{param.min}, {param.max}]")
 
 
 class EngineSettings:
@@ -128,6 +247,10 @@ class ShogiMatch:
 
             # 対局
             winner = self.game_play(start_player)
+
+            # 勝ち数のカウント
+            self.shared.win_manager.update(winner)
+
             step = winner_to_step[winner] * +1.0
 
             # 次の対局の手番を入れ替える。
@@ -137,6 +260,7 @@ class ShogiMatch:
             self.set_engine_options(params, p_shift_minus)
 
             winner = self.game_play(start_player)
+            self.shared.win_manager.update(winner)
             step += winner_to_step[winner] * -1.0
 
             # パラメーターをshift(方角)×step分だけ変異させる。
@@ -232,16 +356,13 @@ class ShogiMatch:
                 v = int(v)
 
             # 送信する思考エンジンは[0]は基準エンジンだから、engines[1]固定でいいや。
-            self.engines[1].send_usi(f"setoption {param.name} value {v}")
+            self.engines[1].send_usi(f"setoption name {param.name} value {v}")
 
         # パラメーターが変更になったのでisreadyを送信する。
         self.engines[1].isready()
 
     def add_grad(self, params:list[Entry], shift:list[float], step:float):
         # パラメーターを勾配分だけ変異させる。
-
-        def sign(x: float) -> int:
-            return (x > 0) - (x < 0)
 
         with self.shared.param_lock:
             for param,s in zip(params, shift):
@@ -251,13 +372,12 @@ class ShogiMatch:
                 # 変異させる方向はs*step。この方向に、param.delta分だけ変異させる。
                 # sは元はparam.stepに-1か1を乗算したものだから、結局、param.step * param.delta分だけ +1 , -1倍したところに移動させる意味。
                 delta = s * step * param.delta
-                last_v = param.v
+                # last_v = param.v
                 v = param.v + delta
                 v = min(param.max, v)
                 v = max(param.min, v)
                 param.v = v
                 # print(f"param {param.name} : {last_v} -> {v}")
-
 
 # ============================================================
 #                             main
@@ -275,11 +395,12 @@ def user_input():
     # これは全対局スレッドが同じものを指す。
     shared = SharedState(settings)
 
-    # engine定義
+    # 並列対局管理用
+    matcher = GameMatcher(shared)
 
     while True:
         try:
-            print_log("[Q]uit [S]psa [H]elp> ", end='')
+            print_log("[Q]uit [S]psa [W]rite [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -289,33 +410,24 @@ def user_input():
                 print_log("Help : ")
                 print_log("  Q : Quit")
                 print_log("  S : Spsa")
+                print_log("  P : Print parameters")
+                print_log("  W : Write parameters")
                 print_log("  L : enable Log")
 
             elif i == 's':
                 print_log("spsa")
-                pass
+                matcher.start_games()
+
+
+            elif i == 'p':
+                shared.print_parameters()
+
+            elif i == 'w':
+                shared.write_parameters()
 
             elif i == 'l':
                 # 以降、print_log()の内容をログファイルにも書き出す。
                 enable_print_log()
-
-            elif i == 'p':
-                # play
-                t1 = EngineSettings()
-                t2 = EngineSettings()
-                
-                engine_settings = shared.engine_settings[0][0]
-
-                t1.engine_path = engine_settings["path"]
-                t1.engine_nodes = engine_settings["nodes"]
-                t1.engine_name = engine_settings["name"]
-
-                t2.engine_path = engine_settings["path"]
-                t2.engine_nodes = engine_settings["nodes"]
-                t2.engine_name = engine_settings["name"]
-
-                shogi_match = ShogiMatch(t1,t2,shared)
-                shogi_match.start()
 
             elif i == 'q':
                 print_log("quit")
