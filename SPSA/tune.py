@@ -200,7 +200,7 @@ def replace_context(filename:str, context:list[str], modified:list[str]):
     """ ファイルのなかのcontextに合致したところをmodifiedに置換する。"""
 
     path = os.path.join(target_dir, filename)
-    print(path)
+    # print(path)
 
     if not os.path.exists(path):
         raise Exception(f"file not found : {path}")
@@ -327,6 +327,8 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
 def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
+    print("start tune_parameters()")
+
     try:
         params = read_parameters(params_file)
     except:
@@ -423,6 +425,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                 replaced = True
 
         if not replaced:
+            print(f"modified block, prefix = {prefix}")
             replace_context(filename, context, modified_block)
 
         # あと、ここで得られた変数を追加する。
@@ -446,6 +449,8 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
         add_content(filename, tune_block.setblock['declaration'], tune_params_to_declare)
         add_content(filename, tune_block.setblock['options']    , tune_params_to_options)
+
+    print("end tune_parameters()")
 
 
 if __name__ == "__main__":

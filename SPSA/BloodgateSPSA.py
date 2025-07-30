@@ -54,7 +54,7 @@ class WinManager:
                 if win + lose != 0:
                     win_rate = win / (win + lose)
                     rate_diff = -400 * math.log10(1 / win_rate - 1)
-                    print_log(f"\nwin {win} - lose {lose} - draw {draw} : win_rate = {win_rate:.1f}, rate_diff = R{rate_diff:.1f}")
+                    print_log(f"\nwin {win} - lose {lose} - draw {draw} : win_rate = {win_rate:.3f}, rate_diff = R{rate_diff:.1f}")
 
                     # カウンターのreset
                     self.win_count = [0, 0, 0]
@@ -85,7 +85,7 @@ class GameMatcher:
                     t.thread_id = thread_id
                     thread_id += 1
                     threads.append(t)
-                    print_log(f"player {i}, engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , thread_id = {t.thread_id}")
+                    print_log(f"player {i}, engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , nodes = {t.engine_nodes}, thread_id = {t.thread_id}")
             threads_all.append(threads)
 
         if len(threads_all[0]) != len(threads_all[1]):
@@ -175,7 +175,7 @@ class SharedState:
             return
 
         for param in self.parameters:
-            print(f"{param.name} {param.v:.2f} [{param.min}, {param.max}]")
+            print_log(f"{param.name} {param.v:.5f} [{param.min}, {param.max}]")
 
 
 class EngineSettings:
@@ -272,6 +272,12 @@ class ShogiMatch:
 
     def game_play(self, start_player : int):
         """ 1局だけ対局する """
+
+        # 対局開始前のisready送信
+        # (パラメーターが変更になったかも知れないので初期化)
+        for engine in self.engines:
+            engine.isready()
+
         board = Board()
 
         # 対局開始局面(互角局面集からランダム)
@@ -358,9 +364,6 @@ class ShogiMatch:
             # 送信する思考エンジンは[0]は基準エンジンだから、engines[1]固定でいいや。
             self.engines[1].send_usi(f"setoption name {param.name} value {v}")
 
-        # パラメーターが変更になったのでisreadyを送信する。
-        self.engines[1].isready()
-
     def add_grad(self, params:list[Entry], shift:list[float], step:float):
         # パラメーターを勾配分だけ変異させる。
 
@@ -400,7 +403,7 @@ def user_input():
 
     while True:
         try:
-            print_log("[Q]uit [S]psa [W]rite [H]elp> ", end='')
+            print_log("[Q]uit [S]psa [P]rint [W]rite [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -409,7 +412,7 @@ def user_input():
             if i == 'h':
                 print_log("Help : ")
                 print_log("  Q : Quit")
-                print_log("  S : Spsa")
+                print_log("  S : Spsa (start games)")
                 print_log("  P : Print parameters")
                 print_log("  W : Write parameters")
                 print_log("  L : enable Log")
@@ -417,7 +420,6 @@ def user_input():
             elif i == 's':
                 print_log("spsa")
                 matcher.start_games()
-
 
             elif i == 'p':
                 shared.print_parameters()

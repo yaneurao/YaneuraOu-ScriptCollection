@@ -3,6 +3,8 @@
     "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
 
     // 思考エンジンの設定ファイル(以下のようなJSON5の書式で書く)
+    // エンジン自体は、"engine_options.txt"で置換表サイズやスレッド数について
+    // "USI_Hash 1024"とか"Threads 1"とかして設定されているものとする。
     /*
         [
             {
