@@ -300,7 +300,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
             # パラメーターはfloat表記で持っているので、"int"を要求しているならintに変換する必要がある。
             if type == "int":
-                value = int(value)
+                value = int(value + 0.5) # このときに値を丸める。
 
             # in-place文字置換           
             context_lines[:] = [line.replace(param_name, str(value)) for line in context_lines]

@@ -24,6 +24,24 @@ SETTING_PATH                 = "settings/SPSA-settings.json5"
 # レート差出力は何局に1回か
 RATE_OUTPUT_INTERVAL         = 10
 
+# 熱温度。パラメーターの移動のしやすさ。勾配を加算するときの係数。
+# 大きな値(10～200)から、徐々に1.0に近づけていく。
+# 'm'コマンドでこの値を変更できる。
+MOBILITY                     = 1.0
+
+# パラメーターから勾配を出すときに、方向ベクトルの何倍先を見るか。
+# 's'コマンドで変更できる。大きな値(2.0～3.0)から徐々に1.0に近づけていく。
+# 💡 SCALE を 0にすると、元のパラメーターで対戦することになる。元のパラメーターで
+#    基準ソフトとのR差を計測したい時に用いる。
+SCALE                        = 1.0
+
+# 📓  m = 50.0 , s = 2.0 ぐらいでスタートして徐々に小さくするのがいいと思う。
+#    sを大きくすると大きくパラメーターを動かしたもので対局させるため、見かけのRはかなり下がることに注意。
+
+# 対局結果の出力の列数(1～N)
+# 💡 一時的に 大きくして、直近に近い勝率を確認したりできる。
+RESULT_TABLE_COLS            = 4
+
 # ============================================================
 #                         Game Match
 # ============================================================
@@ -72,20 +90,17 @@ class WinManager:
                             rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
                             win_rate  = f"{win_rate:.3f}"
 
-                        # win-draw-lose
-                        # print_log(f"last{n} : {win} - {draw} - {lose}, {win_rate}, R{rate_diff}")
-
-                        summary.append(f"last{n} : {win} - {draw} - {lose}, {win_rate}, R{rate_diff}")
+                        # Last N win-draw-lose 勝率 R差
+                        summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
 
                         # レートだけ表示用に積むか。
-                        summary.append(f"R{rate_diff}")
+                        # summary.append(f"R{rate_diff}")
 
                     n *= 2
 
-                summary.append(f"Last {n//2} ")
-
-                # '|' 区切りでNの降順でRだけ出力
-                print_log(" | ".join(reversed(summary)))
+                # '|' 区切りでNの降順で直近 RESULT_TABLE_COLS つ出力
+                summary.reverse()
+                print_log(f"{total} : {' | '.join(summary[:RESULT_TABLE_COLS])}")
 
 class GameMatcher:
     """
@@ -253,55 +268,62 @@ class ShogiMatch:
         """
         対局用worker。
         """
+        try:
 
-        # 開始局面で先に着手するplayer(開始局面が先手の局面とは限らないのでこの書き方で)
-        start_player = rand(2)
+            # 開始局面で先に着手するplayer(開始局面が先手の局面とは限らないのでこの書き方で)
+            start_player = rand(2)
 
-        # alias of params
-        params = self.shared.parameters
+            # alias of params
+            params = self.shared.parameters
 
-        # 試合結果に対してplayer nが勝った時の変位量(⚠ drawのときはn==2)
-        winner_to_step = [-1.0 , +1.0 , 0]
+            # 試合結果に対してplayer nが勝った時の変位量(⚠ drawのときはn==2)
+            winner_to_step = [-1.0 , +1.0 , 0]
 
-        # 連続対局させる。
-        # SPSAのために 現在のパラメーター P に対して、微小な方向 C と その逆方向 -C で対局させる。
-        while True:
+            # 連続対局させる。
+            # SPSAのために 現在のパラメーター P に対して、微小な方向 C と その逆方向 -C で対局させる。
+            while True:
 
-            # 変異させたパラメーターを取得
-            shift = self.generate_shift_params(params)
-            p_shift_plus  = self.clamp_params(params, shift, +1.0)
-            p_shift_minus = self.clamp_params(params, shift, -1.0)
+                # 変異させたパラメーターを取得
+                shift = self.generate_shift_params(params)
+                p_shift_plus  = self.clamp_params(params, shift, +SCALE)
+                p_shift_minus = self.clamp_params(params, shift, -SCALE)
 
-            # 変異させたパラメーターを思考エンジンに設定
-            self.set_engine_options(params, p_shift_plus)
+                # 変異させたパラメーターを思考エンジンに設定
+                self.set_engine_options(params, p_shift_plus)
 
-            # 対局
-            winner = self.game_play(start_player)
+                # 対局
+                winner = self.game_play(start_player)
 
-            # 勝ち数のカウント
-            self.shared.win_manager.update(winner)
+                # 勝ち数のカウント
+                self.shared.win_manager.update(winner)
 
-            step = winner_to_step[winner] * +1.0
+                step = winner_to_step[winner] * +1.0
 
-            # 次の対局の手番を入れ替える。
-            start_player ^= 1
+                # 次の対局の手番を入れ替える。
+                start_player ^= 1
 
-            # 逆方向に変異させたパラメーターを思考エンジンに設定
-            self.set_engine_options(params, p_shift_minus)
+                # 逆方向に変異させたパラメーターを思考エンジンに設定
+                self.set_engine_options(params, p_shift_minus)
 
-            winner = self.game_play(start_player)
-            self.shared.win_manager.update(winner)
-            step += winner_to_step[winner] * -1.0
+                winner = self.game_play(start_player)
+                self.shared.win_manager.update(winner)
+                step += winner_to_step[winner] * -1.0
 
-            # パラメーターをshift(方角)×step分だけ変異させる。
-            self.add_grad(params, shift, step / 2)
+                # パラメーターをshift(方角)×step分だけ変異させる。
+                self.add_grad(params, shift, step / 2)
 
-            # 次の対局の手番を入れ替える。
-            start_player ^= 1
+                # 次の対局の手番を入れ替える。
+                start_player ^= 1
+
+        except Exception as e:
+            print_log(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+            # この時のパラメーターを出力してやる。パラメーターの条件がillegalで落ちたのかもしれないので。
+            self.shared.print_parameters()
 
 
     def game_play(self, start_player : int):
         """ 1局だけ対局する """
+
 
         # 対局開始前のisready送信
         # (パラメーターが変更になったかも知れないので初期化)
@@ -389,7 +411,7 @@ class ShogiMatch:
                 continue
 
             if param.type == "int":
-                v = int(v)
+                v = int(v + 0.5) # 丸め処理を入れておく。(±0.5増えたら隣の値になって欲しいので)
 
             # 送信する思考エンジンは[0]は基準エンジンだから、engines[1]固定でいいや。
             self.engines[1].send_usi(f"setoption name {param.name} value {v}")
@@ -404,7 +426,8 @@ class ShogiMatch:
 
                 # 変異させる方向はs*step。この方向に、param.delta分だけ変異させる。
                 # sは元はparam.stepに-1か1を乗算したものだから、結局、param.step * param.delta分だけ +1 , -1倍したところに移動させる意味。
-                delta = s * step * param.delta
+                # / 2は中心差分近似のときに出てくる 2。
+                delta = s * step * param.delta * MOBILITY / 2
                 # last_v = param.v
                 v = param.v + delta
                 v = min(param.max, v)
@@ -420,6 +443,8 @@ def user_input():
     """
     ユーザーからの入力受付。
     """
+
+    global SCALE, MOBILITY, RESULT_TABLE_COLS
 
     # 設定ファイルの読み込み
     with open(SETTING_PATH, "r", encoding="utf-8") as f:
@@ -437,9 +462,12 @@ def user_input():
     # このタイミングでパラメーターを一度ログに出力しておく。(あとで比較するため)
     shared.print_parameters()
 
+    # stepのスケールとパラメーターの移動性
+    print(f"Step Scale = {SCALE}, Param Mobility = {MOBILITY}")
+
     while True:
         try:
-            print_log("[Q]uit [S]psa [P]rint [W]rite [H]elp> ", end='')
+            print_log("[Q]uit [G]ame [P]rint [W]rite [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -449,12 +477,15 @@ def user_input():
                 print_log("Help : ")
                 print_log("  Q : Quit")
                 print_log("  ! : quit without saving")
-                print_log("  S : Spsa (start games)")
+                print_log("  G : start Games(SPSA)")
                 print_log("  P : Print parameters")
                 print_log("  W : Write parameters")
+                print_log("  M : param Mobility [1.0 - 100.0]")
+                print_log("  S : Step Scale     [1.0 -  10.0]")
+                print_log("  R : Result table cols [1 - N]")
 
-            elif i == 's':
-                print_log("spsa")
+            elif i == 'g':
+                print_log("start games(spsa)")
                 matcher.start_games()
 
             elif i == 'p':
@@ -463,6 +494,24 @@ def user_input():
             elif i == 'w':
                 shared.write_parameters()
 
+            elif i == 'm':
+                if len(inp) >= 2:
+                    lastMOBILITY = MOBILITY
+                    MOBILITY = float(inp[1])
+                    print_log(f"Param Mobility = {lastMOBILITY} -> {MOBILITY}")
+
+            elif i == 's':
+                if len(inp) >= 2:
+                    lastSCALE = SCALE
+                    SCALE = float(inp[1])
+                    print_log(f"Step Scale     = {lastSCALE} -> {SCALE}")
+
+            elif i == 'r':
+                if len(inp) >= 2:
+                    r = int(inp[1])
+                    RESULT_TABLE_COLS = max(1, r)
+                    print_log(f"Result table columns = {RESULT_TABLE_COLS}")
+
             elif i == 'q':
                 # 終了時には自動セーブ
                 shared.write_parameters()
@@ -470,7 +519,7 @@ def user_input():
                 break
             
             elif i == '!':
-                print_log("quit")
+                print_log("quit without saving")
                 break
 
         except Exception as e:
