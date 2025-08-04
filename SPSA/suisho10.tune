@@ -81,7 +81,8 @@
 
 #context Search_static_evaluation2
 
-        if (type_of(pos.piece_on(prevSq)) != PAWN && !((ss - 1)->currentMove).is_promote())
+		if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
+            && !((ss - 1)->currentMove).is_promote())
             pawnHistory[pawn_structure_index(pos)][pos.piece_on(prevSq)][prevSq]
               << bonus * 1428@ / 1024;
 
@@ -149,6 +150,26 @@
         if (!pos.see_ge(move, -26@ * lmrDepth * lmrDepth))
             continue;
 
+#context Search_Extensions1
+
+            Value singularBeta  = ttData.value - (56@ + 79@ * (ss->ttPv && !PvNode)) * depth / 58@;
+            Depth singularDepth = newDepth / 2;
+
+#context Search_Extensions2
+
+                int corrValAdj   = std::abs(correctionValue) / 249096@;
+
+#context Search_Extensions3
+
+                int doubleMargin = 4@ + 205@ * PvNode - 223@ * !ttCapture - corrValAdj
+                                 - 959@ * ttMoveHistory / 131072 - (ss->ply > rootDepth) * 45@;
+
+#context Search_Extensions4
+
+                int tripleMargin = 80@ + 276@ * PvNode - 249@ * !ttCapture + 86@ * ss->ttPv - corrValAdj
+                                 - (ss->ply * 2 > rootDepth * 3) * 53@;
+
+
 #context Search_Decrease_reduction_for_PvNodes1
 
 		if (ss->ttPv)
@@ -188,6 +209,15 @@
 
         if (!PvNode)
             ttMoveHistory << (bestMove == ttData.move ? 811@ : -848@);
+
+
+#context Search_WRITE_QSEARCH_MATE1PLY_TO_TT
+
+        // WRITE_QSEARCH_MATE1PLY_TO_TT
+        if (0@)
+        {
+            ttWriter.write(posKey, bestValue, ss->ttPv, BOUND_EXACT, DEPTH_QS, move,
+                            unadjustedStaticEval, tt.generation());
 
 #context Search_standPat
 

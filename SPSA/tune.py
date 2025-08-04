@@ -356,8 +356,8 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                     number = float(number)
                     if number > 0:
                         min_, max_ = 0.0 , number * 2
-                    elif number == 0: # 0 になっとる。なんぞこれ。
-                        min_, max_ = -100, 100
+                    elif number == 0: # 0 になっとる。なんぞこれ。boolと違うか？0,1と扱う。
+                        min_, max_ = 0, 1
                     else:
                         min_, max_ = number * 2 , 0.0
 

@@ -35,7 +35,7 @@ MOBILITY                     = 1.0
 #    基準ソフトとのR差を計測したい時に用いる。
 SCALE                        = 1.0
 
-# 📓  m = 50.0 , s = 2.0 ぐらいでスタートして徐々に小さくするのがいいと思う。
+# 📓  m = 100.0 , s = 2.0 ぐらいでスタートして徐々に小さくするのがいいと思う。
 #    sを大きくすると大きくパラメーターを動かしたもので対局させるため、見かけのRはかなり下がることに注意。
 
 # 対局結果の出力の列数(1～N)
@@ -463,7 +463,7 @@ def user_input():
     shared.print_parameters()
 
     # stepのスケールとパラメーターの移動性
-    print(f"Step Scale = {SCALE}, Param Mobility = {MOBILITY}")
+    print_log(f"Step Scale = {SCALE}, Param Mobility = {MOBILITY}")
 
     while True:
         try:
