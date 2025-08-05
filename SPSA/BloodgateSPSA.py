@@ -285,8 +285,8 @@ class ShogiMatch:
 
                 # 変異させたパラメーターを取得
                 shift = self.generate_shift_params(params)
-                p_shift_plus  = self.clamp_params(params, shift, +SCALE)
-                p_shift_minus = self.clamp_params(params, shift, -SCALE)
+                p_shift_plus  = self.add_params(params, shift, +SCALE)
+                p_shift_minus = self.add_params(params, shift, -SCALE)
 
                 # 変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_plus)
@@ -310,6 +310,7 @@ class ShogiMatch:
                 step += winner_to_step[winner] * -1.0
 
                 # パラメーターをshift(方角)×step分だけ変異させる。
+                # / 2は中心差分近似のときに出てくる 2。
                 self.add_grad(params, shift, step / 2)
 
                 # 次の対局の手番を入れ替える。
@@ -393,10 +394,11 @@ class ShogiMatch:
         # ここに、各要素にstepを掛け算(アダマール積)した分だけパラメーターを動かして対局させる。
         return [random.choice([param.step, -param.step]) for param in params]
 
-    def clamp_params(self, params:list[Entry], step:list[float], k:float)->list[float]:
+    def add_params(self, params:list[Entry], shift:list[float], k:float)->list[float]:
+        # params + shift * k を返す。
         # min,maxで制限する。
         v_result = []
-        for param,s in zip(params,step):
+        for param,s in zip(params, shift):
             # vにこのstep * kを加算すると、min,maxの範囲を超えてしまうなら、抑制する。
             v = param.v + s * k
             v = min(param.max, v)
@@ -429,8 +431,7 @@ class ShogiMatch:
 
                 # 変異させる方向はs*step。この方向に、param.delta分だけ変異させる。
                 # sは元はparam.stepに-1か1を乗算したものだから、結局、param.step * param.delta分だけ +1 , -1倍したところに移動させる意味。
-                # / 2は中心差分近似のときに出てくる 2。
-                delta = s * step * param.delta * MOBILITY / 2
+                delta = s * step * param.delta * MOBILITY
                 # last_v = param.v
                 v = param.v + delta
                 v = min(param.max, v)
