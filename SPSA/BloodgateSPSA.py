@@ -16,7 +16,7 @@ from ParamLib import *
 # ============================================================
 
 # このスクリプトのバージョン
-SCRIPT_VERSION               = "V0.01"
+SCRIPT_VERSION               = "V0.02"
 
 # 設定ファイル
 SETTING_PATH                 = "settings/SPSA-settings.json5"
@@ -365,12 +365,15 @@ class ShogiMatch:
                 winner = 2
 
             if bestmove == "resign":
-                # 勝ったのは、相手番(すでにそうなっている)
+                # 投了。勝ったのは、相手番(すでにそうなっている)
                 winner = player
+            elif bestmove == "win":
+                # 宣言勝ち。勝ったのは、元の手番側のプレイヤー
+                winner = player ^ 1
 
             kif += ' ' + bestmove
 
-            if bestmove == "draw" or bestmove == "resign":
+            if bestmove == "draw" or bestmove == "resign" or bestmove == "win":
                 break
 
             board.push_usi(bestmove)
