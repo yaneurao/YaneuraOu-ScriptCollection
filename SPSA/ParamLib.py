@@ -97,7 +97,7 @@ def write_parameters(params_file : str , entries : list[Entry]):
 
     with open(params_file, "w", encoding="utf-8") as f:
         for e in entries:
-            f.write(f"{e.name}, {e.type}, {e.v}, {e.min}, {e.max}, {e.step}, {e.delta}{' //' + e.comment if e.comment else ""}{NOT_USED_STR if e.not_used else ""}\n")
+            f.write(f"{e.name}, {e.type}, {e.v}, {e.min}, {e.max}, {e.step}, {e.delta}{' //' + e.comment if e.comment else ''}{NOT_USED_STR if e.not_used else ''}\n")
 
     print(f"write parameter file, {len(entries)} parameters.")
 

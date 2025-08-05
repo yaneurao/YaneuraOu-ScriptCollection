@@ -5,7 +5,7 @@
 
     return 8867@ * pcv + 8136@ * micv + 10757@ * (wnpcv + bnpcv) + 7232@ * cntcv;
 
-#context update_correction_history_nonPawnWeight
+#context update_correction_history_nonPawnWeight // update_correction_history()
 
     static constexpr int nonPawnWeight = 165@;
 
@@ -18,15 +18,16 @@
     int nonPawnWeight = @;
 
 
-#context update_correction_history
+#context update_correction_history1 // update_correction_history()
 
-    workerThread.pawnCorrectionHistory[pawn_structure_index<Correction>(pos)][us]
-      << bonus * 128@ / 128;
-    workerThread.minorPieceCorrectionHistory[minor_piece_index(pos)][us] << bonus * 153 / 128;
+    workerThread.pawnCorrectionHistory[pawn_correction_history_index(pos)][us] << bonus;
+    workerThread.minorPieceCorrectionHistory[minor_piece_index(pos)][us] << bonus * 153@ / 128;
     workerThread.nonPawnCorrectionHistory[non_pawn_index<WHITE>(pos)][WHITE][us]
       << bonus * nonPawnWeight / 128;
     workerThread.nonPawnCorrectionHistory[non_pawn_index<BLACK>(pos)][BLACK][us]
       << bonus * nonPawnWeight / 128;
+
+#context update_correction_history2 // update_correction_history()
 
     if (m.is_ok())
         (*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
@@ -62,7 +63,7 @@
     for (size_t i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2782@ / 128.0 * std::log(i));
 
-#context Search_tt_lookup1
+#context Search_tt_lookup1 // search() Step 4.
 
             if (!ttCapture)
                 update_quiet_histories(pos, ss, *this, ttData.move,
@@ -73,7 +74,7 @@
 			if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 3 && !priorCapture)
                 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2128@);
 
-#context Search_static_evaluation1
+#context Search_static_evaluation1 // search Step 6.
 
         int bonus =
             std::clamp(-10 * int((ss - 1)->staticEval + ss->staticEval), -1979@, 1561@) + 630@;
@@ -83,7 +84,7 @@
 
 		if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
             && !((ss - 1)->currentMove).is_promote())
-            pawnHistory[pawn_structure_index(pos)][pos.piece_on(prevSq)][prevSq]
+            pawnHistory[pawn_history_index(pos)][pos.piece_on(prevSq)][prevSq]
               << bonus * 1428@ / 1024;
 
 #context Search_static_evaluation3
@@ -91,12 +92,12 @@
     if (priorReduction >= 2 && depth >= 2 && ss->staticEval + (ss - 1)->staticEval > 177@)
         depth--;
 
-#context Search_razoring
+#context Search_razoring // search() Step 7.
 
     if (!PvNode && eval < alpha - 495@ - 290@ * depth * depth)
         return qsearch<NonPV>(pos, ss, alpha, beta);
 
-#context Search_futility
+#context Search_futility // Search step 8.
 
 		auto futility_margin = [&](Depth d) {
             Value futilityMult = 90@ - 20@ * (cutNode && !ss->ttHit);
@@ -108,30 +109,30 @@
                  + std::abs(correctionValue) / 171290@;
         };
 
-#context Search_nullmove
+#context Search_nullmove // Search step 9.
 
     if (cutNode && ss->staticEval >= beta - 19@ * depth + 403@
 
-#context Search_Probcut
+#context Search_Probcut // Search step 11.
 
     probCutBeta = beta + 215@ - 60@ * improving;
 
-#context Search_small_Probcut
+#context Search_small_Probcut // search() Step 12.
 
     probCutBeta = beta + 417@;
 
-#context Search_decrease_reduction_for_tt_pv
+#context Search_decrease_reduction_for_tt_pv // search() Step 13.
 
         if (ss->ttPv)
             r += 931@;
 
-#context Search_futility_value
+#context Search_futility_value // search() Step 14.
 
         Value futilityValue = ss->staticEval + 225@ + 220@ * lmrDepth
                             + 275@ * (move.to_sq() == prevSq) + PieceValue[capturedPiece]
                             + 131@ * captHist / 1024;
 
-#context Search_Continuation_history_based_pruning1
+#context Search_Continuation_history_based_pruning1 // search() Step 14.
 
         if (history < -4361@ * depth)
             continue;
@@ -145,12 +146,12 @@
         Value futilityValue =
             ss->staticEval + baseFutility + 131@ * lmrDepth + 91@ * (ss->staticEval > alpha);
 
-#context Search_Continuation_history_based_pruning3
+#context Search_Continuation_history_based_pruning3 
 
         if (!pos.see_ge(move, -26@ * lmrDepth * lmrDepth))
             continue;
 
-#context Search_Extensions1
+#context Search_Extensions1 // Step 15.
 
             Value singularBeta  = ttData.value - (56@ + 79@ * (ss->ttPv && !PvNode)) * depth / 58@;
             Depth singularDepth = newDepth / 2;
@@ -170,7 +171,7 @@
                                  - (ss->ply * 2 > rootDepth * 3) * 53@;
 
 
-#context Search_Decrease_reduction_for_PvNodes1
+#context Search_Decrease_reduction_for_PvNodes1 // search() Step 16.
 
 		if (ss->ttPv)
             r -= 2510@ + PvNode * 963@ + (ttData.value > alpha)* 916@
@@ -197,21 +198,26 @@
             ss->statScore = 782@ * int(PieceValue[pos.captured_piece()]) / 128
                           + captureHistory[movedPiece][move.to_sq()][type_of(pos.captured_piece())];
 
-#context Search_Decrease_reduction_for_PvNodes5
+#context Search_Decrease_reduction_for_PvNodes5 // search() Step 16.
 
         r -= ss->statScore * 789@ / 8192;
 
-#context Search_Post_LMR_continuation_history_updates
+#context Search_Post_LMR_continuation_history_updates // search() Step 17.
 
         update_continuation_histories(ss, movedPiece, move.to_sq(), 1412@);
 
-#context Search_ttMoveHistoryBonus
+#context Search_Full_depth_search_threshold // Step 18.
+
+            const int threshold1 = depth <= 4 ? 2000@ : 3200@;
+            const int threshold2 = depth <= 4 ? 3500@ : 4600@;
+
+
+#context Search_ttMoveHistoryBonus // search() Step 21.
 
         if (!PvNode)
             ttMoveHistory << (bestMove == ttData.move ? 811@ : -848@);
 
-
-#context Search_WRITE_QSEARCH_MATE1PLY_TO_TT
+#context Search_WRITE_QSEARCH_MATE1PLY_TO_TT // qsearch() Step 4.
 
         // WRITE_QSEARCH_MATE1PLY_TO_TT
         if (0@)
@@ -219,15 +225,15 @@
             ttWriter.write(posKey, bestValue, ss->ttPv, BOUND_EXACT, DEPTH_QS, move,
                             unadjustedStaticEval, tt.generation());
 
-#context Search_standPat
+#context Search_standPat // qsearch() Step 4.
 
 		futilityBase = ss->staticEval + 352@;
 
-#context Search_Continuation_history_based_pruning
+#context Search_Continuation_history_based_pruning // qsearch() Step 6.
 
             if (!capture
                 && (*contHist[0])[pos.moved_piece_after(move)][move.to_sq()]
-                       + pawnHistory[pawn_structure_index(pos)][pos.moved_piece(move)][move.to_sq()]
+                       + pawnHistory[pawn_history_index(pos)][pos.moved_piece(move)][move.to_sq()]
                      <= 5868@)
                 continue;
 
@@ -244,9 +250,7 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
     int malus = std::min(757@ * depth - 172@, 2848) - 30@ * moveCount;
 
 
-
-
-#context conthist_bonuses
+#context conthist_bonuses // update_all_stats()
 
     static constexpr std::array<ConthistBonus, 6> conthist_bonuses = {
       {{1, 1108@}, {2, 652@}, {3, 273@}, {4, 572@}, {5, 126@}, {6, 449@}}};
@@ -268,7 +272,7 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
             conthist_bonuses[i].weight = t[i];
     }
 
-#context update_quiet_histories
+#context update_quiet_histories // update_quiet_histories()
 
     if (ss->ply < LOW_PLY_HISTORY_SIZE)
 	    workerThread.lowPlyHistory[ss->ply][move.from_to()] << (bonus * 771@ / 1024) + 40@;
@@ -276,6 +280,6 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
     update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(),
                                   bonus * (bonus > 0 ? 979@ : 842@) / 1024);
 
-    int pIndex = pawn_structure_index(pos);
+    int pIndex = pawn_history_index(pos);
     workerThread.pawnHistory[pIndex][pos.moved_piece_after(move)][move.to_sq()]
       << (bonus * (bonus > 0 ? 704@ : 439@) / 1024) + 70@;
