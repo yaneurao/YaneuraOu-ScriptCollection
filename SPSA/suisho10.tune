@@ -82,8 +82,8 @@
 
 #context Search_static_evaluation2
 
-		if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
-            && !((ss - 1)->currentMove).is_promote())
+        if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
+            && ((ss - 1)->currentMove).type_of() != PROMOTION)
             pawnHistory[pawn_history_index(pos)][pos.piece_on(prevSq)][prevSq]
               << bonus * 1428@ / 1024;
 
@@ -117,6 +117,10 @@
 
     probCutBeta = beta + 215@ - 60@ * improving;
 
+#context Search_Probcut_dynamicReduction // Search step 11.
+
+        Depth      dynamicReduction = (ss->staticEval - beta) / 300@;
+
 #context Search_small_Probcut // search() Step 12.
 
     probCutBeta = beta + 417@;
@@ -128,9 +132,8 @@
 
 #context Search_futility_value // search() Step 14.
 
-        Value futilityValue = ss->staticEval + 225@ + 220@ * lmrDepth
-                            + 275@ * (move.to_sq() == prevSq) + PieceValue[capturedPiece]
-                            + 131@ * captHist / 1024;
+        Value futilityValue = ss->staticEval + 232@ + 224@ * lmrDepth
+                            + PieceValue[capturedPiece] + 131@ * captHist / 1024;
 
 #context Search_Continuation_history_based_pruning1 // search() Step 14.
 
@@ -222,6 +225,8 @@
         // WRITE_QSEARCH_MATE1PLY_TO_TT
         if (0@)
         {
+            // 🤔 このnodeに再訪問することはまずないだろうから、置換表に保存する価値はない可能性があるが。
+
             ttWriter.write(posKey, bestValue, ss->ttPv, BOUND_EXACT, DEPTH_QS, move,
                             unadjustedStaticEval, tt.generation());
 
@@ -244,10 +249,12 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
     return reductionScale - delta * 731@ / rootDelta + !i * reductionScale * 216@ / 512 + 1089@;
 }
 
-#context update_all_stats
+#context update_all_stats_1
 
-    int bonus = std::min(142@ * depth - 88@, 1501) + 318@ * (bestMove == ttMove);
-    int malus = std::min(757@ * depth - 172@, 2848) - 30@ * moveCount;
+    int quietBonus   = std::min(170@ * depth - 87@, 1598) + 332 * (bestMove == ttMove);
+    int quietMalus   = std::min(743@ * depth - 180@, 2287) - 33 * int(quietsSearched.size());
+    int captureBonus = std::min(124@ * depth - 62@, 1245) + 336 * (bestMove == ttMove);
+    int captureMalus = std::min(708@ * depth - 148@, 2287) - 29 * int(capturesSearched.size());
 
 
 #context conthist_bonuses // update_all_stats()
