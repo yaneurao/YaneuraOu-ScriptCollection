@@ -136,8 +136,11 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
         elif block_name.startswith("context"):
             # 新しいセクションなのでいまあるものを追記する。
             append_check()
-            if len(block.params) < 1:
-                raise Exception(f"Error : Insufficient parameter in content block, {block}")
+
+            # if len(block.params) < 1:
+            #     raise Exception(f"Error : Insufficient parameter in content block, {block}")
+            # 📝 無名contentブロックは、置換用に使うようにした。
+
             current_block.context_blocks.append(block)
         elif block_name.startswith("add"):
             current_block.add_blocks.append(block)
@@ -267,6 +270,7 @@ def print_block(block:list[str]):
     for line in block:
         print(line)
 
+
 def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
     try:
@@ -279,7 +283,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     # 変数名を列挙する。
     for tune_block in tune_blocks:
         content_block = tune_block.context_blocks[0]
-        prefix        = content_block.params[0]
+        prefix        = content_block.params[0] if content_block.params else ""
         modified_block , removed_numbers, params_name = parse_content_block(content_block , prefix)
 
         # print("modified block")
@@ -288,22 +292,34 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         # contextのコピー。
         context_lines = list(modified_block)
 
-        # contextをparamの実際の値で置き換えていく。
-        for param_name in params_name:
-            # このパラメーターの値
-            value , type = next(((e.v, e.type) for e in params if e.name == param_name), (None,None))
-            if value is None:
-                print_block(content_block.content)
-                raise Exception(f"Error! : {param_name} not found in {params_file}.")
+        if prefix:
+            # contextをparamの実際の値で置き換えていく。
+            for param_name in params_name:
+                # このパラメーターの値
+                value , type = next(((e.v, e.type) for e in params if e.name == param_name), (None,None))
+                if value is None:
+                    print_block(content_block.content)
+                    raise Exception(f"Error! : {param_name} not found in {params_file}.")
 
-            # print(f"replace : {param_name} -> {value}")
+                # print(f"replace : {param_name} -> {value}")
 
-            # パラメーターはfloat表記で持っているので、"int"を要求しているならintに変換する必要がある。
-            if type == "int":
-                value = int(value + 0.5) # このときに値を丸める。
+                # パラメーターはfloat表記で持っているので、"int"を要求しているならintに変換する必要がある。
+                if type == "int":
+                    value = int(value + 0.5) # このときに値を丸める。
 
-            # in-place文字置換           
-            context_lines[:] = [line.replace(param_name, str(value)) for line in context_lines]
+                # in-place文字置換           
+                context_lines[:] = [line.replace(param_name, str(value)) for line in context_lines]
+
+        else:
+            # 無名contextブロック
+            # この場合、強制的に次の無名addブロックで置換する
+            for add_block in tune_block.add_blocks:
+                if len(add_block.params) == 0:
+                    context_lines = add_block.content
+                    break
+                else:
+                    raise Exception("置換対象となる無名addブロックが来ていない。")
+
 
         # 前者を後者で置換する。
         filename = tune_block.setblock['file']
@@ -318,7 +334,6 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         replaced = context_lines
         replace_context(filename, context, replaced)
 
-        prefix = tune_block.context_blocks[0].params[0]
         print(f"Patch applied to {prefix} .. done.")
 
     print("All patches have been applied successfully.")
@@ -343,7 +358,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。
         block = tune_block.context_blocks[0]
-        prefix = block.params[0]
+        prefix = block.params[0] if block.params else ""
         _ , removed_numbers, params_name = parse_content_block(block, prefix)
 
         for param_name, number in zip(params_name, removed_numbers):
@@ -398,7 +413,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     for tune_block in tune_blocks:
         filename      = tune_block.setblock['file']
         content_block = tune_block.context_blocks[0]
-        prefix        = content_block.params[0]
+        prefix        = content_block.params[0] if content_block.params else ""
         modified_block , _, params_name = parse_content_block(content_block, prefix)
 
         # print(params_name , modified_block)
@@ -422,7 +437,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                 add_content(filename, block_name, modified_block2)
             else:
                 # context block名
-                prefix = tune_block.context_blocks[0].params[0]
+                prefix = tune_block.context_blocks[0].params[0] if tune_block.context_blocks[0].params else ""
                 print(f"replace block, prefix = {prefix}")
 
                 # contextが合致する箇所を探す。
@@ -452,8 +467,10 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
         # これらをそれぞれ
         # `#set tune`と`#set declare`で指定されたところに追加する。
 
-        add_content(filename, tune_block.setblock['declaration'], tune_params_to_declare)
-        add_content(filename, tune_block.setblock['options']    , tune_params_to_options)
+        if 'declaration' in tune_block.setblock:
+            add_content(filename, tune_block.setblock['declaration'], tune_params_to_declare)
+        if 'options' in tune_block.setblock:
+            add_content(filename, tune_block.setblock['options']    , tune_params_to_options)
 
     print("end tune_parameters()")
 

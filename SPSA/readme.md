@@ -212,6 +212,21 @@ static constexpr std::array<ConthistBonus, 6> conthist_bonuses =
     {{1, 1092@}, {2, 631@}, {3, 294@}, {4, 517@}, {5,126@}, {6, 445@}};
 ```
 
+### 置換動作
+
+次のように無名contextブロックがある場合、これはそのあとにある無名addブロックで置換される。これはtune/apply時いずれもこのような動作になる。これをpatchを当てるのに用いることができる。
+
+```
+#set file test.cpp
+#context
+
+    static constexpr int nonPawnWeight = 165;
+
+#add
+
+    // static constexpr int nonPawnWeight = 165;
+```
+
 
 ## `.params`ファイルのフォーマットについて
 
