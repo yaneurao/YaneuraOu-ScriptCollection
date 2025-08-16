@@ -90,11 +90,11 @@ class WinManager:
                             rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
                             win_rate  = f"{win_rate:.3f}"
 
-                        # Last N win-draw-lose 勝率 R差
-                        summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
+                    # Last N win-draw-lose 勝率 R差
+                    summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
 
-                        # レートだけ表示用に積むか。
-                        # summary.append(f"R{rate_diff}")
+                    # レートだけ表示用に積むか。
+                    # summary.append(f"R{rate_diff}")
 
                     n *= 2
 
