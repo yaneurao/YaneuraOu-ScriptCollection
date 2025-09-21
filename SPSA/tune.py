@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import traceback
+import copy
 from dataclasses import dataclass, field
 from ParamLib import *
 
@@ -130,6 +131,8 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
     for block in blocks:
         block_name = block.type
         if block_name.startswith("set"):
+            # 新しいセクションかも知れないのでいまあるものを追記する。
+            append_check()
             if len(block.params) < 2:
                 raise Exception(f"Error : Insufficient parameters in set block, {block}")
             setblock[block.params[0]] = block.params[1]
@@ -144,6 +147,7 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
             current_block.context_blocks.append(block)
         elif block_name.startswith("add"):
             current_block.add_blocks.append(block)
+
     append_check()
             
     print(f", {len(result)} TuneBlocks.")
@@ -484,6 +488,10 @@ if __name__ == "__main__":
     target_dir = args[3] if len(args) >= 4 else "source"
     tune_file  = args[2] if len(args) >= 3 else "suisho10.tune"
     command    = args[1] if len(args) >= 2 else ""
+
+    target_dir = args[3] if len(args) >= 4 else "source"
+    tune_file  = args[2] if len(args) >= 3 else "param/checkshogi.tune"
+    command    = args[1] if len(args) >= 2 else "apply"
 
     params_file, _ = os.path.splitext(tune_file)
     params_file += ".params"
