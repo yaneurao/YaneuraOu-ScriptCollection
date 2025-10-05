@@ -3,15 +3,15 @@
 #set options %%TUNE_OPTIONS%%
 #context correction_value
 
-    return 8867@ * pcv + 8136@ * micv + 10757@ * (wnpcv + bnpcv) + 7232@ * cntcv;
+    return 9536@ * pcv + 8494@ * micv + 10132@ * (wnpcv + bnpcv) + 7156@ * cntcv;
 
 #context update_correction_history_nonPawnWeight // update_correction_history()
 
-    static constexpr int nonPawnWeight = 165@;
+    constexpr int nonPawnWeight = 165@;
 
 #add
 
-    // static constexpr int nonPawnWeight = 165;
+    // constexpr int nonPawnWeight = 165;
 
 #add %%TUNE_DECLARATION%%
 
@@ -21,7 +21,7 @@
 #context update_correction_history1 // update_correction_history()
 
     workerThread.pawnCorrectionHistory[pawn_correction_history_index(pos)][us] << bonus;
-    workerThread.minorPieceCorrectionHistory[minor_piece_index(pos)][us] << bonus * 153@ / 128;
+    workerThread.minorPieceCorrectionHistory[minor_piece_index(pos)][us] << bonus * 145@ / 128;
     workerThread.nonPawnCorrectionHistory[non_pawn_index<WHITE>(pos)][WHITE][us]
       << bonus * nonPawnWeight / 128;
     workerThread.nonPawnCorrectionHistory[non_pawn_index<BLACK>(pos)][BLACK][us]
@@ -31,23 +31,25 @@
 
     if (m.is_ok())
         (*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
-          << bonus * 153@ / 128;
+          << bonus * 137@ / 128;
 
 #context lowPlyHistory_fill
 
     // 💡 lowPlyHistoryは、試合開始時に1回だけではなく、"go"の度に初期化したほうが強い。
-    lowPlyHistory.fill(89@);
+    lowPlyHistory.fill(97@);
 
 
 #context aspiration_window
 
-            delta     = 5@ + std::abs(rootMoves[pvIdx].meanSquaredScore) / 11131@;
+            delta     = 5@ + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 9000@;
+
 
 #context YaneuraOuWorker_clear1
 
-    mainHistory.fill(64@);
-    captureHistory.fill(-753@);
-    pawnHistory.fill(-1275@);
+    mainHistory.fill(68@);
+    captureHistory.fill(-689@);
+    pawnHistory.fill(-1238@);
+
 
 #context YaneuraOuWorker_clear2
 
@@ -55,235 +57,215 @@
         for (StatsType c : {NoCaptures, Captures})
             for (auto& to : continuationHistory[inCheck][c])
                 for (auto& h : to)
-                    h.fill(-494@);
+                    h.fill(-529@);
 
 #context YaneuraOuWorker_clear3
 
 	// reductions tableの初期化(これはWorkerごとが持つように変更された)
     for (size_t i = 1; i < reductions.size(); ++i)
-        reductions[i] = int(2782@ / 128.0 * std::log(i));
+        reductions[i] = int(2809@ / 128.0 * std::log(i));
 
 #context Search_tt_lookup1 // search() Step 4.
 
             if (!ttCapture)
                 update_quiet_histories(pos, ss, *this, ttData.move,
-                                       std::min(127@ * depth - 74@, 1063@));
+                                       std::min(130@ * depth - 71@, 1043@));
 
 #context Search_tt_lookup2
 
-			if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 3 && !priorCapture)
-                update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2128@);
+			if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 4 && !priorCapture)
+                update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2142@);
 
 #context Search_static_evaluation1 // search Step 6.
 
-        int bonus =
-            std::clamp(-10 * int((ss - 1)->staticEval + ss->staticEval), -1979@, 1561@) + 630@;
-        mainHistory[~us][((ss - 1)->currentMove).from_to()] << bonus * 935@ / 1024;
+        int bonus = std::clamp(-10 * int((ss - 1)->staticEval + ss->staticEval), -2023@, 1563@) + 583@;
+        mainHistory[~us][((ss - 1)->currentMove).from_to()] << bonus * 944@ / 1024;
 
 #context Search_static_evaluation2
 
         if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
             && ((ss - 1)->currentMove).type_of() != PROMOTION)
             pawnHistory[pawn_history_index(pos)][pos.piece_on(prevSq)][prevSq]
-              << bonus * 1428@ / 1024;
+              << bonus * 1438@ / 1024;
 
 #context Search_static_evaluation3
 
-    if (priorReduction >= 2 && depth >= 2 && ss->staticEval + (ss - 1)->staticEval > 177@)
+    if (priorReduction >= 2 && depth >= 2 && ss->staticEval + (ss - 1)->staticEval > 173@)
         depth--;
 
 #context Search_razoring // search() Step 7.
 
-    if (!PvNode && eval < alpha - 495@ - 290@ * depth * depth)
+    if (!PvNode && eval < alpha - 514@ - 294@ * depth * depth)
         return qsearch<NonPV>(pos, ss, alpha, beta);
 
 #context Search_futility // Search step 8.
 
 		auto futility_margin = [&](Depth d) {
-            Value futilityMult = 90@ - 20@ * (cutNode && !ss->ttHit);
+            Value futilityMult = 91@ - 21@ * !ss->ttHit;
 
-            return futilityMult * d                      //
-                 - improving * futilityMult * 2          //
-                 - opponentWorsening * futilityMult / 3  //
-                 + (ss - 1)->statScore / 356@             //
-                 + std::abs(correctionValue) / 171290@;
+            return futilityMult * d                                //
+                 - 2094 * improving * futilityMult / 1024          //
+                 - 1324 * opponentWorsening * futilityMult / 4096  //
+                 + (ss - 1)->statScore / 331@                       //
+                 + std::abs(correctionValue) / 158105@;
         };
 
 #context Search_nullmove // Search step 9.
 
-    if (cutNode && ss->staticEval >= beta - 19@ * depth + 403@
+    if (cutNode && ss->staticEval >= beta - 18@ * depth + 390@ && !excludedMove
 
 #context Search_Probcut // Search step 11.
 
-    probCutBeta = beta + 215@ - 60@ * improving;
-
-#context Search_Probcut_dynamicReduction // Search step 11.
-
-        Depth      dynamicReduction = (ss->staticEval - beta) / 300@;
+    probCutBeta = beta + 224@ - 64@ * improving;
 
 #context Search_small_Probcut // search() Step 12.
 
-    probCutBeta = beta + 417@;
+    probCutBeta = beta + 418@;
 
 #context Search_decrease_reduction_for_tt_pv // search() Step 13.
 
         if (ss->ttPv)
-            r += 931@;
+            r += 946@;
 
 #context Search_futility_value // search() Step 14.
 
-        Value futilityValue = ss->staticEval + 232@ + 224@ * lmrDepth
-                            + PieceValue[capturedPiece] + 131@ * captHist / 1024;
+        Value futilityValue = ss->staticEval + 231@ + 211@ * lmrDepth
+                            + PieceValue[capturedPiece] + 130@ * captHist / 1024;
 
 #context Search_Continuation_history_based_pruning1 // search() Step 14.
 
-        if (history < -4361@ * depth)
+        if (history < -4312@ * depth)
             continue;
 
-        history += 71@ * mainHistory[us][move.from_to()] / 32;
+        history += 76@ * mainHistory[us][move.from_to()] / 32;
 
-        lmrDepth += history / 3233@;
+        // (*Scaler): Generally, a lower divisor scales well
+        lmrDepth += history / 3220@;
 
 #context Search_Continuation_history_based_pruning2
 
-        Value futilityValue =
-            ss->staticEval + baseFutility + 131@ * lmrDepth + 91@ * (ss->staticEval > alpha);
+        Value futilityValue = ss->staticEval + 47 + 171 * !bestMove + 134@ * lmrDepth
+                            + 90@ * (ss->staticEval > alpha);
 
 #context Search_Continuation_history_based_pruning3 
 
-        if (!pos.see_ge(move, -26@ * lmrDepth * lmrDepth))
+        if (!pos.see_ge(move, -27@ * lmrDepth * lmrDepth))
             continue;
 
 #context Search_Extensions1 // Step 15.
 
-            Value singularBeta  = ttData.value - (56@ + 79@ * (ss->ttPv && !PvNode)) * depth / 58@;
+            Value singularBeta  = ttData.value - (56@ + 81@ * (ss->ttPv && !PvNode)) * depth / 60@;
             Depth singularDepth = newDepth / 2;
 
 #context Search_Extensions2
 
-                int corrValAdj   = std::abs(correctionValue) / 249096@;
+                int corrValAdj   = std::abs(correctionValue) / 229958@;
 
 #context Search_Extensions3
 
-                int doubleMargin = 4@ + 205@ * PvNode - 223@ * !ttCapture - corrValAdj
-                                 - 959@ * ttMoveHistory / 131072 - (ss->ply > rootDepth) * 45@;
+                int doubleMargin = -4@ + 198@ * PvNode - 212@ * !ttCapture - corrValAdj
+                                 - 921@ * ttMoveHistory / 127649 - (ss->ply > rootDepth) * 45@;
 
 #context Search_Extensions4
 
-                int tripleMargin = 80@ + 276@ * PvNode - 249@ * !ttCapture + 86@ * ss->ttPv - corrValAdj
-                                 - (ss->ply * 2 > rootDepth * 3) * 53@;
+                int tripleMargin = 76@ + 308@ * PvNode - 250@ * !ttCapture + 92@ * ss->ttPv - corrValAdj
+                                 - (ss->ply * 2 > rootDepth * 3) * 52@;
 
 
-#context Search_Decrease_reduction_for_PvNodes1 // search() Step 16.
+#context Search_Decrease_reduction_for_PvNodes_1 // search() Step 16.
 
 		if (ss->ttPv)
-            r -= 2510@ + PvNode * 963@ + (ttData.value > alpha)* 916@
-               + (ttData.depth >= depth) * (943@ + cutNode * 1180@);
+            r -= 2618@ + PvNode * 991@ + (ttData.value > alpha) * 903@
+               + (ttData.depth >= depth) * (978@ + cutNode * 1051@);
 
-#context Search_Decrease_reduction_for_PvNodes2a
+#context Search_Decrease_reduction_for_PvNodes_2
 
-        r += 679@ - 6@ * msb(depth);  // Base reduction offset to compensate for other tweaks
+        r += 843@;  // Base reduction offset to compensate for other tweaks
 
-#context Search_Decrease_reduction_for_PvNodes2
+#context Search_Decrease_reduction_for_PvNodes_3
 
-        r -= moveCount * (67@ - 2 * msb(depth));
-        r -= std::abs(correctionValue) / 27160@;
+		r -= moveCount * 66@;
+        r -= std::abs(correctionValue) / 30450@;
 
-#context Search_Decrease_reduction_for_PvNodes3a
+#context Search_Decrease_reduction_for_PvNodes_4
 
         if (cutNode)
-            r += 2998@ + 2 * msb(depth) + (948@ + 14@ * msb(depth)) * !ttData.move;
+            r += 3094@ + 1056@ * !ttData.move;
 
-#context Search_Decrease_reduction_for_PvNodes3b
+#context Search_Decrease_reduction_for_PvNodes_5
 
         if (ttCapture)
-            r += 1402@ - 39@ * msb(depth);
+            r += 1415@;
 
-#context Search_Decrease_reduction_for_PvNodes3c
+#context Search_Decrease_reduction_for_PvNodes_6
 
         if ((ss + 1)->cutoffCnt > 2)
-            r += 925@ + 33@ * msb(depth) + allNode * (701@ + 224@ * msb(depth));
+            r += 1051@ + allNode * 814@;
 
-#context Search_Decrease_reduction_for_PvNodes4a
+
+#context Search_Decrease_reduction_for_PvNodes_7
 
         if (move == ttData.move)
-            r -= 2121@ + 28@ * msb(depth);
+            r -= 2018@;
 
-#context Search_Decrease_reduction_for_PvNodes4b
+#context Search_Decrease_reduction_for_PvNodes_8
 
         if (capture)
-            ss->statScore = 782@ * int(PieceValue[pos.captured_piece()]) / 128
+            ss->statScore = 803@ * int(PieceValue[pos.captured_piece()]) / 128
                           + captureHistory[movedPiece][move.to_sq()][type_of(pos.captured_piece())];
 
-#context Search_Decrease_reduction_for_PvNodes5a
+#context Search_Decrease_reduction_for_PvNodes_9
 
-        r -= ss->statScore * (729@ - 12@ * msb(depth)) / 8192;
+        r -= ss->statScore * 794@ / 8192;
 
 #context Search_Post_LMR_continuation_history_updates // search() Step 17.
 
-        update_continuation_histories(ss, movedPiece, move.to_sq(), 1412@);
+        update_continuation_histories(ss, movedPiece, move.to_sq(), 1365@);
 
-#context Search_Full_depth_search_threshold_1 // Step 18.
+#context Search_Full_depth_search_threshold_1a // Step 18.
 
             if (!ttData.move)
-                r += 1199@ + 35@ * msb(depth);
+                r += 1118@;
 
-#context Search_Full_depth_search_threshold_2
-
-            if (depth <= 4)
-                r += 1150@;
+#context Search_Full_depth_search_threshold_2b
 
             // Note that if expected reduction is high, we reduce search depth here
             // 期待される削減が大きい場合、ここで探索深さを1減らすことに注意してください。
-            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
-                                   newDepth - (r > 3200@) - (r > 4600@ && newDepth > 2), !cutNode);
-
+			value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
+                                   newDepth - (r > 3212@) - (r > 4784@ && newDepth > 2), !cutNode);
 
 #context Search_ttMoveHistoryBonus // search() Step 21.
 
         if (!PvNode)
-            ttMoveHistory << (bestMove == ttData.move ? 811@ : -848@);
-
-#context Search_WRITE_QSEARCH_MATE1PLY_TO_TT // qsearch() Step 4.
-
-        // WRITE_QSEARCH_MATE1PLY_TO_TT
-        if (0@)
-        {
-            // 🤔 このnodeに再訪問することはまずないだろうから、置換表に保存する価値はない可能性があるが。
-
-            ttWriter.write(posKey, bestValue, ss->ttPv, BOUND_EXACT, DEPTH_QS, move,
-                            unadjustedStaticEval, tt.generation());
+            ttMoveHistory << (bestMove == ttData.move ? 809@ : -865@);
 
 #context Search_standPat // qsearch() Step 4.
 
 		futilityBase = ss->staticEval + 352@;
 
-#context Search_Continuation_history_based_pruning // qsearch() Step 6.
+#context Search_Continuation_history_based_pruning_1a // qsearch() Step 6.
 
             if (!capture
-                && (*contHist[0])[pos.moved_piece_after(move)][move.to_sq()]
-                       + pawnHistory[pawn_history_index(pos)][pos.moved_piece(move)][move.to_sq()]
-                     <= 5868@)
+                && pawnHistory[pawn_history_index(pos)][pos.moved_piece(move)][move.to_sq()] < 7300@)
                 continue;
 
 #context YaneuraOuWorker_reduction
 
 Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) const {
     int reductionScale = reductions[d] * reductions[mn];
-    return reductionScale - delta * 731@ / rootDelta + !i * reductionScale * 216@ / 512 + 1089@;
+    return reductionScale - delta * 757@ / rootDelta + !i * reductionScale * 218@ / 512 + 1200@;
+
 }
 
-#context update_all_stats_1a // update_all_stats()
+#context update_all_stats_1b // update_all_stats()
 
-    int bonus        = std::min(170@ * depth - 87@, 1598) + 332@ * (bestMove == ttMove);
-    int quietMalus   = std::min(743@ * depth - 180@, 2287) - 33@ * int(quietsSearched.size());
-    int captureMalus = std::min(708@ * depth - 148@, 2287) - 29@ * int(capturesSearched.size());
-
+    int bonus = std::min(151@ * depth - 91@, 1730) + 302@ * (bestMove == ttMove);
+    int malus = std::min(951@ * depth - 156@, 2468) - 30@ * int(quietsSearched.size());
 
 #context conthist_bonuses // update_all_stats()
 
     static constexpr std::array<ConthistBonus, 6> conthist_bonuses = {
-      {{1, 1108@}, {2, 652@}, {3, 273@}, {4, 572@}, {5, 126@}, {6, 449@}}};
+      {{1, 1157@}, {2, 648@}, {3, 288@}, {4, 576@}, {5, 140@}, {6, 441@}}};
 
 #add
 
@@ -302,14 +284,15 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
             conthist_bonuses[i].weight = t[i];
     }
 
-#context update_quiet_histories // update_quiet_histories()
+#context update_quiet_histories_1a // update_quiet_histories()
 
     if (ss->ply < LOW_PLY_HISTORY_SIZE)
-	    workerThread.lowPlyHistory[ss->ply][move.from_to()] << (bonus * 771@ / 1024) + 40@;
+        workerThread.lowPlyHistory[ss->ply][move.from_to()] << bonus * 761@ / 1024;
 
-    update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(),
-                                  bonus * (bonus > 0 ? 979@ : 842@) / 1024);
+    update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@ / 1024);
+
+#context update_quiet_histories_2a // update_quiet_histories()
 
     int pIndex = pawn_history_index(pos);
-    workerThread.pawnHistory[pIndex][pos.moved_piece_after(move)][move.to_sq()]
-      << (bonus * (bonus > 0 ? 704@ : 439@) / 1024) + 70@;
+    workerThread.pawnHistory[pIndex][pos.moved_piece(move)][move.to_sq()]
+      << (bonus * (bonus > 0 ? 800 : 500) / 1024) + 70@;

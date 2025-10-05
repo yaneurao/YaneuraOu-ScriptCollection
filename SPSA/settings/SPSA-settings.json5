@@ -29,6 +29,6 @@
     ],
 
     // tune.pyの'tune'コマンドで生成したパラメーターファイル
-    "PARAMETERS_PATH" : "suisho10.params"
+    "PARAMETERS_PATH" : "param/suisho10.params"
 
 }
