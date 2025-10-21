@@ -178,6 +178,9 @@ class Engine:
                                                 encoding="UTF-8")
 
         else:
+            # 相対pathで呼び出すと評価関数を読み込めない問題があるっぽい..(やねうら王V9.00系で発覚)
+            path = os.path.abspath(os.path.normpath(path))
+
             if not os.path.isfile(path):
                 self.raise_exception(f"Engine not Found , path = {path}")
 
