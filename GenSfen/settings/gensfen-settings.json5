@@ -1,0 +1,21 @@
+{
+    // 対局開始を行う互角局面集のファイルPATH。
+    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+
+    "ENGINE_SETTING":
+    [
+        {
+            "path":"C:/Users/yaneen/largefile/Shogi/SPSA/YaneuraOuV901suisho11tune/YaneuraOuNNUE_halfkp_1024x2_8_64_V901tune.exe",
+            "name":"YO901tune",
+            "multi":32 // 32個起動する。
+        },
+        /* // SSHでの起動例
+        {
+            "path":"ssh -o ServerAliveInterval=15 9950b YO900tune.bat",
+            "name":"YO900tune",
+            "multi":32 // ssh越しに32個起動する
+        }
+        */
+    ]
+
+}
