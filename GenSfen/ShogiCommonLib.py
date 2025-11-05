@@ -4,6 +4,7 @@ import datetime
 from threading import Lock
 import subprocess
 
+import numpy as np
 from typing import Any
 
 # ============================================================
@@ -29,6 +30,8 @@ VALUE_INF                    =  1000000
 # その指し手の評価値が定まっていない時の定数(定跡として選択されないようにするために-INFみたいな値にしておく。-VALUE_INFは負けの指し手でそれよりはマシだろうから、9999にしておく。)
 VALUE_NONE                   =   -99999
 
+# 平手の開始局面
+STARTPOS_SFEN               = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"
 
 # ============================================================
 #                    helper functions
@@ -382,3 +385,235 @@ BLACK                     = cshogi.BLACK
 
 # 後手番を表す定数
 WHITE                     = cshogi.WHITE
+
+# ============================================================
+
+# 1局の対局データ
+class GameDataEncoder:
+    """
+    1対局分の棋譜データを格納する構造体
+    """
+    def __init__(self):
+        # 棋譜データ本体
+        self.data : bytearray = bytearray()
+
+    def get_bytes(self) -> bytearray:
+        return self.data
+
+    def set_startsfen(self, sfen:str):
+        """ 対局開始局面を追加する。 """
+
+        # 盤面
+        self.board = cshogi.Board(sfen) # type:ignore
+
+        board_sfen = self.board.sfen()
+        if self.board.sfen() == STARTPOS_SFEN:
+            self.data.append(1) # startpos
+            return
+
+        self.data.append(0) # 任意局面。
+
+        # byte列に
+        hcps = np.empty(1, dtype=cshogi.HuffmanCodedPos) # type:ignore
+        self.board.to_hcp(hcps) # type:ignore
+
+        self.data.extend(bytes(hcps))
+
+    def write_uint8(self, b:int):
+        """ 無符号8bit整数を追加する """
+        self.data.append(b)
+
+    def write_uint16(self, b:int):
+        """ 無符号16bit整数を追加する。(指し手もこれで追加する) """
+        self.data.extend(b.to_bytes(2, byteorder='little', signed=False))
+
+    def write_int16(self, eval16:int):
+        """ 符号つき16bit整数を追加する。(評価値もこれで追加する) """
+        self.data.extend(eval16.to_bytes(2, byteorder='little', signed=True))
+
+
+class GameDataDecoder:
+    """
+    1対局分の棋譜データを読み取るクラス
+    """
+    def __init__(self, data:bytearray, pos:int=0):
+        """
+        棋譜のbytearrayと、読み取り開始位置を指定して初期化する。
+        """
+        self.data = data
+        self.pos = pos
+
+    def get_sfen(self)->str:
+        state = self.read_uint8()
+        if state == 1:
+            # 平手の開始局面
+            return STARTPOS_SFEN
+
+        if state != 0:
+            raise Exception("GameDataDecoder: get_sfen: 不明な開始局面形式です。")
+
+        # hcp形式の任意局面
+        b = self.read_bytes(32)
+        board = cshogi.Board() # type:ignore
+        board.set_hcp(np.frombuffer(b, dtype=cshogi.HuffmanCodedPos)) # type:ignore
+        return board.sfen() # type:ignore
+
+    def get_pos(self)->int:
+        """現在の読み取り位置を返す"""
+        return self.pos
+
+    def read_bytes(self, size:int) -> bytearray:
+        """sizeバイト読み取って返す"""
+        if len(self.data) < self.pos + size:
+            raise Exception("GameDataDecoder: read_bytes: 読み取り範囲外です。")
+
+        b = self.data[self.pos:self.pos+size]
+        self.pos += size
+        return b
+
+    def read_uint8(self) -> int:
+        """1バイト読み取ってuint8として返す"""
+        b = self.read_bytes(1)
+        return int.from_bytes(b, byteorder='little')
+
+    def read_uint16(self)->int:
+        """指し手(Move16)を2バイト読み取ってuint16として返す"""
+        b = self.read_bytes(2)
+        return int.from_bytes(b, byteorder='little', signed=False)
+    
+    def read_int16(self)->int:
+        """評価値(符号つき16bit整数)を2バイト読み取ってint16として返す"""
+        b = self.read_bytes(2)
+        return int.from_bytes(b, byteorder='little', signed=True)
+
+class KifWriter:
+    """
+    棋譜保存用クラス
+    binaryで保存する。
+    """
+    def __init__(self):
+        # 書き出すファイル名。自動生成。
+        self.kif_filename = f'kif/kif_{make_time_stamp()}.pack'
+        mkdir(self.kif_filename)
+
+        # 棋譜ファイルのhandle。8KBごとに書き出す。
+        self.kif_file = open(self.kif_filename,'wb', buffering=8192)
+
+        # ファイル書き出し時のlock
+        self.lock = Lock()
+
+    def get_kif_filename(self) -> str:
+        """棋譜ファイル名を返す"""
+        return self.kif_filename
+
+    def write_game(self, game_data:bytearray):
+        """
+        1つの対局棋譜を書き出す。
+        📝 GameDataEncoder.get_bytes()で得られたbytearrayを渡す。
+        """
+        with self.lock:
+            self.kif_file.write(game_data)
+
+    def close(self):
+        """ファイルを閉じる"""
+        self.kif_file.close()
+
+# KifReaderを書こうと思ったが、可変長フォーマットなのでparseするまで終わりかどうかが確定しない。
+# ちょっと使い勝手が悪そうであった。
+# なので、KifReaderは書かずに、PackedKifToHcpeというクラスを書いておく。
+
+def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
+    """
+    Pack形式のファイルをhcpe形式のファイルに変換する。
+    """
+    with open(pack_file_path, 'rb') as r:
+        # 丸読みするの、あまり良くないけど、このコード、丸読みしないのは難しい。
+        data = r.read()
+
+    decoder = GameDataDecoder(bytearray(data))
+
+    # 対局数
+    game_index = 0
+    # 局面数
+    game_positions = 0
+
+    # HuffmanCodedPosAndEval = np.dtype([
+    #     ('hcp', dtypeHcp),
+    #     ('eval', dtypeEval),
+    #     ('bestMove16', dtypeMove16),
+    #     ('gameResult', dtypeGameResult),
+    #     ('dummy', np.uint8),
+    #     ])
+
+    # GAME_RESULTS = [
+    # DRAW, BLACK_WIN, WHITE_WIN,
+    # ] = range(3)
+    
+    with open(hcpe_file_path, 'wb') as w:
+
+        while True:
+            try:
+                sfen = decoder.get_sfen()
+                # print(f"Game {game_index} startpos: {sfen}")
+                game_index += 1
+
+                board = cshogi.Board(sfen) # type:ignore
+
+                # 対局1局分をparseする。
+                game_kif = []
+                game_result = 0
+
+                while True:
+
+                    move = decoder.read_uint16()
+
+                    # 対局終了？
+                    if move == 0x0000 or move == 0x0101 or move == 0x0202:
+                        # 勝者 = draw , black_win , white_win
+                        game_result = move & 0x00ff
+                        # 終局理由
+                        reason = decoder.read_uint8()
+                        # print(f"  End of game with result code: {move:04x} , reason: {reason}")
+
+                        # 負けが確定している局面は書き出さなくていいか…。
+                        break
+
+                    eval16 = decoder.read_int16()
+
+                    # あとで取り出す。
+                    game_kif.append( (move, eval16) )
+
+                # 1局分の記譜をファイルに書き出す。
+                for move, eval16 in game_kif:
+
+                    usi_move = cshogi.move_to_usi(move) # type:ignore
+                    # print(f"  Move: {move:04x} = {usi_move}, Eval: {eval16}, game result = {game_result}")
+
+                    # 局面
+                    hcps = np.empty(1, dtype=cshogi.HuffmanCodedPos) # type:ignore
+                    board.to_hcp(hcps) # type:ignore
+                    w.write(bytes(hcps))
+
+                    # 評価値(手番側から見たもの)
+                    w.write(eval16.to_bytes(2, byteorder='little', signed=True))
+
+                    # 指し手
+                    w.write(move.to_bytes(2, byteorder='little', signed=False)) 
+
+                    # 勝った側
+                    w.write(game_result.to_bytes(1, byteorder='little', signed=False))
+
+                    # ダミー1バイト
+                    w.write((0).to_bytes(1, byteorder='little', signed=False))
+
+                    # 指し手で局面を進める
+                    board.push_move16(move)
+
+                    game_positions += 1
+                    if game_positions % 10000 == 0:
+                        print_log(f"  total positions: {game_positions}")
+
+            except Exception as e:
+                print(f"Finished reading games. Total games: {game_index}, total positions: {game_positions}")
+                break
+
