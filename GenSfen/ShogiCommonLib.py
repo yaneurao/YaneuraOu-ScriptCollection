@@ -431,6 +431,10 @@ class GameDataEncoder:
         """ 符号つき16bit整数を追加する。(評価値もこれで追加する) """
         self.data.extend(eval16.to_bytes(2, byteorder='little', signed=True))
 
+    def write_game_result(self, b:int):
+        """ ゲーム結果を書き出す。0:引き分け, 1:先手勝ち, 2:後手勝ち """
+        self.data.append(b)
+        self.data.append(b)
 
 class GameDataDecoder:
     """
@@ -456,6 +460,8 @@ class GameDataDecoder:
         b = self.read_bytes(32)
         board = cshogi.Board() # type:ignore
         board.set_hcp(np.frombuffer(b, dtype=cshogi.HuffmanCodedPos)) # type:ignore
+        ply = self.read_uint16()
+        board.move_number(ply)
         return board.sfen() # type:ignore
 
     def get_pos(self)->int:
