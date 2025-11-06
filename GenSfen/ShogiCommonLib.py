@@ -326,13 +326,14 @@ class Board:
     cshogi.Boardとだいたい等価。
     '''
     def __init__(self,position_str:str=''):
-        self.board = cshogi.Board(position_str)
-    
+        self.board = cshogi.Board() # type:ignore
+        self.board.set_position(position_str)
+
     def to_svg(self)->str:
         '''局面をSVG化した文字列を返す。'''
         return self.board.to_svg()
     
-    def set_position(self,position_str:str)->str:
+    def set_position(self,position_str:str):
         '''局面を設定する。'''
         self.board.set_position(position_str)
 
@@ -404,9 +405,9 @@ class GameDataEncoder:
         """ 対局開始局面を追加する。 """
 
         # 盤面
-        self.board = cshogi.Board(sfen) # type:ignore
+        self.board = cshogi.Board() # type:ignore
+        self.board.set_position(sfen)
 
-        board_sfen = self.board.sfen()
         if self.board.sfen() == STARTPOS_SFEN:
             self.data.append(1) # startpos
             return
@@ -419,6 +420,9 @@ class GameDataEncoder:
 
         self.data.extend(bytes(hcps))
 
+        game_ply = self.board.move_number
+        self.write_uint16(game_ply)
+
     def write_uint8(self, b:int):
         """ 無符号8bit整数を追加する """
         self.data.append(b)
@@ -428,8 +432,19 @@ class GameDataEncoder:
         self.data.extend(b.to_bytes(2, byteorder='little', signed=False))
 
     def write_int16(self, eval16:int):
-        """ 符号つき16bit整数を追加する。(評価値もこれで追加する) """
+        """ 符号つき16bit整数を追加する。"""
         self.data.extend(eval16.to_bytes(2, byteorder='little', signed=True))
+
+    def write_eval(self, eval16:int):
+        """ 評価値の追加用 """
+
+        # これはevalの書き出し用なので、clampしとくか…。
+        if eval16 < -32000:
+            eval16 = -32000
+        elif eval16 > 32000:
+            eval16 = 32000
+
+        self.write_int16(eval16)
 
     def write_game_result(self, b:int):
         """ ゲーム結果を書き出す。0:引き分け, 1:先手勝ち, 2:後手勝ち """
@@ -461,7 +476,7 @@ class GameDataDecoder:
         board = cshogi.Board() # type:ignore
         board.set_hcp(np.frombuffer(b, dtype=cshogi.HuffmanCodedPos)) # type:ignore
         ply = self.read_uint16()
-        board.move_number(ply)
+        board.move_number = ply
         return board.sfen() # type:ignore
 
     def get_pos(self)->int:
@@ -505,6 +520,9 @@ class KifWriter:
         # 棋譜ファイルのhandle。8KBごとに書き出す。
         self.kif_file = open(self.kif_filename,'wb', buffering=8192)
 
+        # 書き出した対局数
+        self.game_count = 0
+
         # ファイル書き出し時のlock
         self.lock = Lock()
 
@@ -519,6 +537,12 @@ class KifWriter:
         """
         with self.lock:
             self.kif_file.write(game_data)
+            self.kif_file.flush()
+
+            # 書き出した対局数
+            self.game_count += 1
+            if self.game_count % 100 == 0:
+                print_log(f"  total games written: {self.game_count}")
 
     def close(self):
         """ファイルを閉じる"""

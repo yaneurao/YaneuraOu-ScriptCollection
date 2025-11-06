@@ -327,7 +327,7 @@ class ShogiMatch:
 
 
         # 対局開始前のisready送信
-        # (パラメーターが変更になったかも知れないので初期化)
+        # (パラメーターが変更になったかも知れないので毎回`isready`で初期化)
         for engine in self.engines:
             engine.isready()
 

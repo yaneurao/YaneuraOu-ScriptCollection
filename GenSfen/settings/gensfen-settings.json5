@@ -7,7 +7,7 @@
         {
             "path":"C:/Users/yaneen/largefile/Shogi/SPSA/YaneuraOuV901suisho11tune/YaneuraOuNNUE_halfkp_1024x2_8_64_V901tune.exe",
             "name":"YO901tune",
-            "multi":32 // 32個起動する。
+            "multi":2 // 32個起動する。
         },
         /* // SSHでの起動例
         {

@@ -21,7 +21,7 @@ SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
 STARTPOS_SFENS_PATH        = "settings/startpos-sfens.txt"
 
 # 対局の最大手数
-MAX_PLY                    = 320
+MAX_GAME_PLY               = 320
 
 # ============================================================
 
@@ -48,21 +48,26 @@ class SharedState:
         self.startpos_lock = Lock()
 
     def get_next_startpos_sfen(self) -> str:
-        """次の対局開始局面を取得する。"""
+        """
+        次の対局開始局面を取得する。
+        position文字列が返る。
+        """
 
         with self.startpos_lock:
             if not self.startpos_sfens:
 
                 # 対局開始局面の読み込み
-                print("loading startpos sfens, PATH = ", STARTPOS_SFENS_PATH)
+                print_log(f"loading startpos sfens, PATH = {STARTPOS_SFENS_PATH}")
                 with open(STARTPOS_SFENS_PATH, "r", encoding="utf-8") as f:
-                    startpos_sfens = [line.strip() for line in f if line.strip()]
-                random.shuffle(startpos_sfens)
-                startpos_sfens = startpos_sfens
-                print(f"..loaded {len(startpos_sfens)} startpos sfens.")
+                    self.startpos_sfens = [line.strip() for line in f if line.strip()]
+                random.shuffle(self.startpos_sfens)
+                print_log(f"..loaded {len(self.startpos_sfens)} startpos sfens.")
+                if not self.startpos_sfens:
+                    raise Exception("No startpos sfens loaded.")
 
             # ひとつpopして返す。
             sfen = self.startpos_sfens.pop()
+
             return sfen
 
 
@@ -141,9 +146,14 @@ class ShogiMatch:
         game_data.set_startsfen(startpos_sfen)
 
         # 対局処理
-        board = cshogi.Board(startpos_sfen) # type: ignore
+        board = cshogi.Board() # type: ignore
+        board.set_position(startpos_sfen) 
 
-        while board.ply() <= MAX_PLY:
+        # 対局前の初期化
+        for engine in self.engines:
+            engine.send_usi('usinewgame')
+
+        while board.move_number <= MAX_GAME_PLY:
 
             if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
                 # 千日手引き分け
@@ -154,33 +164,32 @@ class ShogiMatch:
             # 現在の局面をSFEN形式で取得
             sfen = board.sfen()
 
-            engine = self.engines[board.turn()]  # 手番側のエンジンを取得
+            engine = self.engines[board.turn]  # 手番側のエンジンを取得
             usi_move, eval = engine.go(sfen, self.shared.nodes)
 
             if usi_move == "resign":
                 # 投了
-                winner = board.turn() ^ 1  # 非手番側の勝ち black=0, white=1
+                winner = board.turn ^ 1  # 非手番側の勝ち black=0, white=1
                 game_data.write_game_result(winner + 1)
                 game_data.write_uint8(0) # 終局理由: resign
                 break
 
             if usi_move == "win":
                 # 入玉宣言勝ち
-                winner = board.turn()  # 手番側の勝ち black=0, white=1
+                winner = board.turn  # 手番側の勝ち black=0, white=1
                 game_data.write_game_result(winner + 1)
                 game_data.write_uint8(10) # 終局理由: win by csa_rule24
                 break
 
-            # エンジン1の指し手を取得
-            board.push_usi(usi_move)
+            # 指し手文字列をAperyのmove16形式に変換
+            move = board.move_from_usi(usi_move) & 0xffff
 
             # 棋譜データに追加
-            move = board.move_from_usi(usi_move)
-
             game_data.write_uint16(move)
-            game_data.write_int16(eval)
+            game_data.write_eval(eval)
 
-            engine_num ^= 1  # 手番交代
+            # エンジンの指し手で局面を進める
+            board.push_usi(usi_move)
 
             if self.quit:
                 raise Exception("quit requested")
@@ -285,9 +294,9 @@ def user_input():
     # ログ記録を自動的に開始する。
     enable_print_log()
 
-    print("GenSfen script start. version =", SCRIPT_VERSION)
-    print("SETTING_JSON_PATH = ", SETTING_JSON_PATH)
-    print("STARTPOS_SFENS_PATH = ", STARTPOS_SFENS_PATH)
+    print_log(f"GenSfen script start. version = {SCRIPT_VERSION}")
+    print_log(f"SETTING_JSON_PATH = {SETTING_JSON_PATH}")
+    print_log(f"STARTPOS_SFENS_PATH = {STARTPOS_SFENS_PATH}")
 
     # 設定ファイルの読み込み
     with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
@@ -304,7 +313,7 @@ def user_input():
 
     while True:
         try:
-            print_log("[Q]uit [G]ame [H]elp> ", end='')
+            print_log("[Q]uit [G]ensfen [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -313,7 +322,7 @@ def user_input():
             if i == 'h':
                 print_log("Help : ")
                 print_log("  Q or ! : Quit")
-                print_log("  G : GenSfen nodes")
+                print_log("  G : GenSfen [nodes]")
 
             elif i == 'g':
 
@@ -323,7 +332,7 @@ def user_input():
                     # 引数で指定されているなら、それで差し替える。
                     nodes = int(inp[1])
                 shared.nodes = nodes
-                print_log(f"start gensfen nodes = {nodes}")
+                print_log(f"start gensfen nodes = {nodes}, max_game_ply = {MAX_GAME_PLY}")
                 matcher.start_games()
 
             elif i == 'q' or i == '!':

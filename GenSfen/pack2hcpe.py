@@ -63,22 +63,24 @@ def main():
 
     args = parser.parse_args()
 
-    # file1 が指定されていない場合 → help を表示して終了
-    if args.file1 is None:
-        parser.print_help(sys.stderr)
-        return
-
     pack_path = args.file1
     hcpe_path = args.file2
 
+    pack_path = "kif/kif_20251106213805.pack"
+
+    # file1 が指定されていない場合 → help を表示して終了
+    if pack_path is None:
+        parser.print_help(sys.stderr)
+        return
+
     if hcpe_path is None:
         # 変換後のファイルpathが指定されていないので、変換前のファイルに".hcpe"を付加したものにする。
-        hcpe_path = args.file1 + ".hcpe"
+        hcpe_path = pack_path + ".hcpe"
 
     print("File 1:", pack_path)
     print("File 2:", hcpe_path)
 
-    pack_file_to_hcpe(args.file1, hcpe_path)
+    pack_file_to_hcpe(pack_path, hcpe_path)
 
 if __name__ == "__main__":
     main()
