@@ -95,9 +95,82 @@ def trim_sfen(sfen:str)->Sfen:
     return " ".join(s)
 
 
+def trim_sfen_ply(sfen:str)->tuple[Sfen,int]:
+    '''
+    "sfen"で開始される形式のsfen文字列(ただし先頭の"sfen"は含まず)に対して、末尾の手数を取り除いて返す。
+    
+    末尾の手数を返す。手数がついていなければ、ply=0として返す。 
+    '''
+    s = sfen.split()
+
+    # 先頭にsfenが含まれていたら除去
+    if s[0] == 'sfen':
+        del s[0]
+
+    try:
+        # 末尾が数字なのかテストする
+        ply = int(s[-1])
+        del s[-1]
+    except:
+        # 数字が付与されてないんじゃ？
+        ply = 0
+
+    return " ".join(s) , ply
+
+
 def rand(r:int)->int:
     '''0からr-1までの整数乱数を返す。'''
     return random.randint(0,r-1)
+
+
+# 180°反転させる時のマス目文字列
+FLIP = {'1':'9','2':'8','3':'7','4':'6','5':'5','6':'4','7':'3','8':'2','9':'1',
+        'a':'i','b':'h','c':'g','d':'f','e':'e','f':'d','g':'c','h':'b','i':'a'}
+
+def flipped_move(move:Move)->Move:
+    '''flipさせた指し手を返す'''
+    if not len(move) in [4,5]:
+        raise Exception(f"moveが4,5文字でない{move}")
+    is_drop = move[1] == '*'
+    if is_drop:
+        return f"{move[0]}*{FLIP[move[2]]}{FLIP[move[3]]}{move[4:]}"
+    return f"{FLIP[move[0]]}{FLIP[move[1]]}{FLIP[move[2]]}{FLIP[move[3]]}{move[4:]}"
+
+def flipped_sfen(sfen:str)->Sfen:
+    """
+    与えられたsfen文字列をflipしたsfen文字列にする。
+    例) "lnsgkgsnl/1r5b1/3pppppp/9/9/7P1/PPPPPPP1P/1B5R1/LNSGKGSNL w P2p"
+　　　→ "lnsgkgsnl/1r5b1/p1ppppppp/1p7/9/9/PPPPPP3/1B5R1/LNSGKGSNL b 2Pp"
+    """
+
+    # 余分なものを除去
+    sfen = trim_sfen(sfen)
+    # 手数は含まれていない。手駒はなしなら"-"だから、常にあるはず。
+    sfen_board, turn, hands= sfen.split()
+    # 逆順にして大文字小文字を入れ替えるだけ。
+    # ただし成り駒は'+'が駒名の前につく。逆順にしているので、'+b' になるべきところが 'b+'になってしまう。
+    # そこで、逆順にしたあと、"b+"を"+b"に修正する。
+    # 逆順にする前にやるとboard[i]を見てboard[i+1]とswapすると、次のループでまたそれがswapされてまずい。
+    l = list(sfen_board[::-1].swapcase())
+    for i in range(1, len(l)):
+        if l[i] == '+':
+            l[i], l[i - 1] = l[i - 1], l[i]
+    sfen_board = ''.join(l)
+    # 手駒は後ろから見ていき、最初に大文字になるところをmとして、そこで区切って入れ替えてswapcase
+    # Finding the index 'm' from the end where the first uppercase letter appears
+    m = next((i for i in range(len(hands) - 1, -1, -1) if hands[i].isupper()), -1)
+    hands = (hands[m+1:] + hands[:m+1]).swapcase()
+    # 手番は反転
+    turn = 'w' if turn == 'b' else 'b'
+
+    return f"{sfen_board} {turn} {hands}" 
+
+def is_black_sfen(sfen:Sfen)->bool:
+    """
+    先手のsfen表記であるかを判定する。
+    (sfen文字列はwが含まれていれば後手番。)
+    """
+    return 'w' not in sfen
 
 
 def index_of(a:list[Any] | str, x:Any):

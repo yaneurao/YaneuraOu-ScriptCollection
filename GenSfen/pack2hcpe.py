@@ -66,7 +66,7 @@ def main():
     pack_path = args.file1
     hcpe_path = args.file2
 
-    pack_path = "kif/kif_20251106213805.pack"
+    # pack_path = "kif/kif_20251106213805.pack"
 
     # file1 が指定されていない場合 → help を表示して終了
     if pack_path is None:
