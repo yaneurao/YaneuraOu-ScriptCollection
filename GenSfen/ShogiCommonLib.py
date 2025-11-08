@@ -537,24 +537,23 @@ class GameDataEncoder:
         """ 符号つき16bit整数を追加する。"""
         self.data.extend(eval16.to_bytes(2, byteorder='little', signed=True))
 
-    def write_eval(self, eval16:int):
+    def write_eval(self, eval_int:int):
         """ 評価値の追加用 """
 
         # これはevalの書き出し用なので、clampしとくか…。
-        if eval16 < -32000:
-            eval16 = -32000
-        elif eval16 > 32000:
-            eval16 = 32000
+        if eval_int < -32000:
+            eval_int = -32000
+        elif eval_int > 32000:
+            eval_int = 32000
 
-        self.write_int16(eval16)
+        self.write_int16(eval_int)
 
         # 書き出した局面数をインクリメント
         self.position_num += 1
 
     def write_game_result(self, b:int):
         """ ゲーム結果を書き出す。0:引き分け, 1:先手勝ち, 2:後手勝ち """
-        self.data.append(b)
-        self.data.append(b)
+        self.write_uint16(b + (b << 7))
 
 class GameDataDecoder:
     """
@@ -611,6 +610,11 @@ class GameDataDecoder:
         """評価値(符号つき16bit整数)を2バイト読み取ってint16として返す"""
         b = self.read_bytes(2)
         return int.from_bytes(b, byteorder='little', signed=True)
+
+    # データの末尾までreadしたのか。
+    def eof(self)->bool:
+        return len(self.data) == self.pos
+
 
 class KifWriter:
     """
@@ -691,8 +695,9 @@ def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
     
     with open(hcpe_file_path, 'wb') as w:
 
-        while True:
-            try:
+        try:
+            while not decoder.eof():
+               
                 sfen = decoder.get_sfen()
                 # print(f"Game {game_index} startpos: {sfen}")
                 game_index += 1
@@ -708,9 +713,15 @@ def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
                     move = decoder.read_uint16()
 
                     # 対局終了？
-                    if move == 0x0000 or move == 0x0101 or move == 0x0202:
+
+                    # 指し手の移動元と移動先が同じであれば、それは対局終了のマーカー
+                    sq1 = move & 0x7f
+                    sq2 = (move >> 7) & 0x7f
+                    if sq1 == sq2:
+
                         # 勝者 = draw , black_win , white_win
-                        game_result = move & 0x00ff
+                        game_result = sq1
+
                         # 終局理由
                         reason = decoder.read_uint8()
                         # print(f"  End of game with result code: {move:04x} , reason: {reason}")
@@ -753,7 +764,7 @@ def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
                     if game_positions % 10000 == 0:
                         print_log(f"  total positions: {game_positions}")
 
-            except Exception as e:
-                print(f"Finished reading games. Total games: {game_index}, total positions: {game_positions}")
-                break
+        except Exception as e:
+            print(f"Exception : {e}")
 
+        print(f"Finished reading games. Total games: {game_index}, total positions: {game_positions}")

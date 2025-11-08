@@ -201,7 +201,7 @@ class ShogiMatch:
             sfen = board.sfen()
 
             engine = self.engines[board.turn]  # 手番側のエンジンを取得
-            usi_move, eval = engine.go(sfen, self.shared.nodes)
+            usi_move, eval_int = engine.go(sfen, self.shared.nodes)
 
             if usi_move == "resign":
                 # 投了
@@ -222,7 +222,7 @@ class ShogiMatch:
 
             # 棋譜データに追加
             game_data.write_uint16(move)
-            game_data.write_eval(eval)
+            game_data.write_eval(eval_int)
 
             # エンジンの指し手で局面を進める
             board.push_usi(usi_move)

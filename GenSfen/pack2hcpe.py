@@ -22,7 +22,7 @@ def game_data_read_write_test():
     gd.write_uint16(move) # 指し手1
     gd.write_int16(-100) # 評価値+1234
 
-    gd.write_uint16(0x0101) # 先手側の勝ち
+    gd.write_uint16(0x0081) # 先手側の勝ち
     gd.write_uint8(255) # status何か。
 
     decoder = GameDataDecoder(gd.get_bytes())
@@ -47,8 +47,8 @@ def game_data_read_write_test():
     print(len(gd.data))
 
     # 棋譜に書き出してみる。
-    kif = KifWriter()
-    kif.write_game(gd.get_bytes())
+    kif = KifWriter(1000)
+    kif.write_game(gd)
     kif.close()
 
     # 書き出したkifファイルをhcpe形式に変換してみる。
@@ -66,7 +66,7 @@ def main():
     pack_path = args.file1
     hcpe_path = args.file2
 
-    # pack_path = "kif/kif_20251106213805.pack"
+    pack_path = "kif/kif_20251108133357_100000.pack"
 
     # file1 が指定されていない場合 → help を表示して終了
     if pack_path is None:
