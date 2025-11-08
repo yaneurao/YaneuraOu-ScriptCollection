@@ -67,7 +67,7 @@ def retrieve_yanebook(yanebook_path: str, startsfens_path: str):
                             startsfens[next_sfen] = next_ply
 
                     # 進捗を出力する。
-                    if len(startsfens) % 10000:
+                    if len(startsfens) % 10000 == 0:
                         print(len(startsfens))
 
                     board.pop()
@@ -87,15 +87,25 @@ def retrieve_yanebook(yanebook_path: str, startsfens_path: str):
         if line.startswith('sfen '):
             append_to_book()
             sfen , ply = trim_sfen_ply(line)
+            if ply == 0:
+                # print(f"warning! : ply = 0 , line = {line}")
+                
+                # ペタショック定跡には、たまーに0のものが混じっている。これは定跡からimportしたためだと思われる。
+                # とりま1に変更しておく。
+                ply = 1
         else:
             move_str, *_ = line.split(' ')
             moves.append(move_str)
     append_to_book()
 
     # ファイルに書き出す。
+    count = 0
     with open(startsfens_path, "w") as f:
         for sfen, ply in startsfens.items():
             f.write(f"{sfen} {ply} \n")
+            count += 1
+            if count % 10000 == 0:
+                print(f"count = {count}")
 
 
 def main():
@@ -108,7 +118,8 @@ def main():
     yanebook_path   = args.path1
     startsfens_path = args.path2
 
-    # pack_path = "kif/kif_20251106213805.pack"
+    # yanebook_path = "yanebook.txt"
+    yanebook_path = r"C:\Users\yaneen\largefile\Shogi\Shogidokoro\Engine\tanuki-dr5_with_petabook\book\user_book1.db"
 
     # file1 が指定されていない場合 → help を表示して終了
     if yanebook_path is None:

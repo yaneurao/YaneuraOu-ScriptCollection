@@ -31,7 +31,7 @@ VALUE_INF                    =  1000000
 VALUE_NONE                   =   -99999
 
 # 平手の開始局面
-STARTPOS_SFEN               = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"
+SFEN_START_PLY1              = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"
 
 # ============================================================
 #                    helper functions
@@ -462,6 +462,31 @@ WHITE                     = cshogi.WHITE
 
 # ============================================================
 
+def board_from_position_string(s : PositionStr)->cshogi.Board: # type:ignore
+    """
+    positionコマンドで指定する文字列
+        startpos
+        startpos moves ..
+        SFEN文字列
+        SFEN文字列 moves..
+    をdecodeして、通常のSfen文字列(plyつき)に変換する。
+    """
+    if 'moves' in s:
+        sfen , moves = s.split('moves')
+        moves = moves.split()
+    else:
+        sfen, moves = s, []
+
+    sfen = sfen.strip()
+    if sfen == 'startpos':
+        sfen = SFEN_START_PLY1
+
+    board = cshogi.Board(sfen) # type:ignore
+    for move in moves:
+        board.push_usi(move)
+    
+    return board
+
 # 1局の対局データ
 class GameDataEncoder:
     """
@@ -470,18 +495,22 @@ class GameDataEncoder:
     def __init__(self):
         # 棋譜データ本体
         self.data : bytearray = bytearray()
+        # 書き出した局面数
+        self.position_num = 0
 
     def get_bytes(self) -> bytearray:
         return self.data
 
-    def set_startsfen(self, sfen:str):
-        """ 対局開始局面を追加する。 """
+    def set_startsfen(self, position_str:str):
+        """
+          対局開始局面をself.dataに追加する。
+          また、self.boardには、この局面のcshogi.Boardが設定される。
+        """
 
         # 盤面
-        self.board = cshogi.Board() # type:ignore
-        self.board.set_position(sfen)
+        self.board = board_from_position_string(position_str)
 
-        if self.board.sfen() == STARTPOS_SFEN:
+        if self.board.sfen() == SFEN_START_PLY1:
             self.data.append(1) # startpos
             return
 
@@ -519,6 +548,9 @@ class GameDataEncoder:
 
         self.write_int16(eval16)
 
+        # 書き出した局面数をインクリメント
+        self.position_num += 1
+
     def write_game_result(self, b:int):
         """ ゲーム結果を書き出す。0:引き分け, 1:先手勝ち, 2:後手勝ち """
         self.data.append(b)
@@ -539,7 +571,7 @@ class GameDataDecoder:
         state = self.read_uint8()
         if state == 1:
             # 平手の開始局面
-            return STARTPOS_SFEN
+            return SFEN_START_PLY1
 
         if state != 0:
             raise Exception("GameDataDecoder: get_sfen: 不明な開始局面形式です。")
@@ -585,9 +617,10 @@ class KifWriter:
     棋譜保存用クラス
     binaryで保存する。
     """
-    def __init__(self):
+    def __init__(self, nodes:int):
         # 書き出すファイル名。自動生成。
-        self.kif_filename = f'kif/kif_{make_time_stamp()}.pack'
+        # nodes : ノード数。これをファイル名に付与する。
+        self.kif_filename = f'kif/kif_{make_time_stamp()}_{nodes}.pack'
         mkdir(self.kif_filename)
 
         # 棋譜ファイルのhandle。8KBごとに書き出す。
@@ -596,6 +629,9 @@ class KifWriter:
         # 書き出した対局数
         self.game_count = 0
 
+        # 書き出した局面数
+        self.position_num = 0
+
         # ファイル書き出し時のlock
         self.lock = Lock()
 
@@ -603,19 +639,20 @@ class KifWriter:
         """棋譜ファイル名を返す"""
         return self.kif_filename
 
-    def write_game(self, game_data:bytearray):
+    def write_game(self, game_data:GameDataEncoder):
         """
         1つの対局棋譜を書き出す。
         📝 GameDataEncoder.get_bytes()で得られたbytearrayを渡す。
         """
         with self.lock:
-            self.kif_file.write(game_data)
+            self.kif_file.write(game_data.data)
             self.kif_file.flush()
 
             # 書き出した対局数
             self.game_count += 1
+            self.position_num += game_data.position_num
             if self.game_count % 100 == 0:
-                print_log(f"  total games written: {self.game_count}")
+                print_log(f"total games written: {self.game_count}, position_num = {self.position_num}")
 
     def close(self):
         """ファイルを閉じる"""

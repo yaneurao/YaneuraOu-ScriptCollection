@@ -2,6 +2,7 @@ import time
 import json5
 import traceback
 import random
+from tqdm import tqdm
 
 from threading import Thread
 
@@ -17,22 +18,25 @@ SCRIPT_VERSION             = "V0.01"
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
 
-# 対局開始局面集のPATH(SFEN形式)
-STARTPOS_SFENS_PATH        = "settings/startpos-sfens.txt"
-
-# 対局の最大手数
-MAX_GAME_PLY               = 320
+# プログレスバーのフォーマット
+BAR_FORMAT = "{desc:<15}: {percentage:3.0f}%|{bar:40}| {n_fmt}/{total_fmt}"
 
 # ============================================================
 
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
 class SharedState:
-    def __init__(self, settings, kif_writer:KifWriter):
+    def __init__(self, settings):
         # コンストラクタで渡された設定
         self.settings = settings
 
-        # # 棋譜保存用
-        self.kif_writer = kif_writer
+        # 最大手数(これを超えると引き分けになる)
+        self.max_game_ply = settings["MAX_GAME_PLY"]
+
+        # 探索ノード数
+        self.nodes = settings["NODES"]
+
+        # 棋譜保存用
+        self.kif_writer = KifWriter(self.nodes)
         
         # # 対局開始局面(互角局面集から読み込む)
         # self.root_sfens : list[Sfen] = self.read_start_sfens(settings["START_SFENS_PATH"])
@@ -47,6 +51,42 @@ class SharedState:
         self.startpos_sfens : list[str] = []
         self.startpos_lock = Lock()
 
+    def read_startpos_sfens(self)->list[str]:
+        # 対局開始局面を読み込む。
+
+        file_path = self.settings["START_SFENS_PATH"]
+
+        # 対局開始局面の読み込み
+        print_log(f"\nloading startpos sfens, PATH = {file_path}")
+
+        # ファイルサイズを取得して、進捗を出力する。
+        file_size = os.path.getsize(file_path)
+        startpos_sfens = []
+
+        # ★ 進捗の出力のためにtell()を使いたいので、テキストではなくバイナリで開く
+        with open(file_path, "rb") as fb:
+            pbar = tqdm(total=file_size, unit='B', unit_scale=True, desc=f"{'Read Sfens':<12}", ncols=80, bar_format=BAR_FORMAT)
+
+            for raw_line in fb:  # raw_line は bytes
+                pos = fb.tell()
+                pbar.update(pos - pbar.n)
+
+                line = raw_line.decode("utf-8").strip()
+                if line:
+                    startpos_sfens.append(line)
+
+            pbar.close()
+
+        print_log("\n..random shuffling")
+        random.shuffle(startpos_sfens)
+
+        print_log(f"..loaded {len(startpos_sfens)} startpos sfens.")
+        if not startpos_sfens:
+            raise Exception("No startpos sfens loaded.")
+
+        return startpos_sfens
+
+
     def get_next_startpos_sfen(self) -> str:
         """
         次の対局開始局面を取得する。
@@ -55,15 +95,7 @@ class SharedState:
 
         with self.startpos_lock:
             if not self.startpos_sfens:
-
-                # 対局開始局面の読み込み
-                print_log(f"loading startpos sfens, PATH = {STARTPOS_SFENS_PATH}")
-                with open(STARTPOS_SFENS_PATH, "r", encoding="utf-8") as f:
-                    self.startpos_sfens = [line.strip() for line in f if line.strip()]
-                random.shuffle(self.startpos_sfens)
-                print_log(f"..loaded {len(self.startpos_sfens)} startpos sfens.")
-                if not self.startpos_sfens:
-                    raise Exception("No startpos sfens loaded.")
+                self.startpos_sfens = self.read_startpos_sfens()
 
             # ひとつpopして返す。
             sfen = self.startpos_sfens.pop()
@@ -135,25 +167,29 @@ class ShogiMatch:
 
         # print_log(f"Game end between {self.engine1.engine_name} and {self.engine2.engine_name}")
 
-    def start_game(self) -> bytearray:
-        """1対局を開始させる"""
+    def start_game(self) -> GameDataEncoder:
+        """
+        1対局を開始させる
+        """
 
         # 対局棋譜の保存用
         game_data = GameDataEncoder()
 
         # 対局開始局面を取得
-        startpos_sfen = self.shared.get_next_startpos_sfen()
-        game_data.set_startsfen(startpos_sfen)
+        try:
+            startpos_sfen = self.shared.get_next_startpos_sfen()
+            game_data.set_startsfen(startpos_sfen)
+            board = game_data.board
 
-        # 対局処理
-        board = cshogi.Board() # type: ignore
-        board.set_position(startpos_sfen) 
+        except Exception as e:
+            print_log(f"Exception : {e}")
+            return game_data
 
         # 対局前の初期化
         for engine in self.engines:
             engine.send_usi('usinewgame')
 
-        while board.move_number <= MAX_GAME_PLY:
+        while board.move_number <= self.shared.max_game_ply:
 
             if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
                 # 千日手引き分け
@@ -199,7 +235,7 @@ class ShogiMatch:
             game_data.write_game_result(0)
             game_data.write_uint8(2) # 終局理由: draw by max moves
 
-        return game_data.get_bytes()
+        return game_data
 
 
     def join(self):
@@ -208,6 +244,7 @@ class ShogiMatch:
         self.quit = True
         if self.match_thread:
             self.match_thread.join()
+            self.match_thread = None
 
 class GameMatcher:
     """
@@ -218,6 +255,10 @@ class GameMatcher:
         engine_settings = shared.engine_settings
         engine_threads = []
         thread_id = 0
+
+        max_instance = sum(engine_setting["multi"] for engine_setting in engine_settings)
+        pbar = tqdm(total=max_instance, desc=f"{'Launching':<12}", ncols=80, bar_format=BAR_FORMAT)
+
         for engine_setting in engine_settings:
             threads = []
 
@@ -226,6 +267,7 @@ class GameMatcher:
             #     "name":"suisho10",
             #     "multi":32 // 32個起動する。
             # },
+
             for _ in range(engine_setting["multi"]):
                 t = EngineSettings()
                 t.engine_path  = engine_setting["path"] 
@@ -234,7 +276,9 @@ class GameMatcher:
                 t.thread_id = thread_id
                 thread_id += 1
                 threads.append(t)
-                print_log(f"engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , thread_id = {t.thread_id}")
+
+                # print_log(f"engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , thread_id = {t.thread_id}")
+                pbar.update()
 
             engine_threads.extend(threads)
 
@@ -247,14 +291,16 @@ class GameMatcher:
     def start_games(self):
         """すべての並列対局を開始させる"""
 
-        print_log("start games")
-
         # 並列対局数
         num = len(self.engine_threads)
 
         shogi_matches = []
+
+        max_instances = len(self.engine_threads)
+        pbar = tqdm(total=max_instances, desc=f"{'Game Match':<12}", ncols=80, bar_format=BAR_FORMAT)
+
         for i, t in enumerate(self.engine_threads, 1):
-            print_log(f"game match No. {i}, {t.engine_path} is starting..")
+            # print_log(f"game match No. {i}, {t.engine_path} is starting..")
 
             # 同じエンジンインスタンス同士で対局させる。
             shogi_match = ShogiMatch(t,t,self.shared)
@@ -262,24 +308,29 @@ class GameMatcher:
 
             # ここで小さなsleepがないとネットワーク越しだと、その初期化に時間がかかり、
             # networkがtime outになる可能性がある。
-            time.sleep(0.3)
+            # time.sleep(0.3)
+            # → ShogiMatchで`readyok`待ってるから大丈夫か…。
+
+            pbar.update()
 
         self.shogi_matches = shogi_matches
 
         for shogi_match in self.shogi_matches:
             shogi_match.start()
 
-        print_log("All shogi games have started. Please wait.")
+        print_log("\nAll shogi games have started. Please wait.")
 
     def wait_all_threads(self):
         """すべての対局スレッドの終了を待つ。"""
 
-        print_log("Waiting for all threads to finish...")
+        print_log("\nWaiting for all threads to finish...")
 
-        for shogi_match in self.shogi_matches:
-            shogi_match.join()
-            print(".", end='', flush=True)
+        with tqdm(total=len(self.shogi_matches), desc=f"{'Join':<12}", ncols=80, bar_format=BAR_FORMAT) as pbar:
+            for shogi_match in self.shogi_matches:
+                shogi_match.join()
+                pbar.update()
 
+        print()
 
 
 # ============================================================
@@ -294,19 +345,15 @@ def user_input():
     # ログ記録を自動的に開始する。
     enable_print_log()
 
-    print_log(f"GenSfen script start. version = {SCRIPT_VERSION}")
-    print_log(f"SETTING_JSON_PATH = {SETTING_JSON_PATH}")
-    print_log(f"STARTPOS_SFENS_PATH = {STARTPOS_SFENS_PATH}")
+    print_log(f"GenSfen Script, Version = {SCRIPT_VERSION}")
+    print_log(f"Loading setting JSON, SETTING_JSON_PATH = {SETTING_JSON_PATH}")
 
     # 設定ファイルの読み込み
     with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
         settings = json5.load(f)
 
-    # 棋譜書き出し用のclass
-    kif_writer = KifWriter()
-
     # これは全対局スレッドが同じものを指す。
-    shared = SharedState(settings, kif_writer)
+    shared = SharedState(settings)
 
     # 並列対局管理用
     matcher = GameMatcher(shared)
@@ -325,14 +372,7 @@ def user_input():
                 print_log("  G : GenSfen [nodes]")
 
             elif i == 'g':
-
-                # default nodes
-                nodes = 100000
-                if len(inp) >= 2:
-                    # 引数で指定されているなら、それで差し替える。
-                    nodes = int(inp[1])
-                shared.nodes = nodes
-                print_log(f"start gensfen nodes = {nodes}, max_game_ply = {MAX_GAME_PLY}")
+                print_log(f"Start GenSfen, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}")
                 matcher.start_games()
 
             elif i == 'q' or i == '!':
@@ -347,7 +387,7 @@ def user_input():
     matcher.wait_all_threads()
 
     # 棋譜ファイルをclose
-    kif_writer.close()
+    shared.kif_writer.close()
 
 
 if __name__ == '__main__':
