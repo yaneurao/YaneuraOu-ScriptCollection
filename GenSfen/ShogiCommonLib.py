@@ -52,6 +52,8 @@ def print_log(*args:Any,end:str='\n'):
     ''' このスクリプト内で用いるprint関数。 '''
     print(*args,end=end)
     if write_log:
+        # タイムスタンプの付与
+        log_file.write(make_time_stamp2())
         # argsが空の時、これは単なる改行のためのprintであるから無視する。
         if args:
             log_file.write(*args)
@@ -73,6 +75,14 @@ def make_time_stamp()->str:
     JST = datetime.timezone(t_delta, 'JST')
     now = datetime.datetime.now(JST)
     d = now.strftime('%Y%m%d%H%M%S')
+    return d
+
+def make_time_stamp2()->str:
+    '''現在時刻を文字列化したものを返す。ログに付与するのに用いる。'''
+    t_delta = datetime.timedelta(hours=9)
+    JST = datetime.timezone(t_delta, 'JST')
+    now = datetime.datetime.now(JST)
+    d = now.strftime('[%Y/%m/%d %H:%M:%S]')
     return d
 
 
