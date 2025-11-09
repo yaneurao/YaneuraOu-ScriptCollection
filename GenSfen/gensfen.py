@@ -32,7 +32,7 @@ class SharedState:
         # 最大手数(これを超えると引き分けになる)
         self.max_game_ply = settings["MAX_GAME_PLY"]
 
-        # 探索ノード数
+        # 教師生成の1局面あたりの探索ノード数
         self.nodes = settings["NODES"]
 
         # 棋譜保存用
@@ -43,9 +43,6 @@ class SharedState:
 
         # エンジン設定
         self.engine_settings = settings["ENGINE_SETTING"]
-
-        # gensfenするときのnodes
-        self.nodes = 0
 
         # 対局開始局面の集合
         self.startpos_sfens : list[str] = []
