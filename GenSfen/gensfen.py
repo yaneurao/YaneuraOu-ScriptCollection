@@ -134,6 +134,7 @@ class ShogiMatch:
         self.engines = [Engine(engine1.engine_path,engine1.thread_id), Engine(engine2.engine_path,engine2.thread_id)] 
 
         for engine in self.engines:
+            engine.send_usi(f"multipv 1")
             engine.isready()
 
         self.shared  = shared

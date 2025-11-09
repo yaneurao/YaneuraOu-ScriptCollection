@@ -10,6 +10,11 @@ USIプロトコル対応のエンジンを用いて教師データの生成を�
 
 `settings/gensfen-settings.json5`の設定に従って教師を生成します。
 
+
+動作に必要なモジュールのインストール
+
+> pip install cshogi json5 tqdm
+
 # pack2hcpe
 
 `pack2hcpe.py`は、`.pack`形式のファイルを`.hcpe`形式のファイルに変換するスクリプトです。
