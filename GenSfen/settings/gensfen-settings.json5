@@ -1,6 +1,7 @@
 {
     // 対局開始を行う互角局面集のファイルPATH。
     "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+    // "START_SFENS_PATH": "settings/user_book1.db-startsfens.txt",
     // "START_SFENS_PATH": "C:/Users/yaneen/largefile/Shogi/Shogidokoro/Engine/tanuki-dr5_with_petabook/book/user_book1.db-startsfens.txt",
 
     // 対局の最大手数

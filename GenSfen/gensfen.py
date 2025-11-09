@@ -111,9 +111,6 @@ class EngineSettings:
         # エンジンの表示名
         self.engine_name : str = ""
 
-        # エンジンの探索node数
-        self.engine_nodes : int = 500000
-
         # エンジンが開始できる状態になったのか？
         self.readyok : bool = False
 
@@ -270,7 +267,6 @@ class GameMatcher:
                 t = EngineSettings()
                 t.engine_path  = engine_setting["path"] 
                 t.engine_name  = engine_setting["name"]
-                t.engine_nodes = shared.nodes
                 t.thread_id = thread_id
                 thread_id += 1
                 threads.append(t)
