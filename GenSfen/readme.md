@@ -4,16 +4,166 @@
 
 USIプロトコル対応のエンジンを用いて教師データの生成を行います。
 
-ここで生成した教師データは、pack形式となります。このpack形式は、hcpe形式に変換することができ、dlshogiの学習スクリプトである`train.py`で用いることができます。
+スクリプト起動後に`g`コマンドで教師棋譜の生成を開始します。(いまのところこのコマンドしかありません。)
 
-コマンドは、`g`で教師棋譜の生成を開始します。
+ここで生成した教師データは、pack形式となります。`kif`フォルダに保存されていきます。
+
+このpack形式は、`pack2hcpe.py`スクリプトによってhcpe形式に変換することができ、dlshogiの学習スクリプトである`train.py`でそのまま用いることができます。
+
+## GenSfenスクリプトの設定
 
 `settings/gensfen-settings.json5`の設定に従って教師を生成します。
 
+思考エンジンのPATHや、教師生成の時の探索ノード数などはここに書きます。
 
-動作に必要なモジュールのインストール
+思考エンジンのエンジンオプションは、(やねうら王系であるなら)思考エンジンの実行ファイルと同じフォルダに`engine_options.txt`を配置し、そこに書くことで済ませておいてください。
+
+以下、`engine_options.txt`の例。(やねうら王V9.00の場合)
+
+```C++
+option name Threads type spin default 1 min 1 max 128
+option name USI_Hash type spin default 128 min 1 max 33554432
+option name USI_Ponder type check default false
+option name Stochastic_Ponder type check default false
+option name NetworkDelay type spin default 120 min 0 max 10000
+option name NetworkDelay2 type spin default 1120 min 0 max 10000
+option name MinimumThinkingTime type spin default 2000 min 1000 max 100000
+option name SlowMover type spin default 100 min 1 max 1000
+option name MaxMovesToDraw type spin default 0 min 0 max 100000
+option name DepthLimit type spin default 0 min 0 max 2147483647
+option name NodesLimit type spin default 0 min 0 max 9223372036854775807
+option name EvalDir type string default eval
+option name GenerateAllLegalMoves type check default false
+option name EnteringKingRule type combo default CSARule27 var NoEnteringKing var CSARule24 var CSARule24H var CSARule27 var CSARule27H var TryRule
+option name USI_OwnBook type check default true
+option name NarrowBook type check default false
+option name BookMoves type spin default 16 min 0 max 10000
+option name BookIgnoreRate type spin default 0 min 0 max 100
+option name BookFile type combo default no_book var no_book var standard_book.db var yaneura_book1.db var yaneura_book2.db var yaneura_book3.db var yaneura_book4.db var user_book1.db var user_book2.db var user_book3.db var book.bin
+option name BookDir type string default book
+option name BookEvalDiff type spin default 30 min 0 max 99999
+option name BookEvalBlackLimit type spin default 0 min -99999 max 99999
+option name BookEvalWhiteLimit type spin default -140 min -99999 max 99999
+option name BookDepthLimit type spin default 16 min 0 max 99999
+option name BookOnTheFly type check default false
+option name ConsiderBookMoveCount type check default false
+option name BookPvMoves type spin default 8 min 1 max 246
+option name IgnoreBookPly type check default false
+option name FlippedBook type check default true
+option name DrawValueBlack type spin default -2 min -30000 max 30000
+option name DrawValueWhite type spin default -2 min -30000 max 30000
+option name PvInterval type spin default 10000000 min 0 max 10000000
+option name ResignValue type spin default 99999 min 0 max 99999
+option name ConsiderationMode type check default false
+option name OutputFailLHPV type check default true
+option name FV_SCALE type spin default 36 min 1 max 128
+```
+
+⚠ 以下のオプションについて気をつけること。
+
+- `FV_SCALE`を評価関数ファイルに応じた値にする。
+- `BookFile`は`no_book`を指定し、定跡を用いないようにする。
+- `Thread`は`1`にしてCPUの論理スレッド数だけエンジンを起動する。(このほうが並列化効率が良い)
+- `USI_Hash`はPCの物理メモリが足りる程度に調整。(確保できる範囲でなるべく大きく確保したい)
+- `MaxMovesToDraw`は、0を指定。(手数による引き分けの判定はGenSfenのスクリプト側で行うため)
+- `NodesLimit`は指定しても無視される。(USIプロトコルの`go nodes`コマンドを使うが、やねうら王では、`go`コマンドで`nodes`が指定されている時、NodesLimitを無視する)
+- `PvInterval`は大きな値(例えば`10000000`)に設定して、出力されないように抑制したほうがスクリプトの負荷が下がって良い。
+
+## 対局開始局面について
+
+教師生成時の対局開始局面は、`settings/gensfen-settings.json5`に`START_SFENS_PATH`で開始局面を書いたファイルのPATHを指定します。
+
+このファイルは、USIプロトコルの`position`コマンドの文字列で書くことができます。つまり、SFEN形式や`startpos`などが使えます。
+
+例
+```json
+// 平手の開始局面
+startpos
+
+// 平手の開始局面から76歩を指した局面
+startpos moves 7g7f
+
+// 平手の開始局面をSFEN形式で表現したもの。
+sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL
+
+// 平手の開始局面をSFEN形式で表現したものから76歩を指した局面。
+sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL moves 7g7f
+```
+
+## 動作に必要なモジュールのインストール
 
 > pip install cshogi json5 tqdm
+
+## NUMAがあるときのエンジン設定について
+
+NUMAがあると、思考エンジンを複数立ち上げたときにそれぞれのNUMAを使ってくれるとは限りません。
+
+そこで、次のようにする方法が考えられます。
+
+NUMA 0で実行させるためのBATファイルを用意します。
+
+- engine0.bat
+
+```bat
+cmd.exe /c start /B /WAIT /NODE 0 YO900_AVX2.exe
+```
+
+NUMA 1で実行させるためのBATファイルを用意します。
+
+- engine1.bat
+
+```bat
+cmd.exe /c start /B /WAIT /NODE 1 YO900_AVX2.exe
+```
+
+それぞれのNUMAで思考エンジンを40個ずつ起動したいときは、以下のように`settings/gensfen-settings.json5`に書きます。
+
+```json5
+{
+    // 対局開始を行う互角局面集のファイルPATH。
+    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+
+    // 対局の最大手数
+    "MAX_GAME_PLY" : 320,
+
+    // 棋譜を生成するときの探索ノード数
+    "NODES" : 1000000,
+
+    "ENGINE_SETTING":
+    [
+        {
+            "path":"engines/suisho10/engine0.bat",
+            "name":"YO901tune",
+            "multi":40
+        },
+        {
+            "path":"engines/suisho10/engine1.bat",
+            "name":"YO901tune",
+            "multi":40
+        },
+    ]
+}
+```
+
+## SSH経由でエンジンを起動するとき
+
+`settings/gensfen-settings.json5`の`"ENGINE_SETTING"`に以下のように書いて、ssh経由で思考エンジンを使うことができます。
+
+```json
+    "ENGINE_SETTING":
+    [
+        {
+            "path":"ssh -o ServerAliveInterval=15 9950b suisho10.bat",
+            "name":"YO901tune",
+            "multi":32
+        },
+        {
+            "path":"ssh -o ServerAliveInterval=15 9950c suisho10.bat",
+            "name":"YO901tune",
+            "multi":32
+        },
+    ],
+```
 
 # pack2hcpe
 
@@ -21,11 +171,27 @@ USIプロトコル対応のエンジンを用いて教師データの生成を�
 
 💡 変換することでファイルサイズは10倍ぐらいに膨らみます。
 
+## pack2hcpeの使い方
+
+> python pack2hcpe.py kif20251110.pack kif20251110.hcpe
+
+また、変換後のファイルPATHは省略できます。
+
+> python pack2hcpe.py kif20251110.pack
+
+この場合、`kif20251110.pack.hcpe`のように、packファイルに拡張子`.hcpe`を付与した名前になります。
+
 # yanebook2startsfen
 
 `yanebook2startsfen.py`は、やねうら王の定跡ファイルから、開始局面のSFENを書いたテキストフォーマットに変換します。
 
 定跡局面の先端局面(定跡に登録されている局面で、定跡の指し手それぞれを指したあとの局面)を書き出します。
+
+# yanebook2startsfenの使い方
+
+> python yanebook2startsfen user_book1.db start-sfens.txt
+
+また、変換後のファイルPATHは省略できます。省略すると変換元の定跡ファイルPATHに`-startsfens.txt`をつけたものになります。
 
 
 # pack形式データフォーマット
