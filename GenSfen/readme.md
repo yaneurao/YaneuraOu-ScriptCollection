@@ -76,7 +76,7 @@ option name FV_SCALE type spin default 36 min 1 max 128
 このファイルは、USIプロトコルの`position`コマンドの文字列で書くことができます。つまり、SFEN形式や`startpos`などが使えます。
 
 例
-```json
+```C++
 // 平手の開始局面
 startpos
 
