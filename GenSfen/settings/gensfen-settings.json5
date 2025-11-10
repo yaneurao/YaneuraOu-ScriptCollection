@@ -1,19 +1,19 @@
 {
     // 対局開始を行う互角局面集のファイルPATH。
-    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+    // "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
     // "START_SFENS_PATH": "settings/user_book1.db-startsfens.txt",
-    // "START_SFENS_PATH": "C:/Users/yaneen/largefile/Shogi/Shogidokoro/Engine/tanuki-dr5_with_petabook/book/user_book1.db-startsfens.txt",
+    "START_SFENS_PATH": "C:/Users/yaneen/largefile/Shogi/Shogidokoro/Engine/tanuki-dr5_with_petabook/book/user_book1.db-startsfens.txt",
 
     // 対局の最大手数
     "MAX_GAME_PLY" : 320,
 
     // 棋譜を生成するときの探索ノード数
-    "NODES" : 100000,
+    "NODES" : 1000000,
 
     "ENGINE_SETTING":
     [
         {
-            "path":"C:/Users/yaneen/largefile/Shogi/SPSA/YaneuraOuV901suisho11tune/YaneuraOuNNUE_halfkp_1024x2_8_64_V901tune.exe",
+            "path":"C:/Users/yaneen/largefile/Shogi/SPSA/YaneuraOuV901suisho11tune/YaneuraOuNNUE_halfkp_1024x2_8_64_V901apply.exe",
             "name":"YO901tune",
             "multi":32 // 32個起動する。
         },

@@ -4,7 +4,7 @@
 
 USIプロトコル対応のエンジンを用いて教師データの生成を行います。
 
-スクリプト起動後に`g`コマンドで教師棋譜の生成を開始します。(いまのところこのコマンドしかありません。)
+スクリプト起動後に`g`コマンド(`gensfen`)で教師棋譜の生成を開始します。`q`コマンド(`quit`)で終了します。このとき教師データは自動保存されます。(いまのところこのコマンドしかありません。)
 
 ここで生成した教師データは、pack形式となります。`kif`フォルダに保存されていきます。
 
@@ -61,13 +61,14 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 ⚠ 以下のオプションについて気をつけること。
 
-- `FV_SCALE`を評価関数ファイルに応じた値にする。
-- `BookFile`は`no_book`を指定し、定跡を用いないようにする。
-- `Thread`は`1`にしてCPUの論理スレッド数だけエンジンを起動する。(このほうが並列化効率が良い)
-- `USI_Hash`はPCの物理メモリが足りる程度に調整。(確保できる範囲でなるべく大きく確保したい)
+- `FV_SCALE`は、評価関数ファイルに応じた値にする。
+- `BookFile`は、`no_book`を指定し、定跡を用いないようにする。
+- `Thread`は、`1`にしてCPUの論理スレッド数だけエンジンを起動する。(このほうが並列化効率が良い)
+- `USI_Hash`は、PCの物理メモリが足りる程度に調整。(確保できる範囲でなるべく大きく確保したい)
 - `MaxMovesToDraw`は、0を指定。(手数による引き分けの判定はGenSfenのスクリプト側で行うため)
-- `NodesLimit`は指定しても無視される。(USIプロトコルの`go nodes`コマンドを使うが、やねうら王では、`go`コマンドで`nodes`が指定されている時、NodesLimitを無視する)
-- `PvInterval`は大きな値(例えば`10000000`)に設定して、出力されないように抑制したほうがスクリプトの負荷が下がって良い。
+- `NodesLimit`は、指定しても無視される。(USIプロトコルの`go nodes`コマンドを使うが、やねうら王では、`go`コマンドで`nodes`が指定されている時、NodesLimitを無視する)
+- `PvInterval`は、大きな値(例えば`10000000`)に設定して、出力されないように抑制したほうがスクリプトの負荷が下がって良い。
+- `MultiPV`は、`engine_options.txt`で設定してはならない。やねうら王V9.00以降では、このファイルで設定したオプション値はUSIプロトコルの`setoption`コマンドによって変更できないので、GenSfenのスクリプト側から`MultiPV`を1に変更しようにも変更できない。`MultiPV`は1でなけばレートが下がるので、生成される教師の質が下がる。
 
 ## 対局開始局面について
 
@@ -181,13 +182,29 @@ cmd.exe /c start /B /WAIT /NODE 1 YO900_AVX2.exe
 
 この場合、`kif20251110.pack.hcpe`のように、packファイルに拡張子`.hcpe`を付与した名前になります。
 
+## psv形式に変換する方法
+
+やねうら王系の学習器ではpsv(packed sfen and value)フォーマットが使われていることがあります。
+
+hcpeからpsv形式に変換するには、`dlshogi`の`hcpe_to_psv.py`が使えます。
+
+- [`hcpe_to_psv.py`](https://github.com/TadaoYamaoka/DeepLearningShogi/blob/master/dlshogi/utils/hcpe_to_psv.py)
+
+## やねうら王の評価関数の学習に
+
+やねうら王の評価関数の学習は、やねうら王V9.00からは、やねうら王の学習バージョンである`LEARN版`が廃止になったので、nodchipさんの`nnue-pytorch`などを用いてください。
+
+- 将棋AI用の[nnue-pytorch](https://github.com/nodchip/nnue-pytorch)
+
+TODO : 評価関数の学習上のノウハウについては別途記事にまとめる。
+
 # yanebook2startsfen
 
 `yanebook2startsfen.py`は、やねうら王の定跡ファイルから、開始局面のSFENを書いたテキストフォーマットに変換します。
 
 定跡局面の先端局面(定跡に登録されている局面で、定跡の指し手それぞれを指したあとの局面)を書き出します。
 
-# yanebook2startsfenの使い方
+## yanebook2startsfenの使い方
 
 > python yanebook2startsfen user_book1.db start-sfens.txt
 

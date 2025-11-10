@@ -50,6 +50,7 @@ log_file : Any = None # _io.TextIOWrapper
 
 def print_log(*args:Any,end:str='\n'):
     ''' このスクリプト内で用いるprint関数。 '''
+    print(make_time_stamp2(), end='')
     print(*args,end=end)
     if write_log:
         # タイムスタンプの付与
