@@ -30,8 +30,12 @@
 #context update_correction_history2 // update_correction_history()
 
     if (m.is_ok())
-        (*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
-          << bonus * 137@ / 128;
+    {
+        const Square to = m.to_sq();
+        const Piece  pc = pos.piece_on(m.to_sq());
+        (*(ss - 2)->continuationCorrectionHistory)[pc][to] << bonus * 137@ / 128;
+        (*(ss - 4)->continuationCorrectionHistory)[pc][to] << bonus * 64@ / 128;
+    }
 
 #context lowPlyHistory_fill
 
@@ -76,17 +80,16 @@
 			if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 4 && !priorCapture)
                 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2142@);
 
-#context Search_static_evaluation1 // search Step 6.
+#context Search_static_evaluation_1a // search Step 6.
 
-        int bonus = std::clamp(-10 * int((ss - 1)->staticEval + ss->staticEval), -2023@, 1563@) + 583@;
-        mainHistory[~us][((ss - 1)->currentMove).from_to()] << bonus * 944@ / 1024;
+        int evalDiff = std::clamp(-int((ss - 1)->staticEval + ss->staticEval), -200@, 156@) + 58@;
+        mainHistory[~us][((ss - 1)->currentMove).from_to()] << evalDiff * 9@;
 
-#context Search_static_evaluation2
+#context Search_static_evaluation_2a
 
         if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
             && ((ss - 1)->currentMove).type_of() != PROMOTION)
-            pawnHistory[pawn_history_index(pos)][pos.piece_on(prevSq)][prevSq]
-              << bonus * 1438@ / 1024;
+            pawnHistory[pawn_history_index(pos)][pos.piece_on(prevSq)][prevSq] << evalDiff * 14@;
 
 #context Search_static_evaluation3
 
@@ -98,7 +101,7 @@
     if (!PvNode && eval < alpha - 514@ - 294@ * depth * depth)
         return qsearch<NonPV>(pos, ss, alpha, beta);
 
-#context Search_futility // Search step 8.
+#context Search_futility_1 // Search step 8.
 
 		auto futility_margin = [&](Depth d) {
             Value futilityMult = 91@ - 21@ * !ss->ttHit;
@@ -106,7 +109,6 @@
             return futilityMult * d                                //
                  - 2094 * improving * futilityMult / 1024          //
                  - 1324 * opponentWorsening * futilityMult / 4096  //
-                 + (ss - 1)->statScore / 331@                       //
                  + std::abs(correctionValue) / 158105@;
         };
 
@@ -243,12 +245,6 @@
 
 		futilityBase = ss->staticEval + 352@;
 
-#context Search_Continuation_history_based_pruning_1a // qsearch() Step 6.
-
-            if (!capture
-                && pawnHistory[pawn_history_index(pos)][pos.moved_piece(move)][move.to_sq()] < 7300@)
-                continue;
-
 #context YaneuraOuWorker_reduction
 
 Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) const {
@@ -257,10 +253,11 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
 
 }
 
-#context update_all_stats_1b // update_all_stats()
+#context update_all_stats_1c // update_all_stats()
 
-    int bonus = std::min(151@ * depth - 91@, 1730) + 302@ * (bestMove == ttMove);
-    int malus = std::min(951@ * depth - 156@, 2468) - 30@ * int(quietsSearched.size());
+	int bonus = std::min(121@ * depth - 77@, 1633) + 375@ * (bestMove == ttMove);
+	int malus = std::min(825@ * depth - 196@, 2159) - 16@ * moveCount;
+
 
 #context conthist_bonuses // update_all_stats()
 
@@ -291,8 +288,9 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
 
     update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@ / 1024);
 
-#context update_quiet_histories_2a // update_quiet_histories()
+#context update_quiet_histories_2b // update_quiet_histories()
 
     int pIndex = pawn_history_index(pos);
+
     workerThread.pawnHistory[pIndex][pos.moved_piece(move)][move.to_sq()]
-      << (bonus * (bonus > 0 ? 800 : 500) / 1024) + 70@;
+      << bonus * (bonus > 0 ? 850@ : 550@) / 1024;
