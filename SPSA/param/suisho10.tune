@@ -141,7 +141,9 @@
 
         history += 76@ * mainHistory[us][move.from_to()] / 32;
 
-        // (*Scaler): Generally, a lower divisor scales well
+        // (*Scaler): Generally, lower divisors scales well
+        // 一般に、割る数（divisor）が小さいほどスケールしやすい。
+
         lmrDepth += history / 3220@;
 
 #context Search_Continuation_history_based_pruning2
