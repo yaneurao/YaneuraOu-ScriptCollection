@@ -2,6 +2,7 @@ import time
 import json5
 import traceback
 import random
+import threading
 from tqdm import tqdm
 
 from threading import Thread
@@ -47,6 +48,11 @@ class SharedState:
         # 対局開始局面の集合
         self.startpos_sfens : list[str] = []
         self.startpos_lock = Lock()
+
+        # pauseの設定
+        # これがTrueだと生成を一時的にpauseする。
+        self.pause_event = threading.Event()
+        self.pause_event.set()
 
     def read_startpos_sfens(self)->list[str]:
         # 対局開始局面を読み込む。
@@ -185,6 +191,9 @@ class ShogiMatch:
             engine.send_usi('usinewgame')
 
         while board.move_number <= self.shared.max_game_ply:
+
+            # pauseの処理(手抜き)
+            self.shared.pause_event.wait()
 
             if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
                 # 千日手引き分け
@@ -354,7 +363,7 @@ def user_input():
 
     while True:
         try:
-            print_log("[Q]uit [G]ensfen [H]elp> ", end='')
+            print_log("[Q]uit [G]ensfen [P]ause [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -364,6 +373,7 @@ def user_input():
                 print_log("Help : ")
                 print_log("  Q or ! : Quit")
                 print_log("  G : GenSfen [nodes]")
+                print_log("  P : Pause")
 
             elif i == 'g':
                 print_log(f"Start GenSfen, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}")
@@ -373,6 +383,14 @@ def user_input():
                 # 終了時には自動セーブ
                 print_log("quit")
                 break
+
+            elif i == 'p':
+                if shared.pause_event.is_set():
+                    shared.pause_event.clear()   # pause にする
+                    print_log("Paused")
+                else:
+                    shared.pause_event.set()     # resume にする
+                    print_log("Resumed")
 
         except Exception as e:
             print_log(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
