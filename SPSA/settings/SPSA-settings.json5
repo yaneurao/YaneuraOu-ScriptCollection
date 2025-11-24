@@ -28,6 +28,10 @@
         "settings/engine_settings2.json5"
     ],
 
+    // 標準的な将棋盤。
+    // これをfalseにすると55将棋など変則将棋にも使える。(ただし千日手判定はできなくなる)
+    "STANDARD_BOARD" : true,
+
     // tune.pyの'tune'コマンドで生成したパラメーターファイル
     "PARAMETERS_PATH" : "param/suisho10.params"
 

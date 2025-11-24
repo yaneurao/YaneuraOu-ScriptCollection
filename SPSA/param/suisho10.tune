@@ -83,7 +83,7 @@
 #context Search_static_evaluation_1a // search Step 6.
 
         int evalDiff = std::clamp(-int((ss - 1)->staticEval + ss->staticEval), -200@, 156@) + 58@;
-        mainHistory[~us][((ss - 1)->currentMove).from_to()] << evalDiff * 9@;
+        mainHistory[~us][((ss - 1)->currentMove).raw()] << evalDiff * 9@;
 
 #context Search_static_evaluation_2a
 
@@ -139,7 +139,7 @@
         if (history < -4312@ * depth)
             continue;
 
-        history += 76@ * mainHistory[us][move.from_to()] / 32;
+        history += 76@ * mainHistory[us][move.raw()] / 32;
 
         // (*Scaler): Generally, lower divisors scales well
         // 一般に、割る数（divisor）が小さいほどスケールしやすい。
@@ -286,7 +286,7 @@ Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) con
 #context update_quiet_histories_1a // update_quiet_histories()
 
     if (ss->ply < LOW_PLY_HISTORY_SIZE)
-        workerThread.lowPlyHistory[ss->ply][move.from_to()] << bonus * 761@ / 1024;
+        workerThread.lowPlyHistory[ss->ply][move.raw()] << bonus * 761@ / 1024;
 
     update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@ / 1024);
 

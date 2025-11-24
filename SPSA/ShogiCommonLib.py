@@ -92,6 +92,29 @@ def trim_sfen(sfen:str)->Sfen:
     return " ".join(s)
 
 
+def trim_sfen_ply(sfen:str)->tuple[Sfen,int]:
+    '''
+    "sfen"で開始される形式のsfen文字列(ただし先頭の"sfen"は含まず)に対して、末尾の手数を取り除いて返す。
+    
+    末尾の手数を返す。手数がついていなければ、ply=0として返す。 
+    '''
+    s = sfen.split()
+
+    # 先頭にsfenが含まれていたら除去
+    if s[0] == 'sfen':
+        del s[0]
+
+    try:
+        # 末尾が数字なのかテストする
+        ply = int(s[-1])
+        del s[-1]
+    except:
+        # 数字が付与されてないんじゃ？
+        ply = 0
+
+    return " ".join(s) , ply
+
+
 def rand(r:int)->int:
     '''0からr-1までの整数乱数を返す。'''
     return random.randint(0,r-1)
@@ -329,7 +352,7 @@ class Board:
         '''局面をSVG化した文字列を返す。'''
         return self.board.to_svg()
     
-    def set_position(self,position_str:str)->str:
+    def set_position(self,position_str:str):
         '''局面を設定する。'''
         self.board.set_position(position_str)
 
@@ -382,3 +405,34 @@ BLACK                     = cshogi.BLACK
 
 # 後手番を表す定数
 WHITE                     = cshogi.WHITE
+
+
+""" Board風のinterfaceを持つclassだが、55将棋のような特殊な将棋でも使える。 """
+class NonStandardBoard:
+    def __init__(self, position_str:str='startpos'):
+        # 現在の盤面文字列
+        self.position_str , self.game_ply = trim_sfen_ply(position_str)
+
+        # set_positionした直後であるか。
+        self.new_position = True
+
+    def set_position(self,position_str:str):
+        self.position_str , self.game_ply = trim_sfen_ply(position_str)
+        self.new_position = True
+
+    def sfen(self)->str:
+        return self.position_str
+
+    def push_usi(self, move:str):
+        if self.new_position:
+            self.position_str += " moves"
+            self.new_position = False
+        self.position_str += ' ' + move
+        self.game_ply += 1
+
+    def is_draw(self)->bool:
+        # 判定できないから常にFalseを返す。
+        return False
+
+    def ply(self)->int:
+        return self.game_ply

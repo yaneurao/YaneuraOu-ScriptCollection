@@ -187,6 +187,10 @@ class SharedState:
         # 勝率マネージャー
         self.win_manager = WinManager()
 
+        # 標準的な将棋盤なのか
+        self.standard_board = self.settings["STANDARD_BOARD"]
+
+
     def read_start_sfens(self, path:str)->list[Sfen]:
         # 対局開始局面を読み込む。
 
@@ -325,21 +329,21 @@ class ShogiMatch:
     def game_play(self, start_player : int):
         """ 1局だけ対局する """
 
-
         # 対局開始前のisready送信
         # (パラメーターが変更になったかも知れないので毎回`isready`で初期化)
         for engine in self.engines:
             engine.isready()
 
-        board = Board()
+        board = Board() if self.shared.standard_board else NonStandardBoard()
 
         # 対局開始局面(互角局面集からランダム)
         root_sfen = self.shared.root_sfens[rand(len(self.shared.root_sfens))].rstrip()
 
+        board.set_position(root_sfen)
+
         # 現在の手数
         ply = board.ply()
 
-        board.set_position(root_sfen)
         kif = f"{root_sfen}{'' if 'moves' in root_sfen else ' moves'}"
 
         # start_color : 手番のあるプレイヤー番号
