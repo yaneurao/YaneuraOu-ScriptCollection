@@ -376,8 +376,10 @@ def user_input():
                 print_log("  P : Pause")
 
             elif i == 'g':
-                print_log(f"Start GenSfen, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}")
-                matcher.start_games()
+                # まだ対局が組まれていなければ開始する。
+                if not matcher.shogi_matches:
+                    print_log(f"Start GenSfen, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}")
+                    matcher.start_games()
 
             elif i == 'q' or i == '!':
                 # pause解除
