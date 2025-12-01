@@ -14,7 +14,7 @@ from ShogiCommonLib import *
 # ============================================================
 
 # このスクリプトのバージョン
-SCRIPT_VERSION             = "V0.01"
+SCRIPT_VERSION             = "V0.02"
 
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
@@ -380,6 +380,11 @@ def user_input():
                 matcher.start_games()
 
             elif i == 'q' or i == '!':
+                # pause解除
+                if not shared.pause_event.is_set():
+                    shared.pause_event.set()     # resume にする
+                    print_log("Resumed")
+
                 # 終了時には自動セーブ
                 print_log("quit")
                 break
