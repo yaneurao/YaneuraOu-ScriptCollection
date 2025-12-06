@@ -355,7 +355,7 @@ class Engine:
         # 最善手
         bestmove : Move = ""
         # 最終的な評価値
-        besteval : Eval = 0
+        besteval : Eval | None = None
 
         while True:
             ret = self.receive_usi()
@@ -364,6 +364,8 @@ class Engine:
             if "bestmove" in ret:
                 # 実戦だとこの指し手が'resign'とか'win'の可能性もあるが、評価値が先に振り切るので定跡掘る時には考えない。
                 bestmove : Move = rets[1]
+                if besteval is None:
+                    raise Exception("Error! : bestmove received before eval.")
                 return bestmove , besteval
             else:
                 # 読み筋に対して、そのpvの初手を蓄積していく。
