@@ -119,7 +119,7 @@ def main():
     startsfens_path = args.path2
 
     # yanebook_path = "yanebook.txt"
-    yanebook_path = r"C:\Users\yaneen\largefile\Shogi\Shogidokoro\Engine\tanuki-dr5_with_petabook\book\user_book1.db"
+    # yanebook_path = r"C:\Users\yaneen\largefile\Shogi\Shogidokoro\Engine\tanuki-dr5_with_petabook\book\user_book1.db"
 
     # file1 が指定されていない場合 → help を表示して終了
     if yanebook_path is None:
