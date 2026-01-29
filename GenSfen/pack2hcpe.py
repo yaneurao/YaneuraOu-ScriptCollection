@@ -1,4 +1,6 @@
 # .pack形式のファイルを.hcpe形式に変換する
+# コマンド例
+#  python pack2hcpe.py "C:/Users/yaneen/largefile/Shogi/ShogiTeacher/kif20260126-2500000a.pack"
 
 import sys
 import argparse
@@ -61,13 +63,16 @@ def main():
     parser.add_argument("file1", nargs="?", help="1つ目のファイルのパス")
     parser.add_argument("file2", nargs="?", default=None, help="2つ目のファイルのパス（省略可）")
 
+    # 評価値を平滑化するときの割引率と平滑化する手数(何手先まで見て平滑化を行うか)
+    parser.add_argument("--smoothing",type=int, default=1, help="評価値を平滑化する手数（デフォルト: 1）")
+    parser.add_argument("--discount",type=float, default=1.0, help="割引率（デフォルト: 1）")
+
     args = parser.parse_args()
 
     pack_path = args.file1
     hcpe_path = args.file2
-
-    # pack_path = "kif/kif_20251108133357_100000.pack"
-    # pack_path = r"C:\Users\yaneen\largefile\Shogi\Shogidokoro\Engine\tanuki-dr5_with_petabook\book/kif_20251108134037_100000.pack"
+    smoothing = args.smoothing
+    discount  = args.discount
 
     # file1 が指定されていない場合 → help を表示して終了
     if pack_path is None:
@@ -78,12 +83,23 @@ def main():
         # 変換後のファイルpathが指定されていないので、変換前のファイルに".hcpe"を付加したものにする。
         hcpe_path = pack_path + ".hcpe"
 
-    print("File 1:", pack_path)
-    print("File 2:", hcpe_path)
+    # 前提条件として、割引率は0ではなく、smoothing movesは1以上。
 
-    pack_file_to_hcpe(pack_path, hcpe_path)
+    if discount == 0:
+        print("Error! : discount rate == 0.0")
+        return
+    
+    if smoothing == 0:
+        print("Error! : smoothing moves == 0")
+        return
+
+    print("File 1        : ", pack_path)
+    print("File 2        : ", hcpe_path)
+    print("discount rate : ", discount)
+    print("smoothing ply : ", smoothing)
+
+    pack_file_to_hcpe(pack_path, hcpe_path, smoothing=smoothing, discount=discount)
 
 if __name__ == "__main__":
     main()
     # game_data_read_write_test()
-

@@ -675,13 +675,54 @@ class KifWriter:
         """ファイルを閉じる"""
         self.kif_file.close()
 
+
+def smooth_eval(game_kif, smoothing: int, discount: float ):
+    """
+    評価値を平滑化する。
+
+    discount  : 割引率。
+    smoothing : 何手先まで見て平滑化を行うか。
+
+    game_kif: [(move, eval16), ...]
+    戻り値: [(move, smoothed_eval), ...]
+    """
+    n = len(game_kif)
+    result = []
+
+    for i in range(n):
+        weighted_sum = 0.0
+        weight_total = 0.0
+
+        for k in range(smoothing):
+            j = i + k
+            if j >= n:
+                break
+
+            weight = discount ** k
+            eval_j = game_kif[j][1]
+
+            # k手先は手番が反転するので符号反転
+            if k % 2 == 1:
+                eval_j = -eval_j
+
+            weighted_sum += eval_j * weight
+            weight_total += weight
+
+        smoothed = int(weighted_sum / weight_total)
+        result.append((game_kif[i][0], smoothed))
+
+    return result
+
+
 # KifReaderを書こうと思ったが、可変長フォーマットなのでparseするまで終わりかどうかが確定しない。
 # ちょっと使い勝手が悪そうであった。
 # なので、KifReaderは書かずに、PackedKifToHcpeというクラスを書いておく。
 
-def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
+def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str, smoothing:int = 1, discount:float = 1.0) -> None:
     """
     Pack形式のファイルをhcpe形式のファイルに変換する。
+
+    discount, smoothing : 評価値を平滑化するときの割引率と平滑化する手数
     """
     with open(pack_file_path, 'rb') as r:
         # 丸読みするの、あまり良くないけど、このコード、丸読みしないのは難しい。
@@ -747,10 +788,14 @@ def pack_file_to_hcpe(pack_file_path:str, hcpe_file_path:str) -> None:
                     # あとで取り出す。
                     game_kif.append( (move, eval16) )
 
+                # 評価値を平滑化する
+                if smoothing != 1:
+                    game_kif = smooth_eval(game_kif, smoothing, discount)
+
                 # 1局分の記譜をファイルに書き出す。
                 for move, eval16 in game_kif:
 
-                    usi_move = cshogi.move_to_usi(move) # type:ignore
+                    # usi_move = cshogi.move_to_usi(move) # type:ignore
                     # print(f"  Move: {move:04x} = {usi_move}, Eval: {eval16}, game result = {game_result}")
 
                     # 局面

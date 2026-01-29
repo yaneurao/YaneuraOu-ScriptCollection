@@ -24,8 +24,10 @@
     "ENGINE_SETTINGS": [
         // 基準となる思考エンジンの設定
         "settings/engine_settings1.json5",
+
         // tuneする思考エンジンの設定
         "settings/engine_settings2.json5"
+        // "settings/engine_settings2-concerto.json5"
     ],
 
     // 標準的な将棋盤。
@@ -34,5 +36,6 @@
 
     // tune.pyの'tune'コマンドで生成したパラメーターファイル
     "PARAMETERS_PATH" : "param/suisho10.params"
+    // "PARAMETERS_PATH" : "param/suisho10-none.params"
 
 }
