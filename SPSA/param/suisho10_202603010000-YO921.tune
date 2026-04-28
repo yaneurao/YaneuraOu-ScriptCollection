@@ -104,10 +104,9 @@
                  + std::abs(correctionValue) / 158105@;
         };
 
-#context Search_nullmove_1 // Search step 9.
+#context Search_nullmove // Search step 9.
 
-    if (cutNode && ss->staticEval >= beta - 16@ * depth - 53@ * improving + 378@ && !excludedMove
-
+    if (cutNode && ss->staticEval >= beta - 18@ * depth + 390@ && !excludedMove
 
 #context Search_Probcut // Search step 11.
 
@@ -194,10 +193,10 @@
         if (ttCapture)
             r += 1415@;
 
-#context Search_Decrease_reduction_for_PvNodes_6a
+#context Search_Decrease_reduction_for_PvNodes_6
 
-        if ((ss + 1)->cutoffCnt > 1)
-            r += 251@ + 1124@ * ((ss + 1)->cutoffCnt > 2) + 1042@ * allNode;
+        if ((ss + 1)->cutoffCnt > 2)
+            r += 1051@ + allNode * 814@;
 
 
 #context Search_Decrease_reduction_for_PvNodes_7
@@ -242,7 +241,7 @@
 
 #context YaneuraOuWorker_reduction
 
-int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) const {
+Depth Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn, int delta) const {
     int reductionScale = reductions[d] * reductions[mn];
     return reductionScale - delta * 757@ / rootDelta + !i * reductionScale * 218@ / 512 + 1200@;
 

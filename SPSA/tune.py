@@ -24,21 +24,20 @@ class TuneBlock:
     # `file`とか`tune`とか。
     setblock : dict[str,str] = field(default_factory=dict)
 
-    # このcontext_blockに出現したパラメーターの名前。
-    # これはパラメーターのsuffix。
-    # 💡 `@1`なら`_1`のように置換される。
-    params : list[str] = field(default_factory=list)
-
     # contextブロック
-    # context[0] 元の.tuneファイルに書いてあった内容
-    # context[1] context[0]から'@123a'のような文字列を除去したもの。
-    #            これがソースコードに対する置換対象文字列。
-    # context[2] context[0]から、'123@`のような文字列を変数名に置換したもの。
-    #            applyコマンドでは、これを現在のパラメーター値で置き換える。
-    context_blocks : list[Block] = field(default_factory=list)
+    # TuneBlockは1つのcontextブロックを持つ。
+    # この内容をソースコードに対する置換対象文字列として使う。
+    # ただし、数値に付与された`@`は、その数値をワイルドカード扱いにする。
+    context_block : Block | None = None
 
     # addブロック(これは複数ありうる)
     add_blocks : list[Block] = field(default_factory=list)
+
+
+def get_context_block(tune_block:TuneBlock)->Block:
+    if tune_block.context_block is None:
+        raise Exception(f"Error : context block not found, {tune_block}")
+    return tune_block.context_block
 
 
 def parse_tune_file(tune_file:str)->list[Block]:
@@ -114,16 +113,9 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
         # "#file"と"#context"とがあるとそこまでのTuneBlockを書き出す。
         nonlocal current_block
         # current_blockがすでに埋まっていれば、書き出す。
-        if current_block.context_blocks:
+        if current_block.context_block is not None:
             # setblockの内容をコピー。これはTuneBlockを超えて設定を引き継ぐので…。
             current_block.setblock = dict(setblock)
-
-            # contextブロックの内容
-            context = current_block.context_blocks[0]
-
-            # contextから'@123a'のような文字列を除去したもの。これがソースコードに対する置換対象文字列。
-            context_with_no_parameters = [re.sub(r"@[0-9A-Za-z]*", "", line) for line in context.content]
-            current_block.context_blocks.append(Block(context.type, context.params , context_with_no_parameters))
 
             result.append(current_block)
             current_block = TuneBlock()
@@ -144,7 +136,7 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
             #     raise Exception(f"Error : Insufficient parameter in content block, {block}")
             # 📝 無名contentブロックは、置換用に使うようにした。
 
-            current_block.context_blocks.append(block)
+            current_block.context_block = block
         elif block_name.startswith("add"):
             current_block.add_blocks.append(block)
 
@@ -203,34 +195,87 @@ def parse_content_block(block:Block, prefix:str):
 
     return modified_block, removed_numbers, params_name
 
-def replace_context(filename:str, context:list[str], modified:list[str]):
-    """ ファイルのなかのcontextに合致したところをmodifiedに置換する。"""
+NUMBER_WITH_AT_RE = re.compile(r'-?\d+(?:\.\d+)?@[A-Za-z0-9]*')
+NUMBER_CAPTURE_RE = r'(-?\d+(?:\.\d+)?)'
 
-    path = os.path.join(target_dir, filename)
+
+def get_target_path(filename:str)->str:
+    """ tuneファイル内のWindows形式パスを実行環境のパスに変換する。"""
+
+    filename = filename.replace("\\", os.sep)
+    return os.path.join(target_dir, filename)
+
+
+def make_context_pattern(context:list[str])->str:
+    """
+    contextから空白差分を無視する正規表現を作る。
+
+    `123@`や`123@name`のように、数値の直後に`@`がついている箇所は
+    ソース照合時に数値ワイルドカードとして扱う。
+    """
+
+    context_text = "".join(context)
+    tokens:list[str] = []
+
+    def add_literal(text:str):
+        text = re.sub(r'\s+', '', text)
+        tokens.extend(re.escape(c) for c in text)
+
+    last = 0
+    for match in NUMBER_WITH_AT_RE.finditer(context_text):
+        add_literal(context_text[last:match.start()])
+        tokens.append(NUMBER_CAPTURE_RE)
+        last = match.end()
+    add_literal(context_text[last:])
+
+    return r'\s*'.join(tokens)
+
+
+def get_context_matches(filename:str, context:list[str]):
+    """ ファイルのなかのcontextに合致した箇所を取得する。"""
+
+    path = get_target_path(filename)
     # print(path)
 
     if not os.path.exists(path):
         raise Exception(f"file not found : {path}")
 
-    # context の各文字の間に \s*（空白類0回以上）を挟む正規表現パターンを生成
-    context2 = "".join(context)
-    # cintext2 から空白・タブ・改行をすべて除去
-    context2 = re.sub(r'\s+', '', context2)
-    pattern = r'\s*'.join(map(re.escape, context2))
-
-    # これに置き換える。
-    replaced = "".join(modified)
-
     with open(path, 'r', encoding='utf-8') as f:
         filetext = f.read()
 
-    # re.subnを使うと (置換後のテキスト, 置換回数) が返る
-    new_text, count = re.subn(pattern, replaced , filetext, flags=re.MULTILINE | re.DOTALL)            
+    pattern = make_context_pattern(context)
+    matches = list(re.finditer(pattern, filetext, flags=re.MULTILINE | re.DOTALL))
 
-    if count != 1:
+    return path, filetext, matches
+
+
+def get_context_numbers(filename:str, context:list[str])->list[str]:
+    """ context内の`@`付き数値に対応する、現在のソースコード上の数値を取得する。"""
+
+    _, _, matches = get_context_matches(filename, context)
+
+    if len(matches) != 1:
         print("target context : ")
         print(context)
-        raise Exception(f"Error : replaced count = {count}")
+        raise Exception(f"Error : matched count = {len(matches)}")
+
+    return list(matches[0].groups())
+
+
+def replace_context(filename:str, context:list[str], modified:list[str]):
+    """ ファイルのなかのcontextに合致したところをmodifiedに置換する。"""
+
+    path, filetext, matches = get_context_matches(filename, context)
+
+    if len(matches) != 1:
+        print("target context : ")
+        print(context)
+        raise Exception(f"Error : replaced count = {len(matches)}")
+
+    # これに置き換える。
+    replaced = "".join(modified)
+    match = matches[0]
+    new_text = filetext[:match.start()] + replaced + filetext[match.end():]
 
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_text)
@@ -239,7 +284,7 @@ def add_content(filename:str, marker : str, lines: list[str]):
     """
     ソースファイルのmarkerが書いてある行の次の行にlinesを追加する。
     """
-    path = os.path.join(target_dir, filename)
+    path = get_target_path(filename)
 
     if not os.path.exists(path):
         raise Exception(f"file not found : {path}")
@@ -286,9 +331,9 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
     # 変数名を列挙する。
     for tune_block in tune_blocks:
-        content_block = tune_block.context_blocks[0]
+        content_block = get_context_block(tune_block)
         prefix        = content_block.params[0] if content_block.params else ""
-        modified_block , removed_numbers, params_name = parse_content_block(content_block , prefix)
+        modified_block , _, params_name = parse_content_block(content_block , prefix)
 
         # print("modified block")
         # print(modified_block)
@@ -334,7 +379,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
         # print("final context")
         # print_block(context_lines)
 
-        context  = tune_block.context_blocks[1].content
+        context  = content_block.content
         replaced = context_lines
         replace_context(filename, context, replaced)
 
@@ -361,11 +406,20 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
     def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。
-        block = tune_block.context_blocks[0]
+        block = get_context_block(tune_block)
         prefix = block.params[0] if block.params else ""
-        _ , removed_numbers, params_name = parse_content_block(block, prefix)
+        _ , _, params_name = parse_content_block(block, prefix)
 
-        for param_name, number in zip(params_name, removed_numbers):
+        if not prefix:
+            return
+
+        filename = tune_block.setblock['file']
+        source_numbers = get_context_numbers(filename, block.content)
+
+        if len(source_numbers) != len(params_name):
+            raise Exception(f"Error : parameter count mismatch, file = {filename}, prefix = {prefix}, params = {len(params_name)}, source numbers = {len(source_numbers)}")
+
+        for param_name, number in zip(params_name, source_numbers):
             try:
                 # print(f"variable {param_name}")
                 result = next((p for p in params if p.name == param_name), None)
@@ -410,21 +464,15 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
     # このあと、sourceコードにpatchを当てにいく。
 
-    # block.context_blocks[1]を探して、patchを当てる。
-    # あとで
-    
     #  add blockをparseして、ソースコードの追加場所を探し、そこに追加する。
     for tune_block in tune_blocks:
         filename      = tune_block.setblock['file']
-        content_block = tune_block.context_blocks[0]
+        content_block = get_context_block(tune_block)
         prefix        = content_block.params[0] if content_block.params else ""
         modified_block , _, params_name = parse_content_block(content_block, prefix)
 
-        # print(params_name , modified_block)
-        # tune_block.context_blocks[1].content
-
         # 置換対象文字列
-        context = tune_block.context_blocks[1].content
+        context = content_block.content
 
         # add_blocksのなかに無名blockがあるなら、contextは、それで置き換えられる。
         # さもなくば、↑のmodified_blockで置き換える。
@@ -441,7 +489,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                 add_content(filename, block_name, modified_block2)
             else:
                 # context block名
-                prefix = tune_block.context_blocks[0].params[0] if tune_block.context_blocks[0].params else ""
+                prefix = content_block.params[0] if content_block.params else ""
                 print(f"replace block, prefix = {prefix}")
 
                 # contextが合致する箇所を探す。
