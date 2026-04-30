@@ -81,7 +81,11 @@ def main():
 
     if hcpe_path is None:
         # 変換後のファイルpathが指定されていないので、変換前のファイルに".hcpe"を付加したものにする。
-        hcpe_path = pack_path + ".hcpe"
+        if smoothing == 1:
+            hcpe_path = f"{pack_path}.hcpe"
+        else:
+            hcpe_path = f"{pack_path}-{smoothing}-{discount:.2f}.hcpe"
+
 
     # 前提条件として、割引率は0ではなく、smoothing movesは1以上。
 
@@ -95,8 +99,8 @@ def main():
 
     print("File 1        : ", pack_path)
     print("File 2        : ", hcpe_path)
-    print("discount rate : ", discount)
     print("smoothing ply : ", smoothing)
+    print("discount rate : ", discount)
 
     pack_file_to_hcpe(pack_path, hcpe_path, smoothing=smoothing, discount=discount)
 

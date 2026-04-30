@@ -8,15 +8,22 @@
     "MAX_GAME_PLY" : 320,
 
     // 棋譜を生成するときの探索ノード数
-    "NODES" : 1000000,
+    "NODES" : 5000000,
 
     "ENGINE_SETTING":
     [
+        /*
         {
             "path":"C:/Users/yaneen/largefile/Shogi/SPSA/suisho-concerto/SuishoConcerto-ZEN3.exe",
             "name":"YO910-concerto",
-            "multi":32 // 32個起動する。
+            "multi":16 // 32個起動する。
         },
+        */
+        {
+            "path":"C:/Users/yaneen/largefile/Shogi/SPSA/Suisho11alpha/YaneuraOu_NNUE_halfkp_1024x2_8_64-V910DEV_AVX2.exe",
+            "name":"YO910suisho11alpha",
+            "multi":32 // 32個起動する。
+        }
         /*
         {
             "path":"C:/Users/yaneen/largefile/Shogi/SPSA/YaneuraOuV901suisho11tune/YaneuraOuNNUE_halfkp_1024x2_8_64_V901apply.exe",

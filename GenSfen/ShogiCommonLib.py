@@ -685,6 +685,9 @@ def smooth_eval(game_kif, smoothing: int, discount: float ):
 
     game_kif: [(move, eval16), ...]
     戻り値: [(move, smoothed_eval), ...]
+
+    📝 加重平均による平滑化をしている。勝率に変換してから平滑化をするほうが良いかもしれないが、
+        その場合、勝率に変換するための係数を先に推定しないと…。
     """
     n = len(game_kif)
     result = []
