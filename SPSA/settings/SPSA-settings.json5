@@ -35,7 +35,7 @@
     "STANDARD_BOARD" : true,
 
     // tune.pyの'tune'コマンドで生成したパラメーターファイル
-    "PARAMETERS_PATH" : "param/suisho10.params"
+    "PARAMETERS_PATH" : "param/YaneuraOuV931.params"
     // "PARAMETERS_PATH" : "param/suisho10-none.params"
 
 }
