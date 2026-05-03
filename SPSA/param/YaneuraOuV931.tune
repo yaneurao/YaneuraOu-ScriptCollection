@@ -1,3 +1,5 @@
+#param FV_SCALE int 28 16 64 1 0.002
+
 #set file engine\yaneuraou-engine\yaneuraou-search.cpp
 #set declaration %%TUNE_DECLARATION%%
 #set options %%TUNE_OPTIONS%%

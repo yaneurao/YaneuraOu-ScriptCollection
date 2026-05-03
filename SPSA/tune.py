@@ -96,9 +96,10 @@ def parse_tune_file(tune_file:str)->list[Block]:
     return blocks
 
 
-def read_tune_file(tune_file:str)->list[TuneBlock]:
+def read_tune_file(tune_file:str, blocks:list[Block] | None = None)->list[TuneBlock]:
 
-    blocks = parse_tune_file(tune_file)
+    if blocks is None:
+        blocks = parse_tune_file(tune_file)
     print(f"read tune file, path = {tune_file}", end="")
 
     # 返し値
@@ -143,6 +144,36 @@ def read_tune_file(tune_file:str)->list[TuneBlock]:
     append_check()
             
     print(f", {len(result)} TuneBlocks.")
+    return result
+
+
+def read_explicit_params(tune_file:str, blocks:list[Block] | None = None)->list[Entry]:
+    """
+        .tuneファイルに書かれた明示パラメーターを読み込む。
+        既存のUSI optionをSPSA対象にしたいが、ソースコードは置換したくない場合に使う。
+
+        書式:
+          #param name type value min max step delta
+    """
+
+    if blocks is None:
+        blocks = parse_tune_file(tune_file)
+
+    result : list[Entry] = []
+    for block in blocks:
+        if block.type != "param":
+            continue
+
+        if len(block.params) < 7:
+            raise Exception(f"Error : Insufficient parameters in param block, {block}")
+
+        name, type_, value, min_, max_, step, delta = block.params[:7]
+        if type_ not in ("int", "float"):
+            raise Exception(f"Error : unsupported param type, type = {type_}, name = {name}")
+
+        result.append(Entry(name, type_, float(value), float(min_), float(max_),
+                            float(step), float(delta), "", False))
+
     return result
 
 
@@ -402,7 +433,26 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     for param in params:
         param.not_used = True
 
-    tune_blocks = read_tune_file(tune_file)
+    blocks = parse_tune_file(tune_file)
+
+    # `#param`で明示された、既存USI option用のパラメーターを追加する。
+    # これはソースコード上の`@`置換とは独立しており、tune対象エンジンへ
+    # `setoption name ... value ...`を送るためだけに使う。
+    for explicit_param in read_explicit_params(tune_file, blocks):
+        result = next((p for p in params if p.name == explicit_param.name), None)
+        if result is None:
+            params.append(explicit_param)
+        else:
+            result.type     = explicit_param.type
+            result.min      = explicit_param.min
+            result.max      = explicit_param.max
+            result.step     = explicit_param.step
+            result.delta    = explicit_param.delta
+            result.comment  = explicit_param.comment
+            result.v        = min(result.max, max(result.min, result.v))
+            result.not_used = False
+
+    tune_blocks = read_tune_file(tune_file, blocks)
 
     def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。
