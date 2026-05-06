@@ -11,6 +11,7 @@
 | -- | -- | -- | 
 | 📁&nbsp;[SPSA](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/SPSA) | パラメーター自動調整 | パラメーター自動調整のためのツール群 |
 | 📁&nbsp;[GenSfen](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/GenSfen) | 教師生成 | 教師生成スクリプト |
+| 📁&nbsp;[dlshogi-script](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/dlshogi-script) | 学習スクリプト | dlshogiの学習関係のスクリプト |
 | 📁&nbsp;PetaShock | 定跡 | 定跡の次に掘ると良い局面をリストアップするスクリプト(`peta_next`) | 
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
