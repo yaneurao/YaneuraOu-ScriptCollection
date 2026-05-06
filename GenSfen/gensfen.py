@@ -14,7 +14,7 @@ from ShogiCommonLib import *
 # ============================================================
 
 # このスクリプトのバージョン
-SCRIPT_VERSION             = "V0.02"
+SCRIPT_VERSION             = "V0.03"
 
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
@@ -36,8 +36,31 @@ class SharedState:
         # 教師生成の1局面あたりの探索ノード数
         self.nodes = settings["NODES"]
 
-        # 棋譜保存用
-        self.kif_writer = KifWriter(self.nodes)
+        # 出力形式
+        #   pack  : 従来形式。pack2hcpe.pyでHCPEへ変換する。
+        #   hcpe3 : MultiPVから疑似訪問回数を作り、HCPE3を直接出力する。
+        self.output_format = str(settings.get("OUTPUT_FORMAT", "pack")).lower()
+        if self.output_format not in ["pack", "hcpe3"]:
+            raise Exception(f"Unknown OUTPUT_FORMAT: {self.output_format}")
+
+        # HCPE3出力用設定
+        self.multipv = max(1, int(settings.get("MULTIPV", 10 if self.output_format == "hcpe3" else 1)))
+        if self.output_format == "pack":
+            self.multipv = 1
+        self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))
+        self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 100.0))
+        self.hcpe3_eval_drop_threshold = int(settings.get("HCPE3_EVAL_DROP_THRESHOLD", 500))
+        self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", 30000))
+        self.hcpe3_resign_eval = settings.get("HCPE3_RESIGN_EVAL", None)
+        if self.hcpe3_resign_eval is not None:
+            self.hcpe3_resign_eval = int(self.hcpe3_resign_eval)
+
+        # 教師保存用
+        if self.output_format == "hcpe3":
+            self.teacher_writer = Hcpe3Writer(self.nodes, settings.get("HCPE3_OUTPUT_PATH", None))
+        else:
+            self.teacher_writer = KifWriter(self.nodes)
+        self.kif_writer = self.teacher_writer
         
         # # 対局開始局面(互角局面集から読み込む)
         # self.root_sfens : list[Sfen] = self.read_start_sfens(settings["START_SFENS_PATH"])
@@ -131,13 +154,13 @@ class ShogiMatch:
     def __init__(self, engine1:EngineSettings, engine2:EngineSettings, shared:"SharedState"):
 
         self.engine_settings = [engine1, engine2]
+        self.shared  = shared
         self.engines = [Engine(engine1.engine_path,engine1.thread_id), Engine(engine2.engine_path,engine2.thread_id)] 
 
         for engine in self.engines:
-            engine.send_usi(f"multipv 1")
+            engine.send_usi(f"setoption name MultiPV value {self.shared.multipv}")
             engine.isready()
 
-        self.shared  = shared
         self.quit = False
 
         # 対局スレッド
@@ -159,7 +182,7 @@ class ShogiMatch:
             while True:
                 # 対局処理1回分。
                 kif = self.start_game()
-                self.shared.kif_writer.write_game(kif)
+                self.shared.teacher_writer.write_game(kif)
 
         except Exception as e:
             # quitするときの例外ではないならそれを出力する。
@@ -168,10 +191,12 @@ class ShogiMatch:
 
         # print_log(f"Game end between {self.engine1.engine_name} and {self.engine2.engine_name}")
 
-    def start_game(self) -> GameDataEncoder:
+    def start_game(self):
         """
         1対局を開始させる
         """
+        if self.shared.output_format == "hcpe3":
+            return self.start_game_hcpe3()
 
         # 対局棋譜の保存用
         game_data = GameDataEncoder()
@@ -238,6 +263,155 @@ class ShogiMatch:
             # 千日手引き分け
             game_data.write_game_result(0)
             game_data.write_uint8(2) # 終局理由: draw by max moves
+
+        return game_data
+
+    def hcpe3_result_from_winner(self, winner:int)->int:
+        if winner == BLACK:
+            return HCPE3_BLACK_WIN
+        if winner == WHITE:
+            return HCPE3_WHITE_WIN
+        return HCPE3_DRAW
+
+    def make_hcpe3_candidate_visits(
+        self,
+        board,
+        selected_move:int,
+        selected_eval:int,
+        multipv_candidates:list[tuple[Move, Eval]],
+    )->tuple[int, list[tuple[int, int]]]:
+        """
+        USI MultiPV候補をHCPE3のMoveVisitsへ変換する。
+        """
+        candidates : list[tuple[int, int]] = []
+        seen_moves = set()
+
+        for usi_move, score in multipv_candidates:
+            try:
+                move = board.move_from_usi(usi_move)
+            except Exception:
+                continue
+
+            if move in seen_moves or not board.is_legal(move):
+                continue
+
+            seen_moves.add(move)
+            candidates.append((move, score))
+
+        if selected_move not in seen_moves:
+            fallback_score = candidates[0][1] if candidates else selected_eval
+            candidates.insert(0, (selected_move, fallback_score))
+            seen_moves.add(selected_move)
+
+        if len(candidates) > self.shared.multipv:
+            truncated = candidates[:self.shared.multipv]
+            if selected_move not in [move for move, _score in truncated]:
+                selected_candidate = next(
+                    ((move, score) for move, score in candidates if move == selected_move),
+                    (selected_move, selected_eval),
+                )
+                truncated = truncated[:self.shared.multipv - 1] + [selected_candidate]
+            candidates = truncated
+
+        if self.shared.hcpe3_eval_drop_threshold >= 0 and candidates:
+            best_score = max(score for _move, score in candidates)
+            filtered = [
+                (move, score)
+                for move, score in candidates
+                if best_score - score <= self.shared.hcpe3_eval_drop_threshold or move == selected_move
+            ]
+            if filtered:
+                candidates = filtered
+
+        scores = [score for _move, score in candidates]
+        visits = visits_from_scores(scores, self.shared.hcpe3_visits_sum, self.shared.hcpe3_temperature)
+        candidate_visits = [(move & 0xffff, visit) for (move, _score), visit in zip(candidates, visits)]
+
+        for move, score in candidates:
+            if move == selected_move:
+                selected_eval = score
+                break
+
+        return selected_eval, candidate_visits
+
+    def start_game_hcpe3(self) -> Hcpe3GameData:
+        """
+        1対局を開始させ、HCPE3 1局分のデータを返す。
+        """
+
+        game_data = Hcpe3GameData()
+
+        try:
+            startpos_sfen = self.shared.get_next_startpos_sfen()
+            board = board_from_position_string(startpos_sfen)
+            game_data = Hcpe3GameData(board_to_hcp_bytes(board))
+
+        except Exception as e:
+            print_log(f"Exception : {e}")
+            return game_data
+
+        for engine in self.engines:
+            engine.send_usi('usinewgame')
+
+        while board.move_number <= self.shared.max_game_ply:
+
+            self.shared.pause_event.wait()
+
+            if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
+                game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_REPETITION)
+                break
+
+            sfen = board.sfen()
+            engine = self.engines[board.turn]
+            usi_move, eval_int, multipv_candidates = engine.go_multipv(
+                sfen,
+                self.shared.nodes,
+                self.shared.hcpe3_mate_score,
+            )
+
+            if usi_move == "resign":
+                winner = board.turn ^ 1
+                game_data.set_result(self.hcpe3_result_from_winner(winner))
+                break
+
+            if usi_move == "win":
+                winner = board.turn
+                game_data.set_result(self.hcpe3_result_from_winner(winner), HCPE3_RESULT_NYUGYOKU)
+                break
+
+            try:
+                selected_move = board.move_from_usi(usi_move)
+            except Exception:
+                winner = board.turn ^ 1
+                game_data.set_result(self.hcpe3_result_from_winner(winner))
+                break
+
+            if not board.is_legal(selected_move):
+                winner = board.turn ^ 1
+                game_data.set_result(self.hcpe3_result_from_winner(winner))
+                break
+
+            selected_eval, candidate_visits = self.make_hcpe3_candidate_visits(
+                board,
+                selected_move,
+                eval_int,
+                multipv_candidates,
+            )
+            game_data.add_record(selected_move & 0xffff, selected_eval, candidate_visits)
+
+            mover = board.turn
+            board.push_usi(usi_move)
+
+            if self.shared.hcpe3_resign_eval is not None and selected_eval <= -abs(self.shared.hcpe3_resign_eval):
+                winner = mover ^ 1
+                game_data.set_result(self.hcpe3_result_from_winner(winner))
+                break
+
+            if self.quit:
+                raise Exception("quit requested")
+
+        else:
+            game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_MAX_MOVES)
 
         return game_data
 
@@ -378,7 +552,7 @@ def user_input():
             elif i == 'g':
                 # まだ対局が組まれていなければ開始する。
                 if not matcher.shogi_matches:
-                    print_log(f"Start GenSfen, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}")
+                    print_log(f"Start GenSfen, OUTPUT_FORMAT = {shared.output_format}, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}, MULTIPV = {shared.multipv}")
                     matcher.start_games()
 
             elif i == 'q' or i == '!':
@@ -405,10 +579,9 @@ def user_input():
     # 全スレッドの終了を待つ..
     matcher.wait_all_threads()
 
-    # 棋譜ファイルをclose
-    shared.kif_writer.close()
+    # 教師ファイルをclose
+    shared.teacher_writer.close()
 
 
 if __name__ == '__main__':
     user_input()
-

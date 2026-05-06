@@ -8,7 +8,11 @@
     "MAX_GAME_PLY" : 320,
 
     // 棋譜を生成するときの探索ノード数
-    "NODES" : 5000000,
+    "NODES" : 1000000,
+
+    // hcpe3の生成を行うとき
+    // "OUTPUT_FORMAT": "hcpe3",
+    // "MULTIPV": 4,
 
     "ENGINE_SETTING":
     [

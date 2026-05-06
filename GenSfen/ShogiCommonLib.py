@@ -1,6 +1,7 @@
 import os
 import random
 import datetime
+import math
 from threading import Lock
 import subprocess
 
@@ -40,7 +41,8 @@ SFEN_START_PLY1              = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/
 def mkdir(path:str):
     '''pathまでのフォルダを(なければすべて)作成する'''
     dirname = os.path.dirname(path)
-    os.makedirs(dirname, exist_ok=True)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
 
 
 # ログを書き出すかのフラグ
@@ -192,11 +194,17 @@ def index_of(a:list[Any] | str, x:Any):
     return a.index(x) if x in a else -1
 
 
-def evalstr_to_int(s1:str,s2:str)->Eval:
+def evalstr_to_int(s1:str,s2:str, mate_score:int | None = None)->Eval:
     ''' cp 100 なら 100。mate 1 なら 99999 を返す'''
     if s1 == 'cp':
         return int(s2)
     if s1 == "mate":
+        if mate_score is not None:
+            if s2 == '+' or s2 == '-':
+                return mate_score if s2 == '+' else -mate_score
+            x = int(s2)
+            return mate_score if x > 0 else -mate_score
+
         # 単に '+'とか'-'のことがある。
         if s2 == '+' or s2 == '-':
             # mate 1のスコアにしておく。
@@ -204,6 +212,51 @@ def evalstr_to_int(s1:str,s2:str)->Eval:
         x = int(s2)
         return VALUE_INF-x if x > 0 else -VALUE_INF-x
     raise Exception(f"Error! : parse error {s1},{s2}")
+
+def clamp_int16(x:int)->int:
+    """signed int16に収まる範囲へ丸める。"""
+    return min(32767, max(-32767, int(x)))
+
+def clamp_uint16(x:int)->int:
+    """uint16に収まる範囲へ丸める。"""
+    return min(65535, max(0, int(x)))
+
+def visits_from_scores(scores:list[int], visits_sum:int, temperature:float)->list[int]:
+    """
+    MultiPVの評価値をHCPE3のvisitNumへ変換する。
+
+    DeepLearningShogi/dlshogi/utils/usi_selfplay_multipv_to_hcpe3.py と同じ考え方で、
+    評価値softmaxから疑似訪問回数を作る。すべての候補に最低1visitを与える。
+    """
+    if not scores:
+        return []
+
+    if visits_sum < len(scores):
+        visits_sum = len(scores)
+    visits_sum = min(visits_sum, 65535)
+
+    if temperature <= 0:
+        visits = [1] * len(scores)
+        best = max(range(len(scores)), key=lambda i: scores[i])
+        visits[best] += visits_sum - len(scores)
+        return visits
+
+    max_score = max(scores)
+    weights = [math.exp(max(-700.0, min(700.0, (score - max_score) / temperature))) for score in scores]
+    total = sum(weights)
+
+    base = [1] * len(scores)
+    remaining = visits_sum - len(scores)
+    raw = [weight / total * remaining for weight in weights]
+    extra = [int(math.floor(x)) for x in raw]
+    visits = [b + e for b, e in zip(base, extra)]
+
+    residue = visits_sum - sum(visits)
+    order = sorted(range(len(scores)), key=lambda i: raw[i] - extra[i], reverse=True)
+    for i in order[:residue]:
+        visits[i] += 1
+
+    return [min(65535, max(1, v)) for v in visits]
 
 # ============================================================
 #                        Engine
@@ -395,6 +448,57 @@ class Engine:
                 #         first_moves += first_move,
                 #     if not first_move in first_moves_all:
                 #         first_moves_all += first_move,
+
+    def go_multipv(self, sfen:PositionStr, nodes:int, mate_score:int)->tuple[Move, Eval, list[tuple[Move, Eval]]]:
+        '''
+        思考エンジンにMultiPVで探索させる。
+
+        返し値:
+            bestmove, best_eval, candidates
+
+        candidates は [(pv初手, 評価値), ...] で、USI infoのmultipv番号順に並ぶ。
+        評価値は手番側から見たもの。mate scoreはmate_scoreへ写像する。
+        '''
+
+        self.search_sfen = sfen
+        self.send_usi(f"position {sfen}")
+        self.send_usi(f"go nodes {nodes}")
+
+        bestmove : Move = ""
+        besteval : Eval | None = None
+        multipv_infos : dict[int, tuple[Move, Eval]] = {}
+
+        while True:
+            ret = self.receive_usi()
+            rets = ret.split()
+
+            if "bestmove" in ret:
+                bestmove = rets[1]
+                if besteval is None:
+                    besteval = 0
+                candidates = [multipv_infos[k] for k in sorted(multipv_infos)]
+                return bestmove, besteval, candidates
+
+            if not rets or rets[0] != 'info':
+                continue
+
+            score_idx = index_of(rets, 'score')
+            if score_idx != -1 and score_idx + 2 < len(rets):
+                score = evalstr_to_int(rets[score_idx + 1], rets[score_idx + 2], mate_score)
+                multipv_idx = index_of(rets, 'multipv')
+                multipv = 1
+                if multipv_idx != -1 and multipv_idx + 1 < len(rets):
+                    try:
+                        multipv = int(rets[multipv_idx + 1])
+                    except ValueError:
+                        multipv = 1
+                if multipv == 1:
+                    besteval = score
+
+                pv_idx = index_of(rets, 'pv')
+                if pv_idx != -1 and pv_idx + 1 < len(rets):
+                    first_move = rets[pv_idx + 1]
+                    multipv_infos[multipv] = (first_move, score)
     
     def raise_exception(self, error_message:str):
         ''' 例外を発生させる。エンジンの詳細を出力する。'''
@@ -473,7 +577,21 @@ BLACK                     = cshogi.BLACK
 # 後手番を表す定数
 WHITE                     = cshogi.WHITE
 
+# HCPE3の勝敗・終局理由flag
+HCPE3_DRAW                = 0
+HCPE3_BLACK_WIN           = 1
+HCPE3_WHITE_WIN           = 2
+HCPE3_RESULT_REPETITION   = 4
+HCPE3_RESULT_NYUGYOKU     = 8
+HCPE3_RESULT_MAX_MOVES    = 16
+
 # ============================================================
+
+def board_to_hcp_bytes(board)->bytes:
+    """cshogi.BoardをHuffmanCodedPosの32 bytesへ変換する。"""
+    hcps = np.empty(1, dtype=cshogi.HuffmanCodedPos) # type:ignore
+    board.to_hcp(hcps) # type:ignore
+    return bytes(hcps)
 
 def board_from_position_string(s : PositionStr)->cshogi.Board: # type:ignore
     """
@@ -499,6 +617,34 @@ def board_from_position_string(s : PositionStr)->cshogi.Board: # type:ignore
         board.push_usi(move)
     
     return board
+
+class Hcpe3GameData:
+    """
+    1局分のHCPE3データ。
+
+    HCPE3は開始局面HCPと手順列で1局を表すため、対局中はMoveInfo/MoveVisits相当の
+    recordだけを保持し、終局後にHcpe3Writerがまとめて書き出す。
+    """
+    def __init__(self, start_hcp:bytes | None = None):
+        self.start_hcp = start_hcp
+        self.records : list[tuple[int, int, list[tuple[int, int]]]] = []
+        self.result = HCPE3_DRAW
+        self.position_num = 0
+
+    def is_valid(self)->bool:
+        return self.start_hcp is not None
+
+    def set_result(self, result:int, reason:int = 0):
+        self.result = result | reason
+
+    def add_record(self, selected_move16:int, eval16:int, candidates:list[tuple[int, int]]):
+        self.records.append((
+            selected_move16 & 0xffff,
+            clamp_int16(eval16),
+            [(move16 & 0xffff, clamp_uint16(visit)) for move16, visit in candidates],
+        ))
+        if candidates:
+            self.position_num += 1
 
 # 1局の対局データ
 class GameDataEncoder:
@@ -674,6 +820,60 @@ class KifWriter:
     def close(self):
         """ファイルを閉じる"""
         self.kif_file.close()
+
+class Hcpe3Writer:
+    """
+    HCPE3保存用クラス。
+
+    複数の対局スレッドから呼ばれるので、1局分の書き出し全体をlockで保護する。
+    """
+    def __init__(self, nodes:int, filepath:str | None = None):
+        if filepath is None or filepath == "":
+            filepath = f'hcpe3/hcpe3_{make_time_stamp()}_{nodes}.hcpe3'
+        self.hcpe3_filename = filepath
+        mkdir(self.hcpe3_filename)
+        self.hcpe3_file = open(self.hcpe3_filename, 'wb', buffering=8192)
+        self.game_count = 0
+        self.position_num = 0
+        self.lock = Lock()
+
+    def get_hcpe3_filename(self)->str:
+        return self.hcpe3_filename
+
+    def write_game(self, game_data:Hcpe3GameData):
+        if not game_data.is_valid():
+            return
+
+        with self.lock:
+            start_hcp = game_data.start_hcp
+            if start_hcp is None:
+                return
+            if len(start_hcp) != 32:
+                raise Exception(f"invalid HCP size: {len(start_hcp)}")
+
+            self.hcpe3_file.write(start_hcp)
+            self.hcpe3_file.write(len(game_data.records).to_bytes(2, byteorder='little', signed=False))
+            self.hcpe3_file.write((game_data.result & 0xff).to_bytes(1, byteorder='little', signed=False))
+            self.hcpe3_file.write((0).to_bytes(1, byteorder='little', signed=False)) # opponent: self-play
+
+            for selected_move16, eval16, candidates in game_data.records:
+                self.hcpe3_file.write(selected_move16.to_bytes(2, byteorder='little', signed=False))
+                self.hcpe3_file.write(eval16.to_bytes(2, byteorder='little', signed=True))
+                self.hcpe3_file.write(len(candidates).to_bytes(2, byteorder='little', signed=False))
+                for move16, visit_num in candidates:
+                    self.hcpe3_file.write(move16.to_bytes(2, byteorder='little', signed=False))
+                    self.hcpe3_file.write(visit_num.to_bytes(2, byteorder='little', signed=False))
+
+            self.hcpe3_file.flush()
+            os.fsync(self.hcpe3_file.fileno())
+
+            self.game_count += 1
+            self.position_num += game_data.position_num
+            if self.game_count % 100 == 0:
+                print_log(f"total hcpe3 games written: {self.game_count}, position_num = {self.position_num}")
+
+    def close(self):
+        self.hcpe3_file.close()
 
 
 def smooth_eval(game_kif, smoothing: int, discount: float ):
