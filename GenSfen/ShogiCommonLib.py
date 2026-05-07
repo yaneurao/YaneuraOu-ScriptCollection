@@ -827,10 +827,8 @@ class Hcpe3Writer:
 
     複数の対局スレッドから呼ばれるので、1局分の書き出し全体をlockで保護する。
     """
-    def __init__(self, nodes:int, filepath:str | None = None):
-        if filepath is None or filepath == "":
-            filepath = f'hcpe3/hcpe3_{make_time_stamp()}_{nodes}.hcpe3'
-        self.hcpe3_filename = filepath
+    def __init__(self, nodes:int):
+        self.hcpe3_filename = f'hcpe3/hcpe3_{make_time_stamp()}_{nodes}.hcpe3'
         mkdir(self.hcpe3_filename)
         self.hcpe3_file = open(self.hcpe3_filename, 'wb', buffering=8192)
         self.game_count = 0
