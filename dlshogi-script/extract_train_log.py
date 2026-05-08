@@ -276,7 +276,7 @@ def row_to_dict(row: LogRow) -> dict[str, str | int | None]:
         "test_entropy_policy": row.test_entropy[0],
         "test_entropy_value": row.test_entropy[1],
         "position_num": row.position_num,
-        "lr": row.lr,
+        "lr": format_float(row.lr),
         "val_lambda": row.val_lambda,
         "batchsize": row.batchsize,
         "teacher": row.teacher,
