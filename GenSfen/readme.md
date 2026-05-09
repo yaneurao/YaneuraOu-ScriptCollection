@@ -93,6 +93,8 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 `pack`出力では`MultiPV`は常に1に設定されます。強いエンジンで通常のNNUE教師局面を大量生成し、あとから`pack2hcpe.py`でHCPE化する用途に向いています。
 
+エンジンがUSIの`score mate N`を返した場合、評価値はやねうら王本体と同じく`32000 - N`へ変換して保存します。例えば`score mate 1`は`31999`、`score mate -3`は`-31997`になります。最終的な書き出し時には従来どおり`pack`出力なら`[-32000, 32000]`、HCPE3出力なら`[-32767, 32767]`へclampされます。
+
 `hcpe3`出力では、各局面でMultiPV探索を行い、候補手の評価値をsoftmaxしてHCPE3の`MoveVisits.visitNum`に変換します。1局が完了するごとに1局分のHCPE3 recordを書き出し、`flush()`と`fsync()`を行います。
 
 HCPE3直接出力に関係する設定項目:
@@ -103,7 +105,7 @@ HCPE3直接出力に関係する設定項目:
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
 | `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
 | `HCPE3_EVAL_DROP_THRESHOLD` | `500` | 最良評価値からこの値より悪い候補を捨てる。負値なら無効。 |
-| `HCPE3_MATE_SCORE` | `30000` | USIの`score mate`を評価値へ写像するときの絶対値。 |
+| `HCPE3_MATE_SCORE` | `32000` | USIの`score mate N`を評価値へ写像するときの基準値。既定ではやねうら王本体と同じく`32000 - N`になる。 |
 | `HCPE3_RESIGN_EVAL` | 未指定 | 指定時、実着手側の評価値が`-abs(value)`以下なら、その手を記録したあと投了扱いにする。 |
 
 設定例:
@@ -119,7 +121,7 @@ HCPE3直接出力に関係する設定項目:
     "HCPE3_VISITS_SUM": 65535,
     "HCPE3_TEMPERATURE": 100.0,
     "HCPE3_EVAL_DROP_THRESHOLD": 500,
-    "HCPE3_MATE_SCORE": 30000,
+    "HCPE3_MATE_SCORE": 32000,
     "HCPE3_RESIGN_EVAL": 1000,
 
     "ENGINE_SETTING":

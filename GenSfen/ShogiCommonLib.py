@@ -26,8 +26,10 @@ Move  = str
 # やねうら王形式の定跡DBファイルに書き出す時の指し手に対応する評価値
 Eval  = int
 
-# 無限大に相当する評価値(mate 1は、VALUE_INF-1)
+# 無限大に相当する評価値
 VALUE_INF                    =  1000000
+# やねうら王のVALUE_MATE。pack出力ではscore mate Nをこの体系に写像する。
+VALUE_MATE                   =    32000
 # その指し手の評価値が定まっていない時の定数(定跡として選択されないようにするために-INFみたいな値にしておく。-VALUE_INFは負けの指し手でそれよりはマシだろうから、9999にしておく。)
 VALUE_NONE                   =   -99999
 
@@ -194,23 +196,26 @@ def index_of(a:list[Any] | str, x:Any):
     return a.index(x) if x in a else -1
 
 
+def usi_mate_to_yaneuraou_eval(mate_ply_str:str, mate_score:int = VALUE_MATE)->Eval:
+    """USI score mate をやねうら王のmate scoreへ変換する。"""
+    if mate_ply_str == '+' or mate_ply_str == '-':
+        return mate_score - 1 if mate_ply_str == '+' else -mate_score + 1
+
+    mate_ply = int(mate_ply_str)
+    if mate_ply > 0:
+        return mate_score - mate_ply
+    if mate_ply < 0:
+        return -mate_score - mate_ply
+
+    # mate 0は通常来ないが、来た場合は即詰み扱いにしておく。
+    return mate_score
+
 def evalstr_to_int(s1:str,s2:str, mate_score:int | None = None)->Eval:
-    ''' cp 100 なら 100。mate 1 なら 99999 を返す'''
+    ''' cp 100 なら 100。mate 1 なら 31999 を返す。'''
     if s1 == 'cp':
         return int(s2)
     if s1 == "mate":
-        if mate_score is not None:
-            if s2 == '+' or s2 == '-':
-                return mate_score if s2 == '+' else -mate_score
-            x = int(s2)
-            return mate_score if x > 0 else -mate_score
-
-        # 単に '+'とか'-'のことがある。
-        if s2 == '+' or s2 == '-':
-            # mate 1のスコアにしておく。
-            return VALUE_INF-1 if s2=='+' else -VALUE_INF+1
-        x = int(s2)
-        return VALUE_INF-x if x > 0 else -VALUE_INF-x
+        return usi_mate_to_yaneuraou_eval(s2, VALUE_MATE if mate_score is None else mate_score)
     raise Exception(f"Error! : parse error {s1},{s2}")
 
 def clamp_int16(x:int)->int:
@@ -389,7 +394,7 @@ class Engine:
         
         返し値 : 最終的なbestmoveとその時の評価値が返る。
                 例) ('7g7f',120)
-                mate 1は、99999と数値化されて返る。
+                mate 1は、やねうら王形式の31999と数値化されて返る。
         '''
 
         # "position"コマンドを思考エンジンに送信する。
@@ -457,7 +462,7 @@ class Engine:
             bestmove, best_eval, candidates
 
         candidates は [(pv初手, 評価値), ...] で、USI infoのmultipv番号順に並ぶ。
-        評価値は手番側から見たもの。mate scoreはmate_scoreへ写像する。
+        評価値は手番側から見たもの。score mate Nはmate_score - Nへ写像する。
         '''
 
         self.search_sfen = sfen
