@@ -58,7 +58,9 @@
 
     python dlshogi-trainer.py --no_swa
 
-   注意: このスクリプトは教師1ファイルごとに train.py を呼ぶため、
+   注意: このスクリプトは教師1ファイルごとに train.py を呼ぶ。
+   train.py は毎回別の Python プロセスで起動する。
+   これは dlshogi 側の内部キャッシュや logging 設定が前回呼び出しから残らないようにするため。
    train.py が最後に行う SWA の BatchNorm 更新は、最後の教師ファイルだけを使う。
    SWA の平均重み自体は学習全体で更新されるが、BN 更新を全教師で厳密に行いたい場合は
    追加の最終エクスポート処理が必要。
@@ -84,9 +86,9 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -121,14 +123,6 @@ def checkpoint_number(path: Path) -> int:
 
 def make_out_dir(model_root: Path, network: str) -> Path:
     return model_root / network
-
-
-def reset_logging() -> None:
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        handler.flush()
-        handler.close()
-        root_logger.removeHandler(handler)
 
 
 def next_round_out_dir(resume_checkpoint: Path) -> Path:
@@ -302,11 +296,6 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
-    sys.path.insert(0, str(dlshogi_dir))
-    os.chdir(dlshogi_dir)
-
-    from dlshogi.train import main as train_main
-
     total_epochs = len(teacher_files)
     lr_scheduler = f"CosineAnnealingLR(T_max={total_epochs},eta_min={args.eta_min})"
 
@@ -394,8 +383,8 @@ def main() -> None:
         if previous_checkpoint.exists():
             print(f"resume: {previous_checkpoint}")
 
-        reset_logging()
-        train_main(*train_args)
+        command = [sys.executable, "-m", "dlshogi.train", *train_args]
+        subprocess.run(command, cwd=dlshogi_dir, check=True)
 
 
 if __name__ == "__main__":

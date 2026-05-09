@@ -11,6 +11,8 @@ exp___i20x256_round3, ... のようなフォルダがあれば自動で読む。
 
 カンマ区切りのCSVを標準出力に書き、同じ内容をファイルにも保存する。
 保存先を指定しなければ、カレントディレクトリの exp___i20x256.csv に保存する。
+train-0001.log のようなログファイルを単体で指定した場合は train-0001.csv に保存する。
+標準出力にはCSVの後ろに、最新ログファイルの末尾3行もコメント形式で表示する。
 保存先を変えたい場合:
 
     python extract_train_log.py C:\shogi\model\exp___i20x256 ^
@@ -250,12 +252,24 @@ def default_output_path(paths: list[Path]) -> Path:
     if first_path.is_dir():
         model_name = first_path.name
     elif LOG_INDEX_RE.fullmatch(first_path.name):
-        model_name = first_path.parent.name
+        parent = first_path.resolve().parent
+        if parent == Path.cwd().resolve():
+            model_name = first_path.stem
+        else:
+            model_name = first_path.parent.name or first_path.stem
     else:
         model_name = first_path.stem
 
     model_name, _ = split_round_dir_name(model_name)
     return Path.cwd() / f"{model_name}.csv"
+
+
+def latest_log_file(log_files: list[Path]) -> Path:
+    return max(log_files, key=lambda path: (path.stat().st_mtime, log_index(path)))
+
+
+def tail_lines(path: Path, count: int) -> list[str]:
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()[-count:]
 
 
 def row_to_dict(row: LogRow) -> dict[str, str | int | None]:
@@ -310,9 +324,11 @@ def main() -> None:
     parsed_rows.sort(key=lambda row: (row.epoch is None, row.epoch or 0, row.source))
 
     rows = [row_to_dict(row) for row in parsed_rows]
-    if not rows:
-        raise ValueError("No epoch summary rows found.")
-    fieldnames = list(rows[0].keys())
+    if rows:
+        fieldnames = list(rows[0].keys())
+    else:
+        fieldnames = list(row_to_dict(LogRow(source="")).keys())
+        print("No epoch summary rows found yet.", file=sys.stderr)
     delimiter = ","
 
     output_path = args.output.resolve() if args.output else default_output_path(args.paths)
@@ -325,6 +341,11 @@ def main() -> None:
     stdout_writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames, delimiter=delimiter)
     stdout_writer.writeheader()
     stdout_writer.writerows(rows)
+    latest_log = latest_log_file(log_files)
+    print()
+    print(f"# latest log: {latest_log}")
+    for line in tail_lines(latest_log, 3):
+        print(f"# {line}")
     print(f"wrote: {output_path}", file=sys.stderr)
 
 
