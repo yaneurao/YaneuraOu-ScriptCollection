@@ -352,7 +352,7 @@ python -m pip install -U pip setuptools wheel
 python -m pip install -U cython numpy pyyaml
 ```
 
-CUDA 12.4 版 PyTorch の例です。この環境では `torch 2.5.1+cu124` で動作確認しています。
+CUDA 12.4 版 PyTorch の例です。`torch 2.5.1+cu124` で動作確認しています。
 
 ```powershell
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
@@ -403,7 +403,7 @@ python -m pip install -e .
 
 `torch.compile --compile_backend inductor` を Windows で使いたい場合は `triton-windows` を入れます。
 
-この環境の `torch 2.5.1+cu124` では、対応する Triton は 3.1 系です。
+例えば、`torch 2.5.1+cu124`環境では、対応する Triton は 3.1 系です。
 
 ```powershell
 python -m pip uninstall -y triton
