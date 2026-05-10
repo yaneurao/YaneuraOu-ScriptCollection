@@ -50,7 +50,7 @@ class SharedState:
         self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))
         self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 100.0))
         self.hcpe3_eval_drop_threshold = int(settings.get("HCPE3_EVAL_DROP_THRESHOLD", 500))
-        self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", 30000))
+        self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", VALUE_MATE))
         self.hcpe3_resign_eval = settings.get("HCPE3_RESIGN_EVAL", None)
         if self.hcpe3_resign_eval is not None:
             self.hcpe3_resign_eval = int(self.hcpe3_resign_eval)
