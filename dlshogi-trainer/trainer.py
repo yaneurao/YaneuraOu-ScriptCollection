@@ -1,6 +1,6 @@
 """dlshogi training wrapper.
 
-使い方とWindows環境構築手順は dlshogi-trainer.md を参照。
+使い方とWindows環境構築手順は readme.md を参照。
 """
 
 from __future__ import annotations
@@ -454,20 +454,107 @@ def inductor_subprocess_env(
         return None
 
     env = os.environ.copy()
-    cache_dir = (
-        out_dir
-        / "_torchinductor_cache"
-        / f"train-{checkpoint_number_for_file:04}-{os.getpid()}"
-    )
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    env["TORCHINDUCTOR_CACHE_DIR"] = str(cache_dir)
-    env["TRITON_CACHE_DIR"] = str(cache_dir / "triton")
+    cache_root = env.get("DLSHOGI_INDUCTOR_CACHE_ROOT")
+    if cache_root:
+        cache_base = Path(cache_root)
+    else:
+        cache_base = out_dir / "_ti"
+    cache_dir = cache_base / f"{checkpoint_number_for_file:x}{os.getpid():x}"
+    inductor_cache_dir = cache_dir / "i"
+    triton_cache_dir = cache_dir / "t"
+    inductor_cache_dir.mkdir(parents=True, exist_ok=True)
+    triton_cache_dir.mkdir(parents=True, exist_ok=True)
+    env["TORCHINDUCTOR_CACHE_DIR"] = str(inductor_cache_dir)
+    env["TRITON_CACHE_DIR"] = str(triton_cache_dir)
+    env["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
+    env["DLSHOGI_PATCH_TRITON_CACHE"] = "1"
     # PyTorch 2.5 on Windows can hit FileExistsError in pad_mm's LocalCache
     # while benchmarking shape padding. Disabling this keeps inductor usable.
     env["TORCHINDUCTOR_SHAPE_PADDING"] = "0"
-    print(f"torchinductor cache: {cache_dir}")
+    print(f"torchinductor cache: {inductor_cache_dir}")
+    print(f"triton cache: {triton_cache_dir}")
+    print("torchinductor compile threads: 1")
     print("torchinductor shape padding: disabled")
+    print("triton cache parent-dir patch: enabled")
     return env
+
+
+TRITON_CACHE_PATCH_RUNNER = r"""
+import os
+import runpy
+import sys
+import uuid
+
+
+def patch_triton_cache_parent_dirs():
+    if os.environ.get("DLSHOGI_PATCH_TRITON_CACHE") != "1":
+        return
+    try:
+        import triton.runtime.cache as triton_cache
+    except Exception:
+        return
+
+    file_cache_manager = getattr(triton_cache, "FileCacheManager", None)
+    if file_cache_manager is None:
+        return
+    if getattr(file_cache_manager, "_dlshogi_parent_dir_patch", False):
+        return
+
+    def put_with_parent_dirs(self, data, filename, binary=True):
+        if not self.cache_dir:
+            raise RuntimeError("Could not create or locate cache dir")
+
+        binary = isinstance(data, bytes)
+        if not binary:
+            data = str(data)
+
+        assert self.lock_path is not None
+        filepath = self._make_path(filename)
+        parent = os.path.dirname(filepath)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+        if os.name == "nt":
+            mode = "wb" if binary else "w"
+            with open(filepath, mode) as f:
+                f.write(data)
+            return filepath
+
+        temp_path = f"{filepath}.tmp.pid_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        temp_parent = os.path.dirname(temp_path)
+        if temp_parent:
+            os.makedirs(temp_parent, exist_ok=True)
+
+        mode = "wb" if binary else "w"
+        with open(temp_path, mode) as f:
+            f.write(data)
+
+        try:
+            os.replace(temp_path, filepath)
+        except PermissionError:
+            if os.name == "nt":
+                os.remove(temp_path)
+            else:
+                raise
+        return filepath
+
+    file_cache_manager.put = put_with_parent_dirs
+    file_cache_manager._dlshogi_parent_dir_patch = True
+
+
+patch_triton_cache_parent_dirs()
+module_name = sys.argv[1]
+sys.argv = [module_name, *sys.argv[2:]]
+runpy.run_module(module_name, run_name="__main__")
+"""
+
+
+def python_module_command(
+    module_name: str, module_args: list[str], env: dict[str, str] | None
+) -> list[str]:
+    if env and env.get("DLSHOGI_PATCH_TRITON_CACHE") == "1":
+        return [sys.executable, "-c", TRITON_CACHE_PATCH_RUNNER, module_name, *module_args]
+    return [sys.executable, "-m", module_name, *module_args]
 
 
 def run_command_with_log(
@@ -901,11 +988,12 @@ def main() -> None:
                 if args.compile_dynamic:
                     train_args.append("--compile_dynamic")
 
-            command = [sys.executable, "-m", "dlshogi.train", *train_args]
+            run_env = inductor_subprocess_env(args, out_dir, checkpoint_number_for_file)
+            command = python_module_command("dlshogi.train", train_args, run_env)
             subprocess.run(
                 command,
                 cwd=dlshogi_dir,
-                env=inductor_subprocess_env(args, out_dir, checkpoint_number_for_file),
+                env=run_env,
                 check=True,
             )
             continue
@@ -950,14 +1038,16 @@ def main() -> None:
             export_model=file_index == total_epochs,
         )
 
-        command = [sys.executable, "-m", "dlshogi.ptl", "fit", "--config", str(config_path)]
+        ptl_args = ["fit", "--config", str(config_path)]
         if ptl_ckpt_path:
-            command.extend(["--ckpt_path", str(ptl_ckpt_path)])
+            ptl_args.extend(["--ckpt_path", str(ptl_ckpt_path)])
+        run_env = inductor_subprocess_env(args, out_dir, checkpoint_number_for_file)
+        command = python_module_command("dlshogi.ptl", ptl_args, run_env)
         run_command_with_log(
             command,
             dlshogi_dir,
             log_path,
-            env=inductor_subprocess_env(args, out_dir, checkpoint_number_for_file),
+            env=run_env,
         )
         finalize_ptl_checkpoint(tmp_checkpoint, current_checkpoint)
 
