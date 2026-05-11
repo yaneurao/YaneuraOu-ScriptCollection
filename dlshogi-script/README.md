@@ -103,6 +103,27 @@ python hcpe3_re_eval_from_hcpe.py model.onnx input.hcpe output.hcpe3 --tensorrt
 - selectedMove16 = 元 hcpe の bestMove16 をそのまま使う。モデル policy の argmax を採用したい用途では、呼び出し側で書き換えるか、本スクリプトを派生させる。selectedMove16 が `--top-k` の中に含まれていなくても問題はない (学習側は MoveVisits だけ policy teacher として使う)。
 - 入力ファイルサイズが 38 で割り切れない場合はエラーにする。
 
+### Windows での GPU セットアップ
+
+ONNX Runtime GPU 版は cuDNN / cuBLAS の DLL を実行時にロードするため、それらが PATH に通っている必要がある。pip でインストールする場合:
+
+```powershell
+pip install onnxruntime-gpu nvidia-cudnn-cu12
+# TensorRT も使うなら追加 (任意)
+pip install tensorrt-cu12
+```
+
+pip 版 `nvidia-cudnn-cu12` の DLL は `...\site-packages\nvidia\cudnn\bin\` に置かれるが、これは Windows の既定 DLL 検索パスに含まれない。本スクリプトはスクリプト先頭の `_add_nvidia_dll_dirs()` で以下の 2 つを実施するため、pip でインストールしただけで動く:
+
+1. `%PATH%` の先頭に各 `nvidia.<lib>.bin` を挿入 (ONNX Runtime の依存 DLL 解決経路向け、**実際にはこちらが効く**)
+2. `os.add_dll_directory()` にも登録 (`LOAD_LIBRARY_SEARCH_USER_DIRS` 経路向けの保険)
+
+TensorRT を **zip 配布版** で入れる場合の注意点:
+
+- `lib\` には `.lib` (リンカ用 import library) しかなく、**DLL は `bin\` 配下** にある (TensorRT 10.x 系の構造)。PATH には `lib\` ではなく **`bin\`** を通す。
+- 環境変数 PATH を変更したら、その後に開いた PowerShell / cmd でのみ反映される (既存プロセスには反映されない)。
+- `--tensorrt` 付きで初回起動すると、ONNX → TensorRT engine のビルドで数分〜十数分プログレスバーが進まないように見えることがある。落ちずに止まっているだけなので待つこと。
+
 ### policy 蒸留のスケール感
 
 `--top-k` を変えるとファイルサイズが大きく変わる。本家自己対局 hcpe3 は MCTS で実際に訪問した手 (おおむね 10〜30 手) だけが MoveVisits に入っており、それと比較すると:

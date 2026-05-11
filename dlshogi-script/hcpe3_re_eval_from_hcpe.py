@@ -26,15 +26,21 @@ def _add_nvidia_dll_dirs() -> None:
     """
     if sys.platform != 'win32':
         return
-    if not hasattr(os, 'add_dll_directory'):
-        return
     for mod_name in ('cudnn', 'cublas', 'cuda_runtime', 'cuda_nvrtc'):
         try:
             m = __import__('nvidia.' + mod_name, fromlist=['*'])
         except ImportError:
             continue
         bin_dir = os.path.join(os.path.dirname(m.__file__), 'bin')
-        if os.path.isdir(bin_dir):
+        if not os.path.isdir(bin_dir):
+            continue
+        # 1) %PATH% の先頭に挿入。ONNX Runtime の依存 DLL (例: cudnn64_9.dll) を
+        #    LoadLibraryW で解決する経路はこちらしか効かないため必須。
+        path_parts = os.environ.get('PATH', '').split(os.pathsep)
+        if bin_dir not in path_parts:
+            os.environ['PATH'] = bin_dir + os.pathsep + os.environ.get('PATH', '')
+        # 2) os.add_dll_directory も登録 (LOAD_LIBRARY_SEARCH_USER_DIRS 経路向け)。
+        if hasattr(os, 'add_dll_directory'):
             try:
                 os.add_dll_directory(bin_dir)
             except (FileNotFoundError, OSError):
