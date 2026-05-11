@@ -23,21 +23,40 @@
 参考:
 - [makebook peta_shock - やねうら王Wiki 定跡の作成](https://github.com/yaneurao/YaneuraOu/wiki/%E5%AE%9A%E8%B7%A1%E3%81%AE%E4%BD%9C%E6%88%90#makebook-peta_shock)
 
-## 使い方
+## インストール
+
+依存パッケージ:
 
 ```
-python peta_next.py --peta-book peta_book.db --peta-eval-diff 100
+pip install cshogi tqdm
+```
+
+- `cshogi` — 局面操作・USI 指し手変換
+- `tqdm` — 定跡ファイル読み込みの progress bar
+
+## 使い方
+
+カレントディレクトリに `peta_book.db` を置いて:
+
+```
+python peta_next.py
+```
+
+`--peta-book` の path や `--peta-eval-diff` を変えたり、`--root-sfen` で開始局面を指定する例:
+
+```
+python peta_next.py --peta-book some_book.db --peta-eval-diff 50 --root-sfen root_sfen.txt
 ```
 
 主なオプション:
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
-| `--peta-book` (必須) | — | ペタショック化済みのやねうら王定跡ファイル |
+| `--peta-book` | `peta_book.db` | ペタショック化済みのやねうら王定跡ファイル |
 | `--root-sfen` | — (未指定なら `startpos` のみ) | 開始局面ファイル。**指定しなかった場合は `startpos`（平手の開始局面）のみを root として動作する** |
 | `--out-dir` | `.` | 出力ディレクトリ |
-| `--peta-eval-diff` (必須) | — | BookEvalDiff (cp)。root の bestmove eval からこの幅まで非手番側の指し手を辿る |
-| `--max-step` | `9999` | BFS の最大深さ |
+| `--peta-eval-diff` | `10` | BookEvalDiff (cp)。root の bestmove eval からこの幅まで非手番側の指し手を辿る (下限のみ) |
+| `--max-ply` | `200` | BFS で掘る最大手数 (ply)。これを超える局面は展開しない |
 | `--black-only` | off | 先手定跡 (turn=1) のみ出力 |
 | `--white-only` | off | 後手定跡 (turn=0) のみ出力 |
 

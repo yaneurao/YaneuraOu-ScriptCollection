@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from itertools import zip_longest
 
+from tqdm import tqdm
+
 from ShogiCommonLib import (
     Sfen, Move, Eval, PositionStr,
     Board,
@@ -79,9 +81,19 @@ def read_peta_book(path: str) -> dict[Sfen, PositionInfo]:
         sfen = None
         moveinfos = []
 
-    with open(path, 'r', encoding='utf-8') as f:
+    total_bytes = os.path.getsize(path)
+    # バイトモードで開いて、tqdm でバイト単位の progress を出す。
+    # (テキストモードでは f.tell() が改行バッファリングで正確に取れないため)
+    with open(path, 'rb') as fb, tqdm(
+        total=total_bytes, unit='B', unit_scale=True, desc='read peta_book',
+    ) as pbar:
         first = True
-        for line in f:
+        for raw_line in fb:
+            pbar.update(len(raw_line))
+            try:
+                line = raw_line.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
             if first:
                 # BOM 付きの場合があるので in で判定
                 if YANEURAOU_BOOK_HEADER_V1 not in line:
@@ -192,7 +204,7 @@ def peta_next_one_turn(
     peta_book: dict[Sfen, PositionInfo],
     root_sfens: list[Sfen],
     peta_eval_diff: int,
-    max_step: int,
+    max_ply: int,
     turn: int,
 ) -> list[Sfen]:
     """
@@ -204,6 +216,7 @@ def peta_next_one_turn(
       - 非手番側では (現在局面の手番側から見た) root_best_eval - peta_eval_diff 以上の eval の指し手を辿る。
       - peta_book に存在しない局面に出たら leaf として記録する。
       - root_best_eval は手番側視点で持ち回るため、1手進めるごとに符号を反転する。
+      - 局面の ply (手数) が max_ply を超えたらその局面は掘らない (leaf にも記録しない)。
 
     root_best_eval を絶対基準として持つことで、BFS 深さ方向に累積で評価値が下がり続けて
     現実的でない leaf に到達することを防ぐ (Discord の説明にある 2a の制限)。
@@ -233,18 +246,24 @@ def peta_next_one_turn(
 
     step = 1
     while current_sfens:
-        if step > max_step:
-            break
-
         next_sfens : dict[Sfen, tuple[int, int]] = {}
+
+        # この step で実際に展開対象になった局面の ply を集めて表示用に使う。
+        # (root_sfens に異なる ply の局面が混在しうるので、min/max を出す)
+        plys_this_step : list[int] = []
 
         for sfen_with_ply, (root_best_eval, eval_diff) in current_sfens.items():
             sfen_trim, ply = trim_sfen_ply(sfen_with_ply)
+
+            # max_ply を超えたら掘らない (leaf にも記録しない)
+            if ply > max_ply:
+                continue
 
             sfen_f = flipped_sfen(sfen_trim)
             if sfen_trim in visited or sfen_f in visited:
                 continue
             visited.add(sfen_trim)
+            plys_this_step.append(ply)
 
             pos, flipped_hit = lookup(peta_book, sfen_trim)
             if pos is None:
@@ -280,7 +299,13 @@ def peta_next_one_turn(
                 # 次局面では root_best_eval を符号反転 (手番側視点で持つため)
                 next_sfens[next_sfen_with_ply] = (-root_best_eval, eval_diff)
 
-        print(f"step={step}  next={len(next_sfens)}  leaf={len(leaf_sfens)}")
+        if plys_this_step:
+            pmin, pmax = min(plys_this_step), max(plys_this_step)
+            ply_str = f"{pmin}" if pmin == pmax else f"{pmin}..{pmax}"
+        else:
+            ply_str = "-"
+        print(f"step={step}  ply={ply_str}  next={len(next_sfens)}  leaf={len(leaf_sfens)}")
+
         current_sfens = next_sfens
         step += 1
 
@@ -296,16 +321,16 @@ def main():
         description="ペタショック化されたやねうら王定跡から、次に掘ると良い leaf node の sfen を書き出す。",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('--peta-book', required=True,
-                        help="ペタショック化済みのやねうら王形式定跡DBファイル。")
+    parser.add_argument('--peta-book', default='peta_book.db',
+                        help="ペタショック化済みのやねうら王形式定跡DBファイル。default=peta_book.db")
     parser.add_argument('--root-sfen', default=None,
                         help="開始局面ファイル。各行は USI position 形式 (startpos / startpos moves ... / sfen ...) か SFEN 文字列。指定しない場合は startpos (平手の開始局面) のみを root とする。")
     parser.add_argument('--out-dir', default='.',
                         help="出力ディレクトリ。default=カレント")
-    parser.add_argument('--peta-eval-diff', type=int, required=True,
-                        help="BookEvalDiff (cp)。root の bestmove の評価値からこの幅まで非手番側の指し手を辿る。")
-    parser.add_argument('--max-step', type=int, default=9999,
-                        help="BFS の最大深さ。default=9999")
+    parser.add_argument('--peta-eval-diff', type=int, default=10,
+                        help="BookEvalDiff (cp)。root の bestmove の評価値からこの幅まで非手番側の指し手を辿る (下限のみ)。default=10")
+    parser.add_argument('--max-ply', type=int, default=200,
+                        help="BFS で掘る最大手数 (ply)。これを超える局面は展開しない。default=200")
 
     side_group = parser.add_mutually_exclusive_group()
     side_group.add_argument('--black-only', action='store_true',
@@ -338,7 +363,7 @@ def main():
     outputs : dict[str, list[Sfen]] = {}
     for label, turn in sides:
         print(f"--- {label} (turn={turn}) ---")
-        leafs = peta_next_one_turn(peta_book, root_sfens, args.peta_eval_diff, args.max_step, turn)
+        leafs = peta_next_one_turn(peta_book, root_sfens, args.peta_eval_diff, args.max_ply, turn)
         out_path = os.path.join(args.out_dir, f"think_sfens-{label}.txt")
         with open(out_path, 'w', encoding='utf-8') as w:
             for s in leafs:
