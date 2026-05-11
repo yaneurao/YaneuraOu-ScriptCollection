@@ -9,11 +9,11 @@
 
 | スクリプト | 種別 | 説明 |
 | -- | -- | -- | 
-| 📁&nbsp;[SPSA](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/SPSA) | パラメーター自動調整 | パラメーター自動調整のためのツール群 |
-| 📁&nbsp;[GenSfen](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/GenSfen) | 教師生成 | 教師生成スクリプト |
-| 📁&nbsp;[dlshogi-trainer](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/dlshogi-trainer) | 学習器 | dlshogiの学習器 |
-| 📁&nbsp;[dlshogi-script](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/dlshogi-script) | 教師加工スクリプト | dlshogiの教師操作関係のスクリプト |
-| 📁&nbsp;PetaNext | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
+| 📁&nbsp;[SPSA](/SPSA) | パラメーター自動調整 | パラメーター自動調整のためのツール群 |
+| 📁&nbsp;[GenSfen](/GenSfen) | 教師生成 | 教師生成スクリプト |
+| 📁&nbsp;[dlshogi-trainer](/dlshogi-trainer) | 学習器 | dlshogiの学習器 |
+| 📁&nbsp;[dlshogi-script](/dlshogi-script) | 教師加工スクリプト | dlshogiの教師操作関係のスクリプト |
+| 📁&nbsp;[PetaNext](/PetaNext) | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
 

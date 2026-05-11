@@ -1,0 +1,16 @@
+# 開始局面ファイルのサンプル。
+# - 各行が1つの root 局面を表す。
+# - 空行と '#' で始まる行はコメントとして無視される。
+# - 受け付ける形式:
+#     * "startpos"
+#     * "startpos moves 7g7f 3c3d ..."
+#     * "sfen <BOARD> <TURN> <HAND> [<PLY>]"
+#     * "sfen <BOARD> <TURN> <HAND> <PLY> moves ..."
+#     * 行頭に "position " が付いていてもよい
+#     * 直接 SFEN 文字列のみ (board+turn+hand[+ply]) でもよい
+
+# 平手の開始局面
+startpos
+
+# 例: 角換わり腰掛け銀の手前まで進めた局面
+# startpos moves 2g2f 8c8d 7g7f 8d8e 8h7g 3c3d 7i8h 4a3b 2f2e 2b7g+ 8h7g 3a2b
