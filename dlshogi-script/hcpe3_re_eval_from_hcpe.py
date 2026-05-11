@@ -11,6 +11,39 @@
 
 import argparse
 import os
+import sys
+
+
+def _add_nvidia_dll_dirs() -> None:
+    """
+    Windows で `pip install nvidia-cudnn-cu12` などで cuDNN / cuBLAS を入れた場合、
+    DLL は `...\\site-packages\\nvidia\\<lib>\\bin\\` に置かれるが、これは Windows の
+    既定 DLL 検索パスに入らないため、ONNX Runtime がロードできずに `cudnn64_9.dll
+    is missing` 系のエラーになる。
+
+    onnxruntime を import する前に、pip インストール済みの nvidia.* パッケージの
+    bin ディレクトリを os.add_dll_directory で登録しておく。
+    """
+    if sys.platform != 'win32':
+        return
+    if not hasattr(os, 'add_dll_directory'):
+        return
+    for mod_name in ('cudnn', 'cublas', 'cuda_runtime', 'cuda_nvrtc'):
+        try:
+            m = __import__('nvidia.' + mod_name, fromlist=['*'])
+        except ImportError:
+            continue
+        bin_dir = os.path.join(os.path.dirname(m.__file__), 'bin')
+        if os.path.isdir(bin_dir):
+            try:
+                os.add_dll_directory(bin_dir)
+            except (FileNotFoundError, OSError):
+                pass
+
+
+_add_nvidia_dll_dirs()
+
+
 import numpy as np
 import onnxruntime
 from tqdm import tqdm
