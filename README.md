@@ -13,7 +13,7 @@
 | 📁&nbsp;[GenSfen](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/GenSfen) | 教師生成 | 教師生成スクリプト |
 | 📁&nbsp;[dlshogi-trainer](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/dlshogi-trainer) | 学習器 | dlshogiの学習器 |
 | 📁&nbsp;[dlshogi-script](https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/dlshogi-script) | 教師加工スクリプト | dlshogiの教師操作関係のスクリプト |
-| 📁&nbsp;PetaShock | 定跡 | 定跡の次に掘ると良い局面をリストアップするスクリプト(`peta_next`) | 
+| 📁&nbsp;PetaNext | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
 
