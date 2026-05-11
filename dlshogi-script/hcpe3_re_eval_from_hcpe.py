@@ -113,9 +113,13 @@ def main():
                         help="value → score の係数。default=756.0864962951762")
     parser.add_argument('--batch-size', '-b', type=int, default=1024,
                         help="推論バッチサイズ (HCPE レコード単位)。default=1024")
+    parser.add_argument('--top-k', type=int, default=8,
+                        help="MoveVisits に書き出す候補手数。policy 上位 K 手だけを softmax → uint16 量子化して書く。合法手が K より少ない局面ではその全合法手。default=8")
     parser.add_argument('--tensorrt', action='store_true',
                         help="TensorRT Execution Provider を優先する。")
     args = parser.parse_args()
+    if args.top_k <= 0:
+        raise ValueError("--top-k must be positive")
 
     providers = (
         ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
@@ -190,12 +194,23 @@ def main():
                 n_moves = len(labels)
 
                 if n_moves > 0:
-                    # 合法手の policy だけ抽出 → softmax → uint16 量子化
                     logits = policies[i, labels]
-                    probs = softmax_1d(logits)
+                    # policy 上位 top_k 手を確率降順で抽出。合法手が top_k より少なければ全合法手。
+                    if n_moves <= args.top_k:
+                        order = np.argsort(-logits)
+                    else:
+                        idx = np.argpartition(-logits, args.top_k - 1)[:args.top_k]
+                        order = idx[np.argsort(-logits[idx])]
+                    sel_logits = logits[order]
+                    sel_m16s = m16s[order]
+                    # 抽出後の logit だけで softmax → uint16 量子化 (top-k 内で確率が合計 1 になる)
+                    probs = softmax_1d(sel_logits)
                     visits = np.clip((probs * VISIT_SCALE).astype(np.int64), 0, VISIT_SCALE).astype(np.uint16)
+                    n_kept = len(order)
                 else:
+                    sel_m16s = np.empty(0, dtype=np.uint16)
                     visits = np.empty(0, dtype=np.uint16)
+                    n_kept = 0
 
                 # HCPE3 ヘッダ
                 header = np.zeros(1, dtype=HuffmanCodedPosAndEval3)[0]
@@ -209,13 +224,13 @@ def main():
                 mi = np.zeros(1, dtype=MoveInfo)[0]
                 mi['selectedMove16'] = hcpe['bestMove16']
                 mi['eval'] = int(scores[i])
-                mi['candidateNum'] = n_moves
+                mi['candidateNum'] = n_kept
                 f_out.write(mi.tobytes())
 
-                # MoveVisits (合法手数 件)
-                if n_moves > 0:
-                    mv = np.empty(n_moves, dtype=MoveVisits)
-                    mv['move16'] = m16s
+                # MoveVisits (n_kept 件)
+                if n_kept > 0:
+                    mv = np.empty(n_kept, dtype=MoveVisits)
+                    mv['move16'] = sel_m16s
                     mv['visitNum'] = visits
                     f_out.write(mv.tobytes())
 

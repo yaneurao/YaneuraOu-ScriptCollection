@@ -76,6 +76,7 @@ python hcpe3_re_eval_from_hcpe.py model.onnx input.hcpe output.hcpe3 --tensorrt
 |---|---:|---|
 | `--a` | `756.0864962951762` | value (0..1) → score (cp) の係数。本家 `hcpe3_re_eval.py` と同一。 |
 | `--batch-size`, `-b` | `1024` | 推論バッチサイズ (HCPE レコード単位)。 |
+| `--top-k` | `8` | MoveVisits に書き出す候補手数。policy 上位 K 手だけを softmax → uint16 量子化して書く。合法手が K より少ない局面ではその全合法手をそのまま書く。 |
 | `--tensorrt` | false | TensorRT Execution Provider を優先する。 |
 
 ### 出力レコードの構成
@@ -90,14 +91,27 @@ python hcpe3_re_eval_from_hcpe.py model.onnx input.hcpe output.hcpe3 --tensorrt
 | `gameInfo` | `0` |
 | `MoveInfo.selectedMove16` | 入力 hcpe の `bestMove16` |
 | `MoveInfo.eval` | モデルの value 出力を `value_to_score(values, a)` で score (cp) に変換した値 |
-| `MoveInfo.candidateNum` | 現局面の合法手数 |
-| `MoveVisits[i].move16` | 現局面の各合法手の `move16` |
-| `MoveVisits[i].visitNum` | モデル policy の logit を合法手だけ抽出 → softmax → `int(p_i * 65535)` で uint16 量子化 |
+| `MoveInfo.candidateNum` | `min(--top-k, 合法手数)` (既定 8) |
+| `MoveVisits[i].move16` | `--top-k` 手分の `move16`、policy 確率の **降順** |
+| `MoveVisits[i].visitNum` | モデル policy の logit を合法手だけ抽出 → 上位 `--top-k` 手を確率降順で取り出し → その上で softmax → `int(p_i * 65535)` で uint16 量子化。`--top-k` 内で再正規化されるため visit 合計は ≈ 65535。 |
 
 ### 意図と注意
 
 - HCPE3 学習パイプラインに大きいモデルから蒸留した教師を流したい用途。value だけでなく policy も蒸留される。
 - 元データに対する policy 教師は MCTS 由来ではなく **モデルの policy 出力をそのまま分布化したもの** になる。これは AlphaZero 系の改良 policy (visit 分布) とは性質が違う。
 - `result` は HCPE の gameResult を流し込むだけで、千日手 / 入玉宣言 / 最大手数 などの上位 bit は立てない。`train.py` 側で result を重視する設定 (`--alpha_r`) で使う場合は、ここを別途設定する必要がある。
-- selectedMove16 = 元 hcpe の bestMove16 をそのまま使う。モデル policy の argmax を採用したい用途では、呼び出し側で書き換えるか、本スクリプトを派生させる。
+- selectedMove16 = 元 hcpe の bestMove16 をそのまま使う。モデル policy の argmax を採用したい用途では、呼び出し側で書き換えるか、本スクリプトを派生させる。selectedMove16 が `--top-k` の中に含まれていなくても問題はない (学習側は MoveVisits だけ policy teacher として使う)。
 - 入力ファイルサイズが 38 で割り切れない場合はエラーにする。
+
+### policy 蒸留のスケール感
+
+`--top-k` を変えるとファイルサイズが大きく変わる。本家自己対局 hcpe3 は MCTS で実際に訪問した手 (おおむね 10〜30 手) だけが MoveVisits に入っており、それと比較すると:
+
+| 設定 | 1 局面あたりの MoveVisits | ファイルサイズ感 |
+|---|---|---|
+| `--top-k 4` | 16 B | hcpe (38B/局面) より小さくなることも |
+| `--top-k 8` (既定) | 32 B | hcpe の 2 倍程度 |
+| `--top-k 16` | 64 B | |
+| 全合法手 (`--top-k 999` 等) | 数百〜千 B | 本家 hcpe3 の数倍 |
+
+policy 教師として「現実的に指される手」だけを残せばよいなら `--top-k 8` 程度で十分。広い分布を学習させたいなら 16〜32 にする。
