@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert an Apery book to a YaneuraOu text book."""
+"""Convert an Apery book to a YaneuraOu book DB."""
 
 from __future__ import annotations
 
@@ -237,10 +237,10 @@ def write_yaneuraou_book(book: dict[str, list[BookMove]], dst: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert an Apery book to a YaneuraOu text book."
+        description="Convert an Apery book to a YaneuraOu book DB."
     )
     parser.add_argument("src", help="source Apery book")
-    parser.add_argument("dst", help="destination YaneuraOu text book")
+    parser.add_argument("dst", help="destination YaneuraOu book DB")
     parser.add_argument(
         "--unreg-depth",
         type=int,

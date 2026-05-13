@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a YaneuraOu text book to an Apery book."""
+"""Convert a YaneuraOu book DB to an Apery book."""
 
 from __future__ import annotations
 
@@ -193,9 +193,9 @@ def convert_to_apery(src: str, dst: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert a YaneuraOu text book to an Apery book."
+        description="Convert a YaneuraOu book DB to an Apery book."
     )
-    parser.add_argument("src", help="source YaneuraOu text book")
+    parser.add_argument("src", help="source YaneuraOu book DB")
     parser.add_argument("dst", help="destination Apery book")
     args = parser.parse_args()
 
