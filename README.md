@@ -5,11 +5,14 @@
 やねうら王のメインのリポジトリは、こちら。
 - https://github.com/yaneurao/YaneuraOu
 
+やねうら王評価関数の学習器のリポジトリは、こちら。
+- https://github.com/yaneurao/BulletOu
+
 # スクリプト一覧
 
 | スクリプト | 種別 | 説明 |
 | -- | -- | -- | 
-| 📁&nbsp;[SPSA](/SPSA) | パラメーター自動調整 | パラメーター自動調整のためのツール群 |
+| 📁&nbsp;[SPSA](/SPSA) | 探索パラメーター自動調整 | 探索パラメーター自動調整スクリプト |
 | 📁&nbsp;[GenSfen](/GenSfen) | 教師生成 | 教師生成スクリプト |
 | 📁&nbsp;[dlshogi-trainer](/dlshogi-trainer) | 学習器 | dlshogiの学習器 |
 | 📁&nbsp;[dlshogi-script](/dlshogi-script) | 教師加工スクリプト | dlshogiの教師操作スクリプト |
@@ -17,26 +20,6 @@
 | 📁&nbsp;[PetaNext](/PetaNext) | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
-
-## SPSA
-
-探索部のパラメーター自動調整フレームワーク。
-
-詳しくは、こちら。
-- 📁 https://github.com/yaneurao/YaneuraOu-ScriptCollection/tree/main/SPSA
-
-## peta_next.py
-
-定跡ツリーをminimax化することをペタショック化と呼んでいる。これは、以下の説明にあるように、やねうら王本体のペタショックコマンドで実現できる。
-
-- [makebook peta_shock - やねうら王Wiki 定跡の作成](https://github.com/yaneurao/YaneuraOu/wiki/%E5%AE%9A%E8%B7%A1%E3%81%AE%E4%BD%9C%E6%88%90#makebook-peta_shock)
-
-このペタショック化がなされた、やねうら王の定跡ファイルに対して、次に定跡を掘っていくと良い局面をリストアップするスクリプトが peta_next.py である。
-
-これは、2025年5月まで、やねうら王本体内蔵の定跡コマンドであったが、やねうら王本体に内包しておくとカスタマイズがしにくいため、Pythonで書き直すことにしたものである。
-
-かきかけ
-
 
 # ライセンス
 
