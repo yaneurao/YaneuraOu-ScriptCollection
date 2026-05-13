@@ -8,7 +8,7 @@ import sys
 
 import cshogi  # type: ignore
 
-from yaneuraou_book import BookMove, insert_book_move, read_text_lines, write_yaneuraou_book
+from YaneuraOuBookLib import BookMove, insert_book_move, read_text_lines, write_yaneuraou_book
 
 
 COLOR_ANY = -1

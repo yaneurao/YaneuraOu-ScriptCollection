@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterator, TextIO
 
 import cshogi  # type: ignore
 
@@ -113,21 +114,13 @@ def insert_book_move(moves: list[BookMove], new_move: BookMove) -> None:
 
 def read_yaneuraou_book(path: str, *, ignore_book_ply: bool = False) -> dict[str, list[BookMove]]:
     book: dict[str, list[BookMove]] = {}
-    current_sfen = ""
 
-    for line in read_text_lines(path):
-        if line.startswith("#") or line.startswith("//"):
-            continue
-        if line.startswith("sfen "):
-            current_sfen = line[5:]
-            if ignore_book_ply:
-                current_sfen = trim_number(current_sfen)
-            continue
-        if current_sfen == "":
-            continue
-
-        moves = book.setdefault(current_sfen, [])
-        insert_book_move(moves, parse_book_move(line))
+    for sfen, block_moves in read_yaneuraou_book_blocks(
+        path, ignore_book_ply=ignore_book_ply
+    ):
+        moves = book.setdefault(sfen, [])
+        for move in block_moves:
+            insert_book_move(moves, move)
 
     return book
 
@@ -140,6 +133,47 @@ def normalize_sfen(sfen: str) -> str:
     board = cshogi.Board()
     board.set_sfen(sfen)
     return board.sfen()
+
+
+def read_yaneuraou_book_blocks(
+    path: str, *, ignore_book_ply: bool = False
+) -> Iterator[tuple[str, list[BookMove]]]:
+    current_sfen = ""
+    current_moves: list[BookMove] = []
+
+    for line in read_text_lines(path):
+        if line.startswith("#") or line.startswith("//"):
+            continue
+        if line.startswith("sfen "):
+            if current_sfen != "":
+                yield current_sfen, current_moves
+            current_sfen = line[5:]
+            if ignore_book_ply:
+                current_sfen = trim_number(current_sfen)
+            current_moves = []
+            continue
+        if current_sfen == "":
+            continue
+
+        insert_book_move(current_moves, parse_book_move(line))
+
+    if current_sfen != "":
+        yield current_sfen, current_moves
+
+
+def write_yaneuraou_header(out: TextIO) -> None:
+    out.write(YANEURAOU_BOOK_HEADER_V1 + "\n")
+
+
+def write_yaneuraou_book_block(out: TextIO, sfen: str, moves: list[BookMove]) -> int:
+    out.write(f"sfen {sfen}\n")
+    sorted_moves = sorted_book_moves(moves)
+    for move in sorted_moves:
+        out.write(
+            f"{move.move} {move.ponder} {move.value} "
+            f"{move.depth} {move.move_count}\n"
+        )
+    return len(sorted_moves)
 
 
 def write_yaneuraou_book(book: dict[str, list[BookMove]], dst: str) -> None:
@@ -161,15 +195,10 @@ def write_yaneuraou_book(book: dict[str, list[BookMove]], dst: str) -> None:
     vectored_book.sort(key=lambda item: item[0])
 
     with open(dst, "w", encoding="utf-8", newline="\r\n") as f:
-        f.write(YANEURAOU_BOOK_HEADER_V1 + "\n")
+        write_yaneuraou_header(f)
         for sfen, moves in vectored_book:
             sfen_left = trim_number(sfen)
             if book_ply[sfen_left] != sfen_ply(sfen):
                 continue
 
-            f.write(f"sfen {sfen}\n")
-            for move in sorted_book_moves(moves):
-                f.write(
-                    f"{move.move} {move.ponder} {move.value} "
-                    f"{move.depth} {move.move_count}\n"
-                )
+            write_yaneuraou_book_block(f, sfen, moves)

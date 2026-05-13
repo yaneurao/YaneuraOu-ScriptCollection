@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from yaneuraou_book import read_yaneuraou_book, write_yaneuraou_book
+from YaneuraOuBookLib import read_yaneuraou_book, write_yaneuraou_book
 
 
 def main() -> None:

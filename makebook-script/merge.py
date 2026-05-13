@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from yaneuraou_book import BookMove, read_yaneuraou_book, write_yaneuraou_book
+from YaneuraOuBookLib import BookMove, read_yaneuraou_book, write_yaneuraou_book
 
 
 def choose_moves(lhs: list[BookMove], rhs: list[BookMove]) -> list[BookMove]:
