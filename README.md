@@ -5,9 +5,6 @@
 やねうら王のメインのリポジトリは、こちら。
 - https://github.com/yaneurao/YaneuraOu
 
-やねうら王評価関数の学習器のリポジトリは、こちら。
-- https://github.com/yaneurao/BulletOu
-
 # スクリプト一覧
 
 | スクリプト | 種別 | 説明 |
@@ -20,10 +17,11 @@
 | 📁&nbsp;[PetaNext](/PetaNext) | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
+| 📁&nbsp;[CommonLib](/CommonLib) | 共通ライブラリ | 各スクリプトから利用する共通Pythonコード |
 
-# それ以外
+# やねうら王の学習器
 
-やねうら王の学習器は、BulletOuを使ってください。
+やねうら王の学習器は、BulletOuをお使いください。
 
 BulletOu - GPUを用いたやねうら王評価関数の高速学習器<br/>
 <img src='https://github.com/yaneurao/YaneuraOu/wiki/images/BulletOu-banner-s.png'>

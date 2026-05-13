@@ -2,7 +2,12 @@
 
 import sys
 import argparse
-from ShogiCommonLib import *
+from pathlib import Path
+
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+sys.path.insert(0, str(COMMON_LIB_DIR))
+
+from YaneShogiLib import *
 
 # やねうら王定跡DBのheader
 YANEURAOU_BOOK_HEADER_V1 = "#YANEURAOU-DB2016 1.00"

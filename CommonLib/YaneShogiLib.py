@@ -572,6 +572,37 @@ class Board:
         # cshogiにこのmethodはないのでsfen化して末尾の数字を返す。
         return int(self.sfen().split()[-1])
 
+
+class NonStandardBoard:
+    """
+    cshogiで扱えない55将棋などの特殊将棋向けに、Board相当の最小interfaceを提供する。
+    合法手生成や千日手判定は行わず、position文字列に指し手を追記していく。
+    """
+    def __init__(self, position_str:str='startpos'):
+        self.position_str, self.game_ply = trim_sfen_ply(position_str)
+        self.new_position = True
+
+    def set_position(self, position_str:str):
+        self.position_str, self.game_ply = trim_sfen_ply(position_str)
+        self.new_position = True
+
+    def sfen(self)->str:
+        return self.position_str
+
+    def push_usi(self, move:str):
+        if self.new_position:
+            self.position_str += " moves"
+            self.new_position = False
+        self.position_str += ' ' + move
+        self.game_ply += 1
+
+    def is_draw(self)->bool:
+        return False
+
+    def ply(self)->int:
+        return self.game_ply
+
+
 def move_to_usi(m:int)->str:
     '''legal_moves()で返ってきた32bit整数をUSIプロトコルの指し手文字列に変換する。'''
     return cshogi.move_to_usi(m)

@@ -8,12 +8,17 @@
 
 import argparse
 import os
+import sys
 from dataclasses import dataclass
 from itertools import zip_longest
+from pathlib import Path
 
 from tqdm import tqdm
 
-from ShogiCommonLib import (
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+sys.path.insert(0, str(COMMON_LIB_DIR))
+
+from YaneShogiLib import (
     Sfen, Move, Eval, PositionStr,
     Board,
     flipped_sfen, flipped_move,
@@ -22,7 +27,7 @@ from ShogiCommonLib import (
 )
 
 
-# ShogiCommonLib.Board は内部で cshogi.Board.set_position() を呼ぶが、
+# YaneShogiLib.Board は内部で cshogi.Board.set_position() を呼ぶが、
 # set_position() は素の SFEN 文字列は受け付けず、"startpos" か "sfen <SFEN>" を要求する。
 # このスクリプトでは ply 付き SFEN 文字列を多用するので、それ用の薄いヘルパーを用意する。
 def board_from_sfen(sfen_with_ply: Sfen) -> Board:

@@ -1,10 +1,15 @@
 # .pack形式のファイルを.hcpe形式に変換する
 # コマンド例
-#  python pack2hcpe.py "C:/Users/yaneen/largefile/Shogi/ShogiTeacher/kif20260126-2500000a.pack"
+#  python teacher/pack2hcpe.py "C:/Users/yaneen/largefile/Shogi/ShogiTeacher/kif20260126-2500000a.pack"
 
 import sys
 import argparse
-from ShogiCommonLib import *
+from pathlib import Path
+
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+sys.path.insert(0, str(COMMON_LIB_DIR))
+
+from YaneShogiLib import *
 
 def game_data_read_write_test():
     # テストコード

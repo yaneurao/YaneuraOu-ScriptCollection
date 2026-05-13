@@ -3,10 +3,15 @@ import math
 import time
 import json5
 import traceback
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import Thread
 
-from ShogiCommonLib import *
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+sys.path.insert(0, str(COMMON_LIB_DIR))
+
+from YaneShogiLib import *
 from ParamLib import *
 
 # SPSAするための対局スクリプト
