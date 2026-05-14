@@ -82,7 +82,7 @@ python ../DeepLearningShogi/dlshogi/utils/split_hcpe.py input.hcpe --outpath shu
 | `hcpe` -> `psv` | `DeepLearningShogi/dlshogi/utils/hcpe_to_psv.py` | HCPEの局面・評価値・指し手・勝敗をPSVへ変換する。 |
 | `psv` -> `hcpe` | `DeepLearningShogi/dlshogi/utils/psv_to_hcpe.py` | PSVをHCPEへ変換する。PSVの `gamePly` はHCPEには入らない。 |
 | `hcpe3` -> `hcpe` | `DeepLearningShogi/dlshogi/utils/hcpe3_to_hcpe.py` | HCPE3の各ゲームを局面列に展開してHCPEへ変換する。 |
-| `hcpe3` -> `psv` | `DeepLearningShogi/dlshogi/utils/hcpe3_to_psv.py` | HCPE3を局面列に展開してPSVへ変換する。 |
+| `hcpe3` -> `psv` | `teacher/hcpe3_to_psv.py` | HCPE3を局面列に展開してPSVへ変換する。複数ファイルやフォルダ入力にも対応。 |
 
 `pack` から `hcpe`:
 
@@ -138,7 +138,19 @@ python ../DeepLearningShogi/dlshogi/utils/hcpe3_to_hcpe.py input.hcpe3 output.hc
 `hcpe3` から `psv`:
 
 ```bash
-python ../DeepLearningShogi/dlshogi/utils/hcpe3_to_psv.py input.hcpe3 output.psv
+python teacher/hcpe3_to_psv.py --input input.hcpe3 --output output.psv
+```
+
+フォルダ内の `*.hcpe3` を個別にPSVへ変換:
+
+```bash
+python teacher/hcpe3_to_psv.py --input hcpe3_dir --output psv_dir
+```
+
+フォルダ内の `*.hcpe3` を1つのPSVへ結合:
+
+```bash
+python teacher/hcpe3_to_psv.py --input hcpe3_dir --output merged.psv
 ```
 
 `pack` から `psv` へ変換したい場合は、いったんHCPEへ変換してからPSVへ変換します。
@@ -157,9 +169,11 @@ python ../DeepLearningShogi/dlshogi/utils/hcpe_to_psv.py tmp.hcpe output.psv
 | `psv` -> `hcpe3` | 直接変換スクリプトはない。必要なら `psv -> hcpe -> hcpe3` とするが、後段はONNX再評価を伴う。 |
 | `hcpe` / `psv` / `hcpe3` -> `pack` | 逆変換スクリプトはない。`pack` は棋譜形式なので、局面列から元の対局単位データを復元できない。 |
 
-## 知識蒸留
+## re-eval
 
 既存教師の評価値を、ONNXモデルで再評価して差し替える用途です。
+
+📝 大きなモデルで評価値を付け替えた教師データから小さなモデルを学習させる場合、これは`知識蒸留`と呼ばれます。
 
 HCPEの各局面を再評価し、HCPE3として出力する場合は `teacher/hcpe3_re_eval_from_hcpe.py` を使います。これは単なる `hcpe -> hcpe3` の可逆変換ではありません。各HCPEレコードを「`moveNum=1` の1ゲーム」としてHCPE3へ詰め、valueはモデル出力で再評価し、policyはモデルのpolicy出力を合法手上位 `--top-k` に絞って `MoveVisits` として保存します。
 

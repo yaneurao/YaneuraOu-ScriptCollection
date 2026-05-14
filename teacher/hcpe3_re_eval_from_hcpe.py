@@ -12,6 +12,7 @@
 import argparse
 import os
 import sys
+from pathlib import Path
 
 
 def _add_nvidia_dll_dirs() -> None:
@@ -56,8 +57,6 @@ from tqdm import tqdm
 
 from cshogi import (
     Board,
-    HuffmanCodedPosAndEval,
-    dtypeHcp, dtypeMove16, dtypeEval,
     move16,
 )
 from cshogi.dlshogi import (
@@ -65,29 +64,18 @@ from cshogi.dlshogi import (
     FEATURES1_NUM, FEATURES2_NUM,
 )
 
-# ============================================================
-#                     HCPE3 dtype 定義 (本家 hcpe3_re_eval.py と同一)
-# ============================================================
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+sys.path.insert(0, str(COMMON_LIB_DIR))
 
-HuffmanCodedPosAndEval3 = np.dtype([
-    ('hcp', dtypeHcp),      # 開始局面 (32B)
-    ('moveNum', np.uint16), # 手数
-    ('result', np.uint8),   # 結果 (下位2bit: 勝敗, bit2:千日手, bit3:入玉宣言, bit4:最大手数)
-    ('gameInfo', np.uint8), # bit0-1:対戦相手, bit2-3:最大手数
-])
-
-MoveInfo = np.dtype([
-    ('selectedMove16', dtypeMove16),
-    ('eval', dtypeEval),
-    ('candidateNum', np.uint16),
-])
-
-MoveVisits = np.dtype([
-    ('move16', dtypeMove16),
-    ('visitNum', np.uint16),
-])
-
-HCPE_SIZE = HuffmanCodedPosAndEval.itemsize  # 38
+from TeacherFormatLib import (  # noqa: E402
+    HCPE,
+    HCPE_SIZE,
+    HCPE3_HEADER,
+    MOVE_INFO,
+    MOVE_VISITS,
+    hcpe_game_result_to_hcpe3_result,
+    validate_fixed_record_file,
+)
 
 # policy 量子化のスケール (visit 上限)
 VISIT_SCALE = 65535
@@ -113,25 +101,6 @@ def softmax_1d(logits: np.ndarray) -> np.ndarray:
     m = float(np.max(logits))
     e = np.exp(logits - m)
     return e / float(np.sum(e))
-
-
-def gameresult_to_hcpe3_result(gr: int) -> int:
-    """
-    HCPE の gameResult (cshogi: 0=Draw, 1=BlackWin, 2=WhiteWin) を
-    HCPE3 result の下位 2bit に詰める。
-
-    HCPE3 result の bit 配置 (本家 hcpe3_re_eval.py のコメントより):
-      xxxxxx11: 勝敗
-      xxxxx1xx: 千日手
-      xxxx1xxx: 入玉宣言
-      xxx1xxxx: 最大手数
-
-    cshogi 値をそのまま下位 2bit に入れる。Draw=0 のままだと「不明」と区別できないが、
-    1 hcpe = 1 局面の独立データなので、学習側で result を重視しない設定 (alpha_r=0 等) で
-    使うのが想定用途。result を厳密に必要とするパイプラインで使う場合は呼び出し側で
-    別途設定する。
-    """
-    return int(gr) & 0x3
 
 
 # ============================================================
@@ -167,12 +136,7 @@ def main():
     )
     session = onnxruntime.InferenceSession(args.model, providers=providers)
 
-    file_size = os.path.getsize(args.hcpe)
-    if file_size % HCPE_SIZE != 0:
-        raise ValueError(
-            f"HCPE file size {file_size} is not divisible by record size {HCPE_SIZE}"
-        )
-    total = file_size // HCPE_SIZE
+    total = validate_fixed_record_file(Path(args.hcpe), HCPE_SIZE, "HCPE")
 
     board = Board()
 
@@ -184,7 +148,7 @@ def main():
             chunk = f_in.read(HCPE_SIZE * args.batch_size)
             if not chunk:
                 break
-            batch = np.frombuffer(chunk, HuffmanCodedPosAndEval)
+            batch = np.frombuffer(chunk, HCPE)
             n = len(batch)
 
             x1 = np.empty((n, FEATURES1_NUM, 9, 9), dtype=np.float32)
@@ -252,15 +216,15 @@ def main():
                     n_kept = 0
 
                 # HCPE3 ヘッダ
-                header = np.zeros(1, dtype=HuffmanCodedPosAndEval3)[0]
+                header = np.zeros(1, dtype=HCPE3_HEADER)[0]
                 header['hcp'] = hcpe['hcp']
                 header['moveNum'] = 1
-                header['result'] = gameresult_to_hcpe3_result(int(hcpe['gameResult']))
+                header['result'] = hcpe_game_result_to_hcpe3_result(int(hcpe['gameResult']))
                 header['gameInfo'] = 0
                 f_out.write(header.tobytes())
 
                 # MoveInfo (1 件)
-                mi = np.zeros(1, dtype=MoveInfo)[0]
+                mi = np.zeros(1, dtype=MOVE_INFO)[0]
                 mi['selectedMove16'] = hcpe['bestMove16']
                 mi['eval'] = int(scores[i])
                 mi['candidateNum'] = n_kept
@@ -268,7 +232,7 @@ def main():
 
                 # MoveVisits (n_kept 件)
                 if n_kept > 0:
-                    mv = np.empty(n_kept, dtype=MoveVisits)
+                    mv = np.empty(n_kept, dtype=MOVE_VISITS)
                     mv['move16'] = sel_m16s
                     mv['visitNum'] = visits
                     f_out.write(mv.tobytes())

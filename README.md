@@ -10,9 +10,9 @@
 | スクリプト | 種別 | 説明 |
 | -- | -- | -- | 
 | 📁&nbsp;[SPSA](/SPSA) | 探索パラメーター自動調整 | 探索パラメーター自動調整スクリプト |
-| 📁&nbsp;[GenSfen](/GenSfen) | 教師生成 | 教師生成スクリプト |
-| 📁&nbsp;[trainer](/trainer) | 学習器 | dlshogiの学習器 |
-| 📁&nbsp;[teacher](/teacher) | 教師加工スクリプト | 教師データ操作スクリプト |
+| 📁&nbsp;[GenSfen](/GenSfen) | 教師生成 | 教師データ生成スクリプト |
+| 📁&nbsp;[trainer](/trainer) | 学習器 | dlshogiの学習補助 |
+| 📁&nbsp;[teacher](/teacher) | 教師加工 | 教師データ操作スクリプト |
 | 📁&nbsp;[makebook](/makebook) | 定跡 | やねうら王の定跡関連の操作スクリプト |
 | 📁&nbsp;[PetaNext](/PetaNext) | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;BookMiner | 定跡 | 定跡の採掘スクリプト |  
