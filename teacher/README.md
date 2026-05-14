@@ -4,9 +4,9 @@
 
 このREADMEでは、スクリプト名ではなく「何をしたいか」を軸に説明します。
 
-コマンド例は `YaneuraOu-ScriptCollection` のrootディレクトリから実行する前提です。たとえば `teacher/pack2hcpe.py` は、このリポジトリ内の `YaneuraOu-ScriptCollection/teacher/pack2hcpe.py` を指します。`GenSfen/` は同じリポジトリ内の教師生成用フォルダです。
+コマンド例は `YaneuraOu-ScriptCollection` のrootディレクトリから実行する前提です。たとえば `teacher/convert_teacher.py` は、このリポジトリ内の `YaneuraOu-ScriptCollection/teacher/convert_teacher.py` を指します。`GenSfen/` は同じリポジトリ内の教師生成用フォルダです。
 
-一部の変換・re-evalでは、dlshogi本家リポジトリをcloneした `DeepLearningShogi` のスクリプトを使います。このREADMEでは、`YaneuraOu-ScriptCollection` と同じ親フォルダに以下のようにcloneされている前提で `../DeepLearningShogi/...` と書きます。
+一部のre-evalでは、dlshogi本家リポジトリをcloneした `DeepLearningShogi` のスクリプトを使います。このREADMEでは、`YaneuraOu-ScriptCollection` と同じ親フォルダに以下のようにcloneされている前提で `../DeepLearningShogi/...` と書きます。
 
 ```bash
 git clone https://github.com/TadaoYamaoka/DeepLearningShogi.git
@@ -22,53 +22,61 @@ git clone https://github.com/TadaoYamaoka/DeepLearningShogi.git
 
 | 形式 | シャッフル方法 |
 |---|---|
-| `psv` | `teacher/split_psv.py --shuffle` を使う。40 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
-| `hcpe` | dlshogiの `split_hcpe.py --shuffle` を使う。38 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
+| `psv` | `teacher/split_teacher.py --shuffle` を使う。40 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
+| `hcpe` | `teacher/split_teacher.py --shuffle` を使う。38 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
 | `pack` | 棋譜形式なので、ファイル上のレコードを単純に局面単位シャッフルする用途には向かない。 |
 | `hcpe3` | 棋譜単位の可変長形式なので、単純な局面単位シャッフルには向かない。 |
 
 PSVをシャッフルして1ファイルに出力:
 
 ```bash
-python teacher/split_psv.py input.psv --outpath shuffled.psv --shuffle
+python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle
 ```
 
-PSVをシャッフルしながら10分割:
+HCPEをシャッフルして1ファイルに出力:
 
 ```bash
-python teacher/split_psv.py input.psv --outpath shuffled.psv --shuffle --split 10
+python teacher/split_teacher.py input.hcpe --output shuffled.hcpe --shuffle
 ```
 
-PSVを1ファイルあたり5000万局面で分割:
+シャッフルしながら10分割:
 
 ```bash
-python teacher/split_psv.py input.psv --outpath shuffled.psv --shuffle --positions 50000000
+python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle --split 10
+python teacher/split_teacher.py input.hcpe --output shuffled.hcpe --shuffle --split 10
 ```
 
-複数のPSVを連結してからシャッフル:
+1ファイルあたり5000万局面で分割:
 
 ```bash
-python teacher/split_psv.py a.psv b.psv c.psv --outpath shuffled.psv --shuffle
+python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle --positions 50000000
+python teacher/split_teacher.py input.hcpe --output shuffled.hcpe --shuffle --positions 50000000
+```
+
+複数ファイルを連結してからシャッフル:
+
+```bash
+python teacher/split_teacher.py a.psv b.psv c.psv --output shuffled.psv --shuffle
+python teacher/split_teacher.py a.hcpe b.hcpe c.hcpe --output shuffled.hcpe --shuffle
 ```
 
 乱数seedを固定したい場合:
 
 ```bash
-python teacher/split_psv.py input.psv --outpath shuffled.psv --shuffle --seed 20260513
+python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle --seed 20260513
 ```
 
 注意点:
 
-- `split_psv.py` はオンメモリ処理です。巨大PSVを全体シャッフルする場合は、入力全体を載せられるRAMが必要です。
+- `split_teacher.py` はオンメモリ処理です。巨大ファイルを全体シャッフルする場合は、入力全体を載せられるRAMが必要です。
+- 出力形式は入力形式と同じです。出力ファイルに拡張子を付ける場合は、入力と同じ `.psv` または `.hcpe` にしてください。
+- `--output` は出力ファイル名、または分割時の出力ファイル名のベースです。`--outpath` も互換エイリアスとして使えます。
 - `--split` または `--positions` を指定した場合、出力ファイル名は `shuffled-001.psv`, `shuffled-002.psv`, ... のようになります。
 - `--split` と `--positions` は同時指定できません。
-- 入力ファイルサイズが40で割り切れない場合は、PSVではない、または壊れたファイルとしてエラーにします。
-
-HCPEをシャッフルする場合は、dlshogiの `split_hcpe.py` を使います。
-
-```bash
-python ../DeepLearningShogi/dlshogi/utils/split_hcpe.py input.hcpe --outpath shuffled.hcpe --shuffle
-```
+- `--uniq` を指定すると、シャッフルや分割の前に同一レコードを除去します。
+- `--uniq-each-split` を指定すると、分割後の各出力ファイルごとに同一レコードを除去します。
+- 入力ファイルサイズがレコードサイズで割り切れない場合は、壊れたファイルとしてエラーにします。
+- `psv` と `hcpe` を同時に指定することはできません。
 
 ## 教師データのフォーマット変換
 
@@ -78,86 +86,80 @@ python ../DeepLearningShogi/dlshogi/utils/split_hcpe.py input.hcpe --outpath shu
 
 | 変換 | 使うもの | 備考 |
 |---|---|---|
-| `pack` -> `hcpe` | `teacher/pack2hcpe.py` | GenSfenのpack形式をHCPEへ展開する。 |
-| `hcpe` -> `psv` | `DeepLearningShogi/dlshogi/utils/hcpe_to_psv.py` | HCPEの局面・評価値・指し手・勝敗をPSVへ変換する。 |
-| `psv` -> `hcpe` | `DeepLearningShogi/dlshogi/utils/psv_to_hcpe.py` | PSVをHCPEへ変換する。PSVの `gamePly` はHCPEには入らない。 |
-| `hcpe3` -> `hcpe` | `DeepLearningShogi/dlshogi/utils/hcpe3_to_hcpe.py` | HCPE3の各ゲームを局面列に展開してHCPEへ変換する。 |
-| `hcpe3` -> `psv` | `teacher/hcpe3_to_psv.py` | HCPE3を局面列に展開してPSVへ変換する。複数ファイルやフォルダ入力にも対応。 |
+| `pack` -> `hcpe` | `teacher/convert_teacher.py` | GenSfenのpack形式をHCPEへ展開する。複数ファイルやフォルダ入力にも対応。 |
+| `hcpe` -> `psv` | `teacher/convert_teacher.py` | HCPEの局面・評価値・指し手・勝敗をPSVへ変換する。複数ファイルやフォルダ入力にも対応。 |
+| `psv` -> `hcpe` | `teacher/convert_teacher.py` | PSVをHCPEへ変換する。PSVの `gamePly` はHCPEには入らない。複数ファイルやフォルダ入力にも対応。 |
+| `hcpe3` -> `hcpe` | `teacher/convert_teacher.py` | HCPE3の各ゲームを局面列に展開してHCPEへ変換する。複数ファイルやフォルダ入力にも対応。 |
+| `hcpe3` -> `psv` | `teacher/convert_teacher.py` | HCPE3を局面列に展開してPSVへ変換する。複数ファイルやフォルダ入力にも対応。 |
 
 `pack` から `hcpe`:
 
 ```bash
-python teacher/pack2hcpe.py input.pack output.hcpe
+python teacher/convert_teacher.py --input input.pack --output output.hcpe
 ```
 
-出力ファイルを省略した場合は、入力ファイル名に `.hcpe` を付けた名前で出力します。
-
-```bash
-python teacher/pack2hcpe.py input.pack
-```
-
-この場合、`input.pack.hcpe` のようなファイル名になります。`pack` は棋譜形式、HCPEは局面単位の固定長形式なので、変換後のファイルサイズは大きくなります。目安としては10倍程度に膨らむことがあります。
-
-評価値を数手先まで平滑化しながら `pack` から `hcpe`:
-
-```bash
-python teacher/pack2hcpe.py input.pack output.hcpe --smoothing 3 --discount 0.9
-```
-
-`--smoothing` は何手先までの評価値を使うか、`--discount` は先の評価値に掛ける割引率です。上の例では、現局面の評価値、1手先の評価値×0.9、2手先の評価値×0.9×0.9 の加重平均を現局面の評価値として使います。
-
-```text
-新しい評価値 = (eval[0] + eval[1] * 0.9 + eval[2] * 0.9 * 0.9) / (1.0 + 0.9 + 0.9 * 0.9)
-```
+`pack` は棋譜形式、HCPEは局面単位の固定長形式なので、変換後のファイルサイズは大きくなります。目安としては10倍程度に膨らむことがあります。
 
 複数の `pack` ファイルをまとめて変換したい場合、`pack` はバイナリファイルとして単純結合できます。Windowsのコマンドプロンプトなら以下のように1ファイルへ結合してから変換します。
 
 ```bat
 copy /B *.pack merged.pack
-python teacher/pack2hcpe.py merged.pack merged.hcpe
+python teacher/convert_teacher.py --input merged.pack --output merged.hcpe
 ```
 
 `hcpe` から `psv`:
 
 ```bash
-python ../DeepLearningShogi/dlshogi/utils/hcpe_to_psv.py input.hcpe output.psv
+python teacher/convert_teacher.py --input input.hcpe --output output.psv
 ```
 
 `psv` から `hcpe`:
 
 ```bash
-python ../DeepLearningShogi/dlshogi/utils/psv_to_hcpe.py input.psv output.hcpe
+python teacher/convert_teacher.py --input input.psv --output output.hcpe
 ```
 
 `hcpe3` から `hcpe`:
 
 ```bash
-python ../DeepLearningShogi/dlshogi/utils/hcpe3_to_hcpe.py input.hcpe3 output.hcpe
+python teacher/convert_teacher.py --input input.hcpe3 --output output.hcpe
 ```
 
 `hcpe3` から `psv`:
 
 ```bash
-python teacher/hcpe3_to_psv.py --input input.hcpe3 --output output.psv
+python teacher/convert_teacher.py --input input.hcpe3 --output output.psv
 ```
 
-フォルダ内の `*.hcpe3` を個別にPSVへ変換:
+`convert_teacher.py` は入力形式を `--input` から推定します。入力がファイルなら拡張子で判定し、入力がフォルダなら、そのフォルダ内の教師ファイルの拡張子から判定します。出力が拡張子つきファイルなら、出力形式はその拡張子から判定します。出力がフォルダなら、将来変換先が増えたときに意味が変わらないように `--to` の指定を必須にしています。
+
+フォルダ内の各ファイルを個別に変換:
 
 ```bash
-python teacher/hcpe3_to_psv.py --input hcpe3_dir --output psv_dir
+python teacher/convert_teacher.py --input hcpe_dir --output psv_dir --to psv
+python teacher/convert_teacher.py --input psv_dir --output hcpe_dir --to hcpe
+python teacher/convert_teacher.py --input pack_dir --output hcpe_dir --to hcpe
+python teacher/convert_teacher.py --input hcpe3_dir --output hcpe_dir --to hcpe
+python teacher/convert_teacher.py --input hcpe3_dir --output psv_dir --to psv
 ```
 
-フォルダ内の `*.hcpe3` を1つのPSVへ結合:
+フォルダ内の各ファイルを1つの出力ファイルへ結合:
 
 ```bash
-python teacher/hcpe3_to_psv.py --input hcpe3_dir --output merged.psv
+python teacher/convert_teacher.py --input hcpe_dir --output merged.psv
+python teacher/convert_teacher.py --input psv_dir --output merged.hcpe
+python teacher/convert_teacher.py --input pack_dir --output merged.hcpe
+python teacher/convert_teacher.py --input hcpe3_dir --output merged.hcpe
+python teacher/convert_teacher.py --input hcpe3_dir --output merged.psv
 ```
+
+サブフォルダも含めて変換したい場合は `--recursive` を指定します。固定長形式同士の変換では、`--batch-size` で一度に処理するレコード数を変更できます。
 
 `pack` から `psv` へ変換したい場合は、いったんHCPEへ変換してからPSVへ変換します。
 
 ```bash
-python teacher/pack2hcpe.py input.pack tmp.hcpe
-python ../DeepLearningShogi/dlshogi/utils/hcpe_to_psv.py tmp.hcpe output.psv
+python teacher/convert_teacher.py --input input.pack --output tmp.hcpe
+python teacher/convert_teacher.py --input tmp.hcpe --output output.psv
 ```
 
 直接変換スクリプトがないもの:

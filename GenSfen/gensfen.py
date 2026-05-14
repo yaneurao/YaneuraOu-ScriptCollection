@@ -42,7 +42,7 @@ class SharedState:
         self.nodes = settings["NODES"]
 
         # 出力形式
-        #   pack  : 従来形式。../teacher/pack2hcpe.pyでHCPEへ変換する。
+        #   pack  : 従来形式。../teacher/convert_teacher.pyでHCPEへ変換する。
         #   hcpe3 : MultiPVから疑似訪問回数を作り、HCPE3を直接出力する。
         self.output_format = str(settings.get("OUTPUT_FORMAT", "pack")).lower()
         if self.output_format not in ["pack", "hcpe3"]:

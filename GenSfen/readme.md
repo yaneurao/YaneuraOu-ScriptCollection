@@ -16,7 +16,7 @@ DL系の探索部(例えば、dlshogiやふかうら王)での教師生成は考
 
 既定では、ここで生成した教師データはpack形式となります。`kif`フォルダに保存されていきます。
 
-このpack形式は、`../teacher/pack2hcpe.py`スクリプトによってhcpe形式に変換することができ、dlshogiの学習スクリプトである`train.py`でそのまま用いることができます。
+このpack形式は、`../teacher/convert_teacher.py`スクリプトによってhcpe形式に変換することができ、dlshogiの学習スクリプトである`train.py`でそのまま用いることができます。
 
 `settings/gensfen-settings.json5`で`"OUTPUT_FORMAT": "hcpe3"`を指定すると、MultiPV探索の候補手からHCPE3の`MoveVisits`を作り、`.hcpe3`ファイルへ直接保存できます。
 
@@ -88,7 +88,7 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 ```json5
 {
-    // 従来形式。kif/*.packに保存し、../teacher/pack2hcpe.pyでHCPEへ変換する。
+    // 従来形式。kif/*.packに保存し、../teacher/convert_teacher.pyでHCPEへ変換する。
     "OUTPUT_FORMAT": "pack",
 
     // または、MultiPVからHCPE3を直接生成する。
@@ -96,7 +96,7 @@ option name FV_SCALE type spin default 36 min 1 max 128
 }
 ```
 
-`pack`出力では`MultiPV`は常に1に設定されます。強いエンジンで通常のNNUE教師局面を大量生成し、あとから`../teacher/pack2hcpe.py`でHCPE化する用途に向いています。
+`pack`出力では`MultiPV`は常に1に設定されます。強いエンジンで通常のNNUE教師局面を大量生成し、あとから`../teacher/convert_teacher.py`でHCPE化する用途に向いています。
 
 エンジンがUSIの`score mate N`を返した場合、評価値はやねうら王本体と同じく`32000 - N`へ変換して保存します。例えば`score mate 1`は`31999`、`score mate -3`は`-31997`になります。最終的な書き出し時には従来どおり`pack`出力なら`[-32000, 32000]`、HCPE3出力なら`[-32767, 32767]`へclampされます。
 
@@ -295,9 +295,9 @@ cmd.exe /c start /B /WAIT /NODE 1 YO900_AVX2.exe
 
 # packからhcpe/psvへの変換
 
-GenSfenが出力する`.pack`をHCPEへ変換する処理は、教師データ加工用の`../teacher/pack2hcpe.py`で行います。
+GenSfenが出力する`.pack`をHCPEへ変換する処理は、教師データ加工用の`../teacher/convert_teacher.py`で行います。
 
-変換方法、評価値の平滑化、複数`.pack`の扱い、PSVへの変換については、[`../teacher/README.md`](../teacher/README.md) の「教師データのフォーマット変換」を参照してください。
+変換方法、複数`.pack`の扱い、PSVへの変換については、[`../teacher/README.md`](../teacher/README.md) の「教師データのフォーマット変換」を参照してください。
 
 # yanebook2startsfen
 

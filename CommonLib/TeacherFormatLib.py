@@ -160,6 +160,24 @@ def game_result_for_side_to_move(result: int, turn: int) -> int:
     return 0
 
 
+def side_to_move_game_result_to_hcpe(game_result: int, turn: int) -> int:
+    """Convert PSV's side-to-move result to HCPE's absolute result."""
+    if game_result == 1:
+        return turn + 1
+    if game_result == -1:
+        return 2 - turn
+    return 0
+
+
+def u16(value: int) -> int:
+    return int(value) & 0xFFFF
+
+
+def i16_from_u16(value: int) -> int:
+    value = u16(value)
+    return value - 0x10000 if value & 0x8000 else value
+
+
 def make_progress(path: Path, *, no_progress: bool):
     if tqdm is None or no_progress:
         return None
