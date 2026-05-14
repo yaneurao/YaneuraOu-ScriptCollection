@@ -728,118 +728,30 @@ def finalize_ptl_checkpoint(tmp_checkpoint: Path, target_checkpoint: Path) -> No
     latest.replace(target_checkpoint)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Train exp_i 20b256 with yane-distill teacher data."
-    )
-    parser.add_argument(
-        "--backend",
-        choices=("train", "ptl"),
-        default="train",
-        help="Use legacy dlshogi.train or PyTorch Lightning dlshogi.ptl.",
-    )
-    parser.add_argument("--dlshogi_dir", type=Path, default=DEFAULT_DLSHOGI_DIR)
-    parser.add_argument("--train_dir", type=Path, default=DEFAULT_TRAIN_DIR)
-    parser.add_argument("--test_data", type=Path, default=DEFAULT_TEST_DATA)
-    parser.add_argument(
-        "--model_root",
-        type=Path,
-        default=DEFAULT_MODEL_ROOT,
-        help="Root directory for model outputs. Used when --out_dir is omitted.",
-    )
-    parser.add_argument(
-        "--out_dir",
-        type=Path,
-        help="Explicit output directory. Overrides automatic output naming.",
-    )
-    parser.add_argument(
-        "--show_log",
-        action="store_true",
-        help="Extract and print training log CSV for --out_dir or --model_root/--network, then exit.",
-    )
-    parser.add_argument("--batchsize", type=int, default=1024)
-    parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument("--eta_min", type=float, default=1e-5)
-    parser.add_argument("--network", default="exp___i20x256")
-    parser.add_argument("--val_lambda", type=float, default=1.0)
-    parser.add_argument(
-        "--amp_dtype",
-        choices=("bfloat16", "float16"),
-        default="bfloat16",
-        help="Use bfloat16 by default because exp_i has Transformer layers.",
-    )
-    parser.add_argument("--no_amp", action="store_true")
-    parser.add_argument("--no_average", action="store_true")
-    parser.add_argument("--use_swa", dest="use_swa", action="store_true", default=True)
-    parser.add_argument("--no_swa", dest="use_swa", action="store_false")
-    parser.add_argument("--swa_freq", type=int, default=250)
-    parser.add_argument("--swa_n_avr", type=int, default=10)
-    parser.add_argument("--swa_start_epoch", type=int, default=1)
-    parser.add_argument(
-        "--use_compile",
-        action="store_true",
-        help="Use torch.compile. On Windows, dlshogi defaults to aot_eager unless --compile_backend is set.",
-    )
-    parser.add_argument(
-        "--compile_backend",
-        help="Backend for torch.compile, e.g. inductor or aot_eager.",
-    )
-    parser.add_argument(
-        "--compile_mode",
-        help="Mode for torch.compile, e.g. default, reduce-overhead, or max-autotune.",
-    )
-    parser.add_argument(
-        "--compile_fullgraph",
-        action="store_true",
-        help="Pass fullgraph=True to torch.compile.",
-    )
-    parser.add_argument(
-        "--compile_dynamic",
-        action="store_true",
-        help="Pass dynamic=True to torch.compile.",
-    )
-    parser.add_argument("--start_index", type=int, default=1)
-    parser.add_argument(
-        "--resume_checkpoint",
-        type=Path,
-        help="Checkpoint to initialize from before the first teacher file.",
-    )
-    parser.add_argument(
-        "--reset_optimizer",
-        action="store_true",
-        help="Reset optimizer state when --resume_checkpoint is used.",
-    )
-    parser.add_argument(
-        "--reset_scheduler",
-        action="store_true",
-        help="Reset lr scheduler state when --resume_checkpoint is used.",
-    )
-    args = parser.parse_args()
-
-    dlshogi_dir = args.dlshogi_dir.resolve()
-    train_dir = args.train_dir.resolve()
-    test_data = args.test_data.resolve()
-    model_root = args.model_root.resolve()
-
-    if args.show_log:
-        log_target = args.out_dir.resolve() if args.out_dir else make_out_dir(model_root, args.network)
-        show_train_log([log_target], teacher_root=train_dir.parent)
-        return
-
-    teacher_files = collect_teacher_files(train_dir)
-    if not teacher_files:
-        raise FileNotFoundError(f"No .hcpe/.hcpe3 files found in {train_dir}")
-    if not test_data.exists():
-        raise FileNotFoundError(f"Test data not found: {test_data}")
-    total_epochs = len(teacher_files)
-    checkpoint_suffix = ".ckpt" if args.backend == "ptl" else ".pth"
-
+def run_one_round(
+    args: argparse.Namespace,
+    *,
+    dlshogi_dir: Path,
+    test_data: Path,
+    model_root: Path,
+    teacher_files: list[Path],
+    total_epochs: int,
+    checkpoint_suffix: str,
+    use_explicit_state: bool,
+) -> None:
     auto_reset_optimizer = False
     auto_reset_scheduler = False
-    resume_checkpoint = args.resume_checkpoint.resolve() if args.resume_checkpoint else None
-    if args.out_dir:
-        out_dir = args.out_dir.resolve()
+    resume_checkpoint: Path | None = (
+        args.resume_checkpoint.resolve()
+        if use_explicit_state and args.resume_checkpoint
+        else None
+    )
+    explicit_out_dir = (
+        args.out_dir.resolve() if use_explicit_state and args.out_dir else None
+    )
+
+    if explicit_out_dir:
+        out_dir = explicit_out_dir
         checkpoint_offset = checkpoint_number(resume_checkpoint) if resume_checkpoint else 0
     elif resume_checkpoint:
         out_dir = next_round_out_dir(resume_checkpoint)
@@ -872,7 +784,6 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
-    total_epochs = len(teacher_files)
     lr_scheduler = f"CosineAnnealingLR(T_max={total_epochs},eta_min={args.eta_min})"
 
     print(f"DeepLearningShogi: {dlshogi_dir}")
@@ -1050,6 +961,142 @@ def main() -> None:
             env=run_env,
         )
         finalize_ptl_checkpoint(tmp_checkpoint, current_checkpoint)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Train exp_i 20b256 with yane-distill teacher data."
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("train", "ptl"),
+        default="train",
+        help="Use legacy dlshogi.train or PyTorch Lightning dlshogi.ptl.",
+    )
+    parser.add_argument("--dlshogi_dir", type=Path, default=DEFAULT_DLSHOGI_DIR)
+    parser.add_argument("--train_dir", type=Path, default=DEFAULT_TRAIN_DIR)
+    parser.add_argument("--test_data", type=Path, default=DEFAULT_TEST_DATA)
+    parser.add_argument(
+        "--model_root",
+        type=Path,
+        default=DEFAULT_MODEL_ROOT,
+        help="Root directory for model outputs. Used when --out_dir is omitted.",
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=Path,
+        help="Explicit output directory. Overrides automatic output naming.",
+    )
+    parser.add_argument(
+        "--show_log",
+        action="store_true",
+        help="Extract and print training log CSV for --out_dir or --model_root/--network, then exit.",
+    )
+    parser.add_argument("--batchsize", type=int, default=1024)
+    parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--eta_min", type=float, default=1e-5)
+    parser.add_argument("--network", default="exp___i20x256")
+    parser.add_argument("--val_lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--amp_dtype",
+        choices=("bfloat16", "float16"),
+        default="bfloat16",
+        help="Use bfloat16 by default because exp_i has Transformer layers.",
+    )
+    parser.add_argument("--no_amp", action="store_true")
+    parser.add_argument("--no_average", action="store_true")
+    parser.add_argument("--use_swa", dest="use_swa", action="store_true", default=True)
+    parser.add_argument("--no_swa", dest="use_swa", action="store_false")
+    parser.add_argument("--swa_freq", type=int, default=250)
+    parser.add_argument("--swa_n_avr", type=int, default=10)
+    parser.add_argument("--swa_start_epoch", type=int, default=1)
+    parser.add_argument(
+        "--use_compile",
+        action="store_true",
+        help="Use torch.compile. On Windows, dlshogi defaults to aot_eager unless --compile_backend is set.",
+    )
+    parser.add_argument(
+        "--compile_backend",
+        help="Backend for torch.compile, e.g. inductor or aot_eager.",
+    )
+    parser.add_argument(
+        "--compile_mode",
+        help="Mode for torch.compile, e.g. default, reduce-overhead, or max-autotune.",
+    )
+    parser.add_argument(
+        "--compile_fullgraph",
+        action="store_true",
+        help="Pass fullgraph=True to torch.compile.",
+    )
+    parser.add_argument(
+        "--compile_dynamic",
+        action="store_true",
+        help="Pass dynamic=True to torch.compile.",
+    )
+    parser.add_argument("--start_index", type=int, default=1)
+    parser.add_argument(
+        "--resume_checkpoint",
+        type=Path,
+        help="Checkpoint to initialize from before the first teacher file.",
+    )
+    parser.add_argument(
+        "--reset_optimizer",
+        action="store_true",
+        help="Reset optimizer state when --resume_checkpoint is used.",
+    )
+    parser.add_argument(
+        "--reset_scheduler",
+        action="store_true",
+        help="Reset lr scheduler state when --resume_checkpoint is used.",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=1,
+        help=(
+            "Number of rounds (full passes over all teacher files) to run consecutively. "
+            "Equivalent to invoking trainer.py this many times. "
+            "--out_dir / --resume_checkpoint apply to the first round only; "
+            "subsequent rounds use auto round detection from --model_root and --network."
+        ),
+    )
+    args = parser.parse_args()
+    if args.rounds < 1:
+        parser.error(f"--rounds must be >= 1 (got {args.rounds})")
+
+    dlshogi_dir = args.dlshogi_dir.resolve()
+    train_dir = args.train_dir.resolve()
+    test_data = args.test_data.resolve()
+    model_root = args.model_root.resolve()
+
+    if args.show_log:
+        log_target = args.out_dir.resolve() if args.out_dir else make_out_dir(model_root, args.network)
+        show_train_log([log_target], teacher_root=train_dir.parent)
+        return
+
+    teacher_files = collect_teacher_files(train_dir)
+    if not teacher_files:
+        raise FileNotFoundError(f"No .hcpe/.hcpe3 files found in {train_dir}")
+    if not test_data.exists():
+        raise FileNotFoundError(f"Test data not found: {test_data}")
+    total_epochs = len(teacher_files)
+    checkpoint_suffix = ".ckpt" if args.backend == "ptl" else ".pth"
+
+    for round_iter in range(args.rounds):
+        if args.rounds > 1:
+            print()
+            print(f"=== round {round_iter + 1}/{args.rounds} ===")
+        run_one_round(
+            args,
+            dlshogi_dir=dlshogi_dir,
+            test_data=test_data,
+            model_root=model_root,
+            teacher_files=teacher_files,
+            total_epochs=total_epochs,
+            checkpoint_suffix=checkpoint_suffix,
+            use_explicit_state=(round_iter == 0),
+        )
 
 
 if __name__ == "__main__":

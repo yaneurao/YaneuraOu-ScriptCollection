@@ -102,6 +102,25 @@ python .\trainer.py
 C:\shogi\model\exp___i20x256_round2
 ```
 
+## まとめて複数 round 回す
+
+`--rounds N` を指定すると、`trainer.py` を `N` 回連続で呼ぶのと同じ動きをします。1回の起動で round を `N` 周進めるので、毎回手で再実行する必要がありません。
+
+例えば round3 まで完了している状態から、追加で3周回したい場合:
+
+```powershell
+python .\trainer.py --rounds 3
+```
+
+これで round4 → round5 → round6 の3周分が順に走ります。途中の round が中断していた場合は、最初の round でその続きから再開し、残りを新しい round フォルダで進めます。
+
+`--rounds` を省略した場合の挙動は従来と同じ（1周だけ実行）です。
+
+注意点:
+
+- `--out_dir` と `--resume_checkpoint` は **最初の round にだけ** 適用されます。2周目以降は `--model_root` と `--network` から自動検出した出力先 (`..._round{N+1}`) へ進みます
+- 途中で失敗した場合は、同じコマンドをもう一度実行すれば未完了の round / 教師ファイルから再開します
+
 ## train.py 版の1周目から PTL 版の2周目へ移る
 
 `C:\shogi\model\exp___i20x256` に train.py 版の1周目 checkpoint があり、全教師ファイル分が完了している状態で以下を実行します。
