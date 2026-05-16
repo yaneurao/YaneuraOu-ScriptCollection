@@ -282,6 +282,47 @@ python teacher/filter_hcpe_by_eval.py -source hcpe/ -dest hcpe-filtered-by-eval/
 | `-dest`, `--dest` | なし | 一括処理の出力フォルダ。入力ファイルと同じ相対pathで出力する。 |
 | `--recursive` | false | `-source` 配下のサブフォルダも処理する。 |
 
+### 引き分け局面を取り除く (`teacher/filter_drawn_games.py`)
+
+HCPE / PSV ファイルから対局結果が引き分け (`game_result == 0`) の局面を除外したい場合は、`teacher/filter_drawn_games.py` を使います。形式 (`.hcpe` / `.psv`) は拡張子で自動判別します。
+
+想定用途は **検証用局面集の前処理**:
+
+- BulletOu の `test_value_accuracy` および YaneuraOu の `test eval_accuracy` は、accuracy を計算する際に引き分け局面を分母分子の両方から除外します (= 「W vs L の符号一致率」を測る)。これは dlshogi 本家の検証用局面集に引き分けが含まれていないことに合わせた仕様です。
+- dlshogi `train.py` でも検証用局面ファイルを `--test_data` で渡しますが、ここに引き分けが含まれていると上記メトリクスと数値が合わなくなります。検証局面ファイル側からも引き分けを取り除いておくと、3 経路 (BulletOu / やねうら王 / dlshogi) の accuracy が直接比較できる数値になります。
+- 学習用局面 (= `--teacher` に渡すもの) からも除外したい場合に使うことも可能ですが、訓練側 loss 関数では引き分け局面はラベル平滑化の役割を果たすので、必ずしも除外する必要はありません。判断はユーザー側で。
+
+基本形:
+
+```bash
+python teacher/filter_drawn_games.py input.hcpe output.hcpe
+python teacher/filter_drawn_games.py input.psv  output.psv
+```
+
+出力ファイルを省略した場合は、入力ファイル名に `.no-drawn` を付けます (例: `input.hcpe` → `input.no-drawn.hcpe`)。
+
+```bash
+python teacher/filter_drawn_games.py input.hcpe
+```
+
+フォルダ内の `.hcpe` / `.psv` を一括処理する場合:
+
+```bash
+python teacher/filter_drawn_games.py -source teacher/ -dest teacher-no-drawn/
+python teacher/filter_drawn_games.py -source teacher/ -dest teacher-no-drawn/ --recursive
+```
+
+主なオプション:
+
+| オプション | 既定値 | 内容 |
+|---|---:|---|
+| `--chunk-records` | `1000000` | 一度に読み込むレコード数。 |
+| `-source`, `--source` | なし | 一括処理する入力フォルダ。`.hcpe` / `.psv` を処理対象にする。 |
+| `-dest`, `--dest` | なし | 一括処理の出力フォルダ。入力ファイルと同じ相対pathで出力する。 |
+| `--recursive` | false | `-source` 配下のサブフォルダも処理する。 |
+
+レコードレイアウト上の引き分け判定 (= byte 値 0 を draw と扱う) は HCPE / PSV どちらも同じなので、auto-detect で両形式を同じスクリプトで扱っています。
+
 注意点:
 
 - 入力と出力は別ファイルにしてください。
