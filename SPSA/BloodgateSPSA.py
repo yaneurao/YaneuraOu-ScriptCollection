@@ -349,11 +349,13 @@ class ShogiMatch:
 
         kif = f"{root_sfen}{'' if 'moves' in root_sfen else ' moves'}"
 
-        # start_color : 手番のあるプレイヤー番号
+        # start_player : 開始局面で手番を持つプレイヤー番号。
+        # root_sfen の手番色が先手とは限らないので、先手/後手ではなく player で管理する。
         # player : 現在の手番側のプレイヤー番号
         player = start_player
 
-        # 試合の結果 0 : 先手勝ち , 1 : 後手勝ち , 2 : 引き分け
+        # 試合の結果 0 : player0勝ち , 1 : player1勝ち , 2 : 引き分け
+        # player0は基準エンジン、player1はSPSA対象エンジン。
         winner : int = -1
 
         while True:
