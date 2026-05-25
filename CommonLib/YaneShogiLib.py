@@ -51,19 +51,19 @@ def mkdir(path:str):
 write_log : bool = False
 # ログファイルのhandle
 log_file : Any = None # _io.TextIOWrapper
+# print_log() は複数の対局スレッドから呼ばれるので、コンソールとログファイルを
+# まとめて保護する。タイムスタンプと本文を別々に print すると出力が混ざる。
+_print_log_lock = Lock()
 
 def print_log(*args:Any,end:str='\n'):
     ''' このスクリプト内で用いるprint関数。 '''
-    print(make_time_stamp2(), end='')
-    print(*args,end=end)
-    if write_log:
-        # タイムスタンプの付与
-        log_file.write(make_time_stamp2())
-        # argsが空の時、これは単なる改行のためのprintであるから無視する。
-        if args:
-            log_file.write(*args)
-        log_file.write(end)
-        log_file.flush()
+    log_message = make_time_stamp2() + ' '.join(map(str, args))
+    with _print_log_lock:
+        print(log_message, end=end, flush=True)
+        if write_log:
+            log_file.write(log_message)
+            log_file.write(end)
+            log_file.flush()
 
 def enable_print_log():
     '''print logを有効化する。'''        
@@ -522,7 +522,8 @@ class Board:
     '''
     def __init__(self,position_str:str=''):
         self.board = cshogi.Board() # type:ignore
-        self.board.set_position(position_str)
+        if position_str:
+            self.board.set_position(position_str)
 
     def to_svg(self)->str:
         '''局面をSVG化した文字列を返す。'''
