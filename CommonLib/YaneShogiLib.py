@@ -519,10 +519,17 @@ class Engine:
             ret = self.receive_usi()
             rets = ret.split()
 
-            if "bestmove" in ret:
+            if rets and rets[0] == "bestmove":
+                if len(rets) < 2:
+                    log_path = self.dump_engine_io_log("bestmove_parse_error")
+                    suffix = f" Engine log saved: {log_path}" if log_path else ""
+                    raise Exception(f"Error! : malformed bestmove line: '{ret}'.{suffix}")
+
                 bestmove = rets[1]
                 if besteval is None:
-                    besteval = 0
+                    log_path = self.dump_engine_io_log("bestmove_before_eval")
+                    suffix = f" Engine log saved: {log_path}" if log_path else ""
+                    raise Exception(f"Error! : bestmove received before eval.{suffix}")
                 candidates = [multipv_infos[k] for k in sorted(multipv_infos)]
                 return bestmove, besteval, candidates
 
