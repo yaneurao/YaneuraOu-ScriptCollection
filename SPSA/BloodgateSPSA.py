@@ -327,8 +327,6 @@ class ShogiMatch:
 
         except Exception as e:
             print_log(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
-            # この時のパラメーターを出力してやる。パラメーターの条件がillegalで落ちたのかもしれないので。
-            self.shared.print_parameters()
 
 
     def game_play(self, start_player : int):
@@ -473,7 +471,7 @@ def user_input():
     enable_print_log()
 
     # このタイミングでパラメーターを一度ログに出力しておく。(あとで比較するため)
-    shared.print_parameters()
+    # shared.print_parameters()
 
     # stepのスケールとパラメーターの移動性
     print_log(f"Step Scale = {SCALE}, Param Mobility = {MOBILITY}")
