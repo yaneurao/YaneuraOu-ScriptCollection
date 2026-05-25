@@ -40,6 +40,9 @@ SFEN_START_PLY1              = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/
 #                    helper functions
 # ============================================================
 
+ENGINE_IO_LOG_MAX_LINES      = 4000
+ENGINE_IO_LOG_DUMP_LIMIT     = 8
+
 def mkdir(path:str):
     '''pathまでのフォルダを(なければすべて)作成する'''
     dirname = os.path.dirname(path)
@@ -308,6 +311,11 @@ class Engine:
         # スレッドID
         self.thread_id = thread_id
 
+        # 異常時に原因調査できるよう、直近のUSI入出力だけを保持する。
+        self.engine_path = engine_path
+        self.engine_io_log : list[str] = []
+        self.engine_io_log_dump_count = 0
+
         # readyokをエンジンから受け取ったか。
         self.readyok = False
 
@@ -358,12 +366,14 @@ class Engine:
         # if self.global_settings.debug_engine:
         #     print_log(f'[{self.thread_settings.thread_id}]<{command}')
 
+        self.append_engine_io_log("<", command)
         self.engine.stdin.write(command+"\n") # type:ignore
         self.engine.stdin.flush()             # type:ignore
 
     def receive_usi(self)->str:
         ''' 思考エンジンから1行もらう。改行は取り除いて返す。'''
         mes = self.engine.stdout.readline().strip() # type:ignore
+        self.append_engine_io_log(">", mes)
 
         # デバッグモードならエンジンへの入出力をすべて標準出力へ。
         # if self.global_settings.debug_engine:
@@ -371,9 +381,38 @@ class Engine:
 
         # エンジンのprocessが死んでたら例外を出す。
         if self.engine.poll() is not None:
+            self.dump_engine_io_log("engine_terminated")
             self.raise_exception(f"Engine is terminated.")
         return mes
 
+    def append_engine_io_log(self, direction:str, message:str):
+        '''直近のUSI入出力をメモリに保持する。'''
+        self.engine_io_log.append(f"{make_time_stamp2()}{direction} {message}")
+        if len(self.engine_io_log) > ENGINE_IO_LOG_MAX_LINES:
+            del self.engine_io_log[:len(self.engine_io_log) - ENGINE_IO_LOG_MAX_LINES]
+
+    def dump_engine_io_log(self, reason:str)->str:
+        '''異常時に直近のUSI入出力をファイルへ保存する。'''
+        if self.engine_io_log_dump_count >= ENGINE_IO_LOG_DUMP_LIMIT:
+            return ""
+        self.engine_io_log_dump_count += 1
+
+        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
+        safe_reason = ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in reason)
+        filename = f"log/engine/engine_{timestamp}_thread{self.thread_id}_{safe_reason}.log"
+        mkdir(filename)
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"reason: {reason}\n")
+            f.write(f"thread_id: {self.thread_id}\n")
+            f.write(f"engine_path: {self.engine_path}\n")
+            f.write(f"search_sfen: {self.search_sfen}\n")
+            f.write("\n")
+            for line in self.engine_io_log:
+                f.write(line)
+                f.write("\n")
+
+        return filename
 
     def wait_usi(self, wait_text:str):
         ''' 指定したコマンドが来るまで待つ '''
@@ -382,6 +421,7 @@ class Engine:
             # エンジンから送られてきたメッセージにErrorの文字列があるなら、
             # これは致命的なエラーなので例外を出して終了。
             if 'Error' in mes or 'No such option' in mes:
+                self.dump_engine_io_log("engine_error")
                 self.raise_exception(f"Engine Error! : '{mes}'")
             if mes==wait_text:
                 break
@@ -423,7 +463,9 @@ class Engine:
                 # 実戦だとこの指し手が'resign'とか'win'の可能性もあるが、評価値が先に振り切るので定跡掘る時には考えない。
                 bestmove : Move = rets[1]
                 if besteval is None:
-                    raise Exception("Error! : bestmove received before eval.")
+                    log_path = self.dump_engine_io_log("bestmove_before_eval")
+                    suffix = f" Engine log saved: {log_path}" if log_path else ""
+                    raise Exception(f"Error! : bestmove received before eval.{suffix}")
                 return bestmove , besteval
             else:
                 # 読み筋に対して、そのpvの初手を蓄積していく。
