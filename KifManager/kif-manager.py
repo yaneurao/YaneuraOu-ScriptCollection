@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import contextlib
 from datetime import datetime
 import pickle
@@ -18,19 +19,20 @@ BASE_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 SETTINGS_PATH = BASE_DIR / "kif-manager-settings.pickle"
 SETTINGS_VERSION = 1
+EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
 WCSC_OLD_DEFAULT_OUTPUT_DIR = "downloaded-kif"
 FLOODGATE_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from floodgate_kif_downloader import (  # noqa: E402
+from floodgate_kif_downloader_core import (  # noqa: E402
     FloodgateDownloadError,
     FloodgateDownloadJob,
     FloodgateDownloadStats,
     download_floodgate_kif,
     validate_year,
 )
-from denryu_kif_downloader import (  # noqa: E402
+from denryu_kif_downloader_core import (  # noqa: E402
     DENRYU_DEFAULT_OUTPUT_DIR,
     DenryuDownloadJob,
     DenryuDownloadStats,
@@ -41,12 +43,21 @@ from denryu_kif_downloader import (  # noqa: E402
     fetch_denryu_tournament_options,
 )
 from kif_extractor_common import Stats, run_extractor  # noqa: E402
-from wcsc_kif_downloader import (  # noqa: E402
+from wcsc_kif_downloader_core import (  # noqa: E402
     DownloadError,
     WcscDownloadJob,
     WcscDownloadStats,
     download_wcsc_kif,
     normalize_wcsc_name,
+)
+from shogidb2_kif_downloader import (  # noqa: E402
+    SHOGIDB2_DEFAULT_OUTPUT_DIR,
+    ShogiDb2DownloadJob,
+    ShogiDb2DownloadStats,
+    ShogiDb2TournamentOption,
+    download_shogidb2_kif,
+    fetch_shogidb2_tournament_options,
+    normalize_tournament_url,
 )
 
 
@@ -159,6 +170,13 @@ DOWNLOADERS = (
     ),
 )
 
+SHOGIDB2_DOWNLOADER = DownloadKind(
+    "shogidb2",
+    "shogidb2",
+    "shogidb2の棋戦ページからKIF形式の棋譜をダウンロードします。",
+    True,
+)
+
 
 class QueueWriter:
     def __init__(self, log_queue: queue.Queue[tuple[str, str]], prefix: str) -> None:
@@ -233,7 +251,7 @@ class ExtractorPane(ttk.Frame):
         super().__init__(master, padding=12)
         self.kind = kind
         self.input_dir = tk.StringVar(value=kind.default_input_dir)
-        self.output_path = tk.StringVar(value="usi-kif.txt")
+        self.output_path = tk.StringVar(value=EXTRACT_DEFAULT_OUTPUT_FILE)
         self.both_player_list = tk.StringVar()
         self.either_player_list = tk.StringVar()
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
@@ -498,7 +516,7 @@ class ExtractorPane(ttk.Frame):
         if not isinstance(settings, dict):
             return
         self.input_dir.set(str(settings.get("input_dir", self.kind.default_input_dir) or self.kind.default_input_dir))
-        self.output_path.set(str(settings.get("output_path", "usi-kif.txt") or "usi-kif.txt"))
+        self.output_path.set(str(settings.get("output_path", EXTRACT_DEFAULT_OUTPUT_FILE) or EXTRACT_DEFAULT_OUTPUT_FILE))
         self.both_player_list.set(str(settings.get("both_player_list", settings.get("filtered_player_list", ""))))
         self.either_player_list.set(str(settings.get("either_player_list", "")))
         self.min_rating.set(str(settings.get("min_rating", self.kind.default_min_rating) or self.kind.default_min_rating))
@@ -1074,8 +1092,277 @@ class DenryuDownloadPane(ttk.Frame):
         return next((option for option in self.tournament_options if option.key == source_key), None)
 
 
+class ShogiDb2DownloadPane(ttk.Frame):
+    def __init__(self, master: tk.Misc, kind: DownloadKind) -> None:
+        super().__init__(master, padding=12)
+        self.kind = kind
+        self.tournament_choice = tk.StringVar()
+        self.tournament_url = tk.StringVar()
+        self.output_dir = tk.StringVar(value=SHOGIDB2_DEFAULT_OUTPUT_DIR)
+        self.start_page = tk.StringVar(value="1")
+        self.end_page = tk.StringVar(value="1")
+        self.interval = tk.StringVar(value="2")
+        self.overwrite = tk.BooleanVar(value=False)
+        self.tournament_options: list[ShogiDb2TournamentOption] = []
+        self.option_by_display: dict[str, ShogiDb2TournamentOption] = {}
+
+        self.columnconfigure(1, weight=1)
+        self._build()
+        self._set_tournament_options([])
+
+    def _build(self) -> None:
+        description = ttk.Label(self, text=self.kind.description, wraplength=680, justify="left")
+        description.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        row = 1
+        self._label_with_help(
+            row,
+            "棋戦",
+            "shogidb2の棋戦一覧から選択できます。\n"
+            "一覧更新を押すと、shogidb2から最新の棋戦一覧を取得します。",
+        )
+        self.tournament_combo = ttk.Combobox(self, textvariable=self.tournament_choice, state="readonly")
+        self.tournament_combo.grid(row=row, column=1, sticky="ew", pady=6)
+        self.tournament_combo.bind("<<ComboboxSelected>>", self._on_tournament_selected)
+        ttk.Button(self, text="一覧更新", command=self.refresh_tournaments).grid(
+            row=row, column=2, sticky="e", padx=(8, 0), pady=6
+        )
+        row += 1
+
+        row = self._url_row(
+            row,
+            "棋戦URL",
+            self.tournament_url,
+            "shogidb2の棋戦URL、または棋戦名を指定できます。\n"
+            "コンボボックスで棋戦を選ぶと自動で設定されます。",
+        )
+        row = self._path_row(
+            row,
+            "出力フォルダ",
+            self.output_dir,
+            self._browse_output_dir,
+            "KIFファイルを保存する親フォルダを指定してください。\n"
+            "実際にはこの配下に棋戦名のフォルダを作成します。",
+        )
+        self._text_row(
+            row,
+            "開始ページ",
+            self.start_page,
+            "ダウンロードを開始するページ番号を指定してください。",
+            width=10,
+        )
+        row += 1
+        self._text_row(
+            row,
+            "終了ページ",
+            self.end_page,
+            "ダウンロードを終了するページ番号を指定してください。\n"
+            "空欄なら、棋譜が見つからないページまで進みます。",
+            width=10,
+        )
+        row += 1
+        self._text_row(
+            row,
+            "アクセス間隔(秒)",
+            self.interval,
+            "連続アクセスでサーバーに負荷をかけないため、\n"
+            "1アクセスごとの待ち時間を秒単位で指定します。\n"
+            "2 以上を指定してください。",
+            width=10,
+        )
+        row += 1
+        self._label_with_help(
+            row,
+            "既存ファイルを上書き",
+            "既に同名のKIFファイルがある場合に上書きします。\n"
+            "チェックなしなら既存ファイルはスキップします。",
+        )
+        ttk.Checkbutton(self, variable=self.overwrite).grid(row=row, column=1, sticky="w", pady=6)
+
+    def _label_with_help(self, row: int, label: str, help_text: str) -> None:
+        label_frame = ttk.Frame(self)
+        label_frame.grid(row=row, column=0, sticky="w", padx=(0, 8), pady=6)
+        ttk.Label(label_frame, text=label).pack(side="left")
+        help_label = ttk.Label(label_frame, text=" ❓", cursor="question_arrow")
+        help_label.pack(side="left")
+        Tooltip(help_label, help_text)
+
+    def _text_row(
+        self,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        help_text: str,
+        *,
+        width: int,
+    ) -> None:
+        self._label_with_help(row, label, help_text)
+        ttk.Entry(self, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
+
+    def _url_row(
+        self,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        help_text: str,
+    ) -> int:
+        self._label_with_help(row, label, help_text)
+        ttk.Entry(self, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6)
+        ttk.Button(self, text="消去", command=lambda: variable.set("")).grid(
+            row=row, column=2, sticky="e", padx=(8, 0), pady=6
+        )
+        return row + 1
+
+    def _path_row(
+        self,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        command: Callable[[], None],
+        help_text: str,
+    ) -> int:
+        self._label_with_help(row, label, help_text)
+        ttk.Entry(self, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6)
+        ttk.Button(self, text="参照", command=command).grid(row=row, column=2, sticky="e", padx=(8, 0), pady=6)
+        ttk.Button(self, text="消去", command=lambda: variable.set("")).grid(
+            row=row, column=3, sticky="e", padx=(6, 0), pady=6
+        )
+        return row + 1
+
+    def refresh_tournaments(self) -> None:
+        current = self._selected_or_typed_name()
+        try:
+            options = fetch_shogidb2_tournament_options()
+        except Exception as exc:
+            messagebox.showerror(
+                "一覧更新失敗",
+                f"shogidb2から棋戦一覧を取得できませんでした。\n{exc}",
+                parent=self,
+            )
+            return
+        self._set_tournament_options(options, preferred_name=current)
+
+    def _set_tournament_options(
+        self,
+        options: list[ShogiDb2TournamentOption],
+        preferred_name: str | None = None,
+    ) -> None:
+        self.tournament_options = options
+        self.option_by_display = {option.display_name: option for option in options}
+        self.tournament_combo.configure(values=list(self.option_by_display))
+        if not options:
+            return
+
+        selected = None
+        if preferred_name is not None:
+            selected = next((option for option in options if option.name == preferred_name), None)
+        if selected is None:
+            selected = options[0]
+        self.tournament_choice.set(selected.display_name)
+        self._apply_option(selected)
+
+    def _selected_or_typed_name(self) -> str | None:
+        option = self.option_by_display.get(self.tournament_choice.get())
+        if option is not None:
+            return option.name
+        source = self.tournament_url.get().strip()
+        if not source:
+            return None
+        try:
+            name, _url = normalize_tournament_url(source)
+        except Exception:
+            return None
+        return name
+
+    def _on_tournament_selected(self, _event: tk.Event | None = None) -> None:
+        option = self.option_by_display.get(self.tournament_choice.get())
+        if option is not None:
+            self._apply_option(option)
+
+    def _apply_option(self, option: ShogiDb2TournamentOption) -> None:
+        self.tournament_url.set(option.url)
+
+    def _browse_output_dir(self) -> None:
+        selected = filedialog.askdirectory(initialdir=self._initial_dir(self.output_dir.get()))
+        if selected:
+            self.output_dir.set(selected)
+
+    def _initial_dir(self, value: str) -> str:
+        if not value:
+            return str(BASE_DIR)
+        path = Path(value).expanduser()
+        if path.is_dir():
+            return str(path)
+        if path.parent.exists():
+            return str(path.parent)
+        return str(BASE_DIR)
+
+    def build_job(self) -> ShogiDb2DownloadJob:
+        source = self.tournament_url.get().strip()
+        if not source:
+            raise ValueError("棋戦URL、または棋戦名を指定してください。")
+
+        output_dir = self.output_dir.get().strip()
+        if not output_dir:
+            raise ValueError("出力フォルダを指定してください。")
+        output_root = Path(output_dir).expanduser()
+        if output_root.exists() and not output_root.is_dir():
+            raise ValueError(f"出力フォルダがファイルです: {output_root}")
+
+        start_page = self._parse_page(self.start_page.get(), "開始ページ")
+        end_page_text = self.end_page.get().strip()
+        end_page = self._parse_page(end_page_text, "終了ページ") if end_page_text else None
+        if end_page is not None and end_page < start_page:
+            raise ValueError("終了ページは開始ページ以上を指定してください。")
+
+        return ShogiDb2DownloadJob(
+            tournament_url=source,
+            output_root=output_root,
+            start_page=start_page,
+            end_page=end_page,
+            interval=parse_download_interval(self.interval.get()),
+            overwrite=self.overwrite.get(),
+        )
+
+    def _parse_page(self, value: str, label: str) -> int:
+        try:
+            page = int(value.strip())
+        except ValueError as exc:
+            raise ValueError(f"{label}は整数で指定してください。") from exc
+        if page < 1:
+            raise ValueError(f"{label}は1以上を指定してください。")
+        return page
+
+    def settings(self) -> dict[str, object]:
+        return {
+            "tournament_choice": self.tournament_choice.get(),
+            "tournament_url": self.tournament_url.get(),
+            "output_dir": self.output_dir.get(),
+            "start_page": self.start_page.get(),
+            "end_page": self.end_page.get(),
+            "interval": self.interval.get(),
+            "overwrite": self.overwrite.get(),
+        }
+
+    def apply_settings(self, settings: object) -> None:
+        if not isinstance(settings, dict):
+            return
+        choice = str(settings.get("tournament_choice", ""))
+        url = str(settings.get("tournament_url", ""))
+        if choice in self.option_by_display:
+            self.tournament_choice.set(choice)
+            self._apply_option(self.option_by_display[choice])
+        elif url:
+            self.tournament_url.set(url)
+        self.output_dir.set(str(settings.get("output_dir", SHOGIDB2_DEFAULT_OUTPUT_DIR) or SHOGIDB2_DEFAULT_OUTPUT_DIR))
+        self.start_page.set(str(settings.get("start_page", "1") or "1"))
+        self.end_page.set(str(settings.get("end_page", "1")))
+        self.interval.set(str(settings.get("interval", "2") or "2"))
+        self.overwrite.set(bool(settings.get("overwrite", False)))
+
+
 class KifManager(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, *, enable_shogidb: bool = False) -> None:
         super().__init__()
         self.title("KIF Manager")
         self.geometry("920x660")
@@ -1089,8 +1376,9 @@ class KifManager(tk.Tk):
         self.extract_panes: dict[str, ExtractorPane] = {}
         self.download_panes: dict[
             str,
-            DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane,
+            DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | ShogiDb2DownloadPane,
         ] = {}
+        self.download_kinds = (*DOWNLOADERS, SHOGIDB2_DOWNLOADER) if enable_shogidb else DOWNLOADERS
 
         self._build()
         self._load_settings()
@@ -1122,13 +1410,15 @@ class KifManager(tk.Tk):
         self.download_notebook = ttk.Notebook(self.download_tab)
         self.download_notebook.grid(row=0, column=0, sticky="nsew")
 
-        for kind in DOWNLOADERS:
+        for kind in self.download_kinds:
             if kind.key == "floodgate":
                 pane = FloodgateDownloadPane(self.download_notebook, kind)
             elif kind.key == "wcsc":
                 pane = WcscDownloadPane(self.download_notebook, kind)
             elif kind.key == "denryu":
                 pane = DenryuDownloadPane(self.download_notebook, kind)
+            elif kind.key == "shogidb2":
+                pane = ShogiDb2DownloadPane(self.download_notebook, kind)
             else:
                 pane = DownloadPlaceholderPane(self.download_notebook, kind)
             self.download_panes[kind.key] = pane
@@ -1223,6 +1513,14 @@ class KifManager(tk.Tk):
                 return
             self._start_denryu_download(job)
             return
+        if isinstance(pane, ShogiDb2DownloadPane):
+            try:
+                job = pane.build_job()
+            except ValueError as exc:
+                messagebox.showerror("入力エラー", str(exc), parent=self)
+                return
+            self._start_shogidb2_download(job)
+            return
         self.status.set("このダウンロード画面は未実装")
         messagebox.showinfo("未実装", "このダウンロード画面はまだ未実装です。", parent=self)
 
@@ -1234,7 +1532,7 @@ class KifManager(tk.Tk):
 
     def _current_download_pane(
         self,
-    ) -> DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | None:
+    ) -> DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | ShogiDb2DownloadPane | None:
         selected = self.download_notebook.select()
         if not selected:
             return None
@@ -1300,6 +1598,20 @@ class KifManager(tk.Tk):
         self.status.set("ダウンロード中")
 
         worker = threading.Thread(target=self._denryu_download_worker, args=(job,), daemon=True)
+        worker.start()
+
+    def _start_shogidb2_download(self, job: ShogiDb2DownloadJob) -> None:
+        if self.running:
+            messagebox.showinfo("実行中", "現在の処理が終わるまで待ってください。", parent=self)
+            return
+
+        self.running = True
+        self._save_settings()
+        self._set_buttons_enabled(False)
+        self._clear_log()
+        self.status.set("ダウンロード中")
+
+        worker = threading.Thread(target=self._shogidb2_download_worker, args=(job,), daemon=True)
         worker.start()
 
     def _worker(self, jobs: list[ExtractJob]) -> None:
@@ -1405,6 +1717,28 @@ class KifManager(tk.Tk):
         self._put_log("[電竜戦] done\n")
         self.log_queue.put(("done", "完了"))
 
+    def _shogidb2_download_worker(self, job: ShogiDb2DownloadJob) -> None:
+        self._put_log("[shogidb2] start\n")
+        self._put_log(f"[shogidb2] tournament : {job.tournament_url}\n")
+        self._put_log(f"[shogidb2] output root: {job.output_root}\n")
+        self._put_log(
+            f"[shogidb2] pages      : {job.start_page}-"
+            f"{job.end_page if job.end_page is not None else '*'}\n"
+        )
+        self._put_log(f"[shogidb2] interval   : {job.interval}\n")
+        self._put_log(f"[shogidb2] overwrite  : {job.overwrite}\n")
+
+        try:
+            stats = download_shogidb2_kif(job, log=lambda text: self._put_log(f"[shogidb2] {text}"))
+        except Exception as exc:
+            self._put_log(f"[shogidb2] failed: {exc}\n")
+            self.log_queue.put(("done", "失敗あり"))
+            return
+
+        self._put_log(f"[shogidb2] {self._shogidb2_download_stats_text(stats)}\n")
+        self._put_log("[shogidb2] done\n")
+        self.log_queue.put(("done", "完了"))
+
     def _stats_text(self, stats: Stats) -> str:
         return (
             f"scanned={stats.scanned} selected={stats.selected} "
@@ -1430,6 +1764,13 @@ class KifManager(tk.Tk):
         return (
             f"mode={stats.mode} tournament={stats.tournament} found={stats.found} "
             f"downloaded={stats.downloaded} skipped={stats.skipped} "
+            f"output={stats.output_dir}"
+        )
+
+    def _shogidb2_download_stats_text(self, stats: ShogiDb2DownloadStats) -> str:
+        return (
+            f"tournament={stats.tournament} pages={stats.pages_scanned} found={stats.found} "
+            f"downloaded={stats.downloaded} skipped={stats.skipped} failed={stats.failed} "
             f"output={stats.output_dir}"
         )
 
@@ -1483,6 +1824,7 @@ class KifManager(tk.Tk):
                 "floodgateダウンロード画面",
                 "WCSCダウンロード画面",
                 "電竜戦ダウンロード画面",
+                "shogidb2ダウンロード画面",
                 "このダウンロード画面は未実装",
             }:
                 self.status.set("待機中")
@@ -1497,6 +1839,8 @@ class KifManager(tk.Tk):
             self.status.set("WCSCダウンロード画面")
         elif isinstance(self._current_download_pane(), DenryuDownloadPane):
             self.status.set("電竜戦ダウンロード画面")
+        elif isinstance(self._current_download_pane(), ShogiDb2DownloadPane):
+            self.status.set("shogidb2ダウンロード画面")
         else:
             self.status.set("このダウンロード画面は未実装")
 
@@ -1574,7 +1918,11 @@ class KifManager(tk.Tk):
 
 
 def main() -> int:
-    app = KifManager()
+    parser = argparse.ArgumentParser(description="KIF Manager")
+    parser.add_argument("--shogidb", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    app = KifManager(enable_shogidb=args.shogidb)
     app.mainloop()
     return 0
 
