@@ -2,6 +2,11 @@ engine_settings*.json5
 start_sfens*.*
 .vscode
 *.params
+KifManager/kif-manager-settings.pickle
+KifManager/downloaded-kif/
+KifManager/kif/
+KifManager/tmp/
+KifManager/usi-kif.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

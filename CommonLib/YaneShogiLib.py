@@ -704,6 +704,15 @@ def board_from_position_string(s : PositionStr)->cshogi.Board: # type:ignore
     
     return board
 
+def decode_position_string(s : PositionStr)->Sfen:
+    """
+    positionコマンドで指定する文字列を、手数つきSFENに変換する。
+
+    入力は "position " を除いたUSI position文字列を想定する。
+    例: "startpos", "startpos moves 7g7f", "sfen ... moves ..."
+    """
+    return board_from_position_string(s).sfen()
+
 class Hcpe3GameData:
     """
     1局分のHCPE3データ。
