@@ -7,7 +7,9 @@
 # やねうら王プロジェクト内の peta-shock 仕様メモを参照。
 
 import argparse
+import json
 import os
+import shlex
 import sys
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -64,7 +66,7 @@ class PositionInfo:
 #                     I/O
 # ============================================================
 
-def read_peta_book(path: str) -> dict[Sfen, PositionInfo]:
+def read_peta_book(path: str, show_progress: bool = True) -> dict[Sfen, PositionInfo]:
     """
     ペタショック化済みのやねうら王形式定跡を読み込み、dict[Sfen(ply無し), PositionInfo] を返す。
 
@@ -90,7 +92,7 @@ def read_peta_book(path: str) -> dict[Sfen, PositionInfo]:
     # バイトモードで開いて、tqdm でバイト単位の progress を出す。
     # (テキストモードでは f.tell() が改行バッファリングで正確に取れないため)
     with open(path, 'rb') as fb, tqdm(
-        total=total_bytes, unit='B', unit_scale=True, desc='read peta_book',
+        total=total_bytes, unit='B', unit_scale=True, desc='read peta_book', disable=not show_progress,
     ) as pbar:
         first = True
         for raw_line in fb:
@@ -102,7 +104,7 @@ def read_peta_book(path: str) -> dict[Sfen, PositionInfo]:
             if first:
                 # BOM 付きの場合があるので in で判定
                 if YANEURAOU_BOOK_HEADER_V1 not in line:
-                    print(f"warning: illegal YaneuraOu Book Header: {line.rstrip()}")
+                    print(f"warning: illegal YaneuraOu Book Header: {line.rstrip()}", file=sys.stderr)
                 first = False
                 continue
             line = line.rstrip()
@@ -211,6 +213,7 @@ def peta_next_one_turn(
     peta_eval_diff: int,
     max_ply: int,
     turn: int,
+    verbose: bool = True,
 ) -> list[Sfen]:
     """
     指定された turn (1=先手定跡, 0=後手定跡) について、leaf node の sfen 一覧を返す。
@@ -247,7 +250,8 @@ def peta_next_one_turn(
             leaf_sfens[sfen_with_ply] = None
             continue
         current_sfens[sfen_with_ply] = (root_best, peta_eval_diff)
-        print(f"root sfen: {sfen_with_ply}  root_best = {root_best}")
+        if verbose:
+            print(f"root sfen: {sfen_with_ply}  root_best = {root_best}")
 
     step = 1
     while current_sfens:
@@ -309,12 +313,305 @@ def peta_next_one_turn(
             ply_str = f"{pmin}" if pmin == pmax else f"{pmin}..{pmax}"
         else:
             ply_str = "-"
-        print(f"step={step}  ply={ply_str}  next={len(next_sfens)}  leaf={len(leaf_sfens)}")
+        if verbose:
+            print(f"step={step}  ply={ply_str}  next={len(next_sfens)}  leaf={len(leaf_sfens)}")
 
         current_sfens = next_sfens
         step += 1
 
     return list(leaf_sfens.keys())
+
+
+# ============================================================
+#                     実行補助
+# ============================================================
+
+def selected_sides(args) -> list[tuple[str, int]]:
+    """先手定跡 = turn 1, 後手定跡 = turn 0"""
+    sides : list[tuple[str, int]] = []
+    if not args.white_only:
+        sides.append(('black', 1))
+    if not args.black_only:
+        sides.append(('white', 0))
+    return sides
+
+
+def load_roots(args, verbose: bool = True) -> list[Sfen]:
+    if args.root_sfen is None:
+        if verbose:
+            print("no --root-sfen specified, using startpos as the only root")
+        return [SFEN_START_PLY1]
+
+    root_sfens = read_root_sfens(args.root_sfen)
+    if verbose:
+        print(f"loaded {len(root_sfens)} root sfens from {args.root_sfen}")
+    return root_sfens
+
+
+def build_outputs(
+    peta_book: dict[Sfen, PositionInfo],
+    root_sfens: list[Sfen],
+    peta_eval_diff: int,
+    max_ply: int,
+    sides: list[tuple[str, int]],
+    verbose: bool = True,
+) -> dict[str, list[Sfen]]:
+    outputs : dict[str, list[Sfen]] = {}
+    for label, turn in sides:
+        if verbose:
+            print(f"--- {label} (turn={turn}) ---")
+        outputs[label] = peta_next_one_turn(
+            peta_book,
+            root_sfens,
+            peta_eval_diff,
+            max_ply,
+            turn,
+            verbose=verbose,
+        )
+    return outputs
+
+
+def write_outputs(outputs: dict[str, list[Sfen]], out_dir: str, verbose: bool = True) -> dict[str, str]:
+    os.makedirs(out_dir, exist_ok=True)
+    paths: dict[str, str] = {}
+
+    for label, leafs in outputs.items():
+        out_path = os.path.join(out_dir, f"think_sfens-{label}.txt")
+        with open(out_path, 'w', encoding='utf-8') as w:
+            for s in leafs:
+                w.write(s + '\n')
+        paths[f"{label}_path"] = out_path
+        if verbose:
+            print(f"write {out_path}, {len(leafs)} leaf sfens")
+
+    # 先手・後手両方ある場合のみ、交互マージした合体ファイルを作る。
+    if 'black' in outputs and 'white' in outputs:
+        bw_path = os.path.join(out_dir, "think_sfens.txt")
+        b = outputs.get('black', [])
+        w = outputs.get('white', [])
+        with open(bw_path, 'w', encoding='utf-8') as fbw:
+            for lb, lw in zip_longest(b, w, fillvalue=None):
+                if lb is not None:
+                    fbw.write(lb + '\n')
+                if lw is not None:
+                    fbw.write(lw + '\n')
+        paths["merged_path"] = bw_path
+        if verbose:
+            print(f"write {bw_path}, {len(b) + len(w)} leaf sfens (merged)")
+
+    return paths
+
+
+def print_summary(outputs: dict[str, list[Sfen]], peta_eval_diff: int, max_ply: int) -> None:
+    black = len(outputs.get('black', []))
+    white = len(outputs.get('white', []))
+    total = sum(len(v) for v in outputs.values())
+    print(f"result: peta_eval_diff={peta_eval_diff} max_ply={max_ply}")
+    if 'black' in outputs:
+        print(f"  black: {black}")
+    if 'white' in outputs:
+        print(f"  white: {white}")
+    if 'black' in outputs and 'white' in outputs:
+        print(f"  merged: {total}")
+    else:
+        print(f"  total: {total}")
+
+
+def output_counts(outputs: dict[str, list[Sfen]]) -> dict[str, int]:
+    return {
+        "black": len(outputs.get('black', [])),
+        "white": len(outputs.get('white', [])),
+        "positions": sum(len(v) for v in outputs.values()),
+    }
+
+
+def interactive_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[Sfen]) -> None:
+    sides = selected_sides(args)
+    current_eval_diff = args.peta_eval_diff
+    current_max_ply = args.max_ply
+    last_outputs : dict[str, list[Sfen]] | None = None
+
+    print("interactive mode")
+    print("commands: n [peta_eval_diff] [max_ply], w, status, h, q")
+
+    while True:
+        try:
+            line = input("PetaNext> ").strip()
+        except EOFError:
+            print()
+            break
+
+        if not line:
+            continue
+
+        try:
+            tokens = shlex.split(line)
+        except ValueError as e:
+            print(f"parse error: {e}")
+            continue
+
+        if not tokens:
+            continue
+
+        cmd = tokens[0].lower()
+        params = tokens[1:]
+
+        if cmd in ("q", "quit", "exit"):
+            break
+
+        if cmd in ("h", "help", "?"):
+            print("commands:")
+            print("  n [peta_eval_diff] [max_ply]  候補を列挙して件数を表示する。ファイルには書かない。")
+            print("  w                             直近の n の結果を think_sfens*.txt に書き出す。")
+            print("  status                        読み込み済みbookと現在値を表示する。")
+            print("  q                             終了する。")
+            continue
+
+        if cmd == "status":
+            print(f"peta_book positions: {len(peta_book)}")
+            print(f"root sfens: {len(root_sfens)}")
+            print(f"out_dir: {args.out_dir}")
+            print(f"current peta_eval_diff: {current_eval_diff}")
+            print(f"current max_ply: {current_max_ply}")
+            print("sides: " + ",".join(label for label, _turn in sides))
+            if last_outputs is None:
+                print("last result: none")
+            else:
+                print_summary(last_outputs, current_eval_diff, current_max_ply)
+            continue
+
+        if cmd in ("w", "write"):
+            if last_outputs is None:
+                print("no result. run 'n' first.")
+                continue
+            write_outputs(last_outputs, args.out_dir)
+            continue
+
+        if cmd in ("n", "next"):
+            if len(params) >= 3:
+                print("usage: n [peta_eval_diff] [max_ply]")
+                continue
+            try:
+                if len(params) >= 1:
+                    current_eval_diff = int(params[0])
+                if len(params) >= 2:
+                    current_max_ply = int(params[1])
+            except ValueError:
+                print("usage: n [peta_eval_diff] [max_ply]")
+                continue
+
+            last_outputs = build_outputs(
+                peta_book,
+                root_sfens,
+                current_eval_diff,
+                current_max_ply,
+                sides,
+                verbose=args.verbose,
+            )
+            print_summary(last_outputs, current_eval_diff, current_max_ply)
+            print("not written. use 'w' to write think_sfens*.txt")
+            continue
+
+        print(f"unknown command: {cmd}. type 'h' for help.")
+
+
+def json_dumps(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def emit_json(payload: dict) -> None:
+    print(json_dumps(payload), flush=True)
+
+
+def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[Sfen]) -> None:
+    sides = selected_sides(args)
+    current_eval_diff = args.peta_eval_diff
+    current_max_ply = args.max_ply
+    last_outputs : dict[str, list[Sfen]] | None = None
+
+    emit_json({
+        "event": "ready",
+        "positions": len(peta_book),
+        "root_sfens": len(root_sfens),
+        "out_dir": args.out_dir,
+        "peta_eval_diff": current_eval_diff,
+        "max_ply": current_max_ply,
+        "sides": [label for label, _turn in sides],
+    })
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise ValueError("message must be a JSON object")
+            cmd = str(msg.get("command", "")).lower()
+
+            if cmd in ("q", "quit", "exit"):
+                emit_json({"event": "bye"})
+                break
+
+            if cmd == "status":
+                payload = {
+                    "event": "status",
+                    "positions": len(peta_book),
+                    "root_sfens": len(root_sfens),
+                    "out_dir": args.out_dir,
+                    "peta_eval_diff": current_eval_diff,
+                    "max_ply": current_max_ply,
+                    "sides": [label for label, _turn in sides],
+                    "has_result": last_outputs is not None,
+                }
+                if last_outputs is not None:
+                    payload.update(output_counts(last_outputs))
+                emit_json(payload)
+                continue
+
+            if cmd in ("n", "next"):
+                if "peta_eval_diff" in msg:
+                    current_eval_diff = int(msg["peta_eval_diff"])
+                if "max_ply" in msg:
+                    current_max_ply = int(msg["max_ply"])
+                last_outputs = build_outputs(
+                    peta_book,
+                    root_sfens,
+                    current_eval_diff,
+                    current_max_ply,
+                    sides,
+                    verbose=False,
+                )
+                payload = {
+                    "event": "peta_next_done",
+                    "peta_eval_diff": current_eval_diff,
+                    "max_ply": current_max_ply,
+                    "written": False,
+                }
+                payload.update(output_counts(last_outputs))
+                emit_json(payload)
+                continue
+
+            if cmd in ("w", "write"):
+                if last_outputs is None:
+                    emit_json({"event": "error", "message": "no result. run n first."})
+                    continue
+                paths = write_outputs(last_outputs, args.out_dir, verbose=False)
+                payload = {
+                    "event": "peta_next_written",
+                    "peta_eval_diff": current_eval_diff,
+                    "max_ply": current_max_ply,
+                    "written": True,
+                    **paths,
+                }
+                payload.update(output_counts(last_outputs))
+                emit_json(payload)
+                continue
+
+            emit_json({"event": "error", "message": f"unknown command: {cmd}"})
+
+        except Exception as e:
+            emit_json({"event": "error", "message": f"{type(e).__name__}: {e}"})
 
 
 # ============================================================
@@ -336,6 +633,12 @@ def main():
                         help="BookEvalDiff (cp)。root の bestmove の評価値からこの幅まで非手番側の指し手を辿る (下限のみ)。default=10")
     parser.add_argument('--max-ply', type=int, default=200,
                         help="BFS で掘る最大手数 (ply)。これを超える局面は展開しない。default=200")
+    parser.add_argument('--interactive', action='store_true',
+                        help="対話モードで起動する。peta_book を一度だけ読み込み、n コマンドを繰り返し実行できる。")
+    parser.add_argument('--json-lines', action='store_true',
+                        help="対話モードをJSON Linesプロトコルで実行する。BookMinerからの制御用。")
+    parser.add_argument('--verbose', action='store_true',
+                        help="対話モードで root/step ログを表示する。通常実行では従来通り表示する。")
 
     side_group = parser.add_mutually_exclusive_group()
     side_group.add_argument('--black-only', action='store_true',
@@ -345,49 +648,34 @@ def main():
 
     args = parser.parse_args()
 
-    print(f"reading peta book: {args.peta_book}")
-    peta_book = read_peta_book(args.peta_book)
-    print(f"loaded {len(peta_book)} positions")
+    if args.json_lines and not args.interactive:
+        parser.error("--json-lines requires --interactive")
 
-    if args.root_sfen is None:
-        root_sfens = [SFEN_START_PLY1]
-        print("no --root-sfen specified, using startpos as the only root")
-    else:
-        root_sfens = read_root_sfens(args.root_sfen)
-        print(f"loaded {len(root_sfens)} root sfens from {args.root_sfen}")
+    if not args.json_lines:
+        print(f"reading peta book: {args.peta_book}")
+    peta_book = read_peta_book(args.peta_book, show_progress=not args.json_lines)
+    if not args.json_lines:
+        print(f"loaded {len(peta_book)} positions")
 
-    os.makedirs(args.out_dir, exist_ok=True)
+    root_sfens = load_roots(args, verbose=not args.json_lines)
+    sides = selected_sides(args)
 
-    # 先手定跡 = turn 1, 後手定跡 = turn 0
-    sides : list[tuple[str, int]] = []
-    if not args.white_only:
-        sides.append(('black', 1))
-    if not args.black_only:
-        sides.append(('white', 0))
+    if args.interactive:
+        if args.json_lines:
+            json_lines_loop(args, peta_book, root_sfens)
+            return
+        interactive_loop(args, peta_book, root_sfens)
+        return
 
-    outputs : dict[str, list[Sfen]] = {}
-    for label, turn in sides:
-        print(f"--- {label} (turn={turn}) ---")
-        leafs = peta_next_one_turn(peta_book, root_sfens, args.peta_eval_diff, args.max_ply, turn)
-        out_path = os.path.join(args.out_dir, f"think_sfens-{label}.txt")
-        with open(out_path, 'w', encoding='utf-8') as w:
-            for s in leafs:
-                w.write(s + '\n')
-        print(f"write {out_path}, {len(leafs)} leaf sfens")
-        outputs[label] = leafs
-
-    # 先手・後手両方ある場合のみ、交互マージした合体ファイルを作る。
-    if len(outputs) == 2:
-        bw_path = os.path.join(args.out_dir, "think_sfens.txt")
-        b = outputs.get('black', [])
-        w = outputs.get('white', [])
-        with open(bw_path, 'w', encoding='utf-8') as fbw:
-            for lb, lw in zip_longest(b, w, fillvalue=None):
-                if lb is not None:
-                    fbw.write(lb + '\n')
-                if lw is not None:
-                    fbw.write(lw + '\n')
-        print(f"write {bw_path}, {len(b) + len(w)} leaf sfens (merged)")
+    outputs = build_outputs(
+        peta_book,
+        root_sfens,
+        args.peta_eval_diff,
+        args.max_ply,
+        sides,
+        verbose=True,
+    )
+    write_outputs(outputs, args.out_dir)
 
 
 if __name__ == '__main__':

@@ -76,8 +76,43 @@ python peta_next.py --peta-book some_book.db --peta-eval-diff 50 --root-sfen roo
 | `--out-dir` | `.` | 出力ディレクトリ |
 | `--peta-eval-diff` | `10` | BookEvalDiff (cp)。root の bestmove eval からこの幅まで非手番側の指し手を辿る (下限のみ) |
 | `--max-ply` | `200` | BFS で掘る最大手数 (ply)。これを超える局面は展開しない |
+| `--interactive` | off | 対話モードで起動する。peta_book を一度だけ読み込み、`n` コマンドを繰り返し実行できる |
+| `--json-lines` | off | 対話モードをJSON Linesで制御する。BookMinerから使うための指定 |
+| `--verbose` | off | 対話モードでも root/step ログを表示する |
 | `--black-only` | off | 先手定跡 (turn=1) のみ出力 |
 | `--white-only` | off | 後手定跡 (turn=0) のみ出力 |
+
+## 対話モード
+
+候補数を見ながら `peta_eval_diff` と `max_ply` を調整したい場合は、対話モードを使う。
+
+```
+python peta_next.py --peta-book peta_book.db --interactive
+```
+
+起動時にペタショック化済みbookを一度だけ読み込む。その後は `n` コマンドで候補を列挙する。
+
+```
+PetaNext> n 200 64
+PetaNext> n 100 64
+PetaNext> n 100 48
+```
+
+`n` は候補数を表示し、直近結果をメモリ上に保持するだけで、ファイルには書き出さない。候補数がよければ `w` で書き出す。
+
+```
+PetaNext> w
+```
+
+対話モードのコマンド:
+
+| コマンド | 説明 |
+|---|---|
+| `n [peta_eval_diff] [max_ply]` | 候補を列挙して件数を表示する。省略した値は直前の値を使う |
+| `w` | 直近の `n` の結果を `think_sfens*.txt` に書き出す |
+| `status` | 読み込み済み局面数、root数、現在の値を表示する |
+| `h` | ヘルプを表示する |
+| `q` | 終了する |
 
 ## 入出力ファイル
 
