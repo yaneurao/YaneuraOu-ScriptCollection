@@ -62,6 +62,19 @@ book/think_sfens.txt
 - `探索ログ`: 棋譜の局面を掘っているときの局面ログを表示します。
 - `その他ログ`: 起動、終了、設定変更、定跡DB書き出しなどのログを表示します。
 
+## 定跡DBの読み書き進捗
+
+GUI には `定跡読込` と `定跡書込` の progress bar があります。
+
+BookMiner.py が次のようなタグ付きログを出力すると、GUI がそれを拾って progress bar を更新します。
+
+```text
+[BookReadProgress] 10000/12345678
+[BookWriteProgress] 10000/12345678
+```
+
+起動時の `book/book_miner.db` 読み込み、`peta_shock化` 後の `book/peta_book.db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
+
 ## 注意点
 
 通常は `BookMiner終了` を押して保存終了してください。ウィンドウの `×` で閉じると、BookMiner.py の子プロセスを終了して GUI も閉じます。

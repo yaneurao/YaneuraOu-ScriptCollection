@@ -54,6 +54,7 @@ PETA_SHOCKED_TEMP_DB_NAME = "peta_book.tmp.db"
 PETA_SHOCK_ENGINE_NAME = "YO-MATERIAL.exe"
 PETA_SHOCK_PROGRESS_INTERVAL = 10
 BOOK_READ_PROGRESS_INTERVAL = 10000
+BOOK_WRITE_PROGRESS_INTERVAL = 10000
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -244,6 +245,22 @@ def temp_book_path(path:str)->str:
     return f"{path}.tmp"
 
 
+def book_progress_total_text(total:int|None)->str:
+    return str(total) if total is not None else "?"
+
+
+def print_book_write_start(path:str, total:int):
+    print(f"[BookWriteStart] 0/{total} path={path}")
+
+
+def print_book_write_progress(count:int, total:int):
+    print(f"[BookWriteProgress] {count}/{total}")
+
+
+def print_book_write_done(path:str, count:int, total:int):
+    print(f"[BookWriteDone] {count}/{total} path={path}")
+
+
 def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None)->int:
     if sfens is None:
         sfens = collect_yaneuraou_book_sfens(book, ply_limit)
@@ -253,11 +270,13 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
         os.makedirs(dirpath, exist_ok=True)
 
     temp_path = temp_book_path(path)
+    total = len(sfens)
+    print_book_write_start(path, total)
     try:
         with open(temp_path, 'w', encoding='utf-8') as w:
             w.write(YANEURAOU_BOOK_HEADER_V1 + '\n')
-            w.write(f"# NOE:{len(sfens)}\n")
-            for sfen in sfens:
+            w.write(f"# NOE:{total}\n")
+            for count, sfen in enumerate(sfens, 1):
                 with book.lock:
                     position_info = book.body[sfen]
                     ply = position_info.ply
@@ -283,7 +302,11 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
                 for move_info in moveinfos:
                     w.write(f'{move_info.move} none {move_info.eval} 0\n')
 
+                if count % BOOK_WRITE_PROGRESS_INTERVAL == 0:
+                    print_book_write_progress(count, total)
+
         os.replace(temp_path, path)
+        print_book_write_done(path, total, total)
     except Exception:
         try:
             if os.path.exists(temp_path):
@@ -1221,9 +1244,16 @@ def parse_noe_line(line:str)->int|None:
         return None
 
 
+def print_book_read_start(path:str, total:int|None):
+    print(f"[BookReadStart] 0/{book_progress_total_text(total)} path={path}")
+
+
 def print_book_read_progress(count:int, total:int|None):
-    total_text = str(total) if total is not None else "?"
-    print(f"{count}/{total_text}")
+    print(f"[BookReadProgress] {count}/{book_progress_total_text(total)}")
+
+
+def print_book_read_done(path:str, count:int, total:int|None):
+    print(f"[BookReadDone] {count}/{book_progress_total_text(total)} path={path}")
 
 
 def read_yaneuraou_book_file(
@@ -1238,6 +1268,8 @@ def read_yaneuraou_book_file(
     ply = 0
     count = 0
     total_positions : int|None = None
+
+    print_book_read_start(path, total_positions)
 
     def append_to_book():
         nonlocal sfen, moveinfos, ply
@@ -1266,7 +1298,10 @@ def read_yaneuraou_book_file(
             continue
 
         if line.startswith('#'):
-            total_positions = parse_noe_line(line) or total_positions
+            parsed_total_positions = parse_noe_line(line)
+            if parsed_total_positions is not None and parsed_total_positions != total_positions:
+                total_positions = parsed_total_positions
+                print_book_read_start(path, total_positions)
             first = False
             continue
 
@@ -1285,6 +1320,7 @@ def read_yaneuraou_book_file(
             moveinfos.append(parse_book_move_line(line))
 
     append_to_book()
+    print_book_read_done(path, count, total_positions)
     return count
 
 

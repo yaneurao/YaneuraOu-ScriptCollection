@@ -15,6 +15,7 @@ from tkinter import messagebox, scrolledtext, ttk
 BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
+BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 
 
 class Tooltip:
@@ -58,6 +59,11 @@ class BookMinerGui(ttk.Frame):
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
         self.log_widgets: dict[str, scrolledtext.ScrolledText] = {}
+        self.progress_labels = {
+            "read": tk.StringVar(value="定跡読込: 待機中"),
+            "write": tk.StringVar(value="定跡書込: 待機中"),
+        }
+        self.progress_bars: dict[str, ttk.Progressbar] = {}
 
         self.eval_diff = tk.StringVar(value="30")
         self.max_step = tk.StringVar()
@@ -114,6 +120,12 @@ class BookMinerGui(ttk.Frame):
         write_button.grid(row=0, column=10, sticky="e", padx=(16, 0), pady=4)
         Tooltip(write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
 
+        progress = ttk.Frame(self)
+        progress.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        progress.columnconfigure(1, weight=1)
+        self._add_progress_row(progress, 0, "read")
+        self._add_progress_row(progress, 1, "write")
+
         logs = ttk.PanedWindow(self, orient="vertical")
         logs.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
         self._add_log_pane(logs, "peta_next/peta_shock化ログ", "peta", 8)
@@ -121,6 +133,24 @@ class BookMinerGui(ttk.Frame):
         self._add_log_pane(logs, "その他ログ", "other", 10)
 
         self._update_buttons()
+
+    def _reset_progress(self) -> None:
+        self.progress_labels["read"].set("定跡読込: 待機中")
+        self.progress_labels["write"].set("定跡書込: 待機中")
+        for bar in self.progress_bars.values():
+            bar.configure(maximum=1)
+            bar["value"] = 0
+
+    def _add_progress_row(self, parent: ttk.Frame, row: int, key: str) -> None:
+        ttk.Label(parent, textvariable=self.progress_labels[key], width=28).grid(
+            row=row,
+            column=0,
+            sticky="w",
+            pady=2,
+        )
+        bar = ttk.Progressbar(parent, mode="determinate", maximum=1, value=0)
+        bar.grid(row=row, column=1, sticky="ew", pady=2)
+        self.progress_bars[key] = bar
 
     def _add_log_pane(self, paned: ttk.PanedWindow, title: str, key: str, height: int) -> None:
         frame = ttk.Frame(paned, padding=(0, 0, 0, 4))
@@ -160,6 +190,7 @@ class BookMinerGui(ttk.Frame):
             messagebox.showerror("起動失敗", str(exc))
             return
 
+        self._reset_progress()
         self._append_log("other", f"$ {sys.executable} {BOOK_MINER_SCRIPT.name}\n")
         threading.Thread(target=self._read_output, daemon=True).start()
         self._update_buttons()
@@ -215,6 +246,7 @@ class BookMinerGui(ttk.Frame):
         while "\n" in self.output_buffer:
             line, self.output_buffer = self.output_buffer.split("\n", 1)
             line = line + "\n"
+            self._handle_progress_line(line)
             self._append_log(self._classify_log_line(line), line)
 
         if self.output_buffer.endswith("> "):
@@ -223,8 +255,39 @@ class BookMinerGui(ttk.Frame):
 
     def _flush_output_buffer(self) -> None:
         if self.output_buffer:
+            self._handle_progress_line(self.output_buffer)
             self._append_log(self._classify_log_line(self.output_buffer), self.output_buffer)
             self.output_buffer = ""
+
+    def _handle_progress_line(self, line: str) -> None:
+        match = BOOK_PROGRESS_RE.search(line)
+        if match is None:
+            return
+
+        direction, phase, count_text, total_text = match.groups()
+        key = "read" if direction == "Read" else "write"
+        base = "定跡読込" if key == "read" else "定跡書込"
+        count = int(count_text)
+        total = None if total_text == "?" else int(total_text)
+
+        if phase == "Done":
+            label = f"{base}完了"
+        else:
+            label = f"{base}中"
+
+        total_display = str(total) if total is not None else "?"
+        self.progress_labels[key].set(f"{label} {count}/{total_display}")
+
+        bar = self.progress_bars[key]
+        if total is not None and total > 0:
+            bar.configure(maximum=total)
+            bar["value"] = min(count, total)
+        elif phase == "Done":
+            bar.configure(maximum=1)
+            bar["value"] = 1
+        else:
+            bar.configure(maximum=1)
+            bar["value"] = 0
 
     def _classify_log_line(self, line: str) -> str:
         lower = line.lower()
