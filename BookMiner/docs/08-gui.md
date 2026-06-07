@@ -18,11 +18,11 @@ py BookMiner-gui.py
 
 GUI は `BookMiner.py` を子プロセスとして起動します。BookMiner.py の内部処理を別実装しているわけではないので、コマンドライン版と同じ定跡 DB、同じ設定ファイル、同じログを使います。
 
-GUI から起動するときは、内部的に `BookMiner.py --from_gui` を実行します。このオプションが付いている場合、コマンド入力用のプロンプトはログ欄に出力されません。
+GUI は起動直後に、内部的に `BookMiner.py --from_gui` を自動実行します。このオプションが付いている場合、コマンド入力用のプロンプトはログ欄に出力されません。
 
 ## 基本操作
 
-まず `BookMiner起動` を押します。ログ欄に BookMiner.py の出力が表示されます。
+GUIを起動すると、BookMiner.py も自動的に起動します。ログ欄に BookMiner.py の出力が表示されます。
 起動中は画面上部の状態表示が、現在の処理を表示します。
 
 ```text
@@ -47,22 +47,29 @@ book/think_sfens.txt
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
-局面を掘り終えたら、次の順番で操作します。
+次に掘る局面を `book/think_sfens.txt` に用意する方法は2通りあります。
 
-1. `peta_shock`
-2. `peta_next`
-3. `enqueue`
-4. 必要なら `自動enqueue` を有効にする
+棋譜から新しく掘る場合は、`棋譜抽出` を使います。
+既存の定跡DBを peta shock 化して leaf を延長する場合は、`peta_shock`、`peta_next` を使います。
+
+局面を用意できたら、`enqueue` で探索キューへ積みます。
+
+1. `棋譜抽出`、または `peta_shock` → `peta_next`
+2. `enqueue`
+3. 必要なら `自動enqueue` を有効にする
 
 GUI 上でもこの手順が縦に並んでいます。
 
 ```text
+手順0. [ 棋譜抽出   ]  ← 手順1.～2.の代わりに think_sfens.txt を用意する
 手順1. [ peta_shock ]
 手順2. [ peta_next  ] eval_diff  [ X ] max step [ Y ]
 手順3. [ enqueue    ] eval_limit [ Z ]
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順1.～3.を自動実行する
 手順5. [ DB手動保存 ] 次回自動バックアップ YYYY/MM/DD HH:MM:SS
 ```
+
+`棋譜抽出` は KifManager を起動します。棋譜抽出結果として `book/think_sfens.txt` ができるので、この場合は `peta_shock` と `peta_next` を実行せずに `enqueue` へ進みます。
 
 `peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....db` の読み込みを一度に行います。
 
@@ -79,8 +86,6 @@ GUI 上でもこの手順が縦に並んでいます。
 
 ## よく使うボタン
 
-- `BookMiner起動`: BookMiner.py を起動します。
-- `BookMiner終了`: GUI の入力欄設定を保存してから `q` を送信し、`book/backup/` に通常定跡 DB を書き出して終了します。
 - `棋譜抽出`: KifManager を起動します。
 - `peta_shock`: 現在の定跡 DB を書き出し、peta shock 化して読み込みます。
 - `peta_next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
@@ -92,11 +97,11 @@ GUI 上でもこの手順が縦に並んでいます。
 
 ## GUI設定の保存
 
-GUI の数値入力欄は、`BookMiner終了` を押した瞬間に `BookMiner-gui.pickle` へ保存されます。
+GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
 保存されるのは `eval_diff`、`max step`、`eval_limit`、`自動enqueue` の queue 残数しきい値です。
 
-`q` コマンド送信後、BookMiner.py は定跡 DB の書き出しや worker の終了待ちに時間がかかることがあります。
-その待ち時間中に GUI を閉じても入力欄の設定が失われないよう、設定保存はプロセス終了時ではなく `q` 送信前に行います。
+ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
+DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
 
 ## ログ
 
@@ -146,7 +151,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [PetaNextDone] path=book/think_sfens.txt count=50000
 ```
 
-起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/backup/peta_book-....db` 読み込み、`BookMiner終了` や `DB手動保存` の書き出しで進捗が表示されます。
+起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/backup/peta_book-....db` 読み込み、`DB手動保存` の書き出しで進捗が表示されます。
 
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
@@ -174,6 +179,8 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 
 ## 注意点
 
-通常は `BookMiner終了` を押して保存終了してください。ウィンドウの `×` で閉じると、BookMiner.py の子プロセスを終了して GUI も閉じます。
+ウィンドウの `×` で閉じると、BookMiner.py が起動中かどうかに関係なく確認ダイアログが表示されます。
+`はい` を選ぶと、GUI は `q` コマンドを送らずに、起動中の BookMiner.py 子プロセスがあれば終了します。
+DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
 
 `peta_shock` は時間がかかることがあります。変換中はログ欄に `[peta_shock] running...` のような進捗が表示されます。
