@@ -16,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
+TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 STEP_BUTTON_WIDTH = 12
 
 
@@ -63,6 +64,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels = {
             "read": tk.StringVar(value="定跡読込: 待機中"),
             "write": tk.StringVar(value="定跡書込: 待機中"),
+            "task": tk.StringVar(value="enqueue進捗: 待機中"),
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
 
@@ -144,18 +146,21 @@ class BookMinerGui(ttk.Frame):
         progress.columnconfigure(1, weight=1)
         self._add_progress_row(progress, 0, "read")
         self._add_progress_row(progress, 1, "write")
+        self._add_progress_row(progress, 2, "task")
 
         logs = ttk.PanedWindow(self, orient="vertical")
         logs.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
-        self._add_log_pane(logs, "peta_next/peta_shockログ", "peta", 8)
-        self._add_log_pane(logs, "探索ログ", "search", 12)
-        self._add_log_pane(logs, "その他ログ", "other", 10)
+        self._add_log_pane(logs, "peta_next/peta_shockログ", "peta", 7)
+        self._add_log_pane(logs, "タスク状況ログ", "task", 7)
+        self._add_log_pane(logs, "探索ログ", "search", 10)
+        self._add_log_pane(logs, "その他ログ", "other", 8)
 
         self._update_buttons()
 
     def _reset_progress(self) -> None:
         self.progress_labels["read"].set("定跡読込: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
+        self.progress_labels["task"].set("enqueue進捗: 待機中")
         for bar in self.progress_bars.values():
             bar.configure(maximum=1)
             bar["value"] = 0
@@ -279,6 +284,10 @@ class BookMinerGui(ttk.Frame):
             self.output_buffer = ""
 
     def _handle_progress_line(self, line: str) -> None:
+        self._handle_book_progress_line(line)
+        self._handle_task_queue_progress_line(line)
+
+    def _handle_book_progress_line(self, line: str) -> None:
         match = BOOK_PROGRESS_RE.search(line)
         if match is None:
             return
@@ -308,8 +317,39 @@ class BookMinerGui(ttk.Frame):
             bar.configure(maximum=1)
             bar["value"] = 0
 
+    def _handle_task_queue_progress_line(self, line: str) -> None:
+        match = TASK_QUEUE_PROGRESS_RE.search(line)
+        if match is None:
+            return
+
+        phase, count_text, total_text = match.groups()
+        count = int(count_text)
+        total = None if total_text == "?" else int(total_text)
+
+        label = "enqueue完了" if phase == "Done" else "enqueue進捗"
+        total_display = str(total) if total is not None else "?"
+        self.progress_labels["task"].set(f"{label} {count}/{total_display}")
+
+        bar = self.progress_bars["task"]
+        if total is not None and total > 0:
+            bar.configure(maximum=total)
+            bar["value"] = min(count, total)
+        elif phase == "Done":
+            bar.configure(maximum=1)
+            bar["value"] = 1
+        else:
+            bar.configure(maximum=1)
+            bar["value"] = 0
+
     def _classify_log_line(self, line: str) -> str:
         lower = line.lower()
+        if (
+            "[taskqueue" in lower
+            or "[taskworker" in lower
+            or "put position commands" in lower
+            or re.search(r"\(\d+\) read \d+ position commands", line)
+        ):
+            return "task"
         if (
             "peta_shock" in lower
             or "p command" in lower
@@ -321,8 +361,7 @@ class BookMinerGui(ttk.Frame):
         ):
             return "peta"
         if (
-            "put position" in lower
-            or "reached max_book_ply" in lower
+            "reached max_book_ply" in lower
             or "過去10分" in line
             or "all tasks completed" in lower
             or re.search(r"\[\d+\]\s+.+\s,\s*[0-9.]+", line)

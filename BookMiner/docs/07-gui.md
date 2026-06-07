@@ -68,15 +68,16 @@ GUI 上でもこの 3 手順が縦に並んでいます。
 
 ## ログ
 
-ログ領域は 3 つに分かれています。
+ログ領域は 4 つに分かれています。
 
 - `peta_next/peta_shockログ`: `peta_next` の出力と `peta_shock` の変換ログを表示します。
+- `タスク状況ログ`: `enqueue` したタスクの投入状況と進捗を表示します。
 - `探索ログ`: 棋譜の局面を掘っているときの局面ログを表示します。
 - `その他ログ`: 起動、終了、設定変更、定跡DB書き出しなどのログを表示します。
 
 ## 定跡DBの読み書き進捗
 
-GUI には `定跡読込` と `定跡書込` の progress bar があります。
+GUI には `定跡読込`、`定跡書込`、`enqueue進捗` の progress bar があります。
 
 BookMiner.py が次のようなタグ付きログを出力すると、GUI がそれを拾って progress bar を更新します。
 
@@ -86,6 +87,16 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 ```
 
 起動時の `book/book_miner.db` 読み込み、`peta_shock` 後の `book/peta_book.db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
+
+`enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
+
+```text
+[TaskQueueStart] 0/50000 job=1 path=book/think_sfens.txt eval_limit=400
+[TaskQueueProgress] 30000/50000 job=1 remaining=20000
+[TaskQueueDone] 50000/50000 job=1 remaining=0
+```
+
+この数値は、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
 
 ## 注意点
 

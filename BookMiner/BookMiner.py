@@ -55,6 +55,7 @@ PETA_SHOCK_ENGINE_NAME = "YO-MATERIAL.exe"
 PETA_SHOCK_PROGRESS_INTERVAL = 10
 BOOK_READ_PROGRESS_INTERVAL = 10000
 BOOK_WRITE_PROGRESS_INTERVAL = 10000
+TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -148,6 +149,11 @@ class Task:
 
     # `t`コマンドで指定された position 文字列。Noneなら従来のsfen開始タスク。
     position_cmd : PositionStr | None = None
+
+    # `t`コマンドで積まれたタスクの進捗表示用。
+    job_id : int = 0
+    task_index : int = 0
+    task_total : int = 0
 
 
 @dataclass
@@ -776,6 +782,8 @@ class EngineManager:
             debug_engine          = False,
         )
         self.global_settings = global_settings
+        self.task_progress_lock = Lock()
+        self.task_progress_last_report : dict[int, float] = {}
 
         engines : list[Engine] = []
 
@@ -1078,6 +1086,7 @@ class EngineManager:
         while True:
             try:
                 task = self.task_queue.get()
+                self.report_task_queue_progress(task)
 
                 # 局面を掘っていく。
                 if task.position_cmd is not None:
@@ -1097,6 +1106,34 @@ class EngineManager:
         # 全task queueのjoin待ち
         pass
         # これ実装できない。
+
+    def start_task_queue_progress(self, job_id:int, total:int, path:str, eval_limit:int):
+        with self.task_progress_lock:
+            self.task_progress_last_report[job_id] = time.time()
+        print(f"[TaskQueueStart] 0/{total} job={job_id} path={path} eval_limit={eval_limit}")
+        if total == 0:
+            print(f"[TaskQueueDone] 0/0 job={job_id} remaining=0")
+
+    def report_task_queue_progress(self, task:Task):
+        if task.task_total <= 0 or task.task_index <= 0:
+            return
+
+        now = time.time()
+        total = task.task_total
+        done = min(task.task_index, total)
+        remaining = max(total - done, 0)
+        should_report = remaining == 0
+
+        with self.task_progress_lock:
+            last_report = self.task_progress_last_report.get(task.job_id, 0.0)
+            if not should_report:
+                should_report = now - last_report >= TASK_QUEUE_PROGRESS_INTERVAL
+            if not should_report:
+                return
+            self.task_progress_last_report[task.job_id] = now
+
+        tag = "TaskQueueDone" if remaining == 0 else "TaskQueueProgress"
+        print(f"[{tag}] {done}/{total} job={task.job_id} remaining={remaining}")
 
 # ============================================================
 #                     helper functions
@@ -1760,10 +1797,12 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
     with open(path, 'r') as r:
         lines = [line.strip() for line in r if line.strip() and not line.lstrip().startswith('#')]
 
-    print(f'({job_counter_local}) read {len(lines)} position commands.')
-    for i, line in enumerate(lines):
-        print(f"({job_counter_local}) put position : rest = {len(lines) - i} , position = {line} , eval_limit = {eval_limit}")
-        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line))
+    total = len(lines)
+    print(f'({job_counter_local}) read {total} position commands.')
+    engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
+
+    for i, line in enumerate(lines, 1):
+        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local, i, total))
 
     print(f"({job_counter_local}) put position commands , done.")
 
