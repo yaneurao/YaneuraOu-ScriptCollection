@@ -1,19 +1,7 @@
-# 3. 定跡を掘るための基礎
+# 4. 定跡を掘るための基礎
 
-この章では、BookMiner に渡す入力ファイル、局面を掘る流れ、次に掘る局面の作り方を説明します。用語は [1. 用語説明](01-terms.md) で説明しています。
-
-## `startpos moves ...` 形式
-
-BookMiner の入力ファイルでは、1 行を 1 対局として書きます。
-
-```text
-startpos moves 7g7f 3c3d 2g2f 8c8d
-startpos moves 2g2f 8c8d 2f2e 8d8e
-```
-
-この形式は、平手初期局面から指し手を順に進めた局面列を表します。
-
-`sfen ... moves ...` 形式も、USI の `position` コマンドとして解釈できる形なら扱えます。ただし、通常の運用では `startpos moves ...` を使います。
+この章では、BookMiner に局面を渡して掘る流れ、次に掘る局面の作り方を説明します。
+用語は [1. 用語説明](01-terms.md)、`startpos moves ...` 形式は [3. USI と position コマンド](03-usi.md) で説明しています。
 
 ## 探索キューと enqueue
 
@@ -191,6 +179,42 @@ book/think_sfens.txt
 掘ることにするなら、`t` コマンドでこのファイルを読み込まれてタスクに積みます。(そのあとタスクが消化されて徐々に掘られていきます。)
 
 [YaneuraOu-ScriptCollection/PetaNext](../../PetaNext/README.md)スクリプトを使う運用も考えられますが、BookMiner では `n` コマンドがその役割を持っています。
+
+## peta_next の開始局面集合を変える
+
+通常、`n` コマンドは平手の初期局面、つまり `startpos` から定跡ツリーを辿ります。
+特定の局面から先だけを対象にしたい場合は、`book/peta_start_sfens.txt` を作成します。
+
+```text
+book/peta_start_sfens.txt
+```
+
+このファイルには、1 行に 1 つずつ開始局面を書きます。
+形式は `startpos moves ...` です。
+
+```text
+startpos moves 7g7f 3c3d 2g2f
+startpos moves 2g2f 8c8d 2f2e 8d8e
+```
+
+このファイルが存在する場合、`n` コマンドは `startpos` ではなく、ここに書かれた局面集合を root として扱います。
+つまり、`book/peta_start_sfens.txt` に書いた局面から先を辿り、次に掘る leaf 局面を `book/think_sfens.txt` に書き出します。
+
+このファイルが存在しない場合は、従来通り `startpos` から辿ります。
+
+任意の局面の `startpos moves ...` 文字列を得るには、将棋AI用GUIの `将棋所` を使うと簡単です。
+詳しくは [3. USI と position コマンド](03-usi.md#将棋所から局面文字列を得る) を参照してください。
+
+複数の開始局面から同時に leaf を探したい場合は、同じファイルに複数行を書きます。
+
+```text
+startpos moves 7g7f 3c3d 2g2f
+startpos moves 2g2f 8c8d 2f2e 8d8e
+startpos moves 7g7f 8c8d 2g2f 3c3d
+```
+
+この仕組みは、特定の戦型や、既に掘りたいと分かっている局面の周辺だけを広げたいときに使います。
+例えば、ある局面以降だけを深く掘りたい場合、その局面を `book/peta_start_sfens.txt` に書いてから `peta_next` を実行します。
 
 
 ## 基本の反復
