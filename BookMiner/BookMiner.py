@@ -7,6 +7,7 @@ import traceback
 import queue
 import cshogi
 import sys
+import re
 from pathlib import Path
 
 from dataclasses import dataclass
@@ -49,9 +50,8 @@ SFEN_START_PLY1 = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b -
 # やねうら王定跡DBのheader
 YANEURAOU_BOOK_HEADER_V1 = "#YANEURAOU-DB2016 1.00"
 
-# ペタショック化された定跡
-PETA_SHOCKED_DB_NAME = "peta_book.db"
-PETA_SHOCKED_TEMP_DB_NAME = "peta_book.tmp.db"
+# ペタショック化された定跡ファイルのprefix
+PETA_BOOK_DB_NAME = "peta_book"
 PETA_SHOCK_ENGINE_NAME = "YO-MATERIAL.exe"
 PETA_SHOCK_PROGRESS_INTERVAL = 10
 BOOK_READ_PROGRESS_INTERVAL = 10000
@@ -350,18 +350,21 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None)->str:
     return path
 
 
-def load_book(book:Book, filepath:str):
+def load_book(book:Book, filepath:str, *, fast:bool = False):
     """
     やねうら王定跡フォーマットから、メモリに読み込み。
     bookのbodyはclear()されたあと読み込まれる。
     """
 
-    print(f"start load_book , path = {filepath}")
+    print(f"start load_book , path = {filepath}, fast = {fast}")
 
     with book.lock:
         book.body.clear()
 
-    read_yaneuraou_book(book, filepath)
+    if fast:
+        read_bookminer_backup(book, filepath)
+    else:
+        read_yaneuraou_book(book, filepath)
     print(f"done..{len(book.body)} positions.")
     return book
 
@@ -1245,13 +1248,17 @@ def bfs_for_ply(book:Book):
     print(f"..bsf for ply done. {c} positions.")
 
 
-def parse_book_move_line(line:str)->MoveInfo:
+def parse_book_move_line(line:str, normalize_eval:bool = True)->MoveInfo:
     if ',' in line:
         move, eval_str, *_ = line.split(',')
     else:
         move, _, eval_str, *_ = line.split()
 
-    eval = normalize_book_eval(int(eval_str)) if eval_str != 'None' else None
+    if eval_str == 'None':
+        eval = None
+    else:
+        eval_raw = int(eval_str)
+        eval = normalize_book_eval(eval_raw) if normalize_eval else eval_raw
     return MoveInfo(move, eval)
 
 
@@ -1297,6 +1304,9 @@ def print_book_read_done(path:str, count:int, total:int|None):
 def read_yaneuraou_book_file(
     path:str,
     on_position:Callable[[Sfen, int, list[MoveInfo]], None],
+    *,
+    normalize_eval:bool = True,
+    copy_moveinfos:bool = True,
 )->int:
     """
     やねうら王定跡フォーマットを読み込み、1局面ごとに on_position() を呼ぶ。
@@ -1313,11 +1323,14 @@ def read_yaneuraou_book_file(
         nonlocal sfen, moveinfos, ply
         if sfen is None:
             return
-        considered_moveinfos = [
-            MoveInfo(moveinfo.move, moveinfo.eval)
-            for moveinfo in moveinfos
-            if moveinfo.eval is not None
-        ]
+        if copy_moveinfos:
+            considered_moveinfos = [
+                MoveInfo(moveinfo.move, moveinfo.eval)
+                for moveinfo in moveinfos
+                if moveinfo.eval is not None
+            ]
+        else:
+            considered_moveinfos = moveinfos
         if considered_moveinfos:
             on_position(sfen, ply, considered_moveinfos)
         sfen = None
@@ -1355,7 +1368,7 @@ def read_yaneuraou_book_file(
                 print_book_read_progress(count, total_positions)
             sfen, ply = trim_sfen_ply(line)
         else:
-            moveinfos.append(parse_book_move_line(line))
+            moveinfos.append(parse_book_move_line(line, normalize_eval))
 
     append_to_book()
     print_book_read_done(path, count, total_positions)
@@ -1397,6 +1410,35 @@ def read_yaneuraou_book(book:Book, path:str):
         read_yaneuraou_book_file(path, append_position)
 
     print(f"..read yaneuraou book done..len(book) = {len(book.body)}.")
+
+
+def read_bookminer_backup(book:Book, path:str):
+    """
+    BookMiner自身が book/backup/ に書き出した通常定跡DBを高速に読み込む。
+    正規形と仮定し、flip merge と評価値の旧形式補正は行わない。
+    """
+    read_regular_book_fast(book, path, "BookMiner backup book")
+
+
+def read_regular_book_fast(book:Book, path:str, label:str):
+    """
+    正規形と仮定できる通常定跡DBを高速に読み込む。
+    flip merge と評価値の旧形式補正は行わない。
+    """
+    print(f"read {label} , path = {path}")
+
+    def append_position(sfen:Sfen, ply:int, moveinfos:list[MoveInfo]):
+        book.body[sfen] = PositionInfo(moveinfos, ply)
+
+    with book.lock:
+        read_yaneuraou_book_file(
+            path,
+            append_position,
+            normalize_eval=False,
+            copy_moveinfos=False,
+        )
+
+    print(f"..read {label} done..len(book) = {len(book.body)}.")
 
 
 # `peta_read`コマンドで読み込まれた定跡ファイル
@@ -1457,7 +1499,7 @@ def load_latest_book_backup(book:Book):
         print(f"book backup file not found. start with empty book. dir = {BOOK_BACKUP_DIR}")
         return
 
-    load_book(book, path)
+    load_book(book, path, fast=True)
 
 
 def resolve_peta_source_book_path(path:str|None)->str:
@@ -1480,6 +1522,28 @@ def resolve_peta_source_book_path(path:str|None)->str:
     raise Exception(f"peta source book not found : {path}")
 
 
+def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
+    """
+    book_miner-YYYYMMDDHHMMSS_N.db から timestamp と局面数を取り出す。
+    peta book はこの2つを引き継いだ名前にする。
+    """
+    filename = os.path.basename(path)
+    pattern = rf"^{re.escape(BOOK_DB_NAME)}-(\d{{14}})_(\d+)\.db$"
+    match = re.fullmatch(pattern, filename)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def peta_book_backup_path_from_source(source_book_path:str)->str:
+    parsed = parse_regular_book_backup_name(source_book_path)
+    if parsed is None:
+        return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{make_time_stamp()}.db")
+
+    timestamp, position_count = parsed
+    return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{timestamp}_{position_count}.db")
+
+
 def to_book_dir_relative_path(path:str)->str:
     """
     makebook peta_shock は BookDir からの相対pathを受け取るので、
@@ -1496,7 +1560,7 @@ def to_book_dir_relative_path(path:str)->str:
 def run_peta_shock_makebook(source_book_path:str)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
-    makebook peta_shock で source_book_path を book/peta_book.db に変換する。
+    makebook peta_shock で source_book_path を book/backup/peta_book-*.db に変換する。
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     engine_path = os.path.join(script_dir, PETA_SHOCK_ENGINE_NAME)
@@ -1504,13 +1568,15 @@ def run_peta_shock_makebook(source_book_path:str)->str:
         raise Exception(f"peta shock engine not found : {engine_path}")
 
     source_book_rel = to_book_dir_relative_path(source_book_path)
-    peta_temp_path = os.path.join(BOOK_DIR, PETA_SHOCKED_TEMP_DB_NAME)
-    peta_path = os.path.join(BOOK_DIR, PETA_SHOCKED_DB_NAME)
+    peta_path = peta_book_backup_path_from_source(source_book_path)
+    peta_temp_path = temp_book_path(peta_path)
+    peta_temp_rel = to_book_dir_relative_path(peta_temp_path)
+    os.makedirs(BOOK_BACKUP_DIR, exist_ok=True)
 
     if os.path.exists(peta_temp_path):
         os.remove(peta_temp_path)
 
-    makebook_command = f"makebook peta_shock {source_book_rel} {PETA_SHOCKED_TEMP_DB_NAME}"
+    makebook_command = f"makebook peta_shock {source_book_rel} {peta_temp_rel}"
     commands = [
         "setoption name BookDir value book",
         "setoption name BookFile value no_book",
@@ -1523,6 +1589,7 @@ def run_peta_shock_makebook(source_book_path:str)->str:
     print(f"start peta_shock makebook")
     print(f"engine path = {engine_path}")
     print(f"source book = {source_book_path}")
+    print(f"peta book   = {peta_path}")
     print(f"command     = {makebook_command}")
 
     process = subprocess.Popen(
@@ -1594,22 +1661,15 @@ def run_peta_shock_makebook(source_book_path:str)->str:
 def read_peta_book(source_book_path:str|None = None):
     """
     最新または指定された通常定跡DBをpeta_shock化し、
-    peta_book に 'peta_book.db'を読み込む。
+    生成された book/backup/peta_book-*.db を peta_book に読み込む。
     """
     source_book_path = resolve_peta_source_book_path(source_book_path)
-    run_peta_shock_makebook(source_book_path)
+    peta_path = run_peta_shock_makebook(source_book_path)
 
-    peta_path = os.path.join(BOOK_DIR, PETA_SHOCKED_DB_NAME)
     print(f"read peta shocked book , path = {peta_path}")
     global peta_book
     peta_book = Book()
-
-    def append_position(sfen:Sfen, ply:int, moveinfos:list[MoveInfo]):
-        peta_book.body[sfen] = PositionInfo([MoveInfo(moveinfo.move, moveinfo.eval) for moveinfo in moveinfos], ply)
-
-    with peta_book.lock:
-        read_yaneuraou_book_file(peta_path, append_position)
-
+    read_regular_book_fast(peta_book, peta_path, "peta shocked book")
     print("reading the peta_book has done.")
 
 
@@ -1627,10 +1687,8 @@ def write_and_read_peta_book(book:Book):
 
 def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
     """
-    rコマンドで読み込まれたpeta_book.db(peta_shock化された定跡)を
+    r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
     読み込み、掘れていない局面を`book/think_sfens.txt`に書き出します。
-
-    peta shocked bookは、`book/peta_book.db` に配置すること。
 
     rootのbestmoveのscoreをroot_bestとする。
     root_best ± eval_diffの範囲の枝を展開していき、末端の局面を書き出す。
@@ -1772,7 +1830,7 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
                         # この枝は辿る。
                         # この指し手で進めた局面を次周調べる。
 
-                        # book_sfenは、peta_book.dbが先手局面しか登録されていないので、先手局面となっている。
+                        # peta_bookは先手局面しか登録されていないので、book_sfenは先手局面となっている。
                         # それだと好ましくないので、sfenのほうを用いる。
                         board = cshogi.Board(sfen_with_ply)
                         move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move

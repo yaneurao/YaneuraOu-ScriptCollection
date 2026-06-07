@@ -50,7 +50,7 @@ GUI 上でもこの 3 手順が縦に並んでいます。
 手順3. [ enqueue    ] eval_limit [ Z ]
 ```
 
-`peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、`book/peta_book.db` の読み込みを一度に行います。
+`peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....db` の読み込みを一度に行います。
 
 `peta_next` は、`n eval_diff [max_step]` を送信します。例えば `eval_diff` に `30` と入力して実行すると、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
 
@@ -88,7 +88,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [BookWriteProgress] 10000/12345678
 ```
 
-起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/peta_book.db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
+起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/backup/peta_book-....db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
 
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 

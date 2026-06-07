@@ -81,12 +81,18 @@ t book/my_positions.txt
 p
 ```
 
-`p` は、現在の定跡 DB を通常のやねうら王定跡形式として `book/backup/` に書き出し、その書き出したファイルを peta shock 化して `book/peta_book.db` として読み込みます。
+`p` は、現在の定跡 DB を通常のやねうら王定跡形式として `book/backup/` に書き出し、その書き出したファイルを peta shock 化して読み込みます。
 
 バックアップの出力先は `book/backup/` です。
 
 ```text
 book/backup/book_miner-20260607071000_12345.db
+```
+
+peta shock 化後のファイルも `book/backup/` に保存されます。通常定跡 DB と同じ timestamp と局面数を使います。
+
+```text
+book/backup/peta_book-20260607071000_12345.db
 ```
 
 `w` コマンドで書き出しだけを行い、`r` コマンドで peta shock 化だけを行うこともできます。ただし、通常の周回作業では `p` を使うほうが安全です。`p` は、自分で書き出したバックアップファイルをそのまま変換元に使うため、`w` の完了確認漏れや、定期自動バックアップとの取り違えを避けやすくなります。
@@ -99,9 +105,23 @@ book/backup/book_miner-20260607071000_12345.db
 p
 ```
 
-`p` は、いま書き出した通常バックアップを `YO-MATERIAL.exe` に渡し、`book/peta_book.db` を作って読み込みます。
+`p` は、いま書き出した通常バックアップを `YO-MATERIAL.exe` に渡し、対応する `book/backup/peta_book-....db` を作って読み込みます。
+
+`book/backup/peta_book-....db` は `makebook peta_shock` が出力した正規形の DB とみなし、高速読み込みします。この読み込みでは、先後反転局面との merge や古い評価値形式の補正は行いません。
 
 `r` は、path を省略した場合、`book/backup/` にある最新の通常バックアップを `YO-MATERIAL.exe` に渡します。
+
+`r` に path を指定する場合、通常は BookMiner フォルダからの相対 path として次のように書きます。
+
+```text
+r book/backup/book_miner-20260607071000_12345.db
+```
+
+`book/` からの相対 path として、次のように書くこともできます。
+
+```text
+r backup/book_miner-20260607071000_12345.db
+```
 
 やねうら王側のコマンドは次の形式です。
 
@@ -118,11 +138,17 @@ setoption name BookDir value book
 setoption name BookFile value no_book
 setoption name FlippedBook value true
 setoption name USI_Hash value 1
-makebook peta_shock backup/book_miner-20260607071000_12345.db peta_book.tmp.db
+makebook peta_shock backup/book_miner-20260607071000_12345.db backup/peta_book-20260607071000_12345.db.tmp
 quit
 ```
 
-変換に成功すると、BookMiner は `book/peta_book.tmp.db` を `book/peta_book.db` に置き換えます。
+変換元が `book_miner-YYYYMMDDHHMMSS_局面数.db` という名前なら、実際の出力先は対応する `backup/peta_book-YYYYMMDDHHMMSS_局面数.db.tmp` です。変換に成功すると、BookMiner はこれを `book/backup/peta_book-YYYYMMDDHHMMSS_局面数.db` に置き換えます。
+
+変換元のファイル名から局面数が分からない場合は、変換時刻だけを使います。
+
+```text
+book/backup/peta_book-YYYYMMDDHHMMSS.db
+```
 
 ## 次に掘る局面を求める
 

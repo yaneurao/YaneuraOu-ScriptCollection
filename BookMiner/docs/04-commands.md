@@ -84,7 +84,7 @@ book/backup/book_miner-20260607071000_12345_ply100.db
 
 ## `p`
 
-現在の定跡 DB を `book/backup/` に書き出し、その書き出したファイルを peta shock 化して、`book/peta_book.db` として読み込みます。
+現在の定跡 DB を `book/backup/` に書き出し、その書き出したファイルを peta shock 化して読み込みます。
 
 ```text
 p
@@ -96,9 +96,18 @@ p
 
 通常の周回作業では、`w` と `r` を個別に使うより `p` を使うほうが安全です。
 
+`p` で作られる通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。
+
+```text
+book/backup/book_miner-20260607103251_14505901.db
+book/backup/peta_book-20260607103251_14505901.db
+```
+
+`r` で明示した変換元のファイル名から局面数が分からない場合は、変換時刻だけを使って `book/backup/peta_book-YYYYMMDDHHMMSS.db` を作ります。
+
 ## `r`
 
-通常定跡 DB を peta shock 化し、`book/peta_book.db` として読み込みます。
+通常定跡 DB を peta shock 化し、生成された `book/backup/peta_book-....db` を読み込みます。
 
 ```text
 r
@@ -114,9 +123,19 @@ path を省略した場合は、`book/backup/` にある最新の通常バック
 r book/backup/book_miner-20260607071000_12345.db
 ```
 
+指定した path は、まず BookMiner.py の実行フォルダからの相対 path として解決されます。通常は BookMiner フォルダで起動するので、上のように `book/backup/...` と指定します。
+
+次に、`book/` からの相対 path としても解決します。そのため、次の指定も同じファイルを指します。
+
+```text
+r backup/book_miner-20260607071000_12345.db
+```
+
+`YO-MATERIAL.exe` の `makebook peta_shock` に渡すときは、BookMiner が `BookDir book` を設定するため、内部的には `backup/book_miner-....db` のような `book/` からの相対 path に変換されます。
+
 `r` は `BookMiner.py` と同じフォルダにある `YO-MATERIAL.exe` を起動します。
 
-内部的には、`book/backup/` の中で一番タイムスタンプが新しい通常定跡 DB から peta shock 化を行い、結果を `book/peta_book.db` に保存し、それをメモリ内に読み込みます。
+内部的には、`book/backup/` の中で一番タイムスタンプが新しい通常定跡 DB から peta shock 化を行い、結果を `book/backup/peta_book-....db` に保存し、それをメモリ内に読み込みます。
 
 このあと `n` コマンドを使うと、次に掘る局面を列挙できます。
 
