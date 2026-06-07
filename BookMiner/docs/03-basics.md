@@ -41,6 +41,8 @@ t book/my_positions.txt
 
 途中で評価値の絶対値が eval limit 以上になった場合、その対局の処理はそこで止まります。
 
+また、`settings/book_miner_settings.json` の `max_book_ply` に到達した場合も、その対局の処理はそこで止まります。
+
 棋譜の末端まで到達した場合は、そこからエンジンの best line を `THINK_COMMAND_PLY` 手分だけ延長して掘ります。この延長中も、評価値の絶対値が eval limit 以上になったら停止します。
 
 ## 通常定跡 DB を書き出す
@@ -93,10 +95,22 @@ quit
 peta shock 化した定跡から、次に掘るべき leaf 局面を求めるには `n` コマンドを使います。
 
 ```text
-n 100
+n 30
 ```
 
-`100` は、root の best move からどの程度評価値が離れた枝まで辿るかを表す値です。
+`30` は、root の best move の評価値からどの程度評価値が離れた枝まで辿るかを表す値です。
+
+詳しいアルゴリズムについては、以下のページをご覧ください。
+
+- [YaneuraOu-ScriptCollection/PetaNext](../../PetaNext/README.md)
+
+
+```text
+n 100 10
+```
+
+のように指定すると、rootの best moveの評価値から100離れた枝を、rootから10手先まで辿ります。
+
 
 `n` コマンドは次のファイルを書き出します。
 
@@ -106,9 +120,16 @@ book/think_sfens-white.txt
 book/think_sfens.txt
 ```
 
-`book/think_sfens.txt` は、先手用と後手用の leaf 局面を交互に混ぜたものです。次の周回では、また `t` コマンドでこのファイルを掘ります。
+`book/think_sfens.txt` は、先手用と後手用の leaf 局面を交互に混ぜたものです。
 
-外部の `peta_next` スクリプトを使う運用も考えられますが、BookMiner では `n` コマンドがその役割を持っています。
+`settings/book_miner_settings.json` の `max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。
+
+`n`コマンドを使ったときに、`think_sfens.txt`に何局面を書き出したのかが表示されます。それを見て、これを掘るかどうかを決めます。
+
+掘ることにするなら、`t` コマンドでこのファイルを読み込まれてタスクに積みます。(そのあとタスクが消化されて徐々に掘られていきます。)
+
+[YaneuraOu-ScriptCollection/PetaNext](../../PetaNext/README.md)スクリプトを使う運用も考えられますが、BookMiner では `n` コマンドがその役割を持っています。
+
 
 ## 基本の反復
 
@@ -117,8 +138,8 @@ book/think_sfens.txt
 1. KifManager で棋譜を抽出し、`book/think_sfens.txt` を作る。
 2. BookMiner を起動する。
 3. `t` で局面を掘る。
-4. `w` で通常定跡 DB をバックアップに書き出す。
-5. `r` で peta shock 化して読み込む。
-6. `n 100` で次に掘る局面を作る。
-7. 必要なら 3 から繰り返す。
-8. 終了するときは `q` で保存して終了する。
+4. `w` で 定跡 DB を `book/backup/` に書き出す。
+5. `r` で peta shock 化して、その定跡DBを読み込む。
+6. `n 30` などとして、次に掘る局面を作る。`book/think_sfens.txt`に書き出される。
+7. 必要なら 3. に戻って繰り返す。
+8. 終了するときは `q` で終了する。(このとき、`book/book_miner.db`に自動保存される。)

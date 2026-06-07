@@ -33,6 +33,10 @@ book/
 
 やねうら王系エンジンでは、実行ファイルと同じフォルダに `engine_options.txt` を置くと、`isready` 時に読み込まれます。
 
+やねうら王のエンジンオプションについては、次のページも参考にしてください。
+
+- [思考エンジンオプション - やねうら王Wiki](https://github.com/yaneurao/YaneuraOu/wiki/%E6%80%9D%E8%80%83%E3%82%A8%E3%83%B3%E3%82%B8%E3%83%B3%E3%82%AA%E3%83%97%E3%82%B7%E3%83%A7%E3%83%B3)
+
 BookMiner の定跡を使う場合は、例えば次のように設定します。
 
 ```text
@@ -40,7 +44,12 @@ BookDir book
 BookFile peta_book.db
 USI_OwnBook true
 FlippedBook true
+IgnoreBookPly true
 ```
+
+`FlippedBook` は `true` を推奨します。BookMiner が書き出す定跡では、盤面を 180 度回転させた局面は重複して書き出さないためです。
+
+`IgnoreBookPly` も `true` を推奨します。これを設定しないと、同一局面でも手数が違う場合に定跡が hit しなくなることがあります。
 
 他の対局用設定と組み合わせる場合は、同じ `engine_options.txt` に追記してください。
 
@@ -53,6 +62,7 @@ BookDir book
 BookFile peta_book.db
 USI_OwnBook true
 FlippedBook true
+IgnoreBookPly true
 BookMoves 32
 BookEvalDiff 30
 ```
@@ -66,6 +76,7 @@ setoption name BookDir value book
 setoption name BookFile value peta_book.db
 setoption name USI_OwnBook value true
 setoption name FlippedBook value true
+setoption name IgnoreBookPly value true
 isready
 ```
 
@@ -89,5 +100,7 @@ go btime 0 wtime 0 byoyomi 1000
 - `BookFile` が `peta_book.db` になっているか。
 - `BookDir` から見た場所に `peta_book.db` があるか。
 - `USI_OwnBook` が `true` になっているか。
+- `FlippedBook` が `true` になっているか。
+- `IgnoreBookPly` が `true` になっているか。
 - `BookMoves` や `BookEvalDiff` などの条件で定跡手が弾かれていないか。
 - `isready` 後のログに定跡ファイル読み込みエラーが出ていないか。

@@ -35,6 +35,9 @@ BOOK_DB_NAME   = "book_miner"
 # エンジン設定が書いてあるjsonファイルのpath
 ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json"
 
+# BookMiner本体設定が書いてあるjsonファイルのpath
+BOOK_MINER_SETTINGS_JSON_PATH = "settings/book_miner_settings.json"
+
 # peta_nextコマンドの開始局面(sfen形式) , BOOK_DIRに配置する。
 PETA_NEXT_START_SFENS_PATH = "peta_start_sfens.txt"
 
@@ -55,10 +58,10 @@ BOOK_READ_PROGRESS_INTERVAL = 10000
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
 
-# 自動保存の間隔 [s]
+# 自動保存の間隔 [s]。settings/book_miner_settings.json で上書きされる。
 AUTO_SAVE_INTERVAL = 3 * 60 * 60 # 3時間おき
 
-# 定跡の最大手数。この手数を超えて深くまで掘らない(ただし、`t`コマンドの場合は、延長はする)
+# 定跡の最大手数。settings/book_miner_settings.json で上書きされる。
 MAX_BOOK_PLY = 200
 
 # VALUE, PLY の -∞
@@ -144,6 +147,15 @@ class Task:
 
     # `t`コマンドで指定された position 文字列。Noneなら従来のsfen開始タスク。
     position_cmd : PositionStr | None = None
+
+
+@dataclass
+class BookMinerSettings:
+    # 自動保存の間隔 [s]
+    auto_save_interval_seconds : int = AUTO_SAVE_INTERVAL
+
+    # この手数に到達したら、それ以上掘らない。
+    max_book_ply : int = MAX_BOOK_PLY
 
 # ============================================================
 
@@ -322,6 +334,43 @@ def load_book(book:Book, filepath:str):
     read_yaneuraou_book(book, filepath)
     print(f"done..{len(book.body)} positions.")
     return book
+
+
+def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMinerSettings:
+    settings = BookMinerSettings()
+
+    if not os.path.exists(path):
+        print(f"Warning : BookMiner settings file not found. use default settings. path = {path}")
+        return settings
+
+    print(f"read BookMiner settings , path = {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        raw_settings = json.load(f)
+
+    if not isinstance(raw_settings, dict):
+        raise Exception(f"invalid BookMiner settings file. root must be object. path = {path}")
+
+    def read_positive_int(name:str, current_value:int)->int:
+        value = raw_settings.get(name, current_value)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise Exception(f"invalid BookMiner setting. {name} must be positive integer. value = {value}")
+        return value
+
+    settings.auto_save_interval_seconds = read_positive_int(
+        "auto_save_interval_seconds",
+        settings.auto_save_interval_seconds,
+    )
+    settings.max_book_ply = read_positive_int(
+        "max_book_ply",
+        settings.max_book_ply,
+    )
+
+    print(
+        "BookMiner settings : "
+        f"auto_save_interval_seconds = {settings.auto_save_interval_seconds}, "
+        f"max_book_ply = {settings.max_book_ply}"
+    )
+    return settings
 
 
 def dump_position(sfen:Sfen, position_info:PositionInfo, move: MoveStr | None = None):
@@ -687,9 +736,10 @@ class Engine:
 
 class EngineManager:
 
-    def __init__(self):
+    def __init__(self, book_miner_settings:BookMinerSettings):
 
         print("initialize the engines..")
+        self.book_miner_settings = book_miner_settings
 
         # エンジン設定の読み込み    
         with open(ENGINE_SETTINGS_JSON_PATH,"r",encoding="utf-8") as f:
@@ -737,6 +787,16 @@ class EngineManager:
 
         self.engines = engines
 
+    def reached_max_book_ply(self, ply:int)->bool:
+        return ply >= self.book_miner_settings.max_book_ply
+
+    def print_reached_max_book_ply(self, sfen:Sfen, ply:int):
+        print(
+            "max_book_ply reached. "
+            f"ply = {ply}, max_book_ply = {self.book_miner_settings.max_book_ply}, "
+            f"sfen = {sfen}"
+        )
+
     def engine_test(self):
         """
         エンジンのテストコード
@@ -756,6 +816,10 @@ class EngineManager:
 
         current_sfen = sfen
         current_sfen_f = flipped_sfen(current_sfen)
+
+        if self.reached_max_book_ply(ply):
+            self.print_reached_max_book_ply(current_sfen, ply)
+            return None, current_sfen, last_thinking_ply, False
 
         with book.lock:
             if current_sfen in visited or current_sfen_f in visited:
@@ -1443,7 +1507,7 @@ def read_peta_book(source_book_path:str|None = None):
     print("reading the peta_book has done.")
 
 
-def peta_next(peta_eval_diff:int, max_step:int):
+def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
     """
     rコマンドで読み込まれたpeta_book.db(peta_shock化された定跡)を
     読み込み、掘れていない局面を`book/think_sfens.txt`に書き出します。
@@ -1462,7 +1526,7 @@ def peta_next(peta_eval_diff:int, max_step:int):
 
     global peta_book
 
-    print(f"peta_next, peta_eval_diff = {peta_eval_diff}, max_step = {max_step}")
+    print(f"peta_next, peta_eval_diff = {peta_eval_diff}, max_step = {max_step}, max_book_ply = {max_book_ply}")
 
     # 先手の定跡を考えるのか？
     # turn == 1 なら 先手、0なら後手
@@ -1504,6 +1568,9 @@ def peta_next(peta_eval_diff:int, max_step:int):
         for position_cmd, sfen_with_ply in root_positions:
             sfen, ply = trim_sfen_ply(sfen_with_ply)
 
+            if ply >= max_book_ply:
+                continue
+
             sfen_f = flipped_sfen(sfen)
             if sfen in peta_book.body:
                 position_info = peta_book.body[sfen]
@@ -1536,6 +1603,9 @@ def peta_next(peta_eval_diff:int, max_step:int):
 
             for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
+
+                if ply >= max_book_ply:
+                    continue
 
                 sfen_f = flipped_sfen(sfen)
 
@@ -1590,6 +1660,10 @@ def peta_next(peta_eval_diff:int, max_step:int):
                         move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
                         board.push_usi(move)
                         next_sfen = board.sfen()
+                        _, next_ply = trim_sfen_ply(next_sfen)
+                        if next_ply >= max_book_ply:
+                            continue
+
                         next_position_cmd = append_position_move(position_cmd, move)
 
                         # 次の局面では、root_best_evalは反転する。(手番側から見たevalで管理しているため)
@@ -1765,12 +1839,13 @@ def user_input():
     ユーザーからの入力受付。
     """
     book : Book = Book()
+    book_miner_settings = load_book_miner_settings()
 
     path = os.path.join(BOOK_DIR, f"{BOOK_DB_NAME}.db")
     if os.path.exists(path):
         load_book(book, path)
 
-    engine_manager = EngineManager()
+    engine_manager = EngineManager(book_miner_settings)
 
     # 局面について思考するtask workerの開始
     engine_manager.start_task_workers(book)
@@ -1784,7 +1859,7 @@ def user_input():
     def backup_worker():
         print("start backup worker..")
         while True:
-            time.sleep(AUTO_SAVE_INTERVAL)  # 3時間待機
+            time.sleep(book_miner_settings.auto_save_interval_seconds)
             save_book_backup(book, BOOK_BACKUP_DIR)
 
     # backup用のタスクを開始。
@@ -1885,7 +1960,7 @@ def user_input():
                 else:
                     peta_eval_diff = int(inp[1])
                     max_step = 9999 if len(inp) < 3 else int(inp[2])
-                    peta_next(peta_eval_diff, max_step)
+                    peta_next(peta_eval_diff, max_step, book_miner_settings.max_book_ply)
 
         except Exception as e:
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
