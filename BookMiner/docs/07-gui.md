@@ -95,12 +95,20 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
 ```text
-[TaskQueueStart] 0/50000 job=1 path=book/think_sfens.txt eval_limit=400
+[TaskQueueStart] 0/50000 job=1 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400
 [TaskQueueProgress] 30000/50000 job=1 remaining=20000
 [TaskQueueDone] 50000/50000 job=1 remaining=0
 ```
 
-この数値は、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
+この数値は、BookMiner 起動後に enqueue した累計タスク数に対して、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。
+
+複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが worker に渡った状態で 72462 行を追加 enqueue すると、次のように表示されます。
+
+```text
+[TaskQueueStart] 30000/122462 job=4 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400
+```
+
+ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
 
 ## 注意点
 

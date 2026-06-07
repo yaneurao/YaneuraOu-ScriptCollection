@@ -153,8 +153,6 @@ class Task:
 
     # `t`コマンドで積まれたタスクの進捗表示用。
     job_id : int = 0
-    task_index : int = 0
-    task_total : int = 0
 
 
 @dataclass
@@ -787,7 +785,9 @@ class EngineManager:
         )
         self.global_settings = global_settings
         self.task_progress_lock = Lock()
-        self.task_progress_last_report : dict[int, float] = {}
+        self.task_progress_total = 0
+        self.task_progress_taken = 0
+        self.task_progress_last_report = 0.0
 
         engines : list[Engine] = []
 
@@ -1111,33 +1111,40 @@ class EngineManager:
         pass
         # これ実装できない。
 
-    def start_task_queue_progress(self, job_id:int, total:int, path:str, eval_limit:int):
+    def start_task_queue_progress(self, job_id:int, added_count:int, path:str, eval_limit:int):
         with self.task_progress_lock:
-            self.task_progress_last_report[job_id] = time.time()
-        print(f"[TaskQueueStart] 0/{total} job={job_id} path={path} eval_limit={eval_limit}")
-        if total == 0:
-            print(f"[TaskQueueDone] 0/0 job={job_id} remaining=0")
+            self.task_progress_total += added_count
+            total = self.task_progress_total
+            taken = self.task_progress_taken
+            remaining = max(total - taken, 0)
+            self.task_progress_last_report = time.time()
+
+        print(
+            f"[TaskQueueStart] {taken}/{total} "
+            f"job={job_id} added={added_count} remaining={remaining} path={path} eval_limit={eval_limit}"
+        )
+        if remaining == 0:
+            print(f"[TaskQueueDone] {taken}/{total} job={job_id} remaining=0")
 
     def report_task_queue_progress(self, task:Task):
-        if task.task_total <= 0 or task.task_index <= 0:
+        if task.job_id <= 0:
             return
 
         now = time.time()
-        total = task.task_total
-        done = min(task.task_index, total)
-        remaining = max(total - done, 0)
-        should_report = remaining == 0
-
         with self.task_progress_lock:
-            last_report = self.task_progress_last_report.get(task.job_id, 0.0)
+            self.task_progress_taken += 1
+            taken = self.task_progress_taken
+            total = self.task_progress_total
+            remaining = max(total - taken, 0)
+            should_report = remaining == 0
             if not should_report:
-                should_report = now - last_report >= TASK_QUEUE_PROGRESS_INTERVAL
+                should_report = now - self.task_progress_last_report >= TASK_QUEUE_PROGRESS_INTERVAL
             if not should_report:
                 return
-            self.task_progress_last_report[task.job_id] = now
+            self.task_progress_last_report = now
 
         tag = "TaskQueueDone" if remaining == 0 else "TaskQueueProgress"
-        print(f"[{tag}] {done}/{total} job={task.job_id} remaining={remaining}")
+        print(f"[{tag}] {taken}/{total} job={task.job_id} remaining={remaining}")
 
 # ============================================================
 #                     helper functions
@@ -1891,8 +1898,8 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
     print(f'({job_counter_local}) read {total} position commands.')
     engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
 
-    for i, line in enumerate(lines, 1):
-        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local, i, total))
+    for line in lines:
+        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local))
 
     print(f"({job_counter_local}) put position commands , done.")
 
