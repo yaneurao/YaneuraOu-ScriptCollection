@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import os
 import time
 import subprocess
@@ -792,11 +793,14 @@ class EngineManager:
     def __init__(self, book_miner_settings:BookMinerSettings, from_gui:bool = False):
 
         print("initialize the engines..")
+        print("[StartupStage] stage=engine_init message=エンジン起動中")
         self.book_miner_settings = book_miner_settings
 
         # エンジン設定の読み込み    
         with open(ENGINE_SETTINGS_JSON_PATH,"r",encoding="utf-8") as f:
             engine_settings : list[Any] = json5.load(f)
+        total_engines = sum(int(engine_setting["multi"]) for engine_setting in engine_settings)
+        print(f"[EngineInitStart] 0/{total_engines}")
 
         global_settings = GlobalSettings(
             engine_settings       = engine_settings,
@@ -838,8 +842,14 @@ class EngineManager:
                 time.sleep(0.3)
 
         # 全エンジンがreadyokになるのを待つ
+        last_ready_count = -1
         while True:
-            if all(engine.thread_settings.readyok for engine in engines):
+            ready_count = sum(1 for engine in engines if engine.thread_settings.readyok)
+            if ready_count != last_ready_count:
+                tag = "EngineInitDone" if ready_count == total_engines else "EngineInitProgress"
+                print(f"[{tag}] {ready_count}/{total_engines}")
+                last_ready_count = ready_count
+            if ready_count == total_engines:
                 break
             time.sleep(1)
 
@@ -1931,6 +1941,10 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
     print(f"[PetaNextDone] path={bw_path} count={bw_count}")
 
 
+def scheduled_time_text(timestamp:float)->str:
+    return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
+
+
 def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int):
     job_counter_local = get_job_counter()
 
@@ -2073,7 +2087,9 @@ def user_input(from_gui:bool = False):
     """
     book : Book = Book()
     book_miner_settings = load_book_miner_settings()
+    print("[StartupStage] stage=book_read message=定跡DBを読み込み中")
     load_latest_book_backup(book)
+    print("[StartupStage] stage=book_read_done message=定跡DB読み込み完了")
 
     engine_manager = EngineManager(book_miner_settings, from_gui=from_gui)
     if from_gui:
@@ -2081,7 +2097,9 @@ def user_input(from_gui:bool = False):
             engine_manager.report_mining_progress(len(book.body), force=True)
 
     # 局面について思考するtask workerの開始
+    print("[StartupStage] stage=task_worker message=探索worker起動中")
     engine_manager.start_task_workers(book)
+    print("[StartupStage] stage=task_worker_done message=探索worker起動完了")
 
     def save_book_main():
         # lockは呼び出し元で行っているものとする。
@@ -2091,13 +2109,27 @@ def user_input(from_gui:bool = False):
     def backup_worker():
         print("start backup worker..")
         while True:
+            next_backup_time = scheduled_time_text(time.time() + book_miner_settings.auto_save_interval_seconds)
+            print(
+                f"[BackupNext] next={next_backup_time} "
+                f"interval={book_miner_settings.auto_save_interval_seconds}"
+            )
             time.sleep(book_miner_settings.auto_save_interval_seconds)
+            print("[BackupStart]")
             save_book_backup(book, BOOK_BACKUP_DIR)
+            print("[BackupDone]")
 
     # backup用のタスクを開始。
+    next_backup_time = scheduled_time_text(time.time() + book_miner_settings.auto_save_interval_seconds)
+    print("[StartupStage] stage=backup_service message=自動バックアップサービス起動中")
     Thread(target=backup_worker, daemon=True).start()
+    print(
+        f"[BackupServiceStarted] next={next_backup_time} "
+        f"interval={book_miner_settings.auto_save_interval_seconds}"
+    )
 
     time.sleep(2)
+    print("[CommandReady] message=コマンド受付を開始しました。")
 
     # 定跡を掘る範囲
     eval_limit = 400

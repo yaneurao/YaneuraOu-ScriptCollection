@@ -28,6 +28,10 @@ GUI_SETTING_DEFAULTS = {
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
+STARTUP_STAGE_RE = re.compile(r"\[StartupStage\]\s+stage=(\S+)\s+message=(.*)")
+ENGINE_INIT_RE = re.compile(r"\[EngineInit(Start|Progress|Done)\]\s+(\d+)/(\d+)")
+BACKUP_STATUS_RE = re.compile(r"\[(BackupServiceStarted|BackupNext|BackupStart|BackupDone)\](.*)")
+COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 STEP_BUTTON_WIDTH = 12
@@ -110,13 +114,18 @@ class BookMinerGui(ttk.Frame):
         self.log_widgets: dict[str, scrolledtext.ScrolledText] = {}
         self.progress_labels = {
             "read": tk.StringVar(value="定跡読込: 待機中"),
+            "engine": tk.StringVar(value="エンジン起動: 待機中"),
             "write": tk.StringVar(value="定跡書込: 待機中"),
             "task": tk.StringVar(value="enqueue進捗: 待機中"),
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
+        self.startup_status = tk.StringVar(value="状態: 停止中")
+        self.backup_status = tk.StringVar(value="次回自動バックアップ: -")
         self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
+        self.command_ready = False
+        self.command_buttons: list[ttk.Widget] = []
         self.auto_enqueue_enabled = tk.BooleanVar(value=False)
         self.auto_enqueue_threshold = tk.StringVar(
             value=gui_settings.get("auto_enqueue_threshold", GUI_SETTING_DEFAULTS["auto_enqueue_threshold"])
@@ -160,50 +169,50 @@ class BookMinerGui(ttk.Frame):
         commands.columnconfigure(8, weight=1)
 
         ttk.Label(commands, text="手順1.").grid(row=0, column=0, sticky="w", pady=3)
-        peta_button = ttk.Button(
+        self.peta_button = ttk.Button(
             commands,
             text="peta_shock",
             width=STEP_BUTTON_WIDTH,
             command=self.send_peta_shock,
         )
-        peta_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
+        self.peta_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(self.peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
 
         ttk.Label(commands, text="手順2.").grid(row=1, column=0, sticky="w", pady=3)
-        next_button = ttk.Button(
+        self.next_button = ttk.Button(
             commands,
             text="peta_next",
             width=STEP_BUTTON_WIDTH,
             command=self.send_peta_next,
         )
-        next_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(next_button, "`n eval_diff [max_step]` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。")
+        self.next_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(self.next_button, "`n eval_diff [max_step]` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。")
         ttk.Label(commands, text="eval_diff").grid(row=1, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=1, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=1, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=1, column=5, sticky="w", pady=3)
 
         ttk.Label(commands, text="手順3.").grid(row=2, column=0, sticky="w", pady=3)
-        enqueue_button = ttk.Button(
+        self.enqueue_button = ttk.Button(
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
             command=self.send_think,
         )
-        enqueue_button.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(enqueue_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        self.enqueue_button.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(self.enqueue_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
         ttk.Label(commands, text="eval_limit").grid(row=2, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=2, column=3, sticky="w", pady=3)
 
         ttk.Label(commands, text="手順4.").grid(row=3, column=0, sticky="w", pady=3)
-        auto_check = ttk.Checkbutton(
+        self.auto_check = ttk.Checkbutton(
             commands,
             text="自動enqueue",
             variable=self.auto_enqueue_enabled,
             command=self.on_auto_enqueue_toggled,
         )
-        auto_check.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
+        self.auto_check.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
         ttk.Label(commands, text="queueの残りが").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=3, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
@@ -215,18 +224,40 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        write_button = ttk.Button(commands, text="定跡DBのbackup", command=self.send_backup)
-        write_button.grid(row=2, column=9, sticky="e", padx=(16, 0), pady=3)
-        Tooltip(write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
+        self.write_button = ttk.Button(commands, text="定跡DBのbackup", command=self.send_backup)
+        self.write_button.grid(row=2, column=9, sticky="e", padx=(16, 0), pady=3)
+        Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
+        self.command_buttons = [
+            self.peta_button,
+            self.next_button,
+            self.enqueue_button,
+            self.auto_check,
+            self.write_button,
+        ]
 
         progress = ttk.Frame(self)
         progress.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         progress.columnconfigure(1, weight=1)
-        self._add_progress_row(progress, 0, "read")
-        self._add_progress_row(progress, 1, "write")
-        self._add_progress_row(progress, 2, "task")
+        ttk.Label(progress, textvariable=self.startup_status).grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(0, 4),
+        )
+        self._add_progress_row(progress, 1, "read")
+        self._add_progress_row(progress, 2, "engine")
+        self._add_progress_row(progress, 3, "write")
+        self._add_progress_row(progress, 4, "task")
+        ttk.Label(progress, textvariable=self.backup_status).grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(5, 0),
+        )
         ttk.Label(progress, textvariable=self.mining_status).grid(
-            row=3,
+            row=6,
             column=0,
             columnspan=2,
             sticky="w",
@@ -243,15 +274,19 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
 
     def _reset_progress(self) -> None:
+        self.startup_status.set("状態: 起動中")
         self.progress_labels["read"].set("定跡読込: 待機中")
+        self.progress_labels["engine"].set("エンジン起動: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
+        self.backup_status.set("次回自動バックアップ: -")
         self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions = None
         self.mining_samples.clear()
         self.task_queue_remaining = None
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action = None
+        self.command_ready = False
         for bar in self.progress_bars.values():
             bar.configure(maximum=1)
             bar["value"] = 0
@@ -359,6 +394,8 @@ class BookMinerGui(ttk.Frame):
         self.process = None
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action = None
+        self.command_ready = False
+        self.startup_status.set("状態: 停止中")
         self._update_buttons()
 
     def _handle_output(self, text: str) -> None:
@@ -380,10 +417,57 @@ class BookMinerGui(ttk.Frame):
             self.output_buffer = ""
 
     def _handle_progress_line(self, line: str) -> None:
+        self._handle_startup_line(line)
         self._handle_book_progress_line(line)
         self._handle_task_queue_progress_line(line)
         self._handle_mining_progress_line(line)
         self._handle_auto_enqueue_line(line)
+
+    def _handle_startup_line(self, line: str) -> None:
+        stage_match = STARTUP_STAGE_RE.search(line)
+        if stage_match is not None:
+            _stage, message = stage_match.groups()
+            self.startup_status.set(f"状態: {message}")
+            return
+
+        engine_match = ENGINE_INIT_RE.search(line)
+        if engine_match is not None:
+            phase, count_text, total_text = engine_match.groups()
+            count = int(count_text)
+            total = int(total_text)
+            label = "エンジン起動完了" if phase == "Done" else "エンジン起動中"
+            self.progress_labels["engine"].set(f"{label} {count}/{total}")
+            bar = self.progress_bars["engine"]
+            if total > 0:
+                bar.configure(maximum=total)
+                bar["value"] = min(count, total)
+            else:
+                bar.configure(maximum=1)
+                bar["value"] = 1
+            if phase == "Done":
+                self.startup_status.set("状態: 自動バックアップサービス起動待ち")
+            return
+
+        backup_match = BACKUP_STATUS_RE.search(line)
+        if backup_match is not None:
+            tag, rest = backup_match.groups()
+            next_match = re.search(r"\bnext=(\S+)", rest)
+            if tag in ("BackupServiceStarted", "BackupNext") and next_match is not None:
+                next_time = next_match.group(1).replace("_", " ")
+                self.backup_status.set(f"次回自動バックアップ: {next_time}")
+                if tag == "BackupServiceStarted":
+                    self.startup_status.set("状態: 自動バックアップサービス起動完了")
+            elif tag == "BackupStart":
+                self.backup_status.set("自動バックアップ: 書き出し中")
+            elif tag == "BackupDone":
+                self.backup_status.set("自動バックアップ: 書き出し完了")
+            return
+
+        if COMMAND_READY_RE.search(line):
+            self.command_ready = True
+            self.startup_status.set("状態: コマンド受付を開始しました。")
+            self._append_log("other", "[GUI] コマンド受付を開始しました。\n")
+            self._update_buttons()
 
     def _handle_book_progress_line(self, line: str) -> None:
         match = BOOK_PROGRESS_RE.search(line)
@@ -620,6 +704,16 @@ class BookMinerGui(ttk.Frame):
     def _classify_log_line(self, line: str) -> str:
         lower = line.lower()
         if (
+            "[startupstage]" in lower
+            or "[engineinit" in lower
+            or "[backupservice" in lower
+            or "[backupnext]" in lower
+            or "[backupstart]" in lower
+            or "[backupdone]" in lower
+            or "[commandready]" in lower
+        ):
+            return "other"
+        if (
             "[taskqueue" in lower
             or "[taskworker" in lower
             or "[miningprogress]" in lower
@@ -654,6 +748,12 @@ class BookMinerGui(ttk.Frame):
                 messagebox.showinfo("未起動", "BookMiner.py を起動してください。")
             else:
                 self._append_log("task", f"[{origin}] BookMiner.py is not running.\n")
+            return False
+        if not self.command_ready:
+            if origin == "GUI":
+                messagebox.showinfo("起動中", "BookMiner.py の起動処理が終わるまで待ってください。")
+            else:
+                self._append_log("task", f"[{origin}] BookMiner.py is not ready for commands.\n")
             return False
         self._append_log("other", f"\n[{origin}] > {command}\n")
         try:
@@ -788,7 +888,10 @@ class BookMinerGui(ttk.Frame):
     def _update_buttons(self) -> None:
         running = self.is_running()
         self.start_button.configure(state="disabled" if running else "normal")
-        self.quit_button.configure(state="normal" if running else "disabled")
+        command_state = "normal" if running and self.command_ready else "disabled"
+        self.quit_button.configure(state=command_state)
+        for button in self.command_buttons:
+            button.configure(state=command_state)
 
 
 def main() -> int:
