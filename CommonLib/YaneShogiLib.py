@@ -334,7 +334,8 @@ class Engine:
             # この場合、コマンドはlistで渡してやらないといけないらしい。
             self.engine = subprocess.Popen(path.split(), stdin=subprocess.PIPE,
                                                 stdout=subprocess.PIPE,
-                                                encoding="UTF-8")
+                                                encoding="UTF-8",
+                                                errors="replace")
 
         else:
             # 相対pathで呼び出すと評価関数を読み込めない問題があるっぽい..(やねうら王V9.00系で発覚)
@@ -351,7 +352,8 @@ class Engine:
             self.engine = subprocess.Popen(path, stdin=subprocess.PIPE,
                                                 stdout=subprocess.PIPE,
                                                 cwd=working_directory,
-                                                encoding="UTF-8")
+                                                encoding="UTF-8",
+                                                errors="replace")
 
         # "isready"を送信して"readyok"が返ってくるのを待つ。
         self.isready()
