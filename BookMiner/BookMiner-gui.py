@@ -120,7 +120,7 @@ class BookMinerGui(ttk.Frame):
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
         self.startup_status = tk.StringVar(value="状態: 停止中")
-        self.backup_status = tk.StringVar(value="次回自動バックアップ: -")
+        self.backup_status = tk.StringVar(value="次回自動バックアップ -")
         self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
@@ -224,9 +224,23 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        self.write_button = ttk.Button(commands, text="定跡DBのbackup", command=self.send_backup)
-        self.write_button.grid(row=2, column=9, sticky="e", padx=(16, 0), pady=3)
+        ttk.Label(commands, text="手順5.").grid(row=4, column=0, sticky="w", pady=3)
+        self.write_button = ttk.Button(
+            commands,
+            text="DB手動保存",
+            width=STEP_BUTTON_WIDTH,
+            command=self.send_backup,
+        )
+        self.write_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
+        ttk.Label(commands, textvariable=self.backup_status).grid(
+            row=4,
+            column=2,
+            columnspan=6,
+            sticky="w",
+            padx=(12, 0),
+            pady=3,
+        )
         self.command_buttons = [
             self.peta_button,
             self.next_button,
@@ -249,15 +263,8 @@ class BookMinerGui(ttk.Frame):
         self._add_progress_row(progress, 2, "engine")
         self._add_progress_row(progress, 3, "write")
         self._add_progress_row(progress, 4, "task")
-        ttk.Label(progress, textvariable=self.backup_status).grid(
-            row=5,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(5, 0),
-        )
         ttk.Label(progress, textvariable=self.mining_status).grid(
-            row=6,
+            row=5,
             column=0,
             columnspan=2,
             sticky="w",
@@ -279,7 +286,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["engine"].set("エンジン起動: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
-        self.backup_status.set("次回自動バックアップ: -")
+        self.backup_status.set("次回自動バックアップ -")
         self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions = None
         self.mining_samples.clear()
@@ -454,13 +461,9 @@ class BookMinerGui(ttk.Frame):
             next_match = re.search(r"\bnext=(\S+)", rest)
             if tag in ("BackupServiceStarted", "BackupNext") and next_match is not None:
                 next_time = next_match.group(1).replace("_", " ")
-                self.backup_status.set(f"次回自動バックアップ: {next_time}")
+                self.backup_status.set(f"次回自動バックアップ {next_time}")
                 if tag == "BackupServiceStarted":
                     self.startup_status.set("状態: 自動バックアップサービス起動完了")
-            elif tag == "BackupStart":
-                self.backup_status.set("自動バックアップ: 書き出し中")
-            elif tag == "BackupDone":
-                self.backup_status.set("自動バックアップ: 書き出し完了")
             return
 
         if COMMAND_READY_RE.search(line):
@@ -473,7 +476,6 @@ class BookMinerGui(ttk.Frame):
         match = BOOK_PROGRESS_RE.search(line)
         if match is None:
             return
-
         direction, phase, count_text, total_text = match.groups()
         key = "read" if direction == "Read" else "write"
         base = "定跡読込" if key == "read" else "定跡書込"
