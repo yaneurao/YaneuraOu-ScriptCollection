@@ -257,7 +257,7 @@ class BookMinerGui(ttk.Frame):
             bar["value"] = 0
 
     def _add_progress_row(self, parent: ttk.Frame, row: int, key: str) -> None:
-        ttk.Label(parent, textvariable=self.progress_labels[key], width=28).grid(
+        ttk.Label(parent, textvariable=self.progress_labels[key], width=36).grid(
             row=row,
             column=0,
             sticky="w",
