@@ -1,4 +1,5 @@
 engine_settings*.json5
+!BookMiner/settings/engine_settings.json5
 start_sfens*.*
 .vscode
 *.params

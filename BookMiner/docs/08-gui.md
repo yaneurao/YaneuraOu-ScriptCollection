@@ -149,17 +149,19 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
 ```text
-[TaskQueueStart] 0/50000 job=1 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400
-[TaskQueueProgress] 30000/50000 job=1 remaining=20000
-[TaskQueueDone] 50000/50000 job=1 remaining=0
+[TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400
+[TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000
+[TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0
 ```
 
-この数値は、BookMiner 起動後に enqueue した累計タスク数に対して、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。
+行頭の `30000/50000` は、BookMiner 起動後に enqueue した累計タスク数に対して、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。
+
+`job_progress=30000/50000` は、そのログ行の `job=1` が投入した対局棋譜だけを見た進捗です。複数回 enqueue して job が混ざっている場合でも、各 job がどれくらい worker に渡ったかを確認できます。
 
 複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが worker に渡った状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
-[TaskQueueStart] 30000/122462 job=4 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400
+[TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400
 ```
 
 ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
