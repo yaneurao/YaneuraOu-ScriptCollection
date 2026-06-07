@@ -24,6 +24,8 @@ BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "t
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
 WCSC_OLD_DEFAULT_OUTPUT_DIR = "downloaded-kif"
 FLOODGATE_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate"
+LOG_MAX_LINES = 1000
+LOG_TRIM_THRESHOLD = 1200
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from floodgate_kif_downloader_core import (  # noqa: E402
@@ -1962,8 +1964,17 @@ class KifManager(tk.Tk):
     def _append_log(self, text: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", text)
+        self._trim_log()
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def _trim_log(self) -> None:
+        line_count = int(self.log_text.index("end-1c").split(".", 1)[0])
+        if line_count <= LOG_TRIM_THRESHOLD:
+            return
+
+        delete_to_line = line_count - LOG_MAX_LINES + 1
+        self.log_text.delete("1.0", f"{delete_to_line}.0")
 
     def _clear_log(self) -> None:
         self.log_text.configure(state="normal")

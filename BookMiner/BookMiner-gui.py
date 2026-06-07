@@ -18,6 +18,8 @@ KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 STEP_BUTTON_WIDTH = 12
+LOG_MAX_LINES = 1000
+LOG_TRIM_THRESHOLD = 1200
 
 
 class Tooltip:
@@ -402,8 +404,17 @@ class BookMinerGui(ttk.Frame):
         log = self.log_widgets.get(key) or self.log_widgets["other"]
         log.configure(state="normal")
         log.insert("end", text)
+        self._trim_log(log)
         log.see("end")
         log.configure(state="disabled")
+
+    def _trim_log(self, log: scrolledtext.ScrolledText) -> None:
+        line_count = int(log.index("end-1c").split(".", 1)[0])
+        if line_count <= LOG_TRIM_THRESHOLD:
+            return
+
+        delete_to_line = line_count - LOG_MAX_LINES + 1
+        log.delete("1.0", f"{delete_to_line}.0")
 
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
