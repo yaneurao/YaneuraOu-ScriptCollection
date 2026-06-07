@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import queue
+import re
+import subprocess
+import sys
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox, scrolledtext, ttk
+
+
+BASE_DIR = Path(__file__).resolve().parent
+BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
+KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
+
+
+class Tooltip:
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.window: tk.Toplevel | None = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, _event: tk.Event | None = None) -> None:
+        if self.window is not None:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.window = tk.Toplevel(self.widget)
+        self.window.wm_overrideredirect(True)
+        self.window.wm_geometry(f"+{x}+{y}")
+        label = ttk.Label(
+            self.window,
+            text=self.text,
+            justify="left",
+            padding=(8, 5),
+            relief="solid",
+            borderwidth=1,
+            wraplength=420,
+        )
+        label.pack()
+
+    def hide(self, _event: tk.Event | None = None) -> None:
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
+class BookMinerGui(ttk.Frame):
+    def __init__(self, master: tk.Tk) -> None:
+        super().__init__(master, padding=12)
+        self.master = master
+        self.process: subprocess.Popen[str] | None = None
+        self.output_queue: queue.Queue[str | None] = queue.Queue()
+        self.output_buffer = ""
+        self.log_widgets: dict[str, scrolledtext.ScrolledText] = {}
+
+        self.eval_diff = tk.StringVar(value="30")
+        self.max_step = tk.StringVar()
+        self.eval_limit = tk.StringVar(value="400")
+
+        self.grid(sticky="nsew")
+        self._build()
+        self._poll_output()
+
+    def _build(self) -> None:
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(3, weight=1)
+
+        top = ttk.Frame(self)
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(1, weight=1)
+
+        bookminer_controls = ttk.Frame(top)
+        bookminer_controls.grid(row=0, column=0, sticky="w")
+        self.start_button = ttk.Button(bookminer_controls, text="BookMiner起動", command=self.start_process)
+        self.start_button.pack(side="left")
+        Tooltip(self.start_button, "BookMiner.py を子プロセスとして起動します。")
+        self.quit_button = ttk.Button(bookminer_controls, text="BookMiner終了", command=lambda: self.send_command("q"))
+        self.quit_button.pack(side="left", padx=(8, 0))
+        Tooltip(self.quit_button, "`q` を送信し、book/book_miner.db に保存して終了します。")
+
+        self.kif_manager_button = ttk.Button(top, text="棋譜抽出", command=self.start_kif_manager)
+        self.kif_manager_button.grid(row=0, column=2, sticky="e")
+        Tooltip(self.kif_manager_button, "KifManager を起動します。棋譜抽出結果は book/think_sfens.txt に保存してください。")
+
+        commands = ttk.Frame(self)
+        commands.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        commands.columnconfigure(9, weight=1)
+
+        peta_button = ttk.Button(commands, text="peta_shock化", command=lambda: self.send_command("p"))
+        peta_button.grid(row=0, column=0, sticky="w", pady=4)
+        Tooltip(peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
+
+        next_button = ttk.Button(commands, text="peta_next", command=self.send_peta_next)
+        next_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=4)
+        Tooltip(next_button, "`n eval_diff [max_step]` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。")
+        ttk.Label(commands, text="eval_diff").grid(row=0, column=2, sticky="w", padx=(8, 6), pady=4)
+        ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=0, column=3, sticky="w", pady=4)
+        ttk.Label(commands, text="max step").grid(row=0, column=4, sticky="w", padx=(8, 6), pady=4)
+        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=0, column=5, sticky="w", pady=4)
+
+        think_button = ttk.Button(commands, text="think_sfens.txtを掘る", command=self.send_think)
+        think_button.grid(row=0, column=6, sticky="w", padx=(8, 0), pady=4)
+        Tooltip(think_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt を掘ります。")
+        ttk.Label(commands, text="eval_limit").grid(row=0, column=7, sticky="w", padx=(8, 6), pady=4)
+        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=0, column=8, sticky="w", pady=4)
+
+        write_button = ttk.Button(commands, text="定跡DBのbackup", command=lambda: self.send_command("w"))
+        write_button.grid(row=0, column=10, sticky="e", padx=(16, 0), pady=4)
+        Tooltip(write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
+
+        logs = ttk.PanedWindow(self, orient="vertical")
+        logs.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
+        self._add_log_pane(logs, "peta_next/peta_shock化ログ", "peta", 8)
+        self._add_log_pane(logs, "探索ログ", "search", 12)
+        self._add_log_pane(logs, "その他ログ", "other", 10)
+
+        self._update_buttons()
+
+    def _add_log_pane(self, paned: ttk.PanedWindow, title: str, key: str, height: int) -> None:
+        frame = ttk.Frame(paned, padding=(0, 0, 0, 4))
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+        ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
+        text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
+        text.grid(row=1, column=0, sticky="nsew")
+        text.configure(state="disabled")
+        self.log_widgets[key] = text
+        paned.add(frame, weight=1)
+
+    def start_process(self) -> None:
+        if self.is_running():
+            return
+        if not BOOK_MINER_SCRIPT.is_file():
+            messagebox.showerror("起動失敗", f"BookMiner.py が見つかりません: {BOOK_MINER_SCRIPT}")
+            return
+
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, str(BOOK_MINER_SCRIPT)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=BASE_DIR,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=0,
+                env=env,
+            )
+        except OSError as exc:
+            self.process = None
+            messagebox.showerror("起動失敗", str(exc))
+            return
+
+        self._append_log("other", f"$ {sys.executable} {BOOK_MINER_SCRIPT.name}\n")
+        threading.Thread(target=self._read_output, daemon=True).start()
+        self._update_buttons()
+
+    def start_kif_manager(self) -> None:
+        if not KIF_MANAGER_SCRIPT.is_file():
+            messagebox.showerror("起動失敗", f"KifManager が見つかりません: {KIF_MANAGER_SCRIPT}")
+            return
+        try:
+            subprocess.Popen(
+                [sys.executable, str(KIF_MANAGER_SCRIPT)],
+                cwd=KIF_MANAGER_SCRIPT.parent,
+            )
+        except OSError as exc:
+            messagebox.showerror("起動失敗", str(exc))
+
+    def _read_output(self) -> None:
+        process = self.process
+        if process is None or process.stdout is None:
+            return
+        try:
+            while True:
+                chunk = process.stdout.read(1)
+                if chunk == "":
+                    break
+                self.output_queue.put(chunk)
+        finally:
+            self.output_queue.put(None)
+
+    def _poll_output(self) -> None:
+        while True:
+            try:
+                item = self.output_queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is None:
+                self._on_process_ended()
+            else:
+                self._handle_output(item)
+        self.after(100, self._poll_output)
+
+    def _on_process_ended(self) -> None:
+        self._flush_output_buffer()
+        process = self.process
+        if process is not None:
+            return_code = process.poll()
+            self._append_log("other", f"\n[GUI] BookMiner.py exited. return code = {return_code}\n")
+        self.process = None
+        self._update_buttons()
+
+    def _handle_output(self, text: str) -> None:
+        self.output_buffer += text
+        while "\n" in self.output_buffer:
+            line, self.output_buffer = self.output_buffer.split("\n", 1)
+            line = line + "\n"
+            self._append_log(self._classify_log_line(line), line)
+
+        if self.output_buffer.endswith("> "):
+            self._append_log("other", self.output_buffer)
+            self.output_buffer = ""
+
+    def _flush_output_buffer(self) -> None:
+        if self.output_buffer:
+            self._append_log(self._classify_log_line(self.output_buffer), self.output_buffer)
+            self.output_buffer = ""
+
+    def _classify_log_line(self, line: str) -> str:
+        lower = line.lower()
+        if (
+            "peta_shock" in lower
+            or "p command" in lower
+            or "peta shocked book" in lower
+            or "peta_next" in lower
+            or "root sfen" in lower
+            or "think_sfens" in lower
+            or "write book path" in lower
+        ):
+            return "peta"
+        if (
+            "put position" in lower
+            or "reached max_book_ply" in lower
+            or "過去10分" in line
+            or "all tasks completed" in lower
+            or re.search(r"\[\d+\]\s+.+\s,\s*[0-9.]+", line)
+        ):
+            return "search"
+        return "other"
+
+    def send_command(self, command: str) -> bool:
+        if not self.is_running() or self.process is None or self.process.stdin is None:
+            messagebox.showinfo("未起動", "BookMiner.py を起動してください。")
+            return False
+        self._append_log("other", f"\n[GUI] > {command}\n")
+        try:
+            self.process.stdin.write(command + "\n")
+            self.process.stdin.flush()
+        except OSError as exc:
+            messagebox.showerror("送信失敗", str(exc))
+            return False
+        return True
+
+    def send_think(self) -> None:
+        value = self.eval_limit.get().strip()
+        if not value:
+            messagebox.showerror("入力エラー", "eval_limit を指定してください。")
+            return
+        if self.send_command(f"e {value}"):
+            self.send_command("t")
+
+    def send_peta_next(self) -> None:
+        eval_diff = self.eval_diff.get().strip()
+        if not eval_diff:
+            messagebox.showerror("入力エラー", "eval diff を指定してください。")
+            return
+        max_step = self.max_step.get().strip()
+        self.send_command(f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}")
+
+    def _append_log(self, key: str, text: str) -> None:
+        log = self.log_widgets.get(key) or self.log_widgets["other"]
+        log.configure(state="normal")
+        log.insert("end", text)
+        log.see("end")
+        log.configure(state="disabled")
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def _update_buttons(self) -> None:
+        running = self.is_running()
+        self.start_button.configure(state="disabled" if running else "normal")
+        self.quit_button.configure(state="normal" if running else "disabled")
+
+
+def main() -> int:
+    root = tk.Tk()
+    root.title("BookMiner GUI")
+    root.geometry("980x720")
+    root.minsize(760, 520)
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+
+    gui = BookMinerGui(root)
+
+    def on_close() -> None:
+        if gui.is_running():
+            gui.process.terminate()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

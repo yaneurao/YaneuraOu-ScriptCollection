@@ -1108,7 +1108,7 @@ def has_considered(infos:PositionInfo)->bool:
     """
     return get_best(infos)[0] is not None
 
-def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None):
+def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None)->str:
     """
     やねうら王 定跡形式で書き出す。
     """
@@ -1126,6 +1126,7 @@ def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None):
     path = save_book_backup(book, save_dir, ply_limit)
     print(f"write path = {path}")
     print(f"..w command write has done. path = {path}")
+    return path
 
 
 def bfs_for_ply(book:Book):
@@ -1505,6 +1506,18 @@ def read_peta_book(source_book_path:str|None = None):
         read_yaneuraou_book_file(peta_path, append_position)
 
     print("reading the peta_book has done.")
+
+
+def write_and_read_peta_book(book:Book):
+    """
+    現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
+    `w` の完了を待ってから `r` を手入力する事故を避けるための一括コマンド。
+    """
+    print("start p command : write backup, peta_shock, and read peta book.")
+    source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
+    print(f"p command source book = {source_book_path}")
+    read_peta_book(source_book_path)
+    print("..p command has done.")
 
 
 def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
@@ -1890,6 +1903,7 @@ def user_input():
                 print("  E : EvalLimit , e [eval_limit]")
                 print("  B : bfs for ply")
                 print("  R    : make and read peta shocked book , r (source book path)")
+                print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
                 print("  H : Help")
 
@@ -1952,6 +1966,10 @@ def user_input():
                 # peta_read
                 source_book_path = inp[1] if len(inp) >= 2 else None
                 read_peta_book(source_book_path)
+
+            elif i == 'p':
+                # write and peta_read
+                write_and_read_peta_book(book)
             
             elif i == 'n':
                 # peta_next

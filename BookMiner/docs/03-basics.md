@@ -45,29 +45,35 @@ t book/my_positions.txt
 
 棋譜の末端まで到達した場合は、そこからエンジンの best line を `THINK_COMMAND_PLY` 手分だけ延長して掘ります。この延長中も、評価値の絶対値が eval limit 以上になったら停止します。
 
-## 通常定跡 DB を書き出す
+## 通常定跡 DB を書き出して peta shock 化する
 
-局面を掘ったら、`w` コマンドで通常のやねうら王定跡形式として書き出します。
+局面を掘ったら、通常は `p` コマンドを使います。
 
 ```text
-w
+p
 ```
 
-出力先は `book/backup/` です。
+`p` は、現在の定跡 DB を通常のやねうら王定跡形式として `book/backup/` に書き出し、その書き出したファイルを peta shock 化して `book/peta_book.db` として読み込みます。
+
+バックアップの出力先は `book/backup/` です。
 
 ```text
 book/backup/book_miner-20260607071000_12345.db
 ```
 
-## peta shock 化する
+`w` コマンドで書き出しだけを行い、`r` コマンドで peta shock 化だけを行うこともできます。ただし、通常の周回作業では `p` を使うほうが安全です。`p` は、自分で書き出したバックアップファイルをそのまま変換元に使うため、`w` の完了確認漏れや、定期自動バックアップとの取り違えを避けやすくなります。
 
-`w` で書き出した通常定跡 DB は、`r` コマンドで peta shock 化します。
+## peta shock 化の内部処理
+
+`p` または `r` コマンドは、通常定跡 DB を peta shock 化します。
 
 ```text
-r
+p
 ```
 
-`r` は、`book/backup/` にある最新の通常バックアップを `YO-MATERIAL.exe` に渡し、`book/peta_book.db` を作って読み込みます。
+`p` は、いま書き出した通常バックアップを `YO-MATERIAL.exe` に渡し、`book/peta_book.db` を作って読み込みます。
+
+`r` は、path を省略した場合、`book/backup/` にある最新の通常バックアップを `YO-MATERIAL.exe` に渡します。
 
 やねうら王側のコマンドは次の形式です。
 
@@ -138,8 +144,7 @@ book/think_sfens.txt
 1. KifManager で棋譜を抽出し、`book/think_sfens.txt` を作る。
 2. BookMiner を起動する。
 3. `t` で局面を掘る。
-4. `w` で 定跡 DB を `book/backup/` に書き出す。
-5. `r` で peta shock 化して、その定跡DBを読み込む。
-6. `n 30` などとして、次に掘る局面を作る。`book/think_sfens.txt`に書き出される。
-7. 必要なら 3. に戻って繰り返す。
-8. 終了するときは `q` で終了する。(このとき、`book/book_miner.db`に自動保存される。)
+4. `p` で定跡 DB を `book/backup/` に書き出し、peta shock 化して読み込む。
+5. `n 30` などとして、次に掘る局面を作る。`book/think_sfens.txt`に書き出される。
+6. 必要なら 3. に戻って繰り返す。
+7. 終了するときは `q` で終了する。(このとき、`book/book_miner.db`に自動保存される。)
