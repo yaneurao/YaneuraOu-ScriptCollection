@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from floodgate_kif_downloader import (
+# CLI entry point. The downloader implementation is in floodgate_kif_downloader_core.py.
+from floodgate_kif_downloader_core import (
     FloodgateDownloadError,
     FloodgateDownloadJob,
     download_floodgate_kif,

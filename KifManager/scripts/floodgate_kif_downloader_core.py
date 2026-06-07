@@ -53,6 +53,10 @@ def validate_year(value: int) -> int:
     return value
 
 
+def stop_requested(should_stop: Callable[[], bool] | None) -> bool:
+    return should_stop is not None and should_stop()
+
+
 def fetch_bytes(url: str, timeout: float) -> bytes:
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=timeout) as response:
@@ -98,12 +102,17 @@ def download_floodgate_kif(
     job: FloodgateDownloadJob,
     *,
     log: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> FloodgateDownloadStats:
     year = validate_year(job.year)
     if job.timeout <= 0:
         raise FloodgateDownloadError("timeout は 0 より大きい値を指定してください。")
 
+    if stop_requested(should_stop):
+        raise FloodgateDownloadError("停止要求を受け付けました。")
     archive_url = find_archive_url(year, timeout=job.timeout)
+    if stop_requested(should_stop):
+        raise FloodgateDownloadError("停止要求を受け付けました。")
     destination = job.output_dir.expanduser() / destination_filename(year)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +121,8 @@ def download_floodgate_kif(
         log(f"output   : {destination}\n")
 
     data = fetch_bytes(archive_url, job.timeout)
+    if stop_requested(should_stop):
+        raise FloodgateDownloadError("停止要求を受け付けました。")
     temporary = destination.with_name(destination.name + ".tmp")
     temporary.write_bytes(data)
     temporary.replace(destination)

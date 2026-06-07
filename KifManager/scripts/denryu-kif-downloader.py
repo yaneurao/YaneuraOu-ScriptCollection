@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from denryu_kif_downloader import (
+# CLI entry point. The downloader implementation is in denryu_kif_downloader_core.py.
+from denryu_kif_downloader_core import (
     DENRYU_DEFAULT_OUTPUT_DIR,
     DenryuDownloadError,
     DenryuDownloadJob,

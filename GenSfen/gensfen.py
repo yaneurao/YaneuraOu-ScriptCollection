@@ -6,6 +6,7 @@ import threading
 import sys
 from pathlib import Path
 from tqdm import tqdm
+import cshogi
 
 from threading import Thread
 
@@ -272,9 +273,9 @@ class ShogiMatch:
         return game_data
 
     def hcpe3_result_from_winner(self, winner:int)->int:
-        if winner == BLACK:
+        if winner == cshogi.BLACK:
             return HCPE3_BLACK_WIN
-        if winner == WHITE:
+        if winner == cshogi.WHITE:
             return HCPE3_WHITE_WIN
         return HCPE3_DRAW
 

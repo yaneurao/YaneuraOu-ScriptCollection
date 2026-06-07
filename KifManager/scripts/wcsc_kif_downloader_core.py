@@ -60,18 +60,34 @@ class LhaMember:
     output_name: str
 
 
+def stop_requested(should_stop: Callable[[], bool] | None) -> bool:
+    return should_stop is not None and should_stop()
+
+
+def sleep_with_stop(seconds: float, should_stop: Callable[[], bool] | None) -> bool:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        if stop_requested(should_stop):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return stop_requested(should_stop)
+        time.sleep(min(0.2, remaining))
+
+
 class RateLimiter:
     def __init__(self, interval: float) -> None:
         self.interval = max(0.0, interval)
         self.last_access: float | None = None
 
-    def wait(self) -> None:
+    def wait(self, should_stop: Callable[[], bool] | None = None) -> bool:
         if self.last_access is not None:
             elapsed = time.monotonic() - self.last_access
             remaining = self.interval - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
+            if remaining > 0 and sleep_with_stop(remaining, should_stop):
+                return False
         self.last_access = time.monotonic()
+        return not stop_requested(should_stop)
 
 
 def remove_tree_with_retries(
@@ -163,8 +179,14 @@ def live_base_url(normalized_name: str) -> str:
     return default_base_url(number)
 
 
-def fetch_bytes(url: str, limiter: RateLimiter, timeout: float) -> bytes:
-    limiter.wait()
+def fetch_bytes(
+    url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> bytes:
+    if not limiter.wait(should_stop):
+        return b""
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=timeout) as response:
         return response.read()
@@ -179,27 +201,41 @@ def decode_text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def fetch_list_text(base_url: str, limiter: RateLimiter, timeout: float) -> tuple[str, str]:
+def fetch_list_text(
+    base_url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[str, str]:
     direct_url = urljoin(base_url, "list.txt")
     try:
-        return direct_url, decode_text(fetch_bytes(direct_url, limiter, timeout))
+        return direct_url, decode_text(fetch_bytes(direct_url, limiter, timeout, should_stop))
     except URLError:
         pass
 
-    html = decode_text(fetch_bytes(base_url, limiter, timeout))
+    html = decode_text(fetch_bytes(base_url, limiter, timeout, should_stop))
     parser = LinkExtractor()
     parser.feed(html)
     for href in parser.hrefs:
         if Path(urlparse(href).path).name.lower() == "list.txt":
             list_url = urljoin(base_url, href)
-            return list_url, decode_text(fetch_bytes(list_url, limiter, timeout))
+            return list_url, decode_text(fetch_bytes(list_url, limiter, timeout, should_stop))
 
     raise DownloadError(f"棋譜リストが見つかりません: {base_url}")
 
 
-def fetch_kifu_urls(base_url: str, limiter: RateLimiter, timeout: float) -> tuple[str, list[str]]:
+def fetch_kifu_urls(
+    base_url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[str, list[str]]:
+    if stop_requested(should_stop):
+        return base_url, []
     try:
-        list_url, list_text = fetch_list_text(base_url, limiter, timeout)
+        list_url, list_text = fetch_list_text(base_url, limiter, timeout, should_stop)
+        if stop_requested(should_stop):
+            return list_url, []
         urls = normalize_list_kifu_urls(extract_kifu_urls(list_text), base_url)
         if urls:
             return list_url, urls
@@ -208,7 +244,7 @@ def fetch_kifu_urls(base_url: str, limiter: RateLimiter, timeout: float) -> tupl
     except DownloadError:
         pass
 
-    return fetch_legacy_kifu_urls(base_url, limiter, timeout)
+    return fetch_legacy_kifu_urls(base_url, limiter, timeout, should_stop)
 
 
 def download_wcsc_archive_from_index(
@@ -219,8 +255,9 @@ def download_wcsc_archive_from_index(
     overwrite: bool,
     timeout: float,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> WcscDownloadStats:
-    archive_url = fetch_wcsc_archive_url(normalized_name, limiter, timeout)
+    archive_url = fetch_wcsc_archive_url(normalized_name, limiter, timeout, should_stop)
     archive_filename = filename_from_url(archive_url)
 
     if log is not None:
@@ -232,8 +269,13 @@ def download_wcsc_archive_from_index(
     tmp_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="wcsc-kif-downloader-", dir=tmp_root))
     try:
+        if stop_requested(should_stop):
+            return WcscDownloadStats(normalized_name, archive_url, output_dir, 0, 0, 0)
         archive_path = work_dir / archive_filename
-        archive_path.write_bytes(fetch_bytes(archive_url, limiter, timeout))
+        archive_data = fetch_bytes(archive_url, limiter, timeout, should_stop)
+        if stop_requested(should_stop):
+            return WcscDownloadStats(normalized_name, archive_url, output_dir, 0, 0, 0)
+        archive_path.write_bytes(archive_data)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         found, downloaded, skipped = extract_archive(
@@ -242,6 +284,7 @@ def download_wcsc_archive_from_index(
             work_dir=work_dir,
             overwrite=overwrite,
             log=log,
+            should_stop=should_stop,
         )
 
         return WcscDownloadStats(
@@ -264,10 +307,11 @@ def extract_archive(
     work_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     suffix = archive_path.suffix.lower()
     if suffix == ".zip":
-        return extract_zip_archive(archive_path, output_dir, overwrite, log)
+        return extract_zip_archive(archive_path, output_dir, overwrite, log, should_stop)
     if suffix == ".lzh":
         return extract_lha_archive(
             archive_path=archive_path,
@@ -275,6 +319,7 @@ def extract_archive(
             work_dir=work_dir,
             overwrite=overwrite,
             log=log,
+            should_stop=should_stop,
         )
     raise DownloadError(f"未対応のアーカイブ形式です: {archive_path.name}")
 
@@ -284,6 +329,7 @@ def extract_zip_archive(
     output_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     with zipfile.ZipFile(archive_path) as archive:
         members = [
@@ -299,6 +345,8 @@ def extract_zip_archive(
         downloaded = 0
         skipped = 0
         for index, (info, member_name) in enumerate(members, 1):
+            if stop_requested(should_stop):
+                break
             destination = safe_archive_member_path(output_dir, member_name)
             if destination.exists() and not overwrite:
                 skipped += 1
@@ -349,16 +397,17 @@ def extract_lha_archive(
     work_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     try:
-        return extract_lha_archive_with_lhafile(archive_path, output_dir, overwrite, log)
+        return extract_lha_archive_with_lhafile(archive_path, output_dir, overwrite, log, should_stop)
     except Exception as exc:
         if not should_try_external_lha_extractor(exc):
             raise
         if log is not None:
             log(f"lhafile     : {exc}\n")
             log("fallback    : external extractor\n")
-        return extract_lha_archive_with_external(archive_path, output_dir, work_dir, overwrite, log)
+        return extract_lha_archive_with_external(archive_path, output_dir, work_dir, overwrite, log, should_stop)
 
 
 def extract_lha_archive_with_lhafile(
@@ -366,6 +415,7 @@ def extract_lha_archive_with_lhafile(
     output_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     members = list_lha_members(archive_path)
     if log is not None:
@@ -376,6 +426,8 @@ def extract_lha_archive_with_lhafile(
     downloaded = 0
     skipped = 0
     for index, member in enumerate(members, 1):
+        if stop_requested(should_stop):
+            break
         destination = safe_archive_member_path(output_dir, member.output_name)
         if destination.exists() and not overwrite:
             skipped += 1
@@ -404,6 +456,7 @@ def extract_lha_archive_with_external(
     work_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     staging_dir = work_dir / "external-extract"
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -433,6 +486,8 @@ def extract_lha_archive_with_external(
     downloaded = 0
     skipped = 0
     for index, source in enumerate(files, 1):
+        if stop_requested(should_stop):
+            break
         member_name = source.relative_to(staging_dir).as_posix()
         destination = safe_archive_member_path(output_dir, member_name)
         if destination.exists() and not overwrite:
@@ -472,8 +527,13 @@ def external_lha_extractor_candidates() -> list[str]:
     return deduplicate(candidates)
 
 
-def fetch_wcsc_archive_url(normalized_name: str, limiter: RateLimiter, timeout: float) -> str:
-    index_html = decode_text(fetch_bytes(HISTORIC_KIF_INDEX_URL, limiter, timeout))
+def fetch_wcsc_archive_url(
+    normalized_name: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> str:
+    index_html = decode_text(fetch_bytes(HISTORIC_KIF_INDEX_URL, limiter, timeout, should_stop))
     parser = LinkExtractor()
     parser.feed(index_html)
 
@@ -579,7 +639,12 @@ def safe_archive_member_path(output_dir: Path, member_name: str) -> Path:
     return destination
 
 
-def fetch_legacy_kifu_urls(base_url: str, limiter: RateLimiter, timeout: float) -> tuple[str, list[str]]:
+def fetch_legacy_kifu_urls(
+    base_url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[str, list[str]]:
     queue: list[str] = [base_url]
     visited: set[str] = set()
     seen_kifu_urls: set[str] = set()
@@ -587,15 +652,19 @@ def fetch_legacy_kifu_urls(base_url: str, limiter: RateLimiter, timeout: float) 
     source_url = base_url
 
     while queue and len(visited) < 100:
+        if stop_requested(should_stop):
+            return source_url, kifu_urls
         page_url = queue.pop(0)
         if page_url in visited:
             continue
         visited.add(page_url)
 
         try:
-            html = decode_text(fetch_bytes(page_url, limiter, timeout))
+            html = decode_text(fetch_bytes(page_url, limiter, timeout, should_stop))
         except URLError:
             continue
+        if stop_requested(should_stop):
+            return source_url, kifu_urls
 
         source_url = page_url
         found_urls, next_pages = extract_legacy_urls(page_url, html, base_url)
@@ -704,6 +773,7 @@ def download_wcsc_kif(
     job: WcscDownloadJob,
     *,
     log: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> WcscDownloadStats:
     normalized_name, _base_url = normalize_wcsc_name(job.tournament)
     if job.interval < 0:
@@ -722,6 +792,7 @@ def download_wcsc_kif(
             overwrite=job.overwrite,
             timeout=job.timeout,
             log=log,
+            should_stop=should_stop,
         )
 
     base_url = live_base_url(normalized_name)
@@ -729,7 +800,7 @@ def download_wcsc_kif(
         log("source   : live page\n")
         log(f"base url : {base_url}\n")
 
-    list_url, urls = fetch_kifu_urls(base_url, limiter, job.timeout)
+    list_url, urls = fetch_kifu_urls(base_url, limiter, job.timeout, should_stop)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -741,6 +812,8 @@ def download_wcsc_kif(
     downloaded = 0
     skipped = 0
     for index, url in enumerate(urls, 1):
+        if stop_requested(should_stop):
+            break
         destination = output_dir / filename_from_url(url)
         if destination.exists() and not job.overwrite:
             skipped += 1
@@ -748,7 +821,9 @@ def download_wcsc_kif(
                 log(f"[{index}/{len(urls)}] skip existing: {destination.name}\n")
             continue
 
-        data = fetch_bytes(url, limiter, job.timeout)
+        data = fetch_bytes(url, limiter, job.timeout, should_stop)
+        if stop_requested(should_stop):
+            break
         destination.write_bytes(data)
         downloaded += 1
         if log is not None:

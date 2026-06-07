@@ -35,7 +35,7 @@
     "STANDARD_BOARD" : true,
 
     // tune.pyの'tune'コマンドで生成したパラメーターファイル
-    "PARAMETERS_PATH" : "param/YaneuraOuV931.params"
+    "PARAMETERS_PATH" : "param/YaneuraOuV950.params"
     // FV_SCALEも調整したいので
     // `FV_SCALE, int, 40, 16.0, 64.0, 1.0, 0.002`
     // のように追加している。

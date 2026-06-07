@@ -72,18 +72,34 @@ class DenryuDownloadStats:
     skipped: int
 
 
+def stop_requested(should_stop: Callable[[], bool] | None) -> bool:
+    return should_stop is not None and should_stop()
+
+
+def sleep_with_stop(seconds: float, should_stop: Callable[[], bool] | None) -> bool:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        if stop_requested(should_stop):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return stop_requested(should_stop)
+        time.sleep(min(0.2, remaining))
+
+
 class RateLimiter:
     def __init__(self, interval: float) -> None:
         self.interval = max(0.0, interval)
         self.last_access: float | None = None
 
-    def wait(self) -> None:
+    def wait(self, should_stop: Callable[[], bool] | None = None) -> bool:
         if self.last_access is not None:
             elapsed = time.monotonic() - self.last_access
             remaining = self.interval - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
+            if remaining > 0 and sleep_with_stop(remaining, should_stop):
+                return False
         self.last_access = time.monotonic()
+        return not stop_requested(should_stop)
 
 
 def remove_tree_with_retries(
@@ -150,9 +166,15 @@ def clean_title(value: str) -> str:
     return title or "(無題)"
 
 
-def fetch_bytes(url: str, limiter: RateLimiter | None, timeout: float) -> bytes:
+def fetch_bytes(
+    url: str,
+    limiter: RateLimiter | None,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> bytes:
     if limiter is not None:
-        limiter.wait()
+        if not limiter.wait(should_stop):
+            return b""
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=timeout) as response:
         return response.read()
@@ -290,6 +312,7 @@ def find_archive_url(
     explicit_archive_url: str = "",
     limiter: RateLimiter,
     timeout: float,
+    should_stop: Callable[[], bool] | None = None,
 ) -> str:
     source_url = normalize_source_url(source_url)
     if explicit_archive_url:
@@ -301,15 +324,20 @@ def find_archive_url(
     candidate_pages = [source_url, urljoin(denryu_base_url(source_url), "dr1_live.php")]
     seen_pages: set[str] = set()
     for page_url in candidate_pages:
+        if stop_requested(should_stop):
+            raise DenryuDownloadError("停止要求を受け付けました。")
         if page_url in seen_pages or urlparse(page_url).path.lower().endswith(".zip"):
             continue
         seen_pages.add(page_url)
         try:
-            archive_url = find_archive_url_in_page(page_url, key, limiter, timeout)
+            archive_url = find_archive_url_in_page(page_url, key, limiter, timeout, should_stop)
         except (URLError, DenryuDownloadError):
             continue
         if archive_url:
             return archive_url
+
+    if stop_requested(should_stop):
+        raise DenryuDownloadError("停止要求を受け付けました。")
 
     try:
         for option in fetch_denryu_tournament_options(timeout=timeout):
@@ -323,8 +351,14 @@ def find_archive_url(
     )
 
 
-def find_archive_url_in_page(page_url: str, key: str, limiter: RateLimiter, timeout: float) -> str:
-    page_html = decode_text(fetch_bytes(page_url, limiter, timeout))
+def find_archive_url_in_page(
+    page_url: str,
+    key: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> str:
+    page_html = decode_text(fetch_bytes(page_url, limiter, timeout, should_stop))
     parser = LinkExtractor()
     parser.feed(page_html)
     for _title, href in parser.links:
@@ -341,9 +375,18 @@ def find_archive_url_in_page(page_url: str, key: str, limiter: RateLimiter, time
     raise DenryuDownloadError(f"一括ZIPがページ内に見つかりません: {page_url}")
 
 
-def fetch_live_game_list(base_url: str, limiter: RateLimiter, timeout: float) -> tuple[str, list[tuple[str, str]]]:
+def fetch_live_game_list(
+    base_url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[str, list[tuple[str, str]]]:
     list_url = urljoin(base_url, "kifulist.txt")
-    list_text = decode_text(fetch_bytes(list_url, limiter, timeout))
+    if stop_requested(should_stop):
+        return list_url, []
+    list_text = decode_text(fetch_bytes(list_url, limiter, timeout, should_stop))
+    if stop_requested(should_stop):
+        return list_url, []
     games: list[tuple[str, str]] = []
     seen: set[str] = set()
     for match in KIFULIST_RE.finditer(list_text):
@@ -367,6 +410,7 @@ def download_denryu_kif(
     job: DenryuDownloadJob,
     *,
     log: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> DenryuDownloadStats:
     source_url = normalize_source_url(job.source_url)
     if job.interval < 0:
@@ -387,6 +431,7 @@ def download_denryu_kif(
             overwrite=job.overwrite,
             timeout=job.timeout,
             log=log,
+            should_stop=should_stop,
         )
 
     return download_denryu_from_archive(
@@ -398,6 +443,7 @@ def download_denryu_kif(
         overwrite=job.overwrite,
         timeout=job.timeout,
         log=log,
+        should_stop=should_stop,
     )
 
 
@@ -410,9 +456,10 @@ def download_denryu_from_live(
     overwrite: bool,
     timeout: float,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> DenryuDownloadStats:
     base_url = denryu_base_url(source_url)
-    list_url, games = fetch_live_game_list(base_url, limiter, timeout)
+    list_url, games = fetch_live_game_list(base_url, limiter, timeout, should_stop)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if log is not None:
@@ -425,6 +472,8 @@ def download_denryu_from_live(
     downloaded = 0
     skipped = 0
     for index, (game_id, _game_name) in enumerate(games, 1):
+        if stop_requested(should_stop):
+            break
         destination = output_dir / sanitize_filename(f"{game_id}.csa")
         if destination.exists() and not overwrite:
             skipped += 1
@@ -432,7 +481,9 @@ def download_denryu_from_live(
                 log(f"[{index}/{len(games)}] skip existing: {destination.name}\n")
             continue
 
-        data = fetch_bytes(csa_url_for_game(base_url, game_id), limiter, timeout)
+        data = fetch_bytes(csa_url_for_game(base_url, game_id), limiter, timeout, should_stop)
+        if stop_requested(should_stop):
+            break
         destination.write_bytes(data)
         downloaded += 1
         if log is not None:
@@ -460,6 +511,7 @@ def download_denryu_from_archive(
     overwrite: bool,
     timeout: float,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> DenryuDownloadStats:
     try:
         archive_url = find_archive_url(
@@ -467,8 +519,11 @@ def download_denryu_from_archive(
             explicit_archive_url=explicit_archive_url,
             limiter=limiter,
             timeout=timeout,
+            should_stop=should_stop,
         )
     except DenryuDownloadError as exc:
+        if stop_requested(should_stop):
+            return DenryuDownloadStats(key, "archive", source_url, "", output_dir, 0, 0, 0)
         if explicit_archive_url or urlparse(source_url).path.lower().endswith(".zip"):
             raise
         if log is not None:
@@ -482,6 +537,7 @@ def download_denryu_from_archive(
             overwrite=overwrite,
             timeout=timeout,
             log=log,
+            should_stop=should_stop,
         )
     archive_filename = filename_from_url(archive_url)
 
@@ -493,8 +549,13 @@ def download_denryu_from_archive(
     tmp_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="denryu-kif-downloader-", dir=tmp_root))
     try:
+        if stop_requested(should_stop):
+            return DenryuDownloadStats(key, "archive", source_url, archive_url, output_dir, 0, 0, 0)
         archive_path = work_dir / archive_filename
-        archive_path.write_bytes(fetch_bytes(archive_url, limiter, timeout))
+        archive_data = fetch_bytes(archive_url, limiter, timeout, should_stop)
+        if stop_requested(should_stop):
+            return DenryuDownloadStats(key, "archive", source_url, archive_url, output_dir, 0, 0, 0)
+        archive_path.write_bytes(archive_data)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         found, downloaded, skipped = extract_zip_archive(
@@ -502,6 +563,7 @@ def download_denryu_from_archive(
             output_dir=output_dir,
             overwrite=overwrite,
             log=log,
+            should_stop=should_stop,
         )
     finally:
         remove_tree_with_retries(work_dir, log=log)
@@ -525,6 +587,7 @@ def extract_zip_archive(
     output_dir: Path,
     overwrite: bool,
     log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[int, int, int]:
     with zipfile.ZipFile(archive_path) as archive:
         members = [
@@ -540,6 +603,8 @@ def extract_zip_archive(
         downloaded = 0
         skipped = 0
         for index, (info, member_name) in enumerate(members, 1):
+            if stop_requested(should_stop):
+                break
             destination = safe_archive_member_path(output_dir, member_name)
             if destination.exists() and not overwrite:
                 skipped += 1

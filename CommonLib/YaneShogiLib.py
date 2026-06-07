@@ -30,6 +30,7 @@ Eval  = int
 VALUE_INF                    =  1000000
 # やねうら王のVALUE_MATE。pack出力ではscore mate Nをこの体系に写像する。
 VALUE_MATE                   =    32000
+VALUE_EVAL_CLAMP             =    30000
 # その指し手の評価値が定まっていない時の定数(定跡として選択されないようにするために-INFみたいな値にしておく。-VALUE_INFは負けの指し手でそれよりはマシだろうから、9999にしておく。)
 VALUE_NONE                   =   -99999
 
@@ -71,10 +72,11 @@ def print_log(*args:Any,end:str='\n'):
 def enable_print_log():
     '''print logを有効化する。'''        
     global log_file , write_log
-    write_log = True
     filename = f'log/log_{make_time_stamp()}.log'
     mkdir(filename)
     log_file = open(filename,'w',encoding='utf-8')
+    write_log = True
+    print_log(f"log file : {filename}")
 
 
 def make_time_stamp()->str:
@@ -216,10 +218,14 @@ def usi_mate_to_yaneuraou_eval(mate_ply_str:str, mate_score:int = VALUE_MATE)->E
 def evalstr_to_int(s1:str,s2:str, mate_score:int | None = None)->Eval:
     ''' cp 100 なら 100。mate 1 なら 31999 を返す。'''
     if s1 == 'cp':
-        return int(s2)
+        return clamp_eval(int(s2))
     if s1 == "mate":
         return usi_mate_to_yaneuraou_eval(s2, VALUE_MATE if mate_score is None else mate_score)
     raise Exception(f"Error! : parse error {s1},{s2}")
+
+def clamp_eval(x:int)->int:
+    """定跡用評価値として扱う範囲へ丸める。"""
+    return min(VALUE_EVAL_CLAMP, max(-VALUE_EVAL_CLAMP, int(x)))
 
 def clamp_int16(x:int)->int:
     """signed int16に収まる範囲へ丸める。"""
@@ -652,16 +658,6 @@ class NonStandardBoard:
     def ply(self)->int:
         return self.game_ply
 
-
-def move_to_usi(m:int)->str:
-    '''legal_moves()で返ってきた32bit整数をUSIプロトコルの指し手文字列に変換する。'''
-    return cshogi.move_to_usi(m)
-
-# 先手番を表す定数
-BLACK                     = cshogi.BLACK
-
-# 後手番を表す定数
-WHITE                     = cshogi.WHITE
 
 # HCPE3の勝敗・終局理由flag
 HCPE3_DRAW                = 0

@@ -10,7 +10,7 @@ import shutil
 import sys
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -21,10 +21,40 @@ from cshogi import CSA, KIF
 SUPPORTED_SUFFIXES = {".csa", ".csv", ".kif", ".kifu"}
 ARCHIVE_SUFFIXES = {".zip", ".7z"}
 CSA_MOVE_RE = re.compile(r"^[+-]\d{4}[A-Z]{2}$")
+CSA_MOVE_LINE_RE = re.compile(r"^([+-])\d{4}[A-Z]{2}(?:$|[,\s])")
+KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
+PROGRESS_INTERVAL = 1000
 
 
 class ParseError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class EvalRecord:
+    side: int
+    value: int
+
+
+def log_progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+class CountProgress:
+    def __init__(self, label: str, total: int, *, interval: int = PROGRESS_INTERVAL) -> None:
+        self.label = label
+        self.total = total
+        self.interval = interval
+        self.last_reported = 0
+
+    def update(self, count: int, *, force: bool = False) -> None:
+        if self.total <= 0:
+            return
+        if force and self.last_reported == count:
+            return
+        if force or count == self.total or count - self.last_reported >= self.interval:
+            log_progress(f"{self.label} {count}/{self.total}")
+            self.last_reported = count
 
 
 @dataclass
@@ -35,6 +65,7 @@ class GameRecord:
     moves: list[str]
     black_rating: float | None = None
     white_rating: float | None = None
+    eval_records: list[EvalRecord] = field(default_factory=list)
 
 
 @dataclass
@@ -53,6 +84,7 @@ class Stats:
     skipped_finalist: int = 0
     skipped_name: int = 0
     skipped_rating: int = 0
+    skipped_reversal: int = 0
     skipped_parse: int = 0
     skipped_duplicate: int = 0
 
@@ -119,7 +151,9 @@ def extracted_archive_roots(
         for index, archive in enumerate(archives):
             destination = work_dir / f"{index:04d}_{archive.stem}"
             destination.mkdir(parents=True, exist_ok=True)
+            log_progress(f"解凍開始 {index + 1}/{len(archives)}: {archive}")
             extract_archive(archive, destination)
+            log_progress(f"解凍完了 {index + 1}/{len(archives)}: {archive}")
             roots.append(destination)
             if verbose:
                 print(f"extract archive: {archive} -> {destination}", file=sys.stderr)
@@ -164,13 +198,22 @@ def extract_archive(archive: Path, destination: Path) -> None:
 
 
 def safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
-    validate_archive_member_paths((member.filename for member in archive.infolist()), destination, "zip")
-    archive.extractall(destination)
+    members = [member for member in archive.infolist() if not member.is_dir()]
+    validate_archive_member_paths((member.filename for member in members), destination, "zip")
+    progress = CountProgress("解凍中", len(members))
+    for index, member in enumerate(members, 1):
+        target = destination / member.filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member) as src, target.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+        progress.update(index)
+    progress.update(len(members), force=True)
 
 
 def extract_7z_with_py7zr(archive: Path, destination: Path) -> None:
     try:
         import py7zr
+        from py7zr.callbacks import ExtractCallback
     except ImportError as exc:
         raise RuntimeError(
             ".7zを展開するには py7zr が必要です。"
@@ -179,10 +222,44 @@ def extract_7z_with_py7zr(archive: Path, destination: Path) -> None:
 
     try:
         with py7zr.SevenZipFile(archive, mode="r") as z:
-            validate_archive_member_paths(z.getnames(), destination, "7z")
-            z.extractall(path=destination)
+            member_names = z.getnames()
+            file_names = [info.filename for info in z.list() if getattr(info, "is_file", False)]
+            validate_archive_member_paths(member_names, destination, "7z")
+            z.extractall(path=destination, callback=make_7z_progress_callback(ExtractCallback, file_names))
     except Exception as exc:
         raise RuntimeError(f".7zの展開に失敗しました: {archive}: {exc}") from exc
+
+
+def make_7z_progress_callback(extract_callback_type: type, file_names: Sequence[str]) -> object:
+    target_files = set(file_names)
+
+    class SevenZipExtractProgress(extract_callback_type):  # type: ignore[misc, valid-type]
+        def __init__(self) -> None:
+            self.count = 0
+            self.progress = CountProgress("解凍中", len(target_files))
+
+        def report_start_preparation(self) -> None:
+            pass
+
+        def report_start(self, processing_file_path: str, processing_bytes: str) -> None:
+            if processing_file_path not in target_files:
+                return
+            self.count += 1
+            self.progress.update(self.count)
+
+        def report_update(self, decompressed_bytes: str) -> None:
+            pass
+
+        def report_end(self, processing_file_path: str, wrote_bytes: str) -> None:
+            pass
+
+        def report_warning(self, message: str) -> None:
+            log_progress(f"warning: {message}")
+
+        def report_postprocess(self) -> None:
+            self.progress.update(self.count, force=True)
+
+    return SevenZipExtractProgress()
 
 
 def validate_archive_member_paths(member_names: Iterable[str], destination: Path, archive_kind: str) -> None:
@@ -456,6 +533,27 @@ def rating_passes(game: GameRecord, min_rating: float | None) -> bool:
     return game.black_rating >= min_rating and game.white_rating >= min_rating
 
 
+def reversal_passes(game: GameRecord, threshold: int | None) -> bool:
+    if threshold is None:
+        return True
+
+    seen_positive = {cshogi.BLACK: False, cshogi.WHITE: False}
+    seen_negative = {cshogi.BLACK: False, cshogi.WHITE: False}
+
+    for record in game.eval_records:
+        if seen_positive[record.side] and record.value < 0:
+            return True
+        if seen_negative[record.side] and record.value > 0:
+            return True
+
+        if record.value >= threshold:
+            seen_positive[record.side] = True
+        elif record.value <= -threshold:
+            seen_negative[record.side] = True
+
+    return False
+
+
 def read_csa_header(path: Path) -> CsaHeader:
     with path.open("rb") as f:
         return scan_csa_header_lines(decode_lines(f))
@@ -528,12 +626,103 @@ def should_skip_by_csa_header(
     return False
 
 
-def parse_csa(path: Path) -> list[GameRecord]:
+def parse_eval_from_comment(line: str) -> int | None:
+    if "**" not in line and "評価値" not in line and "score cp" not in line:
+        return None
+
+    for pattern in (
+        r"評価値\s*([-+]?\d+)",
+        r"score\s+cp\s+([-+]?\d+)",
+        r"\*\*\s*([-+]?\d+)",
+    ):
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+    if "**" in line:
+        tail = line.split("**", 1)[1]
+    elif "評価値" in line:
+        tail = line.split("評価値", 1)[1]
+    else:
+        tail = line
+
+    for token in re.split(r"[\s,]+", tail):
+        token = token.strip()
+        if re.fullmatch(r"[-+]?\d+", token):
+            return int(token)
+    return None
+
+
+def side_from_csa_move_line(line: str) -> int | None:
+    match = CSA_MOVE_LINE_RE.match(line)
+    if not match:
+        return None
+    return cshogi.BLACK if match.group(1) == "+" else cshogi.WHITE
+
+
+def extract_csa_eval_records(path: Path) -> list[EvalRecord]:
+    records: list[EvalRecord] = []
+    pending_eval: int | None = None
+
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        side = side_from_csa_move_line(line)
+        value = parse_eval_from_comment(line)
+        if side is not None:
+            if value is not None:
+                records.append(EvalRecord(side, value))
+            elif pending_eval is not None:
+                records.append(EvalRecord(side, pending_eval))
+            pending_eval = None
+            continue
+
+        if value is not None:
+            pending_eval = value
+
+    return records
+
+
+def extract_kif_eval_records(path: Path) -> list[EvalRecord]:
+    records: list[EvalRecord] = []
+    current_side: int | None = None
+
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.rstrip()
+        move_match = KIF_MOVE_LINE_RE.match(line)
+        if move_match:
+            ply = int(move_match.group(1))
+            current_side = cshogi.BLACK if ply % 2 == 1 else cshogi.WHITE
+            value = parse_eval_from_comment(line)
+            if value is not None:
+                records.append(EvalRecord(current_side, value))
+            continue
+
+        value = parse_eval_from_comment(line)
+        if value is not None and current_side is not None:
+            records.append(EvalRecord(current_side, value))
+
+    return records
+
+
+def extract_eval_records(path: Path) -> list[EvalRecord]:
+    suffix = path.suffix.lower()
+    if suffix in {".csa", ".csv"}:
+        return extract_csa_eval_records(path)
+    if suffix in {".kif", ".kifu"}:
+        return extract_kif_eval_records(path)
+    return []
+
+
+def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
     parsed_games = CSA.Parser.parse_file(str(path))
     if not parsed_games:
         raise ParseError("no CSA game found")
 
     records: list[GameRecord] = []
+    eval_records = extract_eval_records(path) if include_eval_records else []
     for parsed in parsed_games:
         names = read_names(parsed.names, path)
         ensure_startpos(parsed.sfen)
@@ -550,19 +739,21 @@ def parse_csa(path: Path) -> list[GameRecord]:
                 moves,
                 optional_float(ratings[0] if len(ratings) >= 1 else None),
                 optional_float(ratings[1] if len(ratings) >= 2 else None),
+                eval_records,
             )
         )
     return records
 
 
-def parse_kif(path: Path) -> list[GameRecord]:
+def parse_kif(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
     parsed = KIF.Parser.parse_file(str(path))
     names = read_names(parsed.names, path)
     ensure_startpos(parsed.sfen)
     moves = moves_to_usi(parsed.moves)
     if not moves:
         raise ParseError("no moves found")
-    return [GameRecord(path, names[0], names[1], moves)]
+    eval_records = extract_eval_records(path) if include_eval_records else []
+    return [GameRecord(path, names[0], names[1], moves, eval_records=eval_records)]
 
 
 def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
@@ -589,12 +780,12 @@ def optional_float(value: object) -> float | None:
         return None
 
 
-def parse_games(path: Path) -> list[GameRecord]:
+def parse_games(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
     suffix = path.suffix.lower()
     if suffix in {".kif", ".kifu"}:
-        return parse_kif(path)
+        return parse_kif(path, include_eval_records=include_eval_records)
     if suffix in {".csa", ".csv"}:
-        return parse_csa(path)
+        return parse_csa(path, include_eval_records=include_eval_records)
     raise ParseError(f"unsupported suffix: {path.suffix}")
 
 
@@ -606,6 +797,7 @@ def collect_games_from_roots(
     source_kind: str | None,
     year_filter: YearFilter | None,
     wcsc_finalists_only: bool,
+    reversal_threshold: int | None,
     require_rating: bool,
     log_target_files: bool,
     verbose: bool,
@@ -619,55 +811,64 @@ def collect_games_from_roots(
     elif wcsc_finalists_only and source_kind == "denryu":
         finalists_by_event = collect_denryu_finalist_names(input_roots, year_filter, verbose=verbose)
 
-    for input_root in input_roots:
-        for path in iter_kifu_files(input_root):
-            stats.scanned += 1
-            if year_filter is not None and not year_filter_passes(path, year_filter):
-                stats.skipped_year += 1
+    paths = [path for input_root in input_roots for path in iter_kifu_files(input_root)]
+    parse_progress = CountProgress("解析中", len(paths))
+    effective_min_rating = min_rating if require_rating else None
+
+    for path in paths:
+        stats.scanned += 1
+        parse_progress.update(stats.scanned)
+        if year_filter is not None and not year_filter_passes(path, year_filter):
+            stats.skipped_year += 1
+            continue
+
+        if should_skip_by_csa_header(path, player_filters, effective_min_rating, stats):
+            continue
+
+        try:
+            parsed_games = parse_games(path, include_eval_records=reversal_threshold is not None)
+        except Exception as exc:
+            stats.skipped_parse += 1
+            if verbose:
+                print(f"skip parse: {path}: {exc}", file=sys.stderr)
+            continue
+
+        for game in parsed_games:
+            if (
+                wcsc_finalists_only
+                and source_kind == "wcsc"
+                and not wcsc_finalist_filter_passes(game, finalists_by_event)
+            ):
+                stats.skipped_finalist += 1
                 continue
 
-            effective_min_rating = min_rating if require_rating else None
-            if should_skip_by_csa_header(path, player_filters, effective_min_rating, stats):
+            if (
+                wcsc_finalists_only
+                and source_kind == "denryu"
+                and not denryu_finalist_filter_passes(game, finalists_by_event)
+            ):
+                stats.skipped_finalist += 1
                 continue
 
-            try:
-                parsed_games = parse_games(path)
-            except Exception as exc:
-                stats.skipped_parse += 1
-                if verbose:
-                    print(f"skip parse: {path}: {exc}", file=sys.stderr)
+            if not player_filters_pass(game.black, game.white, player_filters):
+                stats.skipped_name += 1
                 continue
 
-            for game in parsed_games:
-                if (
-                    wcsc_finalists_only
-                    and source_kind == "wcsc"
-                    and not wcsc_finalist_filter_passes(game, finalists_by_event)
-                ):
-                    stats.skipped_finalist += 1
-                    continue
+            if not rating_passes(game, effective_min_rating):
+                stats.skipped_rating += 1
+                continue
 
-                if (
-                    wcsc_finalists_only
-                    and source_kind == "denryu"
-                    and not denryu_finalist_filter_passes(game, finalists_by_event)
-                ):
-                    stats.skipped_finalist += 1
-                    continue
+            if not reversal_passes(game, reversal_threshold):
+                stats.skipped_reversal += 1
+                continue
 
-                if not player_filters_pass(game.black, game.white, player_filters):
-                    stats.skipped_name += 1
-                    continue
+            stats.selected += 1
+            games.append(game)
+            if log_target_files and game.path not in logged_target_files:
+                print(f"target file: {game.path}", file=sys.stderr)
+                logged_target_files.add(game.path)
 
-                if not rating_passes(game, effective_min_rating):
-                    stats.skipped_rating += 1
-                    continue
-
-                stats.selected += 1
-                games.append(game)
-                if log_target_files and game.path not in logged_target_files:
-                    print(f"target file: {game.path}", file=sys.stderr)
-                    logged_target_files.add(game.path)
+    parse_progress.update(stats.scanned, force=True)
 
     return games, stats
 
@@ -680,6 +881,7 @@ def collect_games(
     source_kind: str | None,
     year_filter: YearFilter | None,
     wcsc_finalists_only: bool,
+    reversal_threshold: int | None,
     require_rating: bool,
     log_target_files: bool,
     verbose: bool,
@@ -692,6 +894,7 @@ def collect_games(
             source_kind=source_kind,
             year_filter=year_filter,
             wcsc_finalists_only=wcsc_finalists_only,
+            reversal_threshold=reversal_threshold,
             require_rating=require_rating,
             log_target_files=log_target_files,
             verbose=verbose,
@@ -731,6 +934,7 @@ def run_extractor(
     start_year: int | None = None,
     end_year: int | None = None,
     wcsc_finalists_only: bool = False,
+    reversal_threshold: int | None = None,
     require_rating: bool = False,
     log_target_files: bool = False,
     verbose: bool = False,
@@ -747,6 +951,7 @@ def run_extractor(
         source_kind=source_kind,
         year_filter=year_filter,
         wcsc_finalists_only=wcsc_finalists_only and source_kind in {"wcsc", "denryu"},
+        reversal_threshold=reversal_threshold,
         require_rating=require_rating,
         log_target_files=log_target_files,
         verbose=verbose,
@@ -770,6 +975,12 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="regex list file. At least one player name must match if specified.",
     )
+    parser.add_argument(
+        "--reversal-threshold",
+        type=int,
+        default=None,
+        help="extract only games where one player's own eval reached abs(X) and later crossed zero",
+    )
     parser.add_argument("--verbose", action="store_true", help="print parse errors")
 
 
@@ -782,6 +993,6 @@ def print_stats(stats: Stats) -> None:
     print(
         "scanned={scanned} selected={selected} skipped_year={skipped_year} "
         "skipped_finalist={skipped_finalist} skipped_name={skipped_name} "
-        "skipped_rating={skipped_rating} skipped_parse={skipped_parse} "
+        "skipped_rating={skipped_rating} skipped_reversal={skipped_reversal} skipped_parse={skipped_parse} "
         "skipped_duplicate={skipped_duplicate}".format(**stats.__dict__)
     )

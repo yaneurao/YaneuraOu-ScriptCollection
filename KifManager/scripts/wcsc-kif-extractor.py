@@ -30,6 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         start_year=args.start_year,
         end_year=args.end_year,
         wcsc_finalists_only=args.finalists_only,
+        reversal_threshold=args.reversal_threshold,
         require_rating=False,
         verbose=args.verbose,
     )

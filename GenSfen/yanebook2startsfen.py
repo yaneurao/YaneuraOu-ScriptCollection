@@ -3,6 +3,7 @@
 import sys
 import argparse
 from pathlib import Path
+import cshogi
 
 COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))

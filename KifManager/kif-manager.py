@@ -110,6 +110,7 @@ class ExtractJob:
     start_year: int | None
     end_year: int | None
     wcsc_finalists_only: bool
+    reversal_threshold: int | None
     require_rating: bool
     log_target_files: bool
     verbose: bool
@@ -258,6 +259,8 @@ class ExtractorPane(ttk.Frame):
         self.start_year = tk.StringVar()
         self.end_year = tk.StringVar()
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
+        self.reversal_enabled = tk.BooleanVar(value=False)
+        self.reversal_threshold = tk.StringVar(value="400")
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -346,6 +349,8 @@ class ExtractorPane(ttk.Frame):
                 width=14,
             )
 
+        row = self._reversal_row(row)
+
     def _path_row(
         self,
         row: int,
@@ -382,6 +387,22 @@ class ExtractorPane(ttk.Frame):
     ) -> int:
         self._label_with_help(row, label, help_text)
         ttk.Entry(self, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
+        return row + 1
+
+    def _reversal_row(self, row: int) -> int:
+        self._label_with_help(
+            row,
+            "逆転棋譜",
+            "片方のプレイヤー自身が出力した評価値が一度この絶対値以上になり、\n"
+            "その後、同じプレイヤーの出力評価値が0をまたいだ棋譜だけを抽出します。\n"
+            "評価値コメントが見つからない棋譜は、この条件を有効にした場合は除外されます。",
+        )
+        frame = ttk.Frame(self)
+        frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=6)
+        ttk.Checkbutton(frame, variable=self.reversal_enabled).pack(side="left")
+        ttk.Label(frame, text="評価値").pack(side="left", padx=(6, 4))
+        ttk.Entry(frame, textvariable=self.reversal_threshold, width=8).pack(side="left")
+        ttk.Label(frame, text="から逆転した棋譜").pack(side="left", padx=(4, 0))
         return row + 1
 
     def _browse_input_dir(self) -> None:
@@ -449,6 +470,7 @@ class ExtractorPane(ttk.Frame):
         min_rating = self._parse_min_rating()
         start_year = self._parse_year(self.start_year.get().strip(), "開始年")
         end_year = self._parse_year(self.end_year.get().strip(), "終了年")
+        reversal_threshold = self._parse_reversal_threshold()
         if start_year is not None and end_year is not None and start_year > end_year:
             raise ValueError("開始年は終了年以下を指定してください。")
 
@@ -462,6 +484,7 @@ class ExtractorPane(ttk.Frame):
             start_year,
             end_year,
             self.wcsc_finalists_only.get(),
+            reversal_threshold,
             self.kind.has_rating and min_rating is not None,
             log_target_files,
             verbose,
@@ -489,6 +512,20 @@ class ExtractorPane(ttk.Frame):
             raise ValueError("min-rating は 0 以上を指定してください。")
         return rating
 
+    def _parse_reversal_threshold(self) -> int | None:
+        if not self.reversal_enabled.get():
+            return None
+        value = self.reversal_threshold.get().strip()
+        if not value:
+            raise ValueError("逆転棋譜の評価値を指定してください。")
+        try:
+            threshold = int(value)
+        except ValueError as exc:
+            raise ValueError(f"逆転棋譜の評価値は整数で指定してください: {value}") from exc
+        if threshold <= 0:
+            raise ValueError("逆転棋譜の評価値は 1 以上を指定してください。")
+        return threshold
+
     def _parse_year(self, value: str, label: str) -> int | None:
         if self.kind.year_source is None or not value:
             return None
@@ -510,6 +547,8 @@ class ExtractorPane(ttk.Frame):
             "start_year": self.start_year.get(),
             "end_year": self.end_year.get(),
             "wcsc_finalists_only": self.wcsc_finalists_only.get(),
+            "reversal_enabled": self.reversal_enabled.get(),
+            "reversal_threshold": self.reversal_threshold.get(),
         }
 
     def apply_settings(self, settings: object) -> None:
@@ -523,6 +562,8 @@ class ExtractorPane(ttk.Frame):
         self.start_year.set(str(settings.get("start_year", "")))
         self.end_year.set(str(settings.get("end_year", "")))
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
+        self.reversal_enabled.set(bool(settings.get("reversal_enabled", False)))
+        self.reversal_threshold.set(str(settings.get("reversal_threshold", "400") or "400"))
 
 
 class DownloadPlaceholderPane(ttk.Frame):
@@ -1370,6 +1411,8 @@ class KifManager(tk.Tk):
 
         self.log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.running = False
+        self.running_action: str | None = None
+        self.cancel_event = threading.Event()
         self.verbose = tk.BooleanVar(value=False)
         self.log_target_files = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="待機中")
@@ -1471,10 +1514,25 @@ class KifManager(tk.Tk):
         self._update_action_controls()
 
     def _run_current_action(self) -> None:
+        if self.running:
+            if self.running_action == "download":
+                self._request_stop()
+                return
+            messagebox.showinfo("実行中", "現在の処理が終わるまで待ってください。", parent=self)
+            return
+
         if self._selected_main_key() == "extract":
             self._extract_current()
             return
         self._download_current()
+
+    def _request_stop(self) -> None:
+        if self.cancel_event.is_set():
+            return
+        self.cancel_event.set()
+        self.status.set("停止要求中")
+        self._put_log("[KIF Manager] stop requested\n")
+        self._set_buttons_enabled(False)
 
     def _extract_current(self) -> None:
         pane = self._current_extract_pane()
@@ -1550,6 +1608,8 @@ class KifManager(tk.Tk):
             return
 
         self.running = True
+        self.running_action = "extract"
+        self.cancel_event.clear()
         self._save_settings()
         self._set_buttons_enabled(False)
         self._clear_log()
@@ -1564,6 +1624,8 @@ class KifManager(tk.Tk):
             return
 
         self.running = True
+        self.running_action = "download"
+        self.cancel_event.clear()
         self._save_settings()
         self._set_buttons_enabled(False)
         self._clear_log()
@@ -1578,6 +1640,8 @@ class KifManager(tk.Tk):
             return
 
         self.running = True
+        self.running_action = "download"
+        self.cancel_event.clear()
         self._save_settings()
         self._set_buttons_enabled(False)
         self._clear_log()
@@ -1592,6 +1656,8 @@ class KifManager(tk.Tk):
             return
 
         self.running = True
+        self.running_action = "download"
+        self.cancel_event.clear()
         self._save_settings()
         self._set_buttons_enabled(False)
         self._clear_log()
@@ -1606,6 +1672,8 @@ class KifManager(tk.Tk):
             return
 
         self.running = True
+        self.running_action = "download"
+        self.cancel_event.clear()
         self._save_settings()
         self._set_buttons_enabled(False)
         self._clear_log()
@@ -1634,6 +1702,8 @@ class KifManager(tk.Tk):
                 )
             if job.wcsc_finalists_only:
                 self._put_log(f"[{job.kind.title}] finalists only: True\n")
+            if job.reversal_threshold is not None:
+                self._put_log(f"[{job.kind.title}] reversal threshold: {job.reversal_threshold}\n")
             if job.log_target_files:
                 self._put_log(f"[{job.kind.title}] log target files: True\n")
 
@@ -1649,6 +1719,7 @@ class KifManager(tk.Tk):
                         start_year=job.start_year,
                         end_year=job.end_year,
                         wcsc_finalists_only=job.wcsc_finalists_only,
+                        reversal_threshold=job.reversal_threshold,
                         require_rating=job.require_rating,
                         log_target_files=job.log_target_files,
                         verbose=job.verbose,
@@ -1669,15 +1740,22 @@ class KifManager(tk.Tk):
         self._put_log(f"[floodgate] output dir: {job.output_dir}\n")
 
         try:
-            stats = download_floodgate_kif(job, log=lambda text: self._put_log(f"[floodgate] {text}"))
+            stats = download_floodgate_kif(
+                job,
+                log=lambda text: self._put_log(f"[floodgate] {text}"),
+                should_stop=self.cancel_event.is_set,
+            )
         except Exception as exc:
+            if self.cancel_event.is_set():
+                self._put_log("[floodgate] stopped\n")
+                self.log_queue.put(("done", "停止"))
+                return
             self._put_log(f"[floodgate] failed: {exc}\n")
             self.log_queue.put(("done", "失敗あり"))
             return
 
         self._put_log(f"[floodgate] {self._floodgate_download_stats_text(stats)}\n")
-        self._put_log("[floodgate] done\n")
-        self.log_queue.put(("done", "完了"))
+        self._finish_download_worker("floodgate")
 
     def _wcsc_download_worker(self, job: WcscDownloadJob) -> None:
         self._put_log("[WCSC] start\n")
@@ -1688,15 +1766,22 @@ class KifManager(tk.Tk):
         self._put_log(f"[WCSC] live page  : {job.use_live_page}\n")
 
         try:
-            stats = download_wcsc_kif(job, log=lambda text: self._put_log(f"[WCSC] {text}"))
+            stats = download_wcsc_kif(
+                job,
+                log=lambda text: self._put_log(f"[WCSC] {text}"),
+                should_stop=self.cancel_event.is_set,
+            )
         except Exception as exc:
+            if self.cancel_event.is_set():
+                self._put_log("[WCSC] stopped\n")
+                self.log_queue.put(("done", "停止"))
+                return
             self._put_log(f"[WCSC] failed: {exc}\n")
             self.log_queue.put(("done", "失敗あり"))
             return
 
         self._put_log(f"[WCSC] {self._wcsc_download_stats_text(stats)}\n")
-        self._put_log("[WCSC] done\n")
-        self.log_queue.put(("done", "完了"))
+        self._finish_download_worker("WCSC")
 
     def _denryu_download_worker(self, job: DenryuDownloadJob) -> None:
         self._put_log("[電竜戦] start\n")
@@ -1707,15 +1792,22 @@ class KifManager(tk.Tk):
         self._put_log(f"[電竜戦] live page  : {job.use_live_page}\n")
 
         try:
-            stats = download_denryu_kif(job, log=lambda text: self._put_log(f"[電竜戦] {text}"))
+            stats = download_denryu_kif(
+                job,
+                log=lambda text: self._put_log(f"[電竜戦] {text}"),
+                should_stop=self.cancel_event.is_set,
+            )
         except Exception as exc:
+            if self.cancel_event.is_set():
+                self._put_log("[電竜戦] stopped\n")
+                self.log_queue.put(("done", "停止"))
+                return
             self._put_log(f"[電竜戦] failed: {exc}\n")
             self.log_queue.put(("done", "失敗あり"))
             return
 
         self._put_log(f"[電竜戦] {self._denryu_download_stats_text(stats)}\n")
-        self._put_log("[電竜戦] done\n")
-        self.log_queue.put(("done", "完了"))
+        self._finish_download_worker("電竜戦")
 
     def _shogidb2_download_worker(self, job: ShogiDb2DownloadJob) -> None:
         self._put_log("[shogidb2] start\n")
@@ -1729,14 +1821,29 @@ class KifManager(tk.Tk):
         self._put_log(f"[shogidb2] overwrite  : {job.overwrite}\n")
 
         try:
-            stats = download_shogidb2_kif(job, log=lambda text: self._put_log(f"[shogidb2] {text}"))
+            stats = download_shogidb2_kif(
+                job,
+                log=lambda text: self._put_log(f"[shogidb2] {text}"),
+                should_stop=self.cancel_event.is_set,
+            )
         except Exception as exc:
+            if self.cancel_event.is_set():
+                self._put_log("[shogidb2] stopped\n")
+                self.log_queue.put(("done", "停止"))
+                return
             self._put_log(f"[shogidb2] failed: {exc}\n")
             self.log_queue.put(("done", "失敗あり"))
             return
 
         self._put_log(f"[shogidb2] {self._shogidb2_download_stats_text(stats)}\n")
-        self._put_log("[shogidb2] done\n")
+        self._finish_download_worker("shogidb2")
+
+    def _finish_download_worker(self, prefix: str) -> None:
+        if self.cancel_event.is_set():
+            self._put_log(f"[{prefix}] stopped\n")
+            self.log_queue.put(("done", "停止"))
+            return
+        self._put_log(f"[{prefix}] done\n")
         self.log_queue.put(("done", "完了"))
 
     def _stats_text(self, stats: Stats) -> str:
@@ -1744,6 +1851,7 @@ class KifManager(tk.Tk):
             f"scanned={stats.scanned} selected={stats.selected} "
             f"skipped_year={stats.skipped_year} skipped_finalist={stats.skipped_finalist} "
             f"skipped_name={stats.skipped_name} skipped_rating={stats.skipped_rating} "
+            f"skipped_reversal={stats.skipped_reversal} "
             f"skipped_parse={stats.skipped_parse} skipped_duplicate={stats.skipped_duplicate}"
         )
 
@@ -1788,7 +1896,10 @@ class KifManager(tk.Tk):
                 self._append_log(text)
             elif kind == "done":
                 self.running = False
+                self.running_action = None
+                self.cancel_event.clear()
                 self._set_buttons_enabled(True)
+                self._update_action_controls()
                 self.status.set(text)
 
         self.after(100, self._poll_log_queue)
@@ -1805,8 +1916,14 @@ class KifManager(tk.Tk):
         self.log_text.configure(state="disabled")
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
-        state = "normal" if enabled else "disabled"
-        self.action_button.configure(state=state)
+        if not enabled and self.running_action == "download":
+            if self.cancel_event.is_set():
+                self.action_button.configure(text="停止中...", state="disabled")
+            else:
+                self.action_button.configure(text="停止", state="normal")
+        else:
+            state = "normal" if enabled else "disabled"
+            self.action_button.configure(state=state)
         extract_option_state = "normal" if enabled and self._selected_main_key() == "extract" else "disabled"
         self.verbose_check.configure(state=extract_option_state)
         self.log_target_files_check.configure(state=extract_option_state)

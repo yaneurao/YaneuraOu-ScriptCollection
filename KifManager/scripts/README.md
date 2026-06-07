@@ -2,6 +2,8 @@
 
 floodgate、WCSC、電竜戦の棋譜から、定跡候補として掘る対局を抽出し、USI の `position` コマンドで指定できる形式に変換するスクリプト群です。
 
+`*-kif-downloader.py` はコマンドラインから直接実行する入口です。GUIやCLIから呼び出される実装本体は `*_kif_downloader_core.py` に置いています。
+
 出力は 1 対局 1 行です。
 
 ```text
@@ -51,6 +53,10 @@ python3 -m pip install py7zr
 
 両方を指定した場合は OR 条件です。つまり、`both-player-list` の条件、または `either-player-list` の条件のどちらかを満たす棋譜を出力します。
 
+`--reversal-threshold X`
+
+年・プレイヤー名・rating・決勝出場ソフトなどの条件を満たした棋譜のうち、評価値コメントから逆転が確認できる棋譜だけを抽出します。片方のプレイヤー自身が出力した評価値が一度 `X` 以上、または `-X` 以下になり、その後に同じプレイヤーの評価値が0をまたいだ場合に抽出対象になります。評価値コメントがない棋譜は除外されます。
+
 判定仕様:
 
 - 棋譜中のプレイヤー名は小文字化してから比較します。
@@ -73,7 +79,7 @@ dlshogi
 floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、両対局者の rating 下限を指定できます。
 
 ```bash
-python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--verbose]
+python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -116,7 +122,7 @@ python3 floodgate-kif-downloader.py 2026
 WCSC の棋譜を抽出します。rating フィルタはありません。
 
 ```bash
-python3 wcsc-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--finalists-only] [--both-player-list both.txt] [--either-player-list either.txt] [--verbose]
+python3 wcsc-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--finalists-only] [--both-player-list both.txt] [--either-player-list either.txt] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -140,7 +146,7 @@ WCSCの年は `wcsc36` のようなフォルダ名やファイル名から判定
 電竜戦の棋譜を抽出します。rating フィルタはありません。
 
 ```bash
-python3 denryu-kif-extractor.py INPUT_DIR OUTPUT_TXT [--finalists-only] [--both-player-list both.txt] [--either-player-list either.txt] [--verbose]
+python3 denryu-kif-extractor.py INPUT_DIR OUTPUT_TXT [--finalists-only] [--both-player-list both.txt] [--either-player-list either.txt] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -202,12 +208,16 @@ python3 denryu-kif-downloader.py --list-tournaments
 処理後に件数が表示されます。
 
 ```text
-scanned=289 selected=289 skipped_name=0 skipped_rating=0 skipped_parse=0 skipped_duplicate=0
+scanned=289 selected=289 skipped_year=0 skipped_finalist=0 skipped_name=0 skipped_rating=0 skipped_reversal=0 skipped_parse=0 skipped_duplicate=0
 ```
 
 - `scanned`: 対象拡張子として見つけたファイル数
 - `selected`: 出力した棋譜行数
+- `skipped_year`: 開始年・終了年の条件で除外した対局数
+- `skipped_finalist`: 決勝出場ソフト条件で除外した対局数
 - `skipped_name`: プレイヤー名フィルタで除外した対局数
 - `skipped_rating`: rating 条件で除外した対局数
+- `skipped_reversal`: 逆転棋譜条件で除外した対局数
 - `skipped_parse`: パース不能、手なし、非 startpos などで除外したファイル数
+- `skipped_duplicate`: 重複した `startpos moves ...` 行として除外した対局数
 - `skipped_duplicate`: 重複棋譜として除外した対局数

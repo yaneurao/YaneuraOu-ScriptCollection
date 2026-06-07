@@ -27,6 +27,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         None,
         source_kind="denryu",
         wcsc_finalists_only=args.finalists_only,
+        reversal_threshold=args.reversal_threshold,
         require_rating=False,
         verbose=args.verbose,
     )

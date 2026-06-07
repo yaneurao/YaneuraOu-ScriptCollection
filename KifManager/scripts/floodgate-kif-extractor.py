@@ -30,6 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_kind="floodgate",
         start_year=args.start_year,
         end_year=args.end_year,
+        reversal_threshold=args.reversal_threshold,
         require_rating=args.min_rating is not None,
         verbose=args.verbose,
     )
