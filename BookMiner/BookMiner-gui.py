@@ -44,6 +44,12 @@ AUTO_ENQUEUE_IDLE = "idle"
 AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
+LOG_PANES = [
+    ("peta", "peta_next/peta_shockログ", "peta_next/peta_shock", 7),
+    ("task", "タスク状況ログ", "タスク状況", 7),
+    ("search", "探索ログ", "探索", 10),
+    ("other", "その他ログ", "その他", 8),
+]
 
 
 def load_gui_settings() -> dict[str, str]:
@@ -112,7 +118,8 @@ class BookMinerGui(ttk.Frame):
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
-        self.log_widgets: dict[str, scrolledtext.ScrolledText] = {}
+        self.log_widgets: dict[str, list[scrolledtext.ScrolledText]] = {}
+        self.log_tabbed = tk.BooleanVar(value=gui_settings.get("log_view_mode", "stack") == "tabs")
         self.progress_labels = {
             "read": tk.StringVar(value="定跡読込: 待機中"),
             "engine": tk.StringVar(value="エンジン起動: 待機中"),
@@ -269,12 +276,35 @@ class BookMinerGui(ttk.Frame):
             pady=(5, 0),
         )
 
-        logs = ttk.PanedWindow(self, orient="vertical")
-        logs.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
-        self._add_log_pane(logs, "peta_next/peta_shockログ", "peta", 7)
-        self._add_log_pane(logs, "タスク状況ログ", "task", 7)
-        self._add_log_pane(logs, "探索ログ", "search", 10)
-        self._add_log_pane(logs, "その他ログ", "other", 8)
+        log_area = ttk.Frame(self)
+        log_area.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        log_area.columnconfigure(0, weight=1)
+        log_area.rowconfigure(1, weight=1)
+
+        log_controls = ttk.Frame(log_area)
+        log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        log_toggle = ttk.Checkbutton(
+            log_controls,
+            text="ログをタブ表示",
+            variable=self.log_tabbed,
+            command=self._update_log_view,
+        )
+        log_toggle.pack(side="left")
+        Tooltip(log_toggle, "オンならタブ表示、オフなら従来の4段表示に切り替えます。")
+
+        self.log_tab_frame = ttk.Frame(log_area)
+        self.log_tab_frame.grid(row=1, column=0, sticky="nsew")
+        self.log_tab_frame.columnconfigure(0, weight=1)
+        self.log_tab_frame.rowconfigure(0, weight=1)
+
+        self.log_stack_frame = ttk.Frame(log_area)
+        self.log_stack_frame.grid(row=1, column=0, sticky="nsew")
+        self.log_stack_frame.columnconfigure(0, weight=1)
+        self.log_stack_frame.rowconfigure(0, weight=1)
+
+        self._build_tabbed_logs(self.log_tab_frame)
+        self._build_stacked_logs(self.log_stack_frame)
+        self._update_log_view()
 
         self._update_buttons()
 
@@ -307,6 +337,9 @@ class BookMinerGui(ttk.Frame):
         bar.grid(row=row, column=1, sticky="ew", pady=2)
         self.progress_bars[key] = bar
 
+    def _register_log_widget(self, key: str, text: scrolledtext.ScrolledText) -> None:
+        self.log_widgets.setdefault(key, []).append(text)
+
     def _add_log_pane(self, paned: ttk.PanedWindow, title: str, key: str, height: int) -> None:
         frame = ttk.Frame(paned, padding=(0, 0, 0, 4))
         frame.columnconfigure(0, weight=1)
@@ -315,8 +348,44 @@ class BookMinerGui(ttk.Frame):
         text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
         text.grid(row=1, column=0, sticky="nsew")
         text.configure(state="disabled")
-        self.log_widgets[key] = text
+        self._register_log_widget(key, text)
         paned.add(frame, weight=1)
+
+    def _build_stacked_logs(self, parent: ttk.Frame) -> None:
+        logs = ttk.PanedWindow(parent, orient="vertical")
+        logs.grid(row=0, column=0, sticky="nsew")
+        for key, title, _tab_title, height in LOG_PANES:
+            self._add_log_pane(logs, title, key, height)
+
+    def _build_tabbed_logs(self, parent: ttk.Frame) -> None:
+        notebook = ttk.Notebook(parent)
+        notebook.grid(row=0, column=0, sticky="nsew")
+        self.log_notebook = notebook
+        self.log_tab_keys: dict[str, ttk.Frame] = {}
+
+        for key, title, tab_title, height in LOG_PANES:
+            frame = ttk.Frame(notebook, padding=(0, 4, 0, 0))
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(1, weight=1)
+            ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
+            text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
+            text.grid(row=1, column=0, sticky="nsew")
+            text.configure(state="disabled")
+            self._register_log_widget(key, text)
+            notebook.add(frame, text=tab_title)
+            self.log_tab_keys[key] = frame
+
+    def _update_log_view(self) -> None:
+        if self.log_tabbed.get():
+            self.log_stack_frame.grid_remove()
+            self.log_tab_frame.grid()
+        else:
+            self.log_tab_frame.grid_remove()
+            self.log_stack_frame.grid()
+
+        for widgets in self.log_widgets.values():
+            for log in widgets:
+                log.see("end")
 
     def start_process(self) -> None:
         if self.is_running():
@@ -787,6 +856,7 @@ class BookMinerGui(ttk.Frame):
             "max_step": self.max_step.get(),
             "eval_limit": self.eval_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
+            "log_view_mode": "tabs" if self.log_tabbed.get() else "stack",
         }
         try:
             with open(GUI_SETTINGS_PATH, "wb") as f:
@@ -877,12 +947,13 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def _append_log(self, key: str, text: str) -> None:
-        log = self.log_widgets.get(key) or self.log_widgets["other"]
-        log.configure(state="normal")
-        log.insert("end", text)
-        self._trim_log(log)
-        log.see("end")
-        log.configure(state="disabled")
+        logs = self.log_widgets.get(key) or self.log_widgets.get("other", [])
+        for log in logs:
+            log.configure(state="normal")
+            log.insert("end", text)
+            self._trim_log(log)
+            log.see("end")
+            log.configure(state="disabled")
 
     def _trim_log(self, log: scrolledtext.ScrolledText) -> None:
         line_count = int(log.index("end-1c").split(".", 1)[0])
