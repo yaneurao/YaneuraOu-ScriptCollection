@@ -16,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
+STEP_BUTTON_WIDTH = 12
 
 
 class Tooltip:
@@ -96,28 +97,46 @@ class BookMinerGui(ttk.Frame):
 
         commands = ttk.Frame(self)
         commands.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        commands.columnconfigure(9, weight=1)
+        commands.columnconfigure(8, weight=1)
 
-        peta_button = ttk.Button(commands, text="peta_shock化", command=lambda: self.send_command("p"))
-        peta_button.grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(commands, text="手順1.").grid(row=0, column=0, sticky="w", pady=3)
+        peta_button = ttk.Button(
+            commands,
+            text="peta_shock",
+            width=STEP_BUTTON_WIDTH,
+            command=lambda: self.send_command("p"),
+        )
+        peta_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
 
-        next_button = ttk.Button(commands, text="peta_next", command=self.send_peta_next)
-        next_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=4)
+        ttk.Label(commands, text="手順2.").grid(row=1, column=0, sticky="w", pady=3)
+        next_button = ttk.Button(
+            commands,
+            text="peta_next",
+            width=STEP_BUTTON_WIDTH,
+            command=self.send_peta_next,
+        )
+        next_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(next_button, "`n eval_diff [max_step]` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。")
-        ttk.Label(commands, text="eval_diff").grid(row=0, column=2, sticky="w", padx=(8, 6), pady=4)
-        ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=0, column=3, sticky="w", pady=4)
-        ttk.Label(commands, text="max step").grid(row=0, column=4, sticky="w", padx=(8, 6), pady=4)
-        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=0, column=5, sticky="w", pady=4)
+        ttk.Label(commands, text="eval_diff").grid(row=1, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=1, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=1, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=1, column=5, sticky="w", pady=3)
 
-        think_button = ttk.Button(commands, text="think_sfens.txtを掘る", command=self.send_think)
-        think_button.grid(row=0, column=6, sticky="w", padx=(8, 0), pady=4)
-        Tooltip(think_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt を掘ります。")
-        ttk.Label(commands, text="eval_limit").grid(row=0, column=7, sticky="w", padx=(8, 6), pady=4)
-        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=0, column=8, sticky="w", pady=4)
+        ttk.Label(commands, text="手順3.").grid(row=2, column=0, sticky="w", pady=3)
+        enqueue_button = ttk.Button(
+            commands,
+            text="enqueue",
+            width=STEP_BUTTON_WIDTH,
+            command=self.send_think,
+        )
+        enqueue_button.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(enqueue_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        ttk.Label(commands, text="eval_limit").grid(row=2, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=2, column=3, sticky="w", pady=3)
 
         write_button = ttk.Button(commands, text="定跡DBのbackup", command=lambda: self.send_command("w"))
-        write_button.grid(row=0, column=10, sticky="e", padx=(16, 0), pady=4)
+        write_button.grid(row=2, column=9, sticky="e", padx=(16, 0), pady=3)
         Tooltip(write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
 
         progress = ttk.Frame(self)
@@ -128,7 +147,7 @@ class BookMinerGui(ttk.Frame):
 
         logs = ttk.PanedWindow(self, orient="vertical")
         logs.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
-        self._add_log_pane(logs, "peta_next/peta_shock化ログ", "peta", 8)
+        self._add_log_pane(logs, "peta_next/peta_shockログ", "peta", 8)
         self._add_log_pane(logs, "探索ログ", "search", 12)
         self._add_log_pane(logs, "その他ログ", "other", 10)
 
