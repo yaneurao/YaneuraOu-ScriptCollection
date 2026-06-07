@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import os
 import pickle
 import queue
@@ -98,10 +99,11 @@ class Tooltip:
 
 
 class BookMinerGui(ttk.Frame):
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False) -> None:
         super().__init__(master, padding=12)
         gui_settings = load_gui_settings()
         self.master = master
+        self.enable_shogidb = enable_shogidb
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
@@ -112,7 +114,7 @@ class BookMinerGui(ttk.Frame):
             "task": tk.StringVar(value="enqueue進捗: 待機中"),
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
-        self.mining_status = tk.StringVar(value="現在の局面数 - 局面    現在の採掘速度 - pos/day")
+        self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
         self.auto_enqueue_enabled = tk.BooleanVar(value=False)
@@ -244,7 +246,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["read"].set("定跡読込: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
-        self.mining_status.set("現在の局面数 - 局面    現在の採掘速度 - pos/day")
+        self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions = None
         self.mining_samples.clear()
         self.task_queue_remaining = None
@@ -312,9 +314,12 @@ class BookMinerGui(ttk.Frame):
         if not KIF_MANAGER_SCRIPT.is_file():
             messagebox.showerror("起動失敗", f"KifManager が見つかりません: {KIF_MANAGER_SCRIPT}")
             return
+        args = [sys.executable, str(KIF_MANAGER_SCRIPT), "--from_bookminer"]
+        if self.enable_shogidb:
+            args.append("--shogidb")
         try:
             subprocess.Popen(
-                [sys.executable, str(KIF_MANAGER_SCRIPT), "--from_bookminer"],
+                args,
                 cwd=KIF_MANAGER_SCRIPT.parent,
             )
         except OSError as exc:
@@ -488,7 +493,7 @@ class BookMinerGui(ttk.Frame):
         if positions is None:
             positions = self.latest_mining_positions
         if positions is None:
-            self.mining_status.set("現在の局面数 - 局面    現在の採掘速度 - pos/day")
+            self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
             return
 
         if now is None:
@@ -504,7 +509,7 @@ class BookMinerGui(ttk.Frame):
                 speed_text = f"{speed:,}"
 
         self.mining_status.set(
-            f"現在の局面数 {positions:,} 局面    現在の採掘速度 {speed_text} pos/day"
+            f"現在 {positions:,} 局面    現在の採掘速度 {speed_text} 局面/日"
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
@@ -787,6 +792,10 @@ class BookMinerGui(ttk.Frame):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="BookMiner GUI")
+    parser.add_argument("--shogidb", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
     root = tk.Tk()
     root.title("BookMiner GUI")
     root.geometry("980x720")
@@ -794,7 +803,7 @@ def main() -> int:
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
-    gui = BookMinerGui(root)
+    gui = BookMinerGui(root, enable_shogidb=args.shogidb)
 
     def on_close() -> None:
         if gui.is_running():
