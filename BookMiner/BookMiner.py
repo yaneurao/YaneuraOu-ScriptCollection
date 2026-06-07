@@ -57,6 +57,7 @@ PETA_SHOCK_PROGRESS_INTERVAL = 10
 BOOK_READ_PROGRESS_INTERVAL = 10000
 BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
+MINING_PROGRESS_INTERVAL = 60.0
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -223,7 +224,7 @@ class ListRingQueue(Generic[T]):
             self._buf = [None] * self._max
             self._head = self._tail = self._count = 0
 
-# 定跡局面の1秒間の生成速度
+# CLI表示用の10分間探索呼び出し回数
 CALL_COUNT : int = 0
 LAST_REPORT = time.time()
 
@@ -533,6 +534,9 @@ class GlobalSettings:
     # 全スレッドを停止させるかのフラグ
     quit : bool
 
+    # GUI経由で起動されているか。
+    from_gui : bool = False
+
 @dataclass
 class ThreadSettings:
     '''探索スレッド固有の設定を集めた構造体'''
@@ -767,7 +771,7 @@ class Engine:
 
 class EngineManager:
 
-    def __init__(self, book_miner_settings:BookMinerSettings):
+    def __init__(self, book_miner_settings:BookMinerSettings, from_gui:bool = False):
 
         print("initialize the engines..")
         self.book_miner_settings = book_miner_settings
@@ -782,12 +786,15 @@ class EngineManager:
             multipv_delta         = 100,
             quit                  = False,
             debug_engine          = False,
+            from_gui              = from_gui,
         )
         self.global_settings = global_settings
         self.task_progress_lock = Lock()
         self.task_progress_total = 0
         self.task_progress_taken = 0
         self.task_progress_last_report = 0.0
+        self.mining_progress_lock = Lock()
+        self.mining_progress_last_report = 0.0
 
         engines : list[Engine] = []
 
@@ -886,18 +893,9 @@ class EngineManager:
 
                 position_info_new = engine.go(current_sfen, node_ratio)
                 last_thinking_ply = ply # この局面で思考したので更新する。
+                book_position_count = None
 
                 with book.lock:
-                    # 定跡局面生成カウント
-                    CALL_COUNT += 1
-
-                    # 10分経過していれば出力してリセット
-                    now = time.time()
-                    if now - LAST_REPORT >= 600:
-                        print(f"過去10分の呼び出し回数: {CALL_COUNT}")
-                        CALL_COUNT = 0
-                        LAST_REPORT = now
-
                     if position_info:
                         # 新規局面ではないので、マージ。
                         for moveinfo_new in position_info_new:
@@ -915,6 +913,19 @@ class EngineManager:
                     # できればbestな順で掘りたいので、evalで降順に並び替える。
                     # valueがないところは、VALUE_MIN扱い。
                     position_info.moveinfos.sort(key=lambda x: x.eval if x.eval is not None else VALUE_MIN, reverse=True)
+                    book_position_count = len(book.body)
+
+                    if not self.global_settings.from_gui:
+                        # CLIでは従来通り、探索呼び出し回数を10分ごとに出力する。
+                        CALL_COUNT += 1
+                        now = time.time()
+                        if now - LAST_REPORT >= 600:
+                            print(f"過去10分の呼び出し回数: {CALL_COUNT}")
+                            CALL_COUNT = 0
+                            LAST_REPORT = now
+
+                if self.global_settings.from_gui and book_position_count is not None:
+                    self.report_mining_progress(book_position_count)
 
             return position_info, current_sfen, last_thinking_ply, True
 
@@ -1145,6 +1156,15 @@ class EngineManager:
 
         tag = "TaskQueueDone" if remaining == 0 else "TaskQueueProgress"
         print(f"[{tag}] {taken}/{total} job={task.job_id} remaining={remaining}")
+
+    def report_mining_progress(self, position_count:int, force:bool = False):
+        now = time.time()
+        with self.mining_progress_lock:
+            if not force and now - self.mining_progress_last_report < MINING_PROGRESS_INTERVAL:
+                return
+            self.mining_progress_last_report = now
+
+        print(f"[MiningProgress] positions={position_count}")
 
 # ============================================================
 #                     helper functions
@@ -2027,7 +2047,10 @@ def user_input(from_gui:bool = False):
     book_miner_settings = load_book_miner_settings()
     load_latest_book_backup(book)
 
-    engine_manager = EngineManager(book_miner_settings)
+    engine_manager = EngineManager(book_miner_settings, from_gui=from_gui)
+    if from_gui:
+        with book.lock:
+            engine_manager.report_mining_progress(len(book.body), force=True)
 
     # 局面について思考するtask workerの開始
     engine_manager.start_task_workers(book)

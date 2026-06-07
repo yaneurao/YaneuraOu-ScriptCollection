@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
@@ -17,9 +18,12 @@ BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
+MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
 STEP_BUTTON_WIDTH = 12
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
+MINING_STATS_SAMPLE_INTERVAL_MS = 60 * 1000
+MINING_STATS_WINDOW_SECONDS = 60 * 60
 
 
 class Tooltip:
@@ -69,6 +73,9 @@ class BookMinerGui(ttk.Frame):
             "task": tk.StringVar(value="enqueue進捗: 待機中"),
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
+        self.mining_status = tk.StringVar(value="現在の局面数 - 局面    現在の採掘速度 - pos/day")
+        self.latest_mining_positions: int | None = None
+        self.mining_samples: list[tuple[float, int]] = []
 
         self.eval_diff = tk.StringVar(value="30")
         self.max_step = tk.StringVar()
@@ -77,6 +84,7 @@ class BookMinerGui(ttk.Frame):
         self.grid(sticky="nsew")
         self._build()
         self._poll_output()
+        self._poll_mining_stats()
 
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -93,7 +101,7 @@ class BookMinerGui(ttk.Frame):
         Tooltip(self.start_button, "BookMiner.py を子プロセスとして起動します。")
         self.quit_button = ttk.Button(bookminer_controls, text="BookMiner終了", command=lambda: self.send_command("q"))
         self.quit_button.pack(side="left", padx=(8, 0))
-        Tooltip(self.quit_button, "`q` を送信し、book/book_miner.db に保存して終了します。")
+        Tooltip(self.quit_button, "`q` を送信し、book/backup/ に現在の定跡DBを書き出して終了します。")
 
         self.kif_manager_button = ttk.Button(top, text="棋譜抽出", command=self.start_kif_manager)
         self.kif_manager_button.grid(row=0, column=2, sticky="e")
@@ -149,6 +157,13 @@ class BookMinerGui(ttk.Frame):
         self._add_progress_row(progress, 0, "read")
         self._add_progress_row(progress, 1, "write")
         self._add_progress_row(progress, 2, "task")
+        ttk.Label(progress, textvariable=self.mining_status).grid(
+            row=3,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(5, 0),
+        )
 
         logs = ttk.PanedWindow(self, orient="vertical")
         logs.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
@@ -163,6 +178,9 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["read"].set("定跡読込: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
+        self.mining_status.set("現在の局面数 - 局面    現在の採掘速度 - pos/day")
+        self.latest_mining_positions = None
+        self.mining_samples.clear()
         for bar in self.progress_bars.values():
             bar.configure(maximum=1)
             bar["value"] = 0
@@ -288,6 +306,7 @@ class BookMinerGui(ttk.Frame):
     def _handle_progress_line(self, line: str) -> None:
         self._handle_book_progress_line(line)
         self._handle_task_queue_progress_line(line)
+        self._handle_mining_progress_line(line)
 
     def _handle_book_progress_line(self, line: str) -> None:
         match = BOOK_PROGRESS_RE.search(line)
@@ -343,11 +362,66 @@ class BookMinerGui(ttk.Frame):
             bar.configure(maximum=1)
             bar["value"] = 0
 
+    def _handle_mining_progress_line(self, line: str) -> None:
+        match = MINING_PROGRESS_RE.search(line)
+        if match is None:
+            return
+
+        positions = int(match.group(1))
+        if self.latest_mining_positions is not None and positions < self.latest_mining_positions:
+            self.mining_samples.clear()
+
+        self.latest_mining_positions = positions
+        if not self.mining_samples:
+            self._record_mining_sample(time.time(), positions)
+        else:
+            self._update_mining_status()
+
+    def _poll_mining_stats(self) -> None:
+        if self.is_running() and self.latest_mining_positions is not None:
+            self._record_mining_sample(time.time(), self.latest_mining_positions)
+        self.after(MINING_STATS_SAMPLE_INTERVAL_MS, self._poll_mining_stats)
+
+    def _record_mining_sample(self, now: float, positions: int) -> None:
+        if self.mining_samples and positions < self.mining_samples[-1][1]:
+            self.mining_samples.clear()
+
+        self.mining_samples.append((now, positions))
+        cutoff = now - MINING_STATS_WINDOW_SECONDS
+        while len(self.mining_samples) > 1 and self.mining_samples[0][0] < cutoff:
+            self.mining_samples.pop(0)
+
+        self._update_mining_status(now, positions)
+
+    def _update_mining_status(self, now: float | None = None, positions: int | None = None) -> None:
+        if positions is None:
+            positions = self.latest_mining_positions
+        if positions is None:
+            self.mining_status.set("現在の局面数 - 局面    現在の採掘速度 - pos/day")
+            return
+
+        if now is None:
+            now = time.time()
+
+        speed_text = "-"
+        if len(self.mining_samples) >= 2:
+            start_time, start_positions = self.mining_samples[0]
+            elapsed = now - start_time
+            if elapsed > 0:
+                added_positions = max(positions - start_positions, 0)
+                speed = round(added_positions * 24 * 60 * 60 / elapsed)
+                speed_text = f"{speed:,}"
+
+        self.mining_status.set(
+            f"現在の局面数 {positions:,} 局面    現在の採掘速度 {speed_text} pos/day"
+        )
+
     def _classify_log_line(self, line: str) -> str:
         lower = line.lower()
         if (
             "[taskqueue" in lower
             or "[taskworker" in lower
+            or "[miningprogress]" in lower
             or "put position commands" in lower
             or re.search(r"\(\d+\) read \d+ position commands", line)
         ):
