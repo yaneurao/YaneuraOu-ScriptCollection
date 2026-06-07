@@ -19,11 +19,17 @@ KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
+PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
+PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 STEP_BUTTON_WIDTH = 12
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
 MINING_STATS_SAMPLE_INTERVAL_MS = 60 * 1000
 MINING_STATS_WINDOW_SECONDS = 60 * 60
+AUTO_ENQUEUE_IDLE = "idle"
+AUTO_ENQUEUE_PETA = "peta_shock"
+AUTO_ENQUEUE_NEXT = "peta_next"
+AUTO_ENQUEUE_ENQUEUE = "enqueue"
 
 
 class Tooltip:
@@ -76,6 +82,11 @@ class BookMinerGui(ttk.Frame):
         self.mining_status = tk.StringVar(value="現在の局面数 - 局面    現在の採掘速度 - pos/day")
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
+        self.auto_enqueue_enabled = tk.BooleanVar(value=False)
+        self.auto_enqueue_threshold = tk.StringVar(value="1000")
+        self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.busy_action: str | None = None
+        self.task_queue_remaining: int | None = None
 
         self.eval_diff = tk.StringVar(value="30")
         self.max_step = tk.StringVar()
@@ -116,7 +127,7 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="peta_shock",
             width=STEP_BUTTON_WIDTH,
-            command=lambda: self.send_command("p"),
+            command=self.send_peta_shock,
         )
         peta_button.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
@@ -147,7 +158,27 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=2, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=2, column=3, sticky="w", pady=3)
 
-        write_button = ttk.Button(commands, text="定跡DBのbackup", command=lambda: self.send_command("w"))
+        ttk.Label(commands, text="手順4.").grid(row=3, column=0, sticky="w", pady=3)
+        auto_check = ttk.Checkbutton(
+            commands,
+            text="自動enqueue",
+            variable=self.auto_enqueue_enabled,
+            command=self.on_auto_enqueue_toggled,
+        )
+        auto_check.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
+        ttk.Label(commands, text="queueの残りが").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=3, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
+            row=3,
+            column=4,
+            columnspan=4,
+            sticky="w",
+            padx=(8, 0),
+            pady=3,
+        )
+
+        write_button = ttk.Button(commands, text="定跡DBのbackup", command=self.send_backup)
         write_button.grid(row=2, column=9, sticky="e", padx=(16, 0), pady=3)
         Tooltip(write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
 
@@ -181,6 +212,9 @@ class BookMinerGui(ttk.Frame):
         self.mining_status.set("現在の局面数 - 局面    現在の採掘速度 - pos/day")
         self.latest_mining_positions = None
         self.mining_samples.clear()
+        self.task_queue_remaining = None
+        self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.busy_action = None
         for bar in self.progress_bars.values():
             bar.configure(maximum=1)
             bar["value"] = 0
@@ -283,6 +317,8 @@ class BookMinerGui(ttk.Frame):
             return_code = process.poll()
             self._append_log("other", f"\n[GUI] BookMiner.py exited. return code = {return_code}\n")
         self.process = None
+        self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.busy_action = None
         self._update_buttons()
 
     def _handle_output(self, text: str) -> None:
@@ -307,6 +343,7 @@ class BookMinerGui(ttk.Frame):
         self._handle_book_progress_line(line)
         self._handle_task_queue_progress_line(line)
         self._handle_mining_progress_line(line)
+        self._handle_auto_enqueue_line(line)
 
     def _handle_book_progress_line(self, line: str) -> None:
         match = BOOK_PROGRESS_RE.search(line)
@@ -338,6 +375,9 @@ class BookMinerGui(ttk.Frame):
             bar.configure(maximum=1)
             bar["value"] = 0
 
+        if phase == "Done" and key == "write" and self.busy_action == "manual_backup":
+            self.busy_action = None
+
     def _handle_task_queue_progress_line(self, line: str) -> None:
         match = TASK_QUEUE_PROGRESS_RE.search(line)
         if match is None:
@@ -346,6 +386,7 @@ class BookMinerGui(ttk.Frame):
         phase, count_text, total_text = match.groups()
         count = int(count_text)
         total = None if total_text == "?" else int(total_text)
+        remaining = None if total is None else max(total - count, 0)
 
         label = "enqueue完了" if phase == "Done" else "enqueue進捗"
         total_display = str(total) if total is not None else "?"
@@ -361,6 +402,21 @@ class BookMinerGui(ttk.Frame):
         else:
             bar.configure(maximum=1)
             bar["value"] = 0
+
+        self.task_queue_remaining = remaining
+
+        if self.busy_action == "manual_enqueue" and phase == "Start":
+            self.busy_action = None
+            return
+
+        if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and phase == "Start":
+            self._append_log("task", "[GUI] auto enqueue sequence completed.\n")
+            self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+            self.busy_action = None
+            self._maybe_start_auto_enqueue()
+            return
+
+        self._maybe_start_auto_enqueue()
 
     def _handle_mining_progress_line(self, line: str) -> None:
         match = MINING_PROGRESS_RE.search(line)
@@ -416,6 +472,111 @@ class BookMinerGui(ttk.Frame):
             f"現在の局面数 {positions:,} 局面    現在の採掘速度 {speed_text} pos/day"
         )
 
+    def _handle_auto_enqueue_line(self, line: str) -> None:
+        if "Exception :" in line and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+            self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
+            return
+        if "Exception :" in line and self.busy_action is not None:
+            self._append_log("other", "[GUI] BookMiner command failed. manual busy state was cleared.\n")
+            self.busy_action = None
+            return
+
+        if PETA_COMMAND_DONE_RE.search(line):
+            if self.busy_action == "manual_peta_shock":
+                self.busy_action = None
+                return
+
+            if self.auto_enqueue_state == AUTO_ENQUEUE_PETA:
+                if not self.auto_enqueue_enabled.get():
+                    self._abort_auto_enqueue("auto enqueue stopped: disabled after peta_shock.")
+                    return
+                self.auto_enqueue_state = AUTO_ENQUEUE_NEXT
+                if not self.send_peta_next(auto=True):
+                    self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_next.")
+                return
+
+        if PETA_NEXT_DONE_RE.search(line):
+            if self.busy_action == "manual_peta_next":
+                self.busy_action = None
+                return
+
+            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
+                if not self.auto_enqueue_enabled.get():
+                    self._abort_auto_enqueue("auto enqueue stopped: disabled after peta_next.")
+                    return
+                self.auto_enqueue_state = AUTO_ENQUEUE_ENQUEUE
+                if not self.send_think(auto=True):
+                    self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
+                return
+
+    def on_auto_enqueue_toggled(self) -> None:
+        if self.auto_enqueue_enabled.get():
+            if self._get_auto_enqueue_threshold() is None:
+                self.auto_enqueue_enabled.set(False)
+                return
+            self._maybe_start_auto_enqueue()
+        elif self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+            self._append_log("task", "[GUI] auto enqueue disabled. current BookMiner command will not be interrupted.\n")
+
+    def _get_auto_enqueue_threshold(self) -> int | None:
+        value = self.auto_enqueue_threshold.get().strip()
+        try:
+            threshold = int(value)
+        except ValueError:
+            messagebox.showerror("入力エラー", "自動enqueueのqueue残り数には、1以上の整数を指定してください。")
+            return None
+
+        if threshold <= 0:
+            messagebox.showerror("入力エラー", "自動enqueueのqueue残り数には、1以上の整数を指定してください。")
+            return None
+
+        return threshold
+
+    def _maybe_start_auto_enqueue(self) -> None:
+        if not self.auto_enqueue_enabled.get():
+            return
+        if not self.is_running():
+            return
+        if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+            return
+        if self.busy_action is not None:
+            return
+        if self.task_queue_remaining is None:
+            return
+
+        threshold = self._get_auto_enqueue_threshold()
+        if threshold is None:
+            self.auto_enqueue_enabled.set(False)
+            return
+        if self.task_queue_remaining >= threshold:
+            return
+
+        self.auto_enqueue_state = AUTO_ENQUEUE_PETA
+        self.busy_action = "auto_enqueue"
+        self._append_log(
+            "task",
+            f"[GUI] auto enqueue started. remaining={self.task_queue_remaining}, threshold={threshold}\n",
+        )
+        if not self.send_command("p", origin="AUTO"):
+            self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_shock.")
+
+    def _abort_auto_enqueue(self, message: str) -> None:
+        self._append_log("task", f"[GUI] {message}\n")
+        self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        if self.busy_action == "auto_enqueue":
+            self.busy_action = None
+        self.auto_enqueue_enabled.set(False)
+
+    def _begin_manual_action(self, action: str) -> bool:
+        if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+            messagebox.showinfo("実行中", "自動enqueueの処理中です。完了してから操作してください。")
+            return False
+        if self.busy_action is not None:
+            messagebox.showinfo("実行中", "BookMinerコマンドの実行中です。完了してから操作してください。")
+            return False
+        self.busy_action = action
+        return True
+
     def _classify_log_line(self, line: str) -> str:
         lower = line.lower()
         if (
@@ -429,6 +590,8 @@ class BookMinerGui(ttk.Frame):
         if (
             "peta_shock" in lower
             or "p command" in lower
+            or "[petacommanddone]" in lower
+            or "[petanextdone]" in lower
             or "peta shocked book" in lower
             or "peta_next" in lower
             or "root sfen" in lower
@@ -445,34 +608,102 @@ class BookMinerGui(ttk.Frame):
             return "search"
         return "other"
 
-    def send_command(self, command: str) -> bool:
+    def send_command(self, command: str, origin: str = "GUI") -> bool:
         if not self.is_running() or self.process is None or self.process.stdin is None:
-            messagebox.showinfo("未起動", "BookMiner.py を起動してください。")
+            if origin == "GUI":
+                messagebox.showinfo("未起動", "BookMiner.py を起動してください。")
+            else:
+                self._append_log("task", f"[{origin}] BookMiner.py is not running.\n")
             return False
-        self._append_log("other", f"\n[GUI] > {command}\n")
+        self._append_log("other", f"\n[{origin}] > {command}\n")
         try:
             self.process.stdin.write(command + "\n")
             self.process.stdin.flush()
         except OSError as exc:
-            messagebox.showerror("送信失敗", str(exc))
+            if origin == "GUI":
+                messagebox.showerror("送信失敗", str(exc))
+            else:
+                self._append_log("task", f"[{origin}] send failed: {exc}\n")
             return False
         return True
 
-    def send_think(self) -> None:
+    def send_peta_shock(self) -> bool:
+        if not self._begin_manual_action("manual_peta_shock"):
+            return False
+        if self.send_command("p"):
+            return True
+        self.busy_action = None
+        return False
+
+    def send_backup(self) -> bool:
+        if not self._begin_manual_action("manual_backup"):
+            return False
+        if self.send_command("w"):
+            return True
+        self.busy_action = None
+        return False
+
+    def send_think(self, auto: bool = False) -> bool:
         value = self.eval_limit.get().strip()
         if not value:
-            messagebox.showerror("入力エラー", "eval_limit を指定してください。")
-            return
-        if self.send_command(f"e {value}"):
-            self.send_command("t")
+            if auto:
+                self._append_log("task", "[AUTO] eval_limit is empty.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval_limit を指定してください。")
+            return False
+        try:
+            int(value)
+        except ValueError:
+            if auto:
+                self._append_log("task", "[AUTO] eval_limit must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval_limit には整数を指定してください。")
+            return False
+        if not auto and not self._begin_manual_action("manual_enqueue"):
+            return False
+        origin = "AUTO" if auto else "GUI"
+        if self.send_command(f"e {value}", origin=origin) and self.send_command("t", origin=origin):
+            return True
+        if not auto:
+            self.busy_action = None
+        return False
 
-    def send_peta_next(self) -> None:
+    def send_peta_next(self, auto: bool = False) -> bool:
         eval_diff = self.eval_diff.get().strip()
         if not eval_diff:
-            messagebox.showerror("入力エラー", "eval diff を指定してください。")
-            return
+            if auto:
+                self._append_log("task", "[AUTO] eval_diff is empty.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval diff を指定してください。")
+            return False
+        try:
+            int(eval_diff)
+        except ValueError:
+            if auto:
+                self._append_log("task", "[AUTO] eval_diff must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval diff には整数を指定してください。")
+            return False
+        if not auto and not self._begin_manual_action("manual_peta_next"):
+            return False
         max_step = self.max_step.get().strip()
-        self.send_command(f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}")
+        if max_step:
+            try:
+                int(max_step)
+            except ValueError:
+                if auto:
+                    self._append_log("task", "[AUTO] max step must be an integer.\n")
+                else:
+                    messagebox.showerror("入力エラー", "max step には整数を指定してください。")
+                if not auto:
+                    self.busy_action = None
+                return False
+        origin = "AUTO" if auto else "GUI"
+        if self.send_command(f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}", origin=origin):
+            return True
+        if not auto:
+            self.busy_action = None
+        return False
 
     def _append_log(self, key: str, text: str) -> None:
         log = self.log_widgets.get(key) or self.log_widgets["other"]

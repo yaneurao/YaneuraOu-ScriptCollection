@@ -1710,6 +1710,7 @@ def write_and_read_peta_book(book:Book):
     print(f"p command source book = {source_book_path}")
     read_peta_book(source_book_path)
     print("..p command has done.")
+    print("[PetaCommandDone]")
 
 
 def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
@@ -1891,16 +1892,20 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
     bw_path = os.path.join(BOOK_DIR, f"think_sfens.txt")
     b_path  = os.path.join(BOOK_DIR, f"think_sfens-black.txt")
     w_path  = os.path.join(BOOK_DIR, f"think_sfens-white.txt")
+    bw_count = 0
     with open(bw_path, 'w') as fbw,\
         open(b_path, 'r') as fb, \
         open(w_path, 'r') as fw:
         for line_a, line_b in zip_longest(fb, fw, fillvalue=''):
             if line_a:
                 fbw.write(line_a)
+                bw_count += 1
             if line_b:
                 fbw.write(line_b)
+                bw_count += 1
 
     print("peta_next done.")
+    print(f"[PetaNextDone] path={bw_path} count={bw_count}")
 
 
 def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int):

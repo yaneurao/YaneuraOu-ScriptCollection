@@ -41,13 +41,15 @@ book/think_sfens.txt
 1. `peta_shock`
 2. `peta_next`
 3. `enqueue`
+4. 必要なら `自動enqueue` を有効にする
 
-GUI 上でもこの 3 手順が縦に並んでいます。
+GUI 上でもこの手順が縦に並んでいます。
 
 ```text
 手順1. [ peta_shock ]
 手順2. [ peta_next  ] eval_diff  [ X ] max step [ Y ]
 手順3. [ enqueue    ] eval_limit [ Z ]
+手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順1.～3.を自動実行する
 ```
 
 `peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....db` の読み込みを一度に行います。
@@ -55,6 +57,13 @@ GUI 上でもこの 3 手順が縦に並んでいます。
 `peta_next` は、`n eval_diff [max_step]` を送信します。例えば `eval_diff` に `30` と入力して実行すると、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
 
 `enqueue` は、`e eval_limit` を送信してから `t` を送信します。例えば `eval_limit` に `400` と入力して実行すると、`e 400` を送信してから、`book/think_sfens.txt` の局面を探索キューへ積みます。
+
+`自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
+残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock`、`peta_next`、`enqueue` をこの順番で実行します。
+自動実行中に同じ処理が二重に走らないよう、次の段階へ進むのは BookMiner.py の完了タグを受け取ってからです。
+
+自動enqueueは、探索workerがまだ処理していないqueue残数を目安にします。
+探索が完全に完了した数ではありませんが、workerを遊ばせないための補充タイミングとして使います。
 
 ## よく使うボタン
 
@@ -64,6 +73,7 @@ GUI 上でもこの 3 手順が縦に並んでいます。
 - `peta_shock`: 現在の定跡 DB を書き出し、peta shock 化して読み込みます。
 - `peta_next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
 - `enqueue`: eval limit を設定してから、`book/think_sfens.txt` の棋譜上の局面を探索キューへ積みます。
+- `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、`peta_next`、`enqueue` を自動実行します。
 - `定跡DBのbackup`: 現在の定跡 DB を `book/backup/` に書き出します。
 
 ボタンにマウスを乗せると、簡単な説明が表示されます。
@@ -98,6 +108,8 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [BookReadProgress] 10000/12345678
 [BookWriteProgress] 10000/12345678
 [MiningProgress] positions=12345678
+[PetaCommandDone]
+[PetaNextDone] path=book/think_sfens.txt count=50000
 ```
 
 起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/backup/peta_book-....db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
@@ -119,6 +131,10 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 ```
 
 ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
+
+自動enqueueは、この `remaining` が指定値より少なくなったときに発火します。
+手動で `peta_shock`、`peta_next`、`enqueue`、`定跡DBのbackup` を実行している間は、自動enqueueは開始しません。
+自動enqueue後も `remaining` がまだ指定値より少ない場合は、足りるまで続けて自動enqueueします。
 
 ## 注意点
 
