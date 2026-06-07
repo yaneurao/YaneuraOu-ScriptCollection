@@ -40,8 +40,8 @@ ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json"
 # BookMiner本体設定が書いてあるjsonファイルのpath
 BOOK_MINER_SETTINGS_JSON_PATH = "settings/book_miner_settings.json"
 
-# peta_nextコマンドの開始局面(sfen形式) , BOOK_DIRに配置する。
-PETA_NEXT_START_SFENS_PATH = "peta_start_sfens.txt"
+# peta_nextコマンドの開始局面集合。settings/book_miner_settings.json で上書きされる。
+PETA_NEXT_START_SFENS_PATH = os.path.join(BOOK_DIR, "peta_start_sfens.txt")
 
 # 開始局面のsfen文字列
 SFEN_START      = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b -"
@@ -163,6 +163,9 @@ class BookMinerSettings:
 
     # この手数に到達したら、それ以上掘らない。
     max_book_ply : int = MAX_BOOK_PLY
+
+    # peta_nextで辿り始める開始局面集合ファイル。
+    peta_next_start_sfens_path : str = PETA_NEXT_START_SFENS_PATH
 
 # ============================================================
 
@@ -388,6 +391,12 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
             raise Exception(f"invalid BookMiner setting. {name} must be positive integer. value = {value}")
         return value
 
+    def read_non_empty_str(name:str, current_value:str)->str:
+        value = raw_settings.get(name, current_value)
+        if not isinstance(value, str) or not value.strip():
+            raise Exception(f"invalid BookMiner setting. {name} must be non-empty string. value = {value}")
+        return value.strip()
+
     settings.auto_save_interval_seconds = read_positive_int(
         "auto_save_interval_seconds",
         settings.auto_save_interval_seconds,
@@ -396,11 +405,16 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
         "max_book_ply",
         settings.max_book_ply,
     )
+    settings.peta_next_start_sfens_path = read_non_empty_str(
+        "peta_next_start_sfens_path",
+        settings.peta_next_start_sfens_path,
+    )
 
     print(
         "BookMiner settings : "
         f"auto_save_interval_seconds = {settings.auto_save_interval_seconds}, "
-        f"max_book_ply = {settings.max_book_ply}"
+        f"max_book_ply = {settings.max_book_ply}, "
+        f"peta_next_start_sfens_path = {settings.peta_next_start_sfens_path}"
     )
     return settings
 
@@ -1713,7 +1727,7 @@ def write_and_read_peta_book(book:Book):
     print("[PetaCommandDone]")
 
 
-def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
+def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_path:str):
     """
     r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
     読み込み、掘れていない局面を`book/think_sfens.txt`に書き出します。
@@ -1725,12 +1739,18 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
 
     後手番の定跡について考えるときも、同様に、後手の局面ならbestmoveのみ、先手の局面なら、root_best - eval_diff以上の指し手を延長していきます。`book/think_sfens-white.txt`に書き出します。
 
-    開始局面集合は、`book/peta_start_sfens.txt`で指定できます。(このファイルがなければ平手の開始局面から) このファイルは、startpos moves .. のようなPositionコマンドで指定するposition stringに対応しています。
+    開始局面集合は、settings/book_miner_settings.json の peta_next_start_sfens_path で指定できます。
+    このファイルがなければ平手の開始局面から辿ります。
+    このファイルは、startpos moves .. のようなPositionコマンドで指定するposition stringに対応しています。
     """
 
     global peta_book
 
-    print(f"peta_next, peta_eval_diff = {peta_eval_diff}, max_step = {max_step}, max_book_ply = {max_book_ply}")
+    print(
+        f"peta_next, peta_eval_diff = {peta_eval_diff}, "
+        f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
+        f"start_sfens_path = {start_sfens_path}"
+    )
 
     # 先手の定跡を考えるのか？
     # turn == 1 なら 先手、0なら後手
@@ -1752,10 +1772,9 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int):
         root_positions : list[tuple[PositionStr, Sfen]] = []
 
         # ファイルで指定されているなら、そこから。
-        path = os.path.join(BOOK_DIR, PETA_NEXT_START_SFENS_PATH)
-        if os.path.exists(path):
-            print(f"read start sfens , path = {path}")
-            for line in open(path, 'r'):
+        if os.path.exists(start_sfens_path):
+            print(f"read start sfens , path = {start_sfens_path}")
+            for line in open(start_sfens_path, 'r'):
                 position_cmd = line.strip()
                 if not position_cmd or position_cmd.startswith('#'):
                     continue
@@ -2175,7 +2194,12 @@ def user_input(from_gui:bool = False):
                 else:
                     peta_eval_diff = int(inp[1])
                     max_step = 9999 if len(inp) < 3 else int(inp[2])
-                    peta_next(peta_eval_diff, max_step, book_miner_settings.max_book_ply)
+                    peta_next(
+                        peta_eval_diff,
+                        max_step,
+                        book_miner_settings.max_book_ply,
+                        book_miner_settings.peta_next_start_sfens_path,
+                    )
 
         except Exception as e:
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")

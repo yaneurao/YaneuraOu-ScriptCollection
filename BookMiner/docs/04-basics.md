@@ -183,7 +183,9 @@ book/think_sfens.txt
 ## peta_next の開始局面集合を変える
 
 通常、`n` コマンドは平手の初期局面、つまり `startpos` から定跡ツリーを辿ります。
-特定の局面から先だけを対象にしたい場合は、`book/peta_start_sfens.txt` を作成します。
+特定の局面から先だけを対象にしたい場合は、`settings/book_miner_settings.json` の `peta_next_start_sfens_path` で指定されているファイルを作成します。
+
+デフォルトは次の場所です。
 
 ```text
 book/peta_start_sfens.txt
@@ -198,9 +200,13 @@ startpos moves 2g2f 8c8d 2f2e 8d8e
 ```
 
 このファイルが存在する場合、`n` コマンドは `startpos` ではなく、ここに書かれた局面集合を root として扱います。
-つまり、`book/peta_start_sfens.txt` に書いた局面から先を辿り、次に掘る leaf 局面を `book/think_sfens.txt` に書き出します。
+つまり、開始局面集合ファイルに書いた局面から先を辿り、次に掘る leaf 局面を `book/think_sfens.txt` に書き出します。
 
 このファイルが存在しない場合は、従来通り `startpos` から辿ります。
+
+BookMiner は、`n` コマンドを実行するたびにこのファイルを読み直します。
+そのため、BookMiner.py を起動し直す必要はありません。
+`book/peta_start_sfens.txt` を書き換えてから `n` コマンドを実行すれば、その内容がその回の `peta_next` に反映されます。
 
 任意の局面の `startpos moves ...` 文字列を得るには、将棋AI用GUIの `将棋所` を使うと簡単です。
 詳しくは [3. USI と position コマンド](03-usi.md#将棋所から局面文字列を得る) を参照してください。

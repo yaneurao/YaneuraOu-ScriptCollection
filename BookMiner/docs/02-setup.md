@@ -126,7 +126,8 @@ settings/book_miner_settings.json
 ```json
 {
     "auto_save_interval_seconds": 10800,
-    "max_book_ply": 200
+    "max_book_ply": 200,
+    "peta_next_start_sfens_path": "book/peta_start_sfens.txt"
 }
 ```
 
@@ -134,10 +135,15 @@ settings/book_miner_settings.json
 
 - `auto_save_interval_seconds` : 定期自動バックアップの間隔です。単位は秒です。
 - `max_book_ply` : この手数に到達したら、それ以上局面を掘りません。
+- `peta_next_start_sfens_path` : `n` コマンドで `peta_next` するときの開始局面集合ファイルです。
 
 `auto_save_interval_seconds` の `10800` は 3 時間です。
 
 `max_book_ply` が `200` の場合、ply が 200 に到達した局面では思考せず、`n` コマンドでも ply 200 以降の局面を次の掘削対象として書き出しません。
+
+`peta_next_start_sfens_path` は、通常は `book/peta_start_sfens.txt` のままでかまいません。
+このファイルが存在する場合、`n` コマンドはそこに書かれた局面集合から定跡ツリーを辿ります。
+ファイルが存在しない場合は、平手の初期局面 `startpos` から辿ります。
 
 ## SSH 経由で複数 PC を使う方法
 

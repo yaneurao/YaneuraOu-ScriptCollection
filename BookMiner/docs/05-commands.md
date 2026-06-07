@@ -175,7 +175,8 @@ n 30 40
 
 `settings/book_miner_settings.json` の `max_book_ply` に到達する局面は、出力対象から除外されます。
 
-`book/peta_start_sfens.txt` が存在する場合、`n` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
+`settings/book_miner_settings.json` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`n` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
+このファイルは `n` コマンド実行のたびに読み直されます。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
 
 ## `i`
