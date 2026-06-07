@@ -68,7 +68,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## よく使うボタン
 
 - `BookMiner起動`: BookMiner.py を起動します。
-- `BookMiner終了`: `q` を送信し、`book/backup/` に通常定跡 DB を書き出して終了します。
+- `BookMiner終了`: GUI の入力欄設定を保存してから `q` を送信し、`book/backup/` に通常定跡 DB を書き出して終了します。
 - `棋譜抽出`: KifManager を起動します。
 - `peta_shock`: 現在の定跡 DB を書き出し、peta shock 化して読み込みます。
 - `peta_next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
@@ -77,6 +77,14 @@ GUI 上でもこの手順が縦に並んでいます。
 - `定跡DBのbackup`: 現在の定跡 DB を `book/backup/` に書き出します。
 
 ボタンにマウスを乗せると、簡単な説明が表示されます。
+
+## GUI設定の保存
+
+GUI の数値入力欄は、`BookMiner終了` を押した瞬間に `BookMiner-gui.pickle` へ保存されます。
+保存されるのは `eval_diff`、`max step`、`eval_limit`、`自動enqueue` の queue 残数しきい値です。
+
+`q` コマンド送信後、BookMiner.py は定跡 DB の書き出しや worker の終了待ちに時間がかかることがあります。
+その待ち時間中に GUI を閉じても入力欄の設定が失われないよう、設定保存はプロセス終了時ではなく `q` 送信前に行います。
 
 ## ログ
 

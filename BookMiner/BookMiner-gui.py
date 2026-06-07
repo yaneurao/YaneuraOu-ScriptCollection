@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import queue
 import re
 import subprocess
@@ -16,6 +17,13 @@ from tkinter import messagebox, scrolledtext, ttk
 BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
+GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
+GUI_SETTING_DEFAULTS = {
+    "eval_diff": "30",
+    "max_step": "",
+    "eval_limit": "400",
+    "auto_enqueue_threshold": "1000",
+}
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
@@ -30,6 +38,30 @@ AUTO_ENQUEUE_IDLE = "idle"
 AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
+
+
+def load_gui_settings() -> dict[str, str]:
+    if not GUI_SETTINGS_PATH.is_file():
+        return {}
+
+    try:
+        with open(GUI_SETTINGS_PATH, "rb") as f:
+            data = pickle.load(f)
+    except (OSError, pickle.PickleError, EOFError, AttributeError, TypeError):
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    settings: dict[str, str] = {}
+    for key in GUI_SETTING_DEFAULTS:
+        value = data.get(key)
+        if isinstance(value, str):
+            settings[key] = value
+        elif value is not None:
+            settings[key] = str(value)
+
+    return settings
 
 
 class Tooltip:
@@ -68,6 +100,7 @@ class Tooltip:
 class BookMinerGui(ttk.Frame):
     def __init__(self, master: tk.Tk) -> None:
         super().__init__(master, padding=12)
+        gui_settings = load_gui_settings()
         self.master = master
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
@@ -83,14 +116,16 @@ class BookMinerGui(ttk.Frame):
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
         self.auto_enqueue_enabled = tk.BooleanVar(value=False)
-        self.auto_enqueue_threshold = tk.StringVar(value="1000")
+        self.auto_enqueue_threshold = tk.StringVar(
+            value=gui_settings.get("auto_enqueue_threshold", GUI_SETTING_DEFAULTS["auto_enqueue_threshold"])
+        )
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action: str | None = None
         self.task_queue_remaining: int | None = None
 
-        self.eval_diff = tk.StringVar(value="30")
-        self.max_step = tk.StringVar()
-        self.eval_limit = tk.StringVar(value="400")
+        self.eval_diff = tk.StringVar(value=gui_settings.get("eval_diff", GUI_SETTING_DEFAULTS["eval_diff"]))
+        self.max_step = tk.StringVar(value=gui_settings.get("max_step", GUI_SETTING_DEFAULTS["max_step"]))
+        self.eval_limit = tk.StringVar(value=gui_settings.get("eval_limit", GUI_SETTING_DEFAULTS["eval_limit"]))
 
         self.grid(sticky="nsew")
         self._build()
@@ -110,7 +145,7 @@ class BookMinerGui(ttk.Frame):
         self.start_button = ttk.Button(bookminer_controls, text="BookMiner起動", command=self.start_process)
         self.start_button.pack(side="left")
         Tooltip(self.start_button, "BookMiner.py を子プロセスとして起動します。")
-        self.quit_button = ttk.Button(bookminer_controls, text="BookMiner終了", command=lambda: self.send_command("q"))
+        self.quit_button = ttk.Button(bookminer_controls, text="BookMiner終了", command=self.send_quit)
         self.quit_button.pack(side="left", padx=(8, 0))
         Tooltip(self.quit_button, "`q` を送信し、book/backup/ に現在の定跡DBを書き出して終了します。")
 
@@ -626,6 +661,27 @@ class BookMinerGui(ttk.Frame):
                 self._append_log("task", f"[{origin}] send failed: {exc}\n")
             return False
         return True
+
+    def save_gui_settings(self) -> bool:
+        data = {
+            "eval_diff": self.eval_diff.get(),
+            "max_step": self.max_step.get(),
+            "eval_limit": self.eval_limit.get(),
+            "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
+        }
+        try:
+            with open(GUI_SETTINGS_PATH, "wb") as f:
+                pickle.dump(data, f)
+        except (OSError, pickle.PickleError) as exc:
+            self._append_log("other", f"[GUI] settings save failed: {exc}\n")
+            return False
+
+        self._append_log("other", f"[GUI] settings saved: {GUI_SETTINGS_PATH.name}\n")
+        return True
+
+    def send_quit(self) -> bool:
+        self.save_gui_settings()
+        return self.send_command("q")
 
     def send_peta_shock(self) -> bool:
         if not self._begin_manual_action("manual_peta_shock"):
