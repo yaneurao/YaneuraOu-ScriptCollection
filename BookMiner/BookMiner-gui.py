@@ -128,7 +128,7 @@ class BookMinerGui(ttk.Frame):
         }
         self.progress_bars: dict[str, ttk.Progressbar] = {}
         self.startup_status = tk.StringVar(value="状態: 停止中")
-        self.backup_status = tk.StringVar(value="次回自動バックアップ -")
+        self.backup_status = tk.StringVar(value="次回自動保存 -")
         self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions: int | None = None
         self.mining_samples: list[tuple[float, int]] = []
@@ -314,7 +314,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["engine"].set("エンジン起動: 待機中")
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
-        self.backup_status.set("次回自動バックアップ -")
+        self.backup_status.set("次回自動保存 -")
         self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
         self.latest_mining_positions = None
         self.mining_samples.clear()
@@ -525,7 +525,7 @@ class BookMinerGui(ttk.Frame):
                 bar.configure(maximum=1)
                 bar["value"] = 1
             if phase == "Done":
-                self.startup_status.set("状態: 自動バックアップサービス起動待ち")
+                self.startup_status.set("状態: 自動保存サービス起動待ち")
             return
 
         ready_match = ENGINE_READY_RE.search(line)
@@ -541,9 +541,9 @@ class BookMinerGui(ttk.Frame):
             next_match = re.search(r"\bnext=(\S+)", rest)
             if tag in ("BackupServiceStarted", "BackupNext") and next_match is not None:
                 next_time = next_match.group(1).replace("_", " ")
-                self.backup_status.set(f"次回自動バックアップ {next_time}")
+                self.backup_status.set(f"次回自動保存 {next_time}")
                 if tag == "BackupServiceStarted":
-                    self.startup_status.set("状態: 自動バックアップサービス起動完了")
+                    self.startup_status.set("状態: 自動保存サービス起動完了")
             return
 
         if COMMAND_READY_RE.search(line):

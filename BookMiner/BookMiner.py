@@ -2166,7 +2166,7 @@ def user_input(from_gui:bool = False):
 
     # backup用のタスクを開始。
     next_backup_time = scheduled_time_text(time.time() + book_miner_settings.auto_save_interval_seconds)
-    print("[StartupStage] stage=backup_service message=自動バックアップサービス起動中")
+    print("[StartupStage] stage=backup_service message=自動保存サービス起動中")
     Thread(target=backup_worker, daemon=True).start()
     print(
         f"[BackupServiceStarted] next={next_backup_time} "
