@@ -1,0 +1,124 @@
+# 3. 定跡を掘るための基礎
+
+この章では、BookMiner に渡す入力ファイル、局面を掘る流れ、次に掘る局面の作り方を説明します。用語は [1. 用語説明](01-terms.md) で説明しています。
+
+## `startpos moves ...` 形式
+
+BookMiner の入力ファイルでは、1 行を 1 対局として書きます。
+
+```text
+startpos moves 7g7f 3c3d 2g2f 8c8d
+startpos moves 2g2f 8c8d 2f2e 8d8e
+```
+
+この形式は、平手初期局面から指し手を順に進めた局面列を表します。
+
+`sfen ... moves ...` 形式も、USI の `position` コマンドとして解釈できる形なら扱えます。ただし、通常の運用では `startpos moves ...` を使います。
+
+## 掘りたい局面を渡す
+
+通常は KifManager で棋譜を抽出し、BookMiner の入力ファイルを作ります。
+
+出力先は次の場所にします。
+
+```text
+BookMiner/book/think_sfens.txt
+```
+
+BookMiner 側では、起動後に `t` と入力すると、このファイルを読み込みます。
+
+```text
+t
+```
+
+別のファイルを読む場合は、path を指定します。
+
+```text
+t book/my_positions.txt
+```
+
+`t` コマンドは各行の指し手を順に辿り、まだ掘っていない局面があれば探索用エンジンで思考します。
+
+途中で評価値の絶対値が eval limit 以上になった場合、その対局の処理はそこで止まります。
+
+棋譜の末端まで到達した場合は、そこからエンジンの best line を `THINK_COMMAND_PLY` 手分だけ延長して掘ります。この延長中も、評価値の絶対値が eval limit 以上になったら停止します。
+
+## 通常定跡 DB を書き出す
+
+局面を掘ったら、`w` コマンドで通常のやねうら王定跡形式として書き出します。
+
+```text
+w
+```
+
+出力先は `book/backup/` です。
+
+```text
+book/backup/book_miner-20260607071000_12345.db
+```
+
+## peta shock 化する
+
+`w` で書き出した通常定跡 DB は、`r` コマンドで peta shock 化します。
+
+```text
+r
+```
+
+`r` は、`book/backup/` にある最新の通常バックアップを `YO-MATERIAL.exe` に渡し、`book/peta_book.db` を作って読み込みます。
+
+やねうら王側のコマンドは次の形式です。
+
+```text
+makebook peta_shock <readbook> <writebook> [shrink] [fast]
+```
+
+`readbook` と `writebook` は、エンジンオプション `BookDir` からの相対パスです。
+
+BookMiner の `r` コマンドは、内部的には `YO-MATERIAL.exe` におおむね次のようなコマンドを送ります。
+
+```text
+setoption name BookDir value book
+setoption name BookFile value no_book
+setoption name FlippedBook value true
+setoption name USI_Hash value 1
+makebook peta_shock backup/book_miner-20260607071000_12345.db peta_book.tmp.db
+quit
+```
+
+変換に成功すると、BookMiner は `book/peta_book.tmp.db` を `book/peta_book.db` に置き換えます。
+
+## 次に掘る局面を求める
+
+peta shock 化した定跡から、次に掘るべき leaf 局面を求めるには `n` コマンドを使います。
+
+```text
+n 100
+```
+
+`100` は、root の best move からどの程度評価値が離れた枝まで辿るかを表す値です。
+
+`n` コマンドは次のファイルを書き出します。
+
+```text
+book/think_sfens-black.txt
+book/think_sfens-white.txt
+book/think_sfens.txt
+```
+
+`book/think_sfens.txt` は、先手用と後手用の leaf 局面を交互に混ぜたものです。次の周回では、また `t` コマンドでこのファイルを掘ります。
+
+外部の `peta_next` スクリプトを使う運用も考えられますが、BookMiner では `n` コマンドがその役割を持っています。
+
+## 基本の反復
+
+最初の 1 周は次の流れです。
+
+1. KifManager で棋譜を抽出し、`book/think_sfens.txt` を作る。
+2. BookMiner を起動する。
+3. `t` で局面を掘る。
+4. `w` で通常定跡 DB をバックアップに書き出す。
+5. `r` で peta shock 化して読み込む。
+6. `n 100` で次に掘る局面を作る。
+7. 必要なら 3 から繰り返す。
+8. 終了するときは `q` で保存して終了する。
