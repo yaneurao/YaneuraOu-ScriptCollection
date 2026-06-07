@@ -59,7 +59,7 @@ GUI 上でもこの 3 手順が縦に並んでいます。
 ## よく使うボタン
 
 - `BookMiner起動`: BookMiner.py を起動します。
-- `BookMiner終了`: `q` を送信し、`book/book_miner.db` に保存して終了します。
+- `BookMiner終了`: `q` を送信し、`book/backup/` に通常定跡 DB を書き出して終了します。
 - `棋譜抽出`: KifManager を起動します。
 - `peta_shock`: 現在の定跡 DB を書き出し、peta shock 化して読み込みます。
 - `peta_next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
@@ -88,7 +88,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [BookWriteProgress] 10000/12345678
 ```
 
-起動時の `book/book_miner.db` 読み込み、`peta_shock` 後の `book/peta_book.db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
+起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` 後の `book/peta_book.db` 読み込み、`BookMiner終了` や `定跡DBのbackup` の書き出しで進捗が表示されます。
 
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 

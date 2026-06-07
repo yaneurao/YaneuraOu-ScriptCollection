@@ -1402,15 +1402,12 @@ def read_yaneuraou_book(book:Book, path:str):
 # `peta_read`コマンドで読み込まれた定跡ファイル
 peta_book = Book()
 
-def get_latest_book_backup()->str:
-    """
-    book/backup/ にある最新の通常バックアップを返す。
-    ply制限つきの `*_plyN.db` は、部分書き出しなので自動選択から除外する。
-    """
-    if not os.path.isdir(BOOK_BACKUP_DIR):
-        raise Exception(f"book backup folder not found : {BOOK_BACKUP_DIR}")
 
+def collect_book_backup_paths()->list[str]:
     paths : list[str] = []
+    if not os.path.isdir(BOOK_BACKUP_DIR):
+        return paths
+
     for filename in os.listdir(BOOK_BACKUP_DIR):
         if not filename.startswith(f"{BOOK_DB_NAME}-"):
             continue
@@ -1422,11 +1419,45 @@ def get_latest_book_backup()->str:
         if os.path.isfile(path):
             paths.append(path)
 
-    if not paths:
-        raise Exception(f"book backup file not found : {BOOK_BACKUP_DIR}/{BOOK_DB_NAME}-*.db")
+    paths.sort(key=lambda path: os.path.basename(path))
+    return paths
 
-    paths.sort(key=lambda path: (os.path.getmtime(path), path))
-    return paths[-1]
+
+def legacy_book_backup_path()->str:
+    return os.path.join(BOOK_BACKUP_DIR, f"{BOOK_DB_NAME}.db")
+
+
+def get_latest_book_backup_or_none()->str|None:
+    """
+    book/backup/ にある最新の通常バックアップを返す。
+    ply制限つきの `*_plyN.db` は、部分書き出しなので自動選択から除外する。
+    `book/backup/book_miner.db` は、通常バックアップが1つも無いときだけ読む。
+    """
+    paths = collect_book_backup_paths()
+    if paths:
+        return paths[-1]
+
+    legacy_path = legacy_book_backup_path()
+    if os.path.isfile(legacy_path):
+        return legacy_path
+
+    return None
+
+
+def get_latest_book_backup()->str:
+    path = get_latest_book_backup_or_none()
+    if path is None:
+        raise Exception(f"book backup file not found : {BOOK_BACKUP_DIR}/{BOOK_DB_NAME}-*.db")
+    return path
+
+
+def load_latest_book_backup(book:Book):
+    path = get_latest_book_backup_or_none()
+    if path is None:
+        print(f"book backup file not found. start with empty book. dir = {BOOK_BACKUP_DIR}")
+        return
+
+    load_book(book, path)
 
 
 def resolve_peta_source_book_path(path:str|None)->str:
@@ -1929,10 +1960,7 @@ def user_input(from_gui:bool = False):
     """
     book : Book = Book()
     book_miner_settings = load_book_miner_settings()
-
-    path = os.path.join(BOOK_DIR, f"{BOOK_DB_NAME}.db")
-    if os.path.exists(path):
-        load_book(book, path)
+    load_latest_book_backup(book)
 
     engine_manager = EngineManager(book_miner_settings)
 
@@ -1942,8 +1970,7 @@ def user_input(from_gui:bool = False):
     def save_book_main():
         # lockは呼び出し元で行っているものとする。
         nonlocal book
-        path = os.path.join(BOOK_DIR, f"{BOOK_DB_NAME}.db")
-        save_book(book, path)
+        save_book_backup(book, BOOK_BACKUP_DIR)
 
     def backup_worker():
         print("start backup worker..")

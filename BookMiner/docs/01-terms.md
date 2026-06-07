@@ -54,8 +54,7 @@ BookMiner は、この定跡データを増やしていきます。
 
 BookMiner では主に次のファイルが出てきます。
 
-- `book/book_miner.db` : BookMiner が作業用に読み書きする定跡 DB。
-- `book/backup/book_miner-....db` : バックアップとして書き出される定跡 DB。
+- `book/backup/book_miner-....db` : BookMiner が読み書きする通常定跡 DB。
 - `book/peta_book.db` : peta shock 化の結果として作られる定跡 DB。
 
 ## 通常定跡 DB
@@ -77,7 +76,7 @@ book/backup/book_miner-20260607071000_12345.db
 
 - [将棋ソフト用の標準定跡ファイルフォーマットの提案](https://yaneuraou.yaneu.com/2016/02/05/standard-shogi-book-format/)
 
-BookMiner の `book/book_miner.db`、`book/backup/book_miner-....db`、`book/peta_book.db` は、この形式で保存されます。
+BookMiner の `book/backup/book_miner-....db` と `book/peta_book.db` は、この形式で保存されます。
 
 ## 評価関数
 

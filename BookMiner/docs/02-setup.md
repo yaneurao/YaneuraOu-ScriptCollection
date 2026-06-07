@@ -267,7 +267,6 @@ python3 BookMiner.py
 ## 主な入出力
 
 - `book/think_sfens.txt` : 掘る棋譜。1 行が 1 対局です。
-- `book/book_miner.db` : BookMiner の作業用定跡 DB。
-- `book/backup/` : `w` コマンドや自動バックアップで作られるバックアップ。
+- `book/backup/` : BookMiner の通常定跡 DB。`q`、`w`、自動バックアップで `book_miner-タイムスタンプ_局面数.db` が作られます。
 - `book/peta_book.db` : peta shock 化された定跡 DB。
 - `log/` : 実行ログ。

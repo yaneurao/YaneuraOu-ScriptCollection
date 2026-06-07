@@ -175,7 +175,7 @@ book/think_sfens.txt
 4. `p` で定跡 DB を `book/backup/` に書き出し、peta shock 化して読み込む。
 5. `n 30` などとして、次に掘る局面を作る。`book/think_sfens.txt`に書き出される。
 6. 必要なら 3. に戻って繰り返す。
-7. 終了するときは `q` で終了する。(このとき、`book/book_miner.db`に自動保存される。)
+7. 終了するときは `q` で終了する。このとき、`book/backup/book_miner-タイムスタンプ_局面数.db` が書き出される。
 
 GUI では、初回に KifManager で作った `think_sfens.txt` を `enqueue` したあとは、次の 3 手順を繰り返します。
 
