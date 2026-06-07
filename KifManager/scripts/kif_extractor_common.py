@@ -11,6 +11,7 @@ import sys
 import time
 import zipfile
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -23,6 +24,8 @@ ARCHIVE_SUFFIXES = {".zip", ".7z"}
 CSA_MOVE_RE = re.compile(r"^[+-]\d{4}[A-Z]{2}$")
 CSA_MOVE_LINE_RE = re.compile(r"^([+-])\d{4}[A-Z]{2}(?:$|[,\s])")
 KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
+SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
+COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
 PROGRESS_INTERVAL = 1000
 
 
@@ -66,6 +69,7 @@ class GameRecord:
     black_rating: float | None = None
     white_rating: float | None = None
     eval_records: list[EvalRecord] = field(default_factory=list)
+    game_date: date | None = None
 
 
 @dataclass
@@ -74,6 +78,7 @@ class CsaHeader:
     white: str = ""
     black_rating: float | None = None
     white_rating: float | None = None
+    game_date: date | None = None
 
 
 @dataclass
@@ -81,6 +86,7 @@ class Stats:
     scanned: int = 0
     selected: int = 0
     skipped_year: int = 0
+    skipped_date: int = 0
     skipped_finalist: int = 0
     skipped_name: int = 0
     skipped_rating: int = 0
@@ -100,6 +106,13 @@ class YearFilter:
     source_kind: str
     start_year: int | None = None
     end_year: int | None = None
+
+
+@dataclass(frozen=True)
+class DateFilter:
+    source_kind: str
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 def read_text(path: Path) -> str:
@@ -324,6 +337,58 @@ def make_year_filter(
     return YearFilter(source_kind, start_year, end_year)
 
 
+def make_date_filter(
+    source_kind: str | None,
+    start_date: date | str | None,
+    end_date: date | str | None,
+) -> DateFilter | None:
+    parsed_start = parse_date_value(start_date, "開始日")
+    parsed_end = parse_date_value(end_date, "終了日")
+    if parsed_start is None and parsed_end is None:
+        return None
+    if source_kind != "floodgate":
+        return None
+    if parsed_start is not None and parsed_end is not None and parsed_start > parsed_end:
+        raise ValueError("開始日は終了日以下を指定してください。")
+    return DateFilter(source_kind, parsed_start, parsed_end)
+
+
+def parse_date_value(value: date | str | None, label: str) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text.replace("/", "-"))
+    except ValueError as exc:
+        raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください: {value}") from exc
+
+
+def make_effective_year_filter(
+    source_kind: str | None,
+    start_year: int | None,
+    end_year: int | None,
+    date_filter: DateFilter | None,
+) -> YearFilter | None:
+    if date_filter is None or source_kind != "floodgate":
+        return make_year_filter(source_kind, start_year, end_year)
+
+    if date_filter.start_date is not None:
+        date_start_year = date_filter.start_date.year
+        start_year = date_start_year if start_year is None else max(start_year, date_start_year)
+    if date_filter.end_date is not None:
+        date_end_year = date_filter.end_date.year
+        end_year = date_end_year if end_year is None else min(end_year, date_end_year)
+
+    if start_year is not None and end_year is not None and start_year > end_year:
+        raise ValueError("年条件と日付条件が矛盾しています。")
+    return make_year_filter(source_kind, start_year, end_year)
+
+
 def year_filter_passes(path: Path, year_filter: YearFilter) -> bool:
     year = infer_year_from_path(path, year_filter.source_kind)
     if year is None:
@@ -335,12 +400,27 @@ def year_filter_passes(path: Path, year_filter: YearFilter) -> bool:
     return True
 
 
+def date_filter_passes(game_date: date | None, date_filter: DateFilter | None) -> bool:
+    if date_filter is None:
+        return True
+    if game_date is None:
+        return False
+    if date_filter.start_date is not None and game_date < date_filter.start_date:
+        return False
+    if date_filter.end_date is not None and game_date > date_filter.end_date:
+        return False
+    return True
+
+
 def infer_year_from_path(path: Path, source_kind: str) -> int | None:
     parts = [part.lower() for part in path.parts]
     text = "/".join(parts)
     if source_kind == "floodgate":
         match = re.search(r"wdoor(20\d{2})", text)
-        return int(match.group(1)) if match else None
+        if match:
+            return int(match.group(1))
+        game_date = infer_game_date_from_path(path)
+        return game_date.year if game_date is not None else None
 
     if source_kind == "wcsc":
         if any(part == "wcso1" or part.startswith("wcso1_") for part in parts):
@@ -351,6 +431,34 @@ def infer_year_from_path(path: Path, source_kind: str) -> int | None:
                 return wcsc_year_from_number(int(match.group(1)))
 
     return None
+
+
+def infer_game_date_from_path(path: Path) -> date | None:
+    file_date = find_date_in_text(path.name)
+    if file_date is not None:
+        return file_date
+    return find_date_in_text("/".join(path.parts))
+
+
+def find_date_in_text(text: str) -> date | None:
+    for match in SEPARATED_DATE_RE.finditer(text):
+        parsed = make_date_from_parts(match.group(1), match.group(2), match.group(3))
+        if parsed is not None:
+            return parsed
+
+    for match in COMPACT_DATE_RE.finditer(text):
+        parsed = make_date_from_parts(match.group(1), match.group(2), match.group(3))
+        if parsed is not None:
+            return parsed
+
+    return None
+
+
+def make_date_from_parts(year_text: str, month_text: str, day_text: str) -> date | None:
+    try:
+        return date(int(year_text), int(month_text), int(day_text))
+    except ValueError:
+        return None
 
 
 def infer_wcsc_event_key(path: Path) -> str | None:
@@ -589,6 +697,8 @@ def scan_csa_header_lines(lines: Iterable[str]) -> CsaHeader:
         if line.startswith("'white_rate:"):
             header.white_rating = optional_float(line.rsplit(":", 1)[-1])
             continue
+        if header.game_date is None:
+            header.game_date = find_date_in_text(line)
         if line.startswith("%") or CSA_MOVE_RE.match(line):
             break
     return header
@@ -598,14 +708,26 @@ def should_skip_by_csa_header(
     path: Path,
     player_filters: PlayerFilters,
     min_rating: float | None,
+    date_filter: DateFilter | None,
     stats: Stats,
 ) -> bool:
     if path.suffix.lower() not in {".csa", ".csv"}:
         return False
-    if not player_filters.both_patterns and not player_filters.either_patterns and min_rating is None:
+    if (
+        not player_filters.both_patterns
+        and not player_filters.either_patterns
+        and min_rating is None
+        and date_filter is None
+    ):
         return False
 
     header = read_csa_header(path)
+    if date_filter is not None:
+        game_date = header.game_date or infer_game_date_from_path(path)
+        if not date_filter_passes(game_date, date_filter):
+            stats.skipped_date += 1
+            return True
+
     if header.black and header.white and not player_filters_pass(header.black, header.white, player_filters):
         stats.skipped_name += 1
         return True
@@ -723,6 +845,9 @@ def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRec
 
     records: list[GameRecord] = []
     eval_records = extract_eval_records(path) if include_eval_records else []
+    game_date = infer_game_date_from_path(path)
+    if game_date is None:
+        game_date = read_csa_header(path).game_date
     for parsed in parsed_games:
         names = read_names(parsed.names, path)
         ensure_startpos(parsed.sfen)
@@ -740,6 +865,7 @@ def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRec
                 optional_float(ratings[0] if len(ratings) >= 1 else None),
                 optional_float(ratings[1] if len(ratings) >= 2 else None),
                 eval_records,
+                game_date,
             )
         )
     return records
@@ -753,7 +879,7 @@ def parse_kif(path: Path, *, include_eval_records: bool = False) -> list[GameRec
     if not moves:
         raise ParseError("no moves found")
     eval_records = extract_eval_records(path) if include_eval_records else []
-    return [GameRecord(path, names[0], names[1], moves, eval_records=eval_records)]
+    return [GameRecord(path, names[0], names[1], moves, eval_records=eval_records, game_date=infer_game_date_from_path(path))]
 
 
 def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
@@ -796,6 +922,7 @@ def collect_games_from_roots(
     *,
     source_kind: str | None,
     year_filter: YearFilter | None,
+    date_filter: DateFilter | None,
     wcsc_finalists_only: bool,
     reversal_threshold: int | None,
     require_rating: bool,
@@ -822,7 +949,7 @@ def collect_games_from_roots(
             stats.skipped_year += 1
             continue
 
-        if should_skip_by_csa_header(path, player_filters, effective_min_rating, stats):
+        if should_skip_by_csa_header(path, player_filters, effective_min_rating, date_filter, stats):
             continue
 
         try:
@@ -848,6 +975,10 @@ def collect_games_from_roots(
                 and not denryu_finalist_filter_passes(game, finalists_by_event)
             ):
                 stats.skipped_finalist += 1
+                continue
+
+            if not date_filter_passes(game.game_date, date_filter):
+                stats.skipped_date += 1
                 continue
 
             if not player_filters_pass(game.black, game.white, player_filters):
@@ -880,6 +1011,7 @@ def collect_games(
     *,
     source_kind: str | None,
     year_filter: YearFilter | None,
+    date_filter: DateFilter | None,
     wcsc_finalists_only: bool,
     reversal_threshold: int | None,
     require_rating: bool,
@@ -893,6 +1025,7 @@ def collect_games(
             min_rating,
             source_kind=source_kind,
             year_filter=year_filter,
+            date_filter=date_filter,
             wcsc_finalists_only=wcsc_finalists_only,
             reversal_threshold=reversal_threshold,
             require_rating=require_rating,
@@ -933,6 +1066,8 @@ def run_extractor(
     source_kind: str | None = None,
     start_year: int | None = None,
     end_year: int | None = None,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
     wcsc_finalists_only: bool = False,
     reversal_threshold: int | None = None,
     require_rating: bool = False,
@@ -943,13 +1078,15 @@ def run_extractor(
         load_player_patterns(both_player_list),
         load_player_patterns(either_player_list),
     )
-    year_filter = make_year_filter(source_kind, start_year, end_year)
+    date_filter = make_date_filter(source_kind, start_date, end_date)
+    year_filter = make_effective_year_filter(source_kind, start_year, end_year, date_filter)
     games, stats = collect_games(
         input_dir,
         player_filters,
         min_rating,
         source_kind=source_kind,
         year_filter=year_filter,
+        date_filter=date_filter,
         wcsc_finalists_only=wcsc_finalists_only and source_kind in {"wcsc", "denryu"},
         reversal_threshold=reversal_threshold,
         require_rating=require_rating,
@@ -989,10 +1126,15 @@ def add_year_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--end-year", type=int, default=None, help="last year to extract")
 
 
+def add_date_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--start-date", default=None, help="first game date to extract, YYYY-MM-DD or YYYY/MM/DD")
+    parser.add_argument("--end-date", default=None, help="last game date to extract, YYYY-MM-DD or YYYY/MM/DD")
+
+
 def print_stats(stats: Stats) -> None:
     print(
         "scanned={scanned} selected={selected} skipped_year={skipped_year} "
-        "skipped_finalist={skipped_finalist} skipped_name={skipped_name} "
+        "skipped_date={skipped_date} skipped_finalist={skipped_finalist} skipped_name={skipped_name} "
         "skipped_rating={skipped_rating} skipped_reversal={skipped_reversal} skipped_parse={skipped_parse} "
         "skipped_duplicate={skipped_duplicate}".format(**stats.__dict__)
     )

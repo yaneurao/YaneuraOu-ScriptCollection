@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from datetime import datetime
+from datetime import date, datetime
 import pickle
 import queue
 import sys
@@ -109,6 +109,8 @@ class ExtractJob:
     min_rating: float | None
     start_year: int | None
     end_year: int | None
+    start_date: date | None
+    end_date: date | None
     wcsc_finalists_only: bool
     reversal_threshold: int | None
     require_rating: bool
@@ -123,7 +125,7 @@ EXTRACTORS = (
         "floodgateの棋譜ファイルから条件に該当する棋譜を抽出します。",
         "floodgateの棋譜ファイルが配置されているフォルダを指定してください。",
         True,
-        "floodgate",
+        None,
         "downloaded-kif/floodgate",
         "4000",
     ),
@@ -258,6 +260,8 @@ class ExtractorPane(ttk.Frame):
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
         self.start_year = tk.StringVar()
         self.end_year = tk.StringVar()
+        self.start_date = tk.StringVar()
+        self.end_date = tk.StringVar()
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
         self.reversal_enabled = tk.BooleanVar(value=False)
         self.reversal_threshold = tk.StringVar(value="400")
@@ -301,6 +305,25 @@ class ExtractorPane(ttk.Frame):
                 "空欄なら上限なしです。\n"
                 "WCSO1はWCSC30扱い、つまり2020年として扱います。",
                 width=10,
+            )
+        if self.kind.key == "floodgate":
+            row = self._text_row(
+                row,
+                "開始日",
+                self.start_date,
+                "floodgate棋譜の対局日で絞り込みます。\n"
+                "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
+                "空欄なら下限なしです。",
+                width=14,
+            )
+            row = self._text_row(
+                row,
+                "終了日",
+                self.end_date,
+                "floodgate棋譜の対局日で絞り込みます。\n"
+                "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
+                "空欄なら上限なしです。",
+                width=14,
             )
         row = self._path_row(
             row,
@@ -470,9 +493,13 @@ class ExtractorPane(ttk.Frame):
         min_rating = self._parse_min_rating()
         start_year = self._parse_year(self.start_year.get().strip(), "開始年")
         end_year = self._parse_year(self.end_year.get().strip(), "終了年")
+        start_date = self._parse_date(self.start_date.get().strip(), "開始日")
+        end_date = self._parse_date(self.end_date.get().strip(), "終了日")
         reversal_threshold = self._parse_reversal_threshold()
         if start_year is not None and end_year is not None and start_year > end_year:
             raise ValueError("開始年は終了年以下を指定してください。")
+        if start_date is not None and end_date is not None and start_date > end_date:
+            raise ValueError("開始日は終了日以下を指定してください。")
 
         return ExtractJob(
             self.kind,
@@ -483,6 +510,8 @@ class ExtractorPane(ttk.Frame):
             min_rating,
             start_year,
             end_year,
+            start_date,
+            end_date,
             self.wcsc_finalists_only.get(),
             reversal_threshold,
             self.kind.has_rating and min_rating is not None,
@@ -537,6 +566,14 @@ class ExtractorPane(ttk.Frame):
             raise ValueError(f"{label} は1以上を指定してください。")
         return year
 
+    def _parse_date(self, value: str, label: str) -> date | None:
+        if self.kind.key != "floodgate" or not value:
+            return None
+        try:
+            return date.fromisoformat(value.replace("/", "-"))
+        except ValueError as exc:
+            raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください: {value}") from exc
+
     def settings(self) -> dict[str, str]:
         return {
             "input_dir": self.input_dir.get(),
@@ -546,6 +583,8 @@ class ExtractorPane(ttk.Frame):
             "min_rating": self.min_rating.get(),
             "start_year": self.start_year.get(),
             "end_year": self.end_year.get(),
+            "start_date": self.start_date.get(),
+            "end_date": self.end_date.get(),
             "wcsc_finalists_only": self.wcsc_finalists_only.get(),
             "reversal_enabled": self.reversal_enabled.get(),
             "reversal_threshold": self.reversal_threshold.get(),
@@ -561,6 +600,8 @@ class ExtractorPane(ttk.Frame):
         self.min_rating.set(str(settings.get("min_rating", self.kind.default_min_rating) or self.kind.default_min_rating))
         self.start_year.set(str(settings.get("start_year", "")))
         self.end_year.set(str(settings.get("end_year", "")))
+        self.start_date.set(str(settings.get("start_date", "")))
+        self.end_date.set(str(settings.get("end_date", "")))
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
         self.reversal_enabled.set(bool(settings.get("reversal_enabled", False)))
         self.reversal_threshold.set(str(settings.get("reversal_threshold", "400") or "400"))
@@ -1700,6 +1741,12 @@ class KifManager(tk.Tk):
                     f"{job.start_year if job.start_year is not None else '*'}-"
                     f"{job.end_year if job.end_year is not None else '*'}\n"
                 )
+            if job.start_date is not None or job.end_date is not None:
+                self._put_log(
+                    f"[{job.kind.title}] dates  : "
+                    f"{job.start_date.isoformat() if job.start_date is not None else '*'}-"
+                    f"{job.end_date.isoformat() if job.end_date is not None else '*'}\n"
+                )
             if job.wcsc_finalists_only:
                 self._put_log(f"[{job.kind.title}] finalists only: True\n")
             if job.reversal_threshold is not None:
@@ -1715,9 +1762,11 @@ class KifManager(tk.Tk):
                         job.both_player_list,
                         job.either_player_list,
                         job.min_rating,
-                        source_kind=job.kind.year_source or ("denryu" if job.kind.key == "denryu" else None),
+                        source_kind=job.kind.key if job.kind.key in {"floodgate", "wcsc", "denryu"} else None,
                         start_year=job.start_year,
                         end_year=job.end_year,
+                        start_date=job.start_date,
+                        end_date=job.end_date,
                         wcsc_finalists_only=job.wcsc_finalists_only,
                         reversal_threshold=job.reversal_threshold,
                         require_rating=job.require_rating,
@@ -1849,7 +1898,8 @@ class KifManager(tk.Tk):
     def _stats_text(self, stats: Stats) -> str:
         return (
             f"scanned={stats.scanned} selected={stats.selected} "
-            f"skipped_year={stats.skipped_year} skipped_finalist={stats.skipped_finalist} "
+            f"skipped_year={stats.skipped_year} skipped_date={stats.skipped_date} "
+            f"skipped_finalist={stats.skipped_finalist} "
             f"skipped_name={stats.skipped_name} skipped_rating={stats.skipped_rating} "
             f"skipped_reversal={stats.skipped_reversal} "
             f"skipped_parse={stats.skipped_parse} skipped_duplicate={stats.skipped_duplicate}"

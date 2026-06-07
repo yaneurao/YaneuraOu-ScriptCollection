@@ -76,10 +76,10 @@ dlshogi
 
 ## floodgate-kif-extractor.py
 
-floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、両対局者の rating 下限を指定できます。
+floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、両対局者の rating 下限と対局日の範囲を指定できます。
 
 ```bash
-python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--reversal-threshold X] [--verbose]
+python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -90,12 +90,12 @@ python3 floodgate-kif-extractor.py \
   floodgate-positions.txt \
   --both-player-list strong-engines.txt \
   --either-player-list target-engines.txt \
-  --start-year 2020 \
-  --end-year 2025 \
+  --start-date 2025-05-01 \
+  --end-date 2025-05-07 \
   --min-rating 3500
 ```
 
-`--start-year 2020 --end-year 2025` を指定した場合、`wdoor2020.7z` から `wdoor2025.7z` のように、パス名から年を判定できる棋譜だけを抽出します。
+`--start-date 2026-06-01 --end-date 2026-06-07` を指定した場合、floodgate棋譜のファイル名やパス名に含まれる対局日から、その期間内の棋譜だけを抽出します。`YYYY/MM/DD` 形式でも指定できます。
 
 `--min-rating 3500` を指定した場合、先手と後手の両方の rating が 3500 以上の棋譜だけを出力します。rating が見つからない棋譜は除外されます。
 
@@ -208,16 +208,16 @@ python3 denryu-kif-downloader.py --list-tournaments
 処理後に件数が表示されます。
 
 ```text
-scanned=289 selected=289 skipped_year=0 skipped_finalist=0 skipped_name=0 skipped_rating=0 skipped_reversal=0 skipped_parse=0 skipped_duplicate=0
+scanned=289 selected=289 skipped_year=0 skipped_date=0 skipped_finalist=0 skipped_name=0 skipped_rating=0 skipped_reversal=0 skipped_parse=0 skipped_duplicate=0
 ```
 
 - `scanned`: 対象拡張子として見つけたファイル数
 - `selected`: 出力した棋譜行数
 - `skipped_year`: 開始年・終了年の条件で除外した対局数
+- `skipped_date`: 開始日・終了日の条件で除外した対局数
 - `skipped_finalist`: 決勝出場ソフト条件で除外した対局数
 - `skipped_name`: プレイヤー名フィルタで除外した対局数
 - `skipped_rating`: rating 条件で除外した対局数
 - `skipped_reversal`: 逆転棋譜条件で除外した対局数
 - `skipped_parse`: パース不能、手なし、非 startpos などで除外したファイル数
 - `skipped_duplicate`: 重複した `startpos moves ...` 行として除外した対局数
-- `skipped_duplicate`: 重複棋譜として除外した対局数
