@@ -22,7 +22,7 @@ GUI は `BookMiner.py` を子プロセスとして起動します。BookMiner.py
 
 まず `BookMiner起動` を押します。ログ欄に BookMiner.py の出力が表示されます。
 
-`棋譜抽出` を押すと KifManager を起動します。KifManager で抽出した棋譜は、BookMiner の `book/think_sfens.txt` に保存してください。
+`棋譜抽出` を押すと KifManager を `--from_bookminer` 付きで起動します。この場合、KifManager の出力ファイルは BookMiner が読む `book/think_sfens.txt` に自動設定されます。
 
 GUI の `think_sfens.txtを掘る` は、固定で次のファイルを読みます。
 

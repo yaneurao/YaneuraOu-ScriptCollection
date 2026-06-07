@@ -14,6 +14,14 @@
 python3 kif-manager.py
 ```
 
+BookMiner から呼び出す場合は次のオプションを使います。
+
+```bash
+python3 kif-manager.py --from_bookminer
+```
+
+この場合、棋譜抽出の出力ファイルは BookMiner が読む `BookMiner/book/think_sfens.txt` に強制設定されます。
+
 上位タブは `棋譜抽出` と `棋譜のダウンロード` に分かれています。
 
 `棋譜抽出` には、floodgate、WCSC、電竜戦、その他の抽出タブがあります。各タブで入力フォルダと出力ファイルを指定し、必要ならプレイヤー名フィルタを指定して `抽出` を押します。出力ファイルは `think_sfens.txt` がデフォルトです。floodgate の入力フォルダは `downloaded-kif/floodgate`、WCSC の入力フォルダは `downloaded-kif/wcsc` がデフォルトです。

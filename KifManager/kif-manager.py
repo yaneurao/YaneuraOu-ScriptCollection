@@ -20,6 +20,7 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 SETTINGS_PATH = BASE_DIR / "kif-manager-settings.pickle"
 SETTINGS_VERSION = 1
 EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
+BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "think_sfens.txt").resolve())
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
 WCSC_OLD_DEFAULT_OUTPUT_DIR = "downloaded-kif"
 FLOODGATE_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate"
@@ -1444,11 +1445,12 @@ class ShogiDb2DownloadPane(ttk.Frame):
 
 
 class KifManager(tk.Tk):
-    def __init__(self, *, enable_shogidb: bool = False) -> None:
+    def __init__(self, *, enable_shogidb: bool = False, from_bookminer: bool = False) -> None:
         super().__init__()
         self.title("KIF Manager")
         self.geometry("920x660")
         self.minsize(780, 560)
+        self.from_bookminer = from_bookminer
 
         self.log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.running = False
@@ -1458,6 +1460,7 @@ class KifManager(tk.Tk):
         self.log_target_files = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="待機中")
         self.extract_panes: dict[str, ExtractorPane] = {}
+        self.bookminer_original_output_paths: dict[str, str] = {}
         self.download_panes: dict[
             str,
             DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | ShogiDb2DownloadPane,
@@ -1466,6 +1469,8 @@ class KifManager(tk.Tk):
 
         self._build()
         self._load_settings()
+        if self.from_bookminer:
+            self._apply_bookminer_output_path()
         self.after(100, self._poll_log_queue)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -2054,11 +2059,23 @@ class KifManager(tk.Tk):
             self.main_notebook.select(self.extract_tab)
         self._update_action_controls()
 
+    def _apply_bookminer_output_path(self) -> None:
+        for pane in self.extract_panes.values():
+            self.bookminer_original_output_paths[pane.kind.key] = pane.output_path.get()
+            pane.output_path.set(BOOKMINER_EXTRACT_OUTPUT_FILE)
+
     def _save_settings(self) -> None:
         selected_extract_pane = self._current_extract_pane()
         selected_extract_key = selected_extract_pane.kind.key if selected_extract_pane is not None else ""
         selected_download_pane = self._current_download_pane()
         selected_download_key = selected_download_pane.kind.key if selected_download_pane is not None else ""
+        extract_pane_settings = {key: pane.settings() for key, pane in self.extract_panes.items()}
+        if self.from_bookminer:
+            for key, output_path in self.bookminer_original_output_paths.items():
+                pane_settings = extract_pane_settings.get(key)
+                if pane_settings is not None:
+                    pane_settings["output_path"] = output_path
+
         settings = {
             "version": SETTINGS_VERSION,
             "verbose": self.verbose.get(),
@@ -2066,7 +2083,7 @@ class KifManager(tk.Tk):
             "selected_main_tab": self._selected_main_key(),
             "selected_extract_tab": selected_extract_key,
             "selected_download_tab": selected_download_key,
-            "extract_panes": {key: pane.settings() for key, pane in self.extract_panes.items()},
+            "extract_panes": extract_pane_settings,
             "download_panes": {key: pane.settings() for key, pane in self.download_panes.items()},
         }
 
@@ -2087,9 +2104,14 @@ class KifManager(tk.Tk):
 def main() -> int:
     parser = argparse.ArgumentParser(description="KIF Manager")
     parser.add_argument("--shogidb", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--from_bookminer",
+        action="store_true",
+        help="force extractor output file to BookMiner/book/think_sfens.txt",
+    )
     args = parser.parse_args()
 
-    app = KifManager(enable_shogidb=args.shogidb)
+    app = KifManager(enable_shogidb=args.shogidb, from_bookminer=args.from_bookminer)
     app.mainloop()
     return 0
 

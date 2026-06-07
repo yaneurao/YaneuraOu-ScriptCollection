@@ -170,7 +170,7 @@ class BookMinerGui(ttk.Frame):
             return
         try:
             subprocess.Popen(
-                [sys.executable, str(KIF_MANAGER_SCRIPT)],
+                [sys.executable, str(KIF_MANAGER_SCRIPT), "--from_bookminer"],
                 cwd=KIF_MANAGER_SCRIPT.parent,
             )
         except OSError as exc:
