@@ -30,6 +30,7 @@ TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)
 MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
 STARTUP_STAGE_RE = re.compile(r"\[StartupStage\]\s+stage=(\S+)\s+message=(.*)")
 ENGINE_INIT_RE = re.compile(r"\[EngineInit(Start|Progress|Done)\]\s+(\d+)/(\d+)")
+ENGINE_READY_RE = re.compile(r"\[EngineReadyProgress\]\s+(\d+)/(\d+)")
 BACKUP_STATUS_RE = re.compile(r"\[(BackupServiceStarted|BackupNext|BackupStart|BackupDone)\](.*)")
 COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
@@ -442,8 +443,14 @@ class BookMinerGui(ttk.Frame):
             phase, count_text, total_text = engine_match.groups()
             count = int(count_text)
             total = int(total_text)
-            label = "エンジン起動完了" if phase == "Done" else "エンジン起動中"
-            self.progress_labels["engine"].set(f"{label} {count}/{total}")
+            ready_match = re.search(r"\bready=(\d+)", line)
+            if phase == "Done":
+                label_text = f"エンジン起動完了 {count}/{total}"
+            elif ready_match is not None:
+                label_text = f"エンジン起動中 {count}/{total} ready={ready_match.group(1)}"
+            else:
+                label_text = f"エンジン起動中 {count}/{total}"
+            self.progress_labels["engine"].set(label_text)
             bar = self.progress_bars["engine"]
             if total > 0:
                 bar.configure(maximum=total)
@@ -453,6 +460,13 @@ class BookMinerGui(ttk.Frame):
                 bar["value"] = 1
             if phase == "Done":
                 self.startup_status.set("状態: 自動バックアップサービス起動待ち")
+            return
+
+        ready_match = ENGINE_READY_RE.search(line)
+        if ready_match is not None:
+            count_text, total_text = ready_match.groups()
+            self.startup_status.set(f"状態: エンジン応答待ち {count_text}/{total_text}")
+            self.progress_labels["engine"].set(f"エンジン応答待ち {count_text}/{total_text}")
             return
 
         backup_match = BACKUP_STATUS_RE.search(line)
@@ -708,6 +722,7 @@ class BookMinerGui(ttk.Frame):
         if (
             "[startupstage]" in lower
             or "[engineinit" in lower
+            or "[enginereadyprogress]" in lower
             or "[backupservice" in lower
             or "[backupnext]" in lower
             or "[backupstart]" in lower

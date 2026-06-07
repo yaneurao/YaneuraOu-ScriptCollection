@@ -829,6 +829,21 @@ class EngineManager:
         self.mining_progress_last_report = 0.0
 
         engines : list[Engine] = []
+        last_started_count = 0
+
+        def ready_engine_count()->int:
+            return sum(1 for engine in engines if engine.thread_settings.readyok)
+
+        def report_engine_launch_progress():
+            nonlocal last_started_count
+            started_count = len(engines)
+            if started_count == last_started_count:
+                return
+            last_started_count = started_count
+            print(
+                f"[EngineInitProgress] {started_count}/{total_engines} "
+                f"ready={ready_engine_count()}"
+            )
 
         id = 0
         for engine_setting in engine_settings:
@@ -850,14 +865,17 @@ class EngineManager:
 
                 # ここでsleepしとかないと、ssh接続が切断されうる。
                 time.sleep(0.3)
+                report_engine_launch_progress()
 
         # 全エンジンがreadyokになるのを待つ
         last_ready_count = -1
         while True:
-            ready_count = sum(1 for engine in engines if engine.thread_settings.readyok)
+            ready_count = ready_engine_count()
             if ready_count != last_ready_count:
-                tag = "EngineInitDone" if ready_count == total_engines else "EngineInitProgress"
-                print(f"[{tag}] {ready_count}/{total_engines}")
+                if ready_count == total_engines:
+                    print(f"[EngineInitDone] {ready_count}/{total_engines}")
+                else:
+                    print(f"[EngineReadyProgress] {ready_count}/{total_engines}")
                 last_ready_count = ready_count
             if ready_count == total_engines:
                 break
