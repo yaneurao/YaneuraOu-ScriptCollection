@@ -199,7 +199,7 @@ class BookMinerGui(ttk.Frame):
         env["PYTHONUTF8"] = "1"
         try:
             self.process = subprocess.Popen(
-                [sys.executable, str(BOOK_MINER_SCRIPT)],
+                [sys.executable, str(BOOK_MINER_SCRIPT), "--from_gui"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -215,7 +215,7 @@ class BookMinerGui(ttk.Frame):
             return
 
         self._reset_progress()
-        self._append_log("other", f"$ {sys.executable} {BOOK_MINER_SCRIPT.name}\n")
+        self._append_log("other", f"$ {sys.executable} {BOOK_MINER_SCRIPT.name} --from_gui\n")
         threading.Thread(target=self._read_output, daemon=True).start()
         self._update_buttons()
 

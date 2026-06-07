@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 import subprocess
@@ -1922,7 +1923,7 @@ def inquire_position(book:Book, position_cmd:str):
 #                             main
 # ============================================================
 
-def user_input():
+def user_input(from_gui:bool = False):
     """
     ユーザーからの入力受付。
     """
@@ -1962,7 +1963,8 @@ def user_input():
 
     while True:
         try:
-            print("[Q]uit [I]nquire [H]elp> ", end='')
+            if not from_gui:
+                print("[Q]uit [T]hink [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -2059,8 +2061,19 @@ def user_input():
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
 
 
+def parse_args()->argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--from_gui",
+        action="store_true",
+        help="suppress interactive prompts for BookMiner-gui.py",
+    )
+    return parser.parse_args()
+
+
 def main():
-    user_input()
+    args = parse_args()
+    user_input(from_gui=args.from_gui)
 
 if __name__ == '__main__':
     main()

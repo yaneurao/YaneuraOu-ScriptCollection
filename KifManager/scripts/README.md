@@ -22,6 +22,16 @@ python3 -m pip install cshogi
 python3 -m pip install py7zr
 ```
 
+WCSC16以前の公式棋譜アーカイブは `.lzh` 形式です。展開には `lhafile` を使います。
+
+```bash
+python3 -m pip install lhafile
+```
+
+ただし、古い圧縮方式の一部は `lhafile` だけでは展開できません。その場合は外部コマンドとして 7-Zip、bsdtar、unar のいずれかを使います。
+
+Windowsでは、7-Zip が標準のインストール先に入っていれば `C:\Program Files\7-Zip\7z.exe` または `C:\Program Files (x86)\7-Zip\7z.exe` を自動検出します。PATH に `7z` を追加していなくても構いません。
+
 ## 対象ファイル
 
 各スクリプトに入力フォルダを指定すると、そのフォルダ以下を再帰的に走査します。
