@@ -2,7 +2,6 @@ import argparse
 import os
 import time
 import subprocess
-import json
 import traceback
 import queue
 import cshogi
@@ -14,6 +13,11 @@ from dataclasses import dataclass
 from typing import TypeAlias, Any, Callable, Generic, TypeVar
 from threading import Lock, Thread
 from itertools import zip_longest
+
+try:
+    import json5
+except ImportError as exc:
+    raise SystemExit("json5 package is required. Install it with: pip install json5") from exc
 
 COMMON_LIB_DIR = Path(__file__).resolve().parent.parent / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
@@ -34,13 +38,13 @@ BOOK_BACKUP_DIR= os.path.join(BOOK_DIR, "backup")
 # このスクリプトの管理定跡ファイル名
 BOOK_DB_NAME   = "book_miner"
 
-# エンジン設定が書いてあるjsonファイルのpath
-ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json"
+# エンジン設定が書いてあるjson5ファイルのpath
+ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json5"
 
-# BookMiner本体設定が書いてあるjsonファイルのpath
-BOOK_MINER_SETTINGS_JSON_PATH = "settings/book_miner_settings.json"
+# BookMiner本体設定が書いてあるjson5ファイルのpath
+BOOK_MINER_SETTINGS_JSON_PATH = "settings/book_miner_settings.json5"
 
-# peta_nextコマンドの開始局面集合。settings/book_miner_settings.json で上書きされる。
+# peta_nextコマンドの開始局面集合。settings/book_miner_settings.json5 で上書きされる。
 PETA_NEXT_START_SFENS_PATH = os.path.join(BOOK_DIR, "peta_start_sfens.txt")
 
 # 開始局面のsfen文字列
@@ -62,10 +66,10 @@ MINING_PROGRESS_INTERVAL = 60.0
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
 
-# 自動保存の間隔 [s]。settings/book_miner_settings.json で上書きされる。
+# 自動保存の間隔 [s]。settings/book_miner_settings.json5 で上書きされる。
 AUTO_SAVE_INTERVAL = 3 * 60 * 60 # 3時間おき
 
-# 定跡の最大手数。settings/book_miner_settings.json で上書きされる。
+# 定跡の最大手数。settings/book_miner_settings.json5 で上書きされる。
 MAX_BOOK_PLY = 200
 
 # VALUE, PLY の -∞
@@ -380,7 +384,7 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
 
     print(f"read BookMiner settings , path = {path}")
     with open(path, "r", encoding="utf-8") as f:
-        raw_settings = json.load(f)
+        raw_settings = json5.load(f)
 
     if not isinstance(raw_settings, dict):
         raise Exception(f"invalid BookMiner settings file. root must be object. path = {path}")
@@ -533,7 +537,7 @@ def evalstr_to_int(s1:str,s2:str)->Eval:
 class GlobalSettings:
     '''探索関係の共通設定を集めた構造体'''
 
-    # エンジン設定(settings/engine_settings.jsonをdeserializeしたもの)
+    # エンジン設定(settings/engine_settings.json5をdeserializeしたもの)
     engine_settings : Any
 
     # エンジンからの出力をデバッグのための標準出力に出してみるモード
@@ -792,7 +796,7 @@ class EngineManager:
 
         # エンジン設定の読み込み    
         with open(ENGINE_SETTINGS_JSON_PATH,"r",encoding="utf-8") as f:
-            engine_settings : list[Any] = json.load(f)
+            engine_settings : list[Any] = json5.load(f)
 
         global_settings = GlobalSettings(
             engine_settings       = engine_settings,
@@ -1739,7 +1743,7 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
 
     後手番の定跡について考えるときも、同様に、後手の局面ならbestmoveのみ、先手の局面なら、root_best - eval_diff以上の指し手を延長していきます。`book/think_sfens-white.txt`に書き出します。
 
-    開始局面集合は、settings/book_miner_settings.json の peta_next_start_sfens_path で指定できます。
+    開始局面集合は、settings/book_miner_settings.json5 の peta_next_start_sfens_path で指定できます。
     このファイルがなければ平手の開始局面から辿ります。
     このファイルは、startpos moves .. のようなPositionコマンドで指定するposition stringに対応しています。
     """

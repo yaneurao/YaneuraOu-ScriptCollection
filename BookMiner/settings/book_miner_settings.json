@@ -1,5 +1,0 @@
-{
-    "auto_save_interval_seconds": 10800,
-    "max_book_ply": 200,
-    "peta_next_start_sfens_path": "book/peta_start_sfens.txt"
-}

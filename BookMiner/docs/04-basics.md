@@ -59,7 +59,7 @@ t book/my_positions.txt
 
 途中で評価値の絶対値が eval limit 以上になった場合、その対局の処理はそこで止まります。
 
-また、`settings/book_miner_settings.json` の `max_book_ply` に到達した場合も、その対局の処理はそこで止まります。
+また、`settings/book_miner_settings.json5` の `max_book_ply` に到達した場合も、その対局の処理はそこで止まります。
 
 棋譜の末端まで到達した場合は、そこからエンジンの best line を `THINK_COMMAND_PLY` 手分だけ延長して掘ります。この延長中も、評価値の絶対値が eval limit 以上になったら停止します。
 
@@ -172,7 +172,7 @@ book/think_sfens.txt
 
 `book/think_sfens.txt` は、先手用と後手用の leaf 局面を交互に混ぜたものです。
 
-`settings/book_miner_settings.json` の `max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。
+`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。
 
 `n`コマンドを使ったときに、`think_sfens.txt`に何局面を書き出したのかが表示されます。それを見て、これを掘るかどうかを決めます。
 
@@ -183,7 +183,7 @@ book/think_sfens.txt
 ## peta_next の開始局面集合を変える
 
 通常、`n` コマンドは平手の初期局面、つまり `startpos` から定跡ツリーを辿ります。
-特定の局面から先だけを対象にしたい場合は、`settings/book_miner_settings.json` の `peta_next_start_sfens_path` で指定されているファイルを作成します。
+特定の局面から先だけを対象にしたい場合は、`settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されているファイルを作成します。
 
 デフォルトは次の場所です。
 
