@@ -28,6 +28,8 @@ LEGACY_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 UNSAFE_FILENAME_CHARS = '<>:"/\\|?*'
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+SIZE_CHECK_ARCHIVE_SUFFIXES = {".zip", ".7z"}
 
 
 class DownloadError(Exception):
@@ -192,6 +194,142 @@ def fetch_bytes(
         return response.read()
 
 
+def fetch_content_length(
+    url: str,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+) -> int | None:
+    if not limiter.wait(should_stop):
+        raise DownloadError("停止要求を受け付けました。")
+    request = Request(url, headers={"User-Agent": USER_AGENT}, method="HEAD")
+    with urlopen(request, timeout=timeout) as response:
+        header = response.headers.get("Content-Length")
+    if header is None:
+        return None
+    try:
+        content_length = int(header)
+    except ValueError:
+        return None
+    return content_length if content_length >= 0 else None
+
+
+def download_to_file(
+    url: str,
+    destination: Path,
+    limiter: RateLimiter,
+    timeout: float,
+    should_stop: Callable[[], bool] | None = None,
+    expected_bytes: int | None = None,
+) -> int:
+    if not limiter.wait(should_stop):
+        raise DownloadError("停止要求を受け付けました。")
+
+    temporary = destination.with_name(destination.name + ".tmp")
+    bytes_written = 0
+    try:
+        request = Request(url, headers={"User-Agent": USER_AGENT})
+        with urlopen(request, timeout=timeout) as response, temporary.open("wb") as output:
+            while True:
+                if stop_requested(should_stop):
+                    raise DownloadError("停止要求を受け付けました。")
+                chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                output.write(chunk)
+                bytes_written += len(chunk)
+
+        if expected_bytes is not None and bytes_written != expected_bytes:
+            raise DownloadError(f"ダウンロードサイズが一致しません: expected={expected_bytes} actual={bytes_written}")
+        temporary.replace(destination)
+        return bytes_written
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def archive_size_marker_path(output_dir: Path, archive_filename: str) -> Path:
+    marker_name = "".join("_" if char in UNSAFE_FILENAME_CHARS else char for char in archive_filename)
+    return output_dir / f".{marker_name}.size"
+
+
+def read_archive_size_marker(output_dir: Path, archive_filename: str) -> int | None:
+    marker = archive_size_marker_path(output_dir, archive_filename)
+    try:
+        text = marker.read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def write_archive_size_marker_if_needed(output_dir: Path, archive_filename: str, size: int) -> None:
+    if Path(archive_filename).suffix.lower() not in SIZE_CHECK_ARCHIVE_SUFFIXES:
+        return
+    marker = archive_size_marker_path(output_dir, archive_filename)
+    marker.write_text(str(size), encoding="ascii")
+
+
+def should_skip_archive_download(output_dir: Path, archive_filename: str, remote_bytes: int, overwrite: bool) -> bool:
+    if overwrite or Path(archive_filename).suffix.lower() not in SIZE_CHECK_ARCHIVE_SUFFIXES:
+        return False
+    return read_archive_size_marker(output_dir, archive_filename) == remote_bytes
+
+
+def fetch_archive_content_length(
+    *,
+    archive_url: str,
+    archive_filename: str,
+    output_dir: Path,
+    limiter: RateLimiter,
+    timeout: float,
+    overwrite: bool,
+    log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None,
+) -> int | None:
+    if Path(archive_filename).suffix.lower() not in SIZE_CHECK_ARCHIVE_SUFFIXES:
+        return None
+    try:
+        remote_bytes = fetch_content_length(archive_url, limiter, timeout, should_stop)
+    except Exception as exc:
+        if log is not None:
+            log(f"size        : unknown ({exc})\n")
+        return None
+
+    if log is not None:
+        size_text = str(remote_bytes) if remote_bytes is not None else "unknown"
+        local_size = read_archive_size_marker(output_dir, archive_filename) if not overwrite else None
+        if local_size is None:
+            log(f"size        : {size_text}\n")
+        else:
+            log(f"size        : {size_text} , previous={local_size}\n")
+    return remote_bytes
+
+
+def write_bytes_atomically(destination: Path, data: bytes) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".tmp")
+    try:
+        temporary.write_bytes(data)
+        temporary.replace(destination)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def copy_file_atomically(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".tmp")
+    try:
+        shutil.copyfile(source, temporary)
+        temporary.replace(destination)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def decode_text(data: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis"):
         try:
@@ -265,6 +403,22 @@ def download_wcsc_archive_from_index(
         log(f"archive index: {HISTORIC_KIF_INDEX_URL}\n")
         log(f"archive      : {archive_url}\n")
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+    remote_bytes = fetch_archive_content_length(
+        archive_url=archive_url,
+        archive_filename=archive_filename,
+        output_dir=output_dir,
+        limiter=limiter,
+        timeout=timeout,
+        overwrite=overwrite,
+        log=log,
+        should_stop=should_stop,
+    )
+    if remote_bytes is not None and should_skip_archive_download(output_dir, archive_filename, remote_bytes, overwrite):
+        if log is not None:
+            log(f"skip archive : same size as previous download ({remote_bytes} bytes)\n")
+        return WcscDownloadStats(normalized_name, archive_url, output_dir, 1, 0, 1)
+
     tmp_root = Path.cwd() / "tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="wcsc-kif-downloader-", dir=tmp_root))
@@ -272,12 +426,9 @@ def download_wcsc_archive_from_index(
         if stop_requested(should_stop):
             return WcscDownloadStats(normalized_name, archive_url, output_dir, 0, 0, 0)
         archive_path = work_dir / archive_filename
-        archive_data = fetch_bytes(archive_url, limiter, timeout, should_stop)
+        bytes_written = download_to_file(archive_url, archive_path, limiter, timeout, should_stop, remote_bytes)
         if stop_requested(should_stop):
             return WcscDownloadStats(normalized_name, archive_url, output_dir, 0, 0, 0)
-        archive_path.write_bytes(archive_data)
-
-        output_dir.mkdir(parents=True, exist_ok=True)
         found, downloaded, skipped = extract_archive(
             archive_path=archive_path,
             output_dir=output_dir,
@@ -286,6 +437,7 @@ def download_wcsc_archive_from_index(
             log=log,
             should_stop=should_stop,
         )
+        write_archive_size_marker_if_needed(output_dir, archive_filename, remote_bytes or bytes_written)
 
         return WcscDownloadStats(
             tournament=normalized_name,
@@ -312,6 +464,8 @@ def extract_archive(
     suffix = archive_path.suffix.lower()
     if suffix == ".zip":
         return extract_zip_archive(archive_path, output_dir, overwrite, log, should_stop)
+    if suffix == ".7z":
+        return extract_7z_archive(archive_path, output_dir, work_dir, overwrite, log, should_stop)
     if suffix == ".lzh":
         return extract_lha_archive(
             archive_path=archive_path,
@@ -348,19 +502,84 @@ def extract_zip_archive(
             if stop_requested(should_stop):
                 break
             destination = safe_archive_member_path(output_dir, member_name)
-            if destination.exists() and not overwrite:
+            existing_size = destination.stat().st_size if destination.exists() else None
+            if existing_size == info.file_size and not overwrite:
                 skipped += 1
                 if log is not None:
-                    log(f"[{index}/{len(members)}] skip existing: {member_name}\n")
+                    log(f"[{index}/{len(members)}] skip same size: {member_name}\n")
                 continue
 
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(archive.read(info))
+            if existing_size is not None and not overwrite and log is not None:
+                log(f"[{index}/{len(members)}] replace size mismatch: {member_name}\n")
+            write_bytes_atomically(destination, archive.read(info))
             downloaded += 1
             if log is not None:
                 log(f"[{index}/{len(members)}] extracted: {member_name}\n")
 
     return len(members), downloaded, skipped
+
+
+def extract_7z_archive(
+    archive_path: Path,
+    output_dir: Path,
+    work_dir: Path,
+    overwrite: bool,
+    log: Callable[[str], None] | None,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[int, int, int]:
+    try:
+        import py7zr
+    except ImportError as exc:
+        raise DownloadError(
+            ".7zアーカイブの展開には py7zr が必要です。"
+            "KifManager/README.md の「必要なもの」を確認してください。"
+        ) from exc
+
+    staging_dir = work_dir / "7z-extract"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    with py7zr.SevenZipFile(archive_path, mode="r") as archive:
+        file_names = [
+            info.filename
+            for info in archive.list()
+            if getattr(info, "is_file", False) and not should_skip_archive_member(info.filename)
+        ]
+        for name in file_names:
+            safe_archive_member_path(staging_dir, name)
+        archive.extractall(path=staging_dir)
+
+    files = sorted(
+        path
+        for path in staging_dir.rglob("*")
+        if path.is_file() and not should_skip_archive_member(path.relative_to(staging_dir).as_posix())
+    )
+    if log is not None:
+        log("extractor   : py7zr\n")
+        log(f"files        : {len(files)}\n")
+        log(f"output       : {output_dir}\n")
+
+    downloaded = 0
+    skipped = 0
+    for index, source in enumerate(files, 1):
+        if stop_requested(should_stop):
+            break
+        member_name = source.relative_to(staging_dir).as_posix()
+        destination = safe_archive_member_path(output_dir, member_name)
+        source_size = source.stat().st_size
+        existing_size = destination.stat().st_size if destination.exists() else None
+        if existing_size == source_size and not overwrite:
+            skipped += 1
+            if log is not None:
+                log(f"[{index}/{len(files)}] skip same size: {member_name}\n")
+            continue
+
+        if existing_size is not None and not overwrite and log is not None:
+            log(f"[{index}/{len(files)}] replace size mismatch: {member_name}\n")
+        copy_file_atomically(source, destination)
+        downloaded += 1
+        if log is not None:
+            log(f"[{index}/{len(files)}] extracted: {member_name}\n")
+
+    return len(files), downloaded, skipped
 
 
 def decode_zip_member_name(info: zipfile.ZipInfo) -> str:

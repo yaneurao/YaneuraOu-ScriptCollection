@@ -654,7 +654,7 @@ class FloodgateDownloadPane(ttk.Frame):
             self.output_dir,
             self._browse_output_dir,
             "ダウンロードした wdoorYYYY.7z を保存するフォルダを指定してください。\n"
-            "今年のアーカイブは wdoorYYYY-YYYYMMDD.7z のように本日の日付を付けます。\n"
+            "既存ファイルとサーバー上のサイズが同じならダウンロードを省略します。\n"
             "デフォルトでは downloaded-kif/floodgate に保存します。",
         )
 
@@ -1913,7 +1913,7 @@ class KifManager(tk.Tk):
 
     def _floodgate_download_stats_text(self, stats: FloodgateDownloadStats) -> str:
         return (
-            f"year={stats.year} bytes={stats.bytes_written} "
+            f"year={stats.year} skipped={stats.skipped} bytes={stats.bytes_written} "
             f"destination={stats.destination}"
         )
 

@@ -22,7 +22,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--output-dir",
         type=Path,
         default=Path("downloaded-kif/floodgate"),
-        help="directory to save wdoorYYYY.7z or current-year wdoorYYYY-YYYYMMDD.7z. Default: downloaded-kif/floodgate",
+        help="directory to save wdoorYYYY.7z. Default: downloaded-kif/floodgate",
     )
     parser.add_argument("--timeout", type=float, default=60.0, help="network timeout in seconds. Default: 60")
     args = parser.parse_args(argv)
@@ -36,7 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"downloaded={stats.bytes_written} destination={stats.destination}")
+    print(f"skipped={stats.skipped} downloaded={stats.bytes_written} destination={stats.destination}")
     return 0
 
 
