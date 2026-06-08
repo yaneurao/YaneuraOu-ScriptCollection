@@ -122,6 +122,18 @@ GUI:
 
 `eval_limit` も大きな値にしておくと、評価値が大きく傾いた局面でも途中で打ち切られにくくなります。
 
+ここは既存定跡から掘り始めるときの重要な注意点です。
+`peta_next` の `eval_diff` と、`enqueue` の `eval_limit` は別の値です。
+
+`peta_next` は、peta shock 化した定跡のなかでどの枝を辿って leaf を列挙するかを決めます。
+一方、`enqueue` の `eval_limit` は、`book/think_sfens.txt` の各行を初手から辿る途中で、評価値がこの値を超えたらその行の探索を打ち切るための値です。
+
+そのため、`peta_next` で `book/think_sfens.txt` が作られていても、`enqueue` の `eval_limit` が小さいと、leaf に到達する前に全行が打ち切られることがあります。
+この場合、`think_sfens.txt` は存在するのに、探索ログが出ず、局面数も増えません。
+
+既存定跡を最初に延長するときは、まず `eval_limit 99999` のように十分大きな値を指定して、leaf まで到達できるようにしてください。
+初回延長後、目的に応じて `eval_limit` を小さくしていくのが安全です。
+
 `enqueue` は `book/think_sfens.txt` に書かれた各行を読み、まだ掘っていない局面を探索キューへ積みます。探索キューに積まれた局面は、探索 worker によって順に処理されます。
 
 ## 探索後にもう一度 peta_shock 化する
