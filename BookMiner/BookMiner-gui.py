@@ -24,6 +24,7 @@ GUI_SETTING_DEFAULTS = {
     "max_step": "",
     "eval_limit": "400",
     "auto_enqueue_threshold": "1000",
+    "log_view_mode": "4x1",
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
@@ -50,6 +51,26 @@ LOG_PANES = [
     ("search", "探索ログ", "探索", 10),
     ("other", "その他ログ", "その他", 8),
 ]
+LOG_VIEW_MODES = [
+    ("4x1", "4×1"),
+    ("1x4", "1×4"),
+    ("2x2", "2×2"),
+    ("tabs", "タブ化"),
+]
+LOG_VIEW_MODE_LABELS = {key: label for key, label in LOG_VIEW_MODES}
+LOG_VIEW_MODE_KEYS = {label: key for key, label in LOG_VIEW_MODES}
+
+
+def normalize_log_view_mode(value: str | None) -> str:
+    if value in LOG_VIEW_MODE_LABELS:
+        return value
+    if value in LOG_VIEW_MODE_KEYS:
+        return LOG_VIEW_MODE_KEYS[value]
+    if value == "stack":
+        return "4x1"
+    if value == "tabbed":
+        return "tabs"
+    return GUI_SETTING_DEFAULTS["log_view_mode"]
 
 
 def load_gui_settings() -> dict[str, str]:
@@ -119,7 +140,9 @@ class BookMinerGui(ttk.Frame):
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
         self.log_widgets: dict[str, list[scrolledtext.ScrolledText]] = {}
-        self.log_tabbed = tk.BooleanVar(value=gui_settings.get("log_view_mode", "stack") == "tabs")
+        log_view_mode = normalize_log_view_mode(gui_settings.get("log_view_mode"))
+        self.log_view_mode = tk.StringVar(value=LOG_VIEW_MODE_LABELS[log_view_mode])
+        self.log_view_frames: dict[str, ttk.Frame] = {}
         self.progress_labels = {
             "read": tk.StringVar(value="定跡読込: 待機中"),
             "engine": tk.StringVar(value="エンジン起動: 待機中"),
@@ -283,27 +306,19 @@ class BookMinerGui(ttk.Frame):
 
         log_controls = ttk.Frame(log_area)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        log_toggle = ttk.Checkbutton(
+        ttk.Label(log_controls, text="ログ表示").pack(side="left")
+        log_view_combo = ttk.Combobox(
             log_controls,
-            text="ログをタブ表示",
-            variable=self.log_tabbed,
-            command=self._update_log_view,
+            textvariable=self.log_view_mode,
+            values=[label for _key, label in LOG_VIEW_MODES],
+            state="readonly",
+            width=8,
         )
-        log_toggle.pack(side="left")
-        Tooltip(log_toggle, "オンならタブ表示、オフなら従来の4段表示に切り替えます。")
+        log_view_combo.pack(side="left", padx=(8, 0))
+        log_view_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_log_view())
+        Tooltip(log_view_combo, "ログ欄の並べ方を 4×1、1×4、2×2、タブ化から選びます。")
 
-        self.log_tab_frame = ttk.Frame(log_area)
-        self.log_tab_frame.grid(row=1, column=0, sticky="nsew")
-        self.log_tab_frame.columnconfigure(0, weight=1)
-        self.log_tab_frame.rowconfigure(0, weight=1)
-
-        self.log_stack_frame = ttk.Frame(log_area)
-        self.log_stack_frame.grid(row=1, column=0, sticky="nsew")
-        self.log_stack_frame.columnconfigure(0, weight=1)
-        self.log_stack_frame.rowconfigure(0, weight=1)
-
-        self._build_tabbed_logs(self.log_tab_frame)
-        self._build_stacked_logs(self.log_stack_frame)
+        self._build_log_views(log_area)
         self._update_log_view()
 
         self._update_buttons()
@@ -351,11 +366,43 @@ class BookMinerGui(ttk.Frame):
         self._register_log_widget(key, text)
         paned.add(frame, weight=1)
 
-    def _build_stacked_logs(self, parent: ttk.Frame) -> None:
-        logs = ttk.PanedWindow(parent, orient="vertical")
+    def _build_log_views(self, parent: ttk.Frame) -> None:
+        for key, _label in LOG_VIEW_MODES:
+            frame = ttk.Frame(parent)
+            frame.grid(row=1, column=0, sticky="nsew")
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(0, weight=1)
+            self.log_view_frames[key] = frame
+
+        self._build_paned_logs(self.log_view_frames["4x1"], "vertical")
+        self._build_paned_logs(self.log_view_frames["1x4"], "horizontal")
+        self._build_grid_logs(self.log_view_frames["2x2"])
+        self._build_tabbed_logs(self.log_view_frames["tabs"])
+
+    def _build_paned_logs(self, parent: ttk.Frame, orient: str) -> None:
+        logs = ttk.PanedWindow(parent, orient=orient)
         logs.grid(row=0, column=0, sticky="nsew")
         for key, title, _tab_title, height in LOG_PANES:
             self._add_log_pane(logs, title, key, height)
+
+    def _build_grid_logs(self, parent: ttk.Frame) -> None:
+        for row in range(2):
+            parent.rowconfigure(row, weight=1)
+        for col in range(2):
+            parent.columnconfigure(col, weight=1)
+
+        for index, (key, title, _tab_title, height) in enumerate(LOG_PANES):
+            row = index // 2
+            col = index % 2
+            frame = ttk.Frame(parent, padding=(0, 0, 6 if col == 0 else 0, 6 if row == 0 else 0))
+            frame.grid(row=row, column=col, sticky="nsew")
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(1, weight=1)
+            ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
+            text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
+            text.grid(row=1, column=0, sticky="nsew")
+            text.configure(state="disabled")
+            self._register_log_widget(key, text)
 
     def _build_tabbed_logs(self, parent: ttk.Frame) -> None:
         notebook = ttk.Notebook(parent)
@@ -376,12 +423,15 @@ class BookMinerGui(ttk.Frame):
             self.log_tab_keys[key] = frame
 
     def _update_log_view(self) -> None:
-        if self.log_tabbed.get():
-            self.log_stack_frame.grid_remove()
-            self.log_tab_frame.grid()
-        else:
-            self.log_tab_frame.grid_remove()
-            self.log_stack_frame.grid()
+        mode = normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get()))
+        self.log_view_mode.set(LOG_VIEW_MODE_LABELS[mode])
+
+        for key, frame in self.log_view_frames.items():
+            if key == mode:
+                frame.grid()
+                frame.tkraise()
+            else:
+                frame.grid_remove()
 
         for widgets in self.log_widgets.values():
             for log in widgets:
@@ -856,7 +906,7 @@ class BookMinerGui(ttk.Frame):
             "max_step": self.max_step.get(),
             "eval_limit": self.eval_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
-            "log_view_mode": "tabs" if self.log_tabbed.get() else "stack",
+            "log_view_mode": normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get())),
         }
         try:
             with open(GUI_SETTINGS_PATH, "wb") as f:
