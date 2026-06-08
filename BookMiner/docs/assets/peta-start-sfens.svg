@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="470" viewBox="0 0 1040 470" role="img" aria-labelledby="title desc">
+  <title id="title">n コマンドと peta_start_sfens.txt</title>
+  <desc id="desc">nコマンドはメモリ上のpeta_bookを辿り、peta_start_sfens.txtがある場合は開始局面集合として使う</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .box { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .file { fill: #fff4df; stroke: #a66b00; stroke-width: 2; }
+      .tool { fill: #e8f4f8; stroke: #315f72; stroke-width: 2; }
+      .out { fill: #eef8ed; stroke: #387a38; stroke-width: 2; }
+      .node { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .root { fill: #fff4df; stroke: #a66b00; stroke-width: 3; }
+      .line { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .tree { stroke: #56707d; stroke-width: 2.5; fill: none; }
+      .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #405864; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1040" height="470"/>
+  <text class="text" x="520" y="38" style="font-size:23px">n コマンドはメモリ上の peta_book を辿る。DBファイルは読み直さない。</text>
+
+  <rect class="box file" x="45" y="95" width="285" height="170" rx="14"/>
+  <text class="text" x="187" y="127">book/peta_start_sfens.txt</text>
+  <text class="mono" x="187" y="166" text-anchor="middle">startpos moves A...</text>
+  <text class="mono" x="187" y="194" text-anchor="middle">startpos moves B...</text>
+  <text class="mono" x="187" y="222" text-anchor="middle">startpos moves C...</text>
+  <text class="text small" x="187" y="248">任意: 開始局面集合</text>
+
+  <path class="line" d="M 340 180 H 415"/>
+  <rect class="box tool" x="425" y="115" width="195" height="130" rx="14"/>
+  <text class="text" x="522" y="148">n コマンド</text>
+  <text class="text small" x="522" y="174">peta_next</text>
+  <text class="text small" x="522" y="198">メモリ上の</text>
+  <text class="text small" x="522" y="217">peta_bookを辿る</text>
+  <text class="text small" x="522" y="236">DBファイルは読まない</text>
+
+  <path class="line" d="M 630 180 H 700"/>
+  <rect class="box out" x="710" y="95" width="285" height="170" rx="14"/>
+  <text class="text" x="852" y="127">book/think_sfens.txt</text>
+  <text class="mono" x="852" y="166" text-anchor="middle">startpos moves A...x</text>
+  <text class="mono" x="852" y="194" text-anchor="middle">startpos moves B...y</text>
+  <text class="mono" x="852" y="222" text-anchor="middle">startpos moves C...z</text>
+  <text class="text small" x="852" y="248">enqueue する入力</text>
+
+  <path class="tree" d="M 520 330 L 420 380"/>
+  <path class="tree" d="M 520 330 L 520 390"/>
+  <path class="tree" d="M 520 330 L 620 380"/>
+  <circle class="node root" cx="420" cy="385" r="28"/>
+  <text class="text small" x="420" y="390">A</text>
+  <circle class="node root" cx="520" cy="395" r="28"/>
+  <text class="text small" x="520" y="400">B</text>
+  <circle class="node root" cx="620" cy="385" r="28"/>
+  <text class="text small" x="620" y="390">C</text>
+  <circle class="node" cx="520" cy="325" r="28"/>
+  <text class="text small" x="520" y="330">start</text>
+  <text class="text small" x="520" y="445">peta_bookを更新したい場合は、先に p または r で読み込み直す。</text>
+</svg>

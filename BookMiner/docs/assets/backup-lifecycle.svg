@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="560" viewBox="0 0 1060 560" role="img" aria-labelledby="title desc">
+  <title id="title">BookMiner のバックアップと復旧</title>
+  <desc id="desc">メモリ上の定跡DBを書き出し、tmpからdbへ置換し、起動時は最新バックアップを読む流れ</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .box { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .mem { fill: #e8f4f8; }
+      .tmp { fill: #fff0eb; stroke: #b25b36; stroke-width: 2; stroke-dasharray: 8 5; }
+      .db { fill: #f4f0ff; stroke: #6b5cad; stroke-width: 2; }
+      .peta { fill: #fff4df; stroke: #a66b00; stroke-width: 2; }
+      .line { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .loop { stroke: #56707d; stroke-width: 4; fill: none; marker-end: url(#arrow); stroke-dasharray: 10 7; }
+      .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #405864; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1060" height="560"/>
+  <text class="text" x="530" y="38" style="font-size:23px">バックアップは book/backup/ に時刻と局面数つきで増えていく</text>
+
+  <rect class="box mem" x="65" y="115" width="195" height="95" rx="14"/>
+  <text class="text" x="162" y="150">メモリ上の定跡</text>
+  <text class="text small" x="162" y="178">探索で増える</text>
+
+  <path class="line" d="M 270 162 H 345"/>
+  <text class="text small" x="307" y="145">w / q / 自動保存</text>
+
+  <rect class="box tmp" x="355" y="115" width="210" height="95" rx="14"/>
+  <text class="text" x="460" y="150">一時ファイル</text>
+  <text class="mono" x="460" y="178" text-anchor="middle">*.db.tmp</text>
+
+  <path class="line" d="M 575 162 H 650"/>
+  <text class="text small" x="612" y="145">完了後 rename</text>
+
+  <rect class="box db" x="660" y="90" width="325" height="150" rx="14"/>
+  <text class="text" x="822" y="122">book/backup/</text>
+  <text class="mono" x="822" y="154" text-anchor="middle">book_miner-20260608..._123.db</text>
+  <text class="mono" x="822" y="181" text-anchor="middle">book_miner-20260609..._456.db</text>
+  <text class="text small" x="822" y="212">起動時は最新の通常DBを読む</text>
+
+  <path class="loop" d="M 822 248 V 300 H 162 V 220"/>
+  <text class="text small" x="492" y="326">次回起動時に最新バックアップを読み込む</text>
+
+  <path class="line" d="M 660 235 H 580 V 380 H 505"/>
+  <rect class="box peta" x="250" y="335" width="255" height="105" rx="14"/>
+  <text class="text" x="377" y="368">p コマンド</text>
+  <text class="text small" x="377" y="395">通常DBを書き出して</text>
+  <text class="text small" x="377" y="418">peta_bookも作る</text>
+
+  <path class="line" d="M 505 387 H 650"/>
+  <rect class="box peta" x="660" y="335" width="325" height="105" rx="14"/>
+  <text class="mono" x="822" y="374" text-anchor="middle">peta_book-20260609..._456.db</text>
+  <text class="text small" x="822" y="405">対局用・peta_next用</text>
+
+  <rect class="box" x="65" y="455" width="920" height="58" rx="14"/>
+  <text class="text" x="525" y="491">復旧するときは、使いたくない最新ファイルを退避してから起動する</text>
+</svg>

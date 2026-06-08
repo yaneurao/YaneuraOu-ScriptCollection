@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560" role="img" aria-labelledby="title desc">
+  <title id="title">定跡木と leaf からの延長</title>
+  <desc id="desc">定跡木の内部ノード、leaf、leafから外へ伸ばす局面の関係</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .edge { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .edgeStop { stroke: #b25b36; stroke-width: 3; fill: none; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .node { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .internal { fill: #e8f4f8; }
+      .leaf { fill: #fff4df; stroke: #a66b00; stroke-width: 3; }
+      .new { fill: #eef8ed; stroke: #387a38; stroke-width: 3; stroke-dasharray: 8 5; }
+      .stop { fill: #fff0eb; stroke: #b25b36; stroke-width: 3; stroke-dasharray: 8 5; }
+      .label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .note { font-size: 16px; fill: #5b4a24; }
+      .ok { fill: #276227; }
+      .ng { fill: #9a3b20; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="980" height="560"/>
+  <text class="label" x="490" y="38" style="font-size:22px">定跡木の leaf は「すでにある末端局面」。そこから外へ伸ばす。</text>
+
+  <path class="edge" d="M 490 92 L 330 178"/>
+  <path class="edge" d="M 490 92 L 650 178"/>
+  <path class="edge" d="M 330 230 L 210 318"/>
+  <path class="edge" d="M 330 230 L 450 318"/>
+  <path class="edge" d="M 650 230 L 650 318"/>
+
+  <circle class="node internal" cx="490" cy="80" r="42"/>
+  <text class="label" x="490" y="76">root</text>
+  <text class="label small" x="490" y="98">開始局面</text>
+
+  <circle class="node internal" cx="330" cy="205" r="42"/>
+  <text class="label" x="330" y="201">内部</text>
+  <text class="label small" x="330" y="223">通過する</text>
+
+  <circle class="node internal" cx="650" cy="205" r="42"/>
+  <text class="label" x="650" y="201">内部</text>
+  <text class="label small" x="650" y="223">通過する</text>
+
+  <circle class="node leaf" cx="210" cy="345" r="46"/>
+  <text class="label" x="210" y="341">leaf</text>
+  <text class="label small" x="210" y="364">評価済み</text>
+
+  <circle class="node leaf" cx="450" cy="345" r="46"/>
+  <text class="label" x="450" y="341">leaf</text>
+  <text class="label small" x="450" y="364">評価済み</text>
+
+  <circle class="node leaf" cx="650" cy="345" r="46"/>
+  <text class="label" x="650" y="341">leaf</text>
+  <text class="label small" x="650" y="364">評価済み</text>
+
+  <path class="edge" d="M 450 392 L 570 465"/>
+  <path class="edgeStop" d="M 650 392 L 770 465"/>
+
+  <circle class="node new" cx="595" cy="480" r="48"/>
+  <text class="label" x="595" y="476">新局面</text>
+  <text class="label small" x="595" y="499">ここを掘る</text>
+
+  <circle class="node stop" cx="795" cy="480" r="48"/>
+  <text class="label" x="795" y="476">停止</text>
+  <text class="label small" x="795" y="499">伸ばさない</text>
+
+  <text class="label ok" x="530" y="430">評価値 350</text>
+  <text class="label small ok" x="530" y="452">eval_limit 400 以内</text>
+  <text class="label ng" x="735" y="430">評価値 800</text>
+  <text class="label small ng" x="735" y="452">eval_limit 400 超え</text>
+
+  <rect x="48" y="430" width="315" height="82" rx="10" fill="#ffffff" stroke="#315f72" stroke-width="2"/>
+  <text class="label" x="205" y="462">内部ノードでは止めない</text>
+  <text class="label small" x="205" y="488">startpos moves ... を再生して通過</text>
+</svg>

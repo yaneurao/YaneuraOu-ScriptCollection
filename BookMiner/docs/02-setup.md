@@ -29,6 +29,8 @@ YaneuraOu-ScriptCollection/
 
 BookMiner は `../CommonLib/YaneShogiLib.py` を使います。`BookMiner/` だけを別フォルダに移動すると動きません。
 
+![BookMiner のセットアップ全体図](assets/setup-overview.svg)
+
 ## Python のインストール
 
 Windows では python.org から Python 3 をインストールし、`py` コマンドが使える状態にしてください。
@@ -101,6 +103,9 @@ settings/engine_settings.json5
 
 最初は `multi` を `1` にして、エンジンが `readyok` を返すことを確認してください。
 
+`multi` を増やすと、同じ設定の探索用エンジンを複数プロセス起動します。
+PCのCPUスレッド数、メモリ、エンジン側の `Threads` や `USI_Hash` との合計を見て調整してください。
+
 複数エンジンを使う場合は、配列に複数の設定を書きます。
 
 ```json5
@@ -142,7 +147,7 @@ settings/book_miner_settings.json5
     max_book_ply: 200,
 
     // peta_nextの開始局面集合ファイル。
-    // nコマンド実行のたびに読み直される。
+    // このファイルはnコマンドの開始局面を絞るために使う。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
 }
 ```

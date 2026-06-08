@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430" role="img" aria-labelledby="title desc">
+  <title id="title">enqueue と探索 worker</title>
+  <desc id="desc">think_sfens.txtからqueueへタスクを積み、複数workerがエンジンで探索して定跡DBへ保存する流れ</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .box { fill: #ffffff; stroke: #315f72; stroke-width: 2; rx: 10; }
+      .file { fill: #fff4df; stroke: #a66b00; }
+      .queue { fill: #e8f4f8; }
+      .worker { fill: #eef8ed; stroke: #387a38; }
+      .db { fill: #f4f0ff; stroke: #6b5cad; }
+      .line { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #405864; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="980" height="430"/>
+  <text class="text" x="490" y="36" style="font-size:23px">enqueue は「入力を queue に積む」操作。探索は worker が順番に行う。</text>
+
+  <rect class="box file" x="45" y="100" width="190" height="210"/>
+  <text class="text" x="140" y="132">think_sfens.txt</text>
+  <text class="mono" x="140" y="165" text-anchor="middle">startpos moves ...</text>
+  <text class="mono" x="140" y="190" text-anchor="middle">startpos moves ...</text>
+  <text class="mono" x="140" y="215" text-anchor="middle">startpos moves ...</text>
+  <text class="text small" x="140" y="272">1行 = 1タスク候補</text>
+
+  <path class="line" d="M 245 205 H 335"/>
+  <text class="text small" x="290" y="190">enqueue</text>
+
+  <rect class="box queue" x="345" y="100" width="170" height="210"/>
+  <text class="text" x="430" y="132">queue</text>
+  <rect x="385" y="160" width="90" height="28" rx="6" fill="#ffffff" stroke="#315f72"/>
+  <rect x="385" y="194" width="90" height="28" rx="6" fill="#ffffff" stroke="#315f72"/>
+  <rect x="385" y="228" width="90" height="28" rx="6" fill="#ffffff" stroke="#315f72"/>
+  <text class="text small" x="430" y="282">先に積んだものから渡す</text>
+
+  <path class="line" d="M 525 205 H 598"/>
+
+  <rect class="box worker" x="610" y="70" width="150" height="70"/>
+  <text class="text" x="685" y="99">worker 1</text>
+  <text class="text small" x="685" y="121">エンジン探索</text>
+
+  <rect class="box worker" x="610" y="170" width="150" height="70"/>
+  <text class="text" x="685" y="199">worker 2</text>
+  <text class="text small" x="685" y="221">エンジン探索</text>
+
+  <rect class="box worker" x="610" y="270" width="150" height="70"/>
+  <text class="text" x="685" y="299">worker 3</text>
+  <text class="text small" x="685" y="321">エンジン探索</text>
+
+  <path class="line" d="M 760 105 H 835"/>
+  <path class="line" d="M 760 205 H 835"/>
+  <path class="line" d="M 760 305 H 835"/>
+
+  <rect class="box db" x="845" y="150" width="105" height="110"/>
+  <text class="text" x="897" y="194">定跡DB</text>
+  <text class="text small" x="897" y="220">候補手</text>
+  <text class="text small" x="897" y="241">評価値</text>
+
+  <text class="text small" x="490" y="375">進捗は「workerがqueueから受け取った数」で表示する</text>
+</svg>

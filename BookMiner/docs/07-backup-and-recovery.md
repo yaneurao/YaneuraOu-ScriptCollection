@@ -26,6 +26,8 @@ BookMiner は起動時に、`book/backup/` にある最新の通常定跡 DB を
 
 通常定跡 DB がまだ存在しない場合は、空の定跡として起動します。
 
+![BookMiner のバックアップと復旧](assets/backup-lifecycle.svg)
+
 ## 終了時保存
 
 `q` コマンドで終了すると、現在の定跡 DB を `book/backup/` に書き出してから終了します。

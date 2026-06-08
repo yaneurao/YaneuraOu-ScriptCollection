@@ -31,6 +31,8 @@ position startpos moves 7g7f 3c3d 2g2f
 
 これは、平手初期局面から `7g7f`、`3c3d`、`2g2f` と指した局面を表します。
 
+![startpos moves の意味](assets/startpos-moves.svg)
+
 ## startpos moves ...
 
 BookMiner の入力ファイルでは、`position` コマンドそのものではなく、先頭の `position ` を取り除いた形を使います。

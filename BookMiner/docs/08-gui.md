@@ -60,6 +60,8 @@ book/think_sfens.txt
 
 GUI 上でもこの手順が縦に並んでいます。
 
+![BookMiner GUI の基本手順](assets/bookminer-workflow.svg)
+
 ```text
 手順0. [ 棋譜抽出   ]  ← 手順1.～2.の代わりに think_sfens.txt を用意する
 手順1. [ peta_shock ]

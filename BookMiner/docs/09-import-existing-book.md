@@ -10,6 +10,8 @@
 
 探索後に再度 peta shock 化すると、既存定跡内の局面評価も、新しく伸ばした先の評価値をもとに計算し直されます。
 
+![定跡木と leaf からの延長](assets/book-tree-leaf-extension.svg)
+
 ## 既存定跡を配置する
 
 BookMiner.py を終了してから、既存のやねうら王標準定跡ファイルを次の名前で配置します。
@@ -65,6 +67,8 @@ GUI:
 ```
 
 `p` コマンドは、現在メモリ上にある定跡を `book/backup/` に正規の名前で書き出し、そのファイルを peta shock 化して読み込みます。
+
+![peta_shock と peta_next](assets/peta-shock-next.svg)
 
 出力例:
 

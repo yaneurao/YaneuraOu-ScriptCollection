@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="440" viewBox="0 0 1040 440" role="img" aria-labelledby="title desc">
+  <title id="title">生成した定跡をやねうら王で使う流れ</title>
+  <desc id="desc">BookMinerのpeta_bookをやねうら王のbookフォルダに置き、engine_options.txtで指定して使う流れ</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .box { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .file { fill: #fff4df; stroke: #a66b00; stroke-width: 2; }
+      .engine { fill: #eef8ed; stroke: #387a38; stroke-width: 2; }
+      .option { fill: #e8f4f8; stroke: #315f72; stroke-width: 2; }
+      .line { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #405864; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1040" height="440"/>
+  <text class="text" x="520" y="38" style="font-size:23px">BookMiner の peta_book を、やねうら王の book フォルダへ置いて指定する</text>
+
+  <rect class="box" x="45" y="110" width="235" height="135" rx="14"/>
+  <text class="text" x="162" y="143">BookMiner</text>
+  <rect class="file" x="72" y="166" width="180" height="50" rx="8"/>
+  <text class="mono" x="162" y="196" text-anchor="middle">peta_book-....db</text>
+
+  <path class="line" d="M 290 178 H 390"/>
+  <text class="text small" x="340" y="162">コピー</text>
+
+  <rect class="engine" x="400" y="85" width="245" height="190" rx="14"/>
+  <text class="text" x="522" y="118">やねうら王フォルダ</text>
+  <text class="mono" x="522" y="151" text-anchor="middle">YaneuraOu.exe</text>
+  <text class="mono" x="522" y="178" text-anchor="middle">engine_options.txt</text>
+  <rect class="file" x="432" y="205" width="180" height="45" rx="8"/>
+  <text class="mono" x="522" y="233" text-anchor="middle">book/peta_book...</text>
+
+  <path class="line" d="M 645 178 H 725"/>
+  <rect class="option" x="735" y="80" width="255" height="205" rx="14"/>
+  <text class="text" x="862" y="112">engine_options.txt</text>
+  <text class="mono" x="862" y="147" text-anchor="middle">BookDir book</text>
+  <text class="mono" x="862" y="172" text-anchor="middle">BookFile peta_book...</text>
+  <text class="mono" x="862" y="197" text-anchor="middle">USI_OwnBook true</text>
+  <text class="mono" x="862" y="222" text-anchor="middle">FlippedBook true</text>
+  <text class="mono" x="862" y="247" text-anchor="middle">IgnoreBookPly true</text>
+
+  <path class="line" d="M 862 285 V 330 H 350"/>
+  <rect class="box" x="90" y="315" width="260" height="78" rx="14"/>
+  <text class="text" x="220" y="346">isready → go</text>
+  <text class="text small" x="220" y="371">定跡 hit なら定跡手を返す</text>
+</svg>
