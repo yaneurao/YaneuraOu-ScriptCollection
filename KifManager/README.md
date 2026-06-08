@@ -10,11 +10,45 @@
 
 `kif-manager.py` は、棋譜抽出と棋譜ダウンロードを扱う Tkinter GUI です。
 
+## 必要なもの
+
+Python 3 と `cshogi` が必要です。`.7z` アーカイブを入力フォルダに置いて抽出する場合は `py7zr` も必要です。WCSC16以前の `.lzh` アーカイブを扱う場合は `lhafile` も必要です。
+
+Windowsでは、Python Launcher の `py` を使うのが一般的です。
+
+```bat
+py -m pip install cshogi py7zr lhafile
+```
+
+Linux/macOSでは、環境に合わせて `python3` などを使ってください。
+
+```bash
+python3 -m pip install cshogi py7zr lhafile
+```
+
+## 起動
+
+Windows:
+
+```bat
+py kif-manager.py
+```
+
+Linux/macOS:
+
 ```bash
 python3 kif-manager.py
 ```
 
 BookMiner から呼び出す場合は次のオプションを使います。
+
+Windows:
+
+```bat
+py kif-manager.py --from_bookminer
+```
+
+Linux/macOS:
 
 ```bash
 python3 kif-manager.py --from_bookminer

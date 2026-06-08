@@ -17,12 +17,28 @@ startpos moves 2g2f 8c8d ...
 
 Python 3 と `cshogi` が必要です。`.7z` アーカイブを入力フォルダに置いて抽出する場合は `py7zr` も必要です。
 
+Windowsでは、Python Launcher の `py` を使うのが一般的です。
+
+```bat
+py -m pip install cshogi py7zr
+```
+
+Linux/macOSでは、環境に合わせて `python3` などを使ってください。
+
 ```bash
 python3 -m pip install cshogi
 python3 -m pip install py7zr
 ```
 
 WCSC16以前の公式棋譜アーカイブは `.lzh` 形式です。展開には `lhafile` を使います。
+
+Windows:
+
+```bat
+py -m pip install lhafile
+```
+
+Linux/macOS:
 
 ```bash
 python3 -m pip install lhafile

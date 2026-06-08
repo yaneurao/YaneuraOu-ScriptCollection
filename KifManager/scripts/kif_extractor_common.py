@@ -230,7 +230,7 @@ def extract_7z_with_py7zr(archive: Path, destination: Path) -> None:
     except ImportError as exc:
         raise RuntimeError(
             ".7zを展開するには py7zr が必要です。"
-            "python3 -m pip install py7zr を実行してください。"
+            "KifManager/README.md の「必要なもの」を確認してください。"
         ) from exc
 
     try:

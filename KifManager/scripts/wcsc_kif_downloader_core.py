@@ -570,7 +570,7 @@ def import_lhafile_module():
     except ImportError as exc:
         raise DownloadError(
             "WCSC16以前のLZH展開には lhafile が必要です。"
-            "python3 -m pip install lhafile でインストールしてください。"
+            "KifManager/README.md の「必要なもの」を確認してください。"
         ) from exc
     return lhafile
 
