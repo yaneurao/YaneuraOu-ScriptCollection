@@ -24,7 +24,7 @@ GUI_SETTING_DEFAULTS = {
     "max_step": "",
     "eval_limit": "400",
     "auto_enqueue_threshold": "1000",
-    "log_view_mode": "4x1",
+    "log_view_mode": "2x2",
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
@@ -46,10 +46,10 @@ AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
 LOG_PANES = [
-    ("peta", "peta_next/peta_shockログ", "peta_next/peta_shock", 7),
+    ("other", "コマンドログ", "コマンド", 8),
     ("task", "タスク状況ログ", "タスク状況", 7),
     ("search", "探索ログ", "探索", 10),
-    ("other", "その他ログ", "その他", 8),
+    ("peta", "petaログ", "peta", 7),
 ]
 LOG_VIEW_MODES = [
     ("4x1", "4×1"),
