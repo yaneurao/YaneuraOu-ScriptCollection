@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="620" viewBox="0 0 1080 620" role="img" aria-labelledby="title desc">
+  <title id="title">peta shock 化による min-max 伝播</title>
+  <desc id="desc">leaf の評価値が親ノードへ伝播し、root 側の評価値が決まる様子</desc>
+  <defs>
+    <marker id="arrowUp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a66b00"/>
+    </marker>
+    <marker id="arrowDown" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .edge { stroke: #315f72; stroke-width: 3; fill: none; marker-end: url(#arrowDown); }
+      .prop { stroke: #a66b00; stroke-width: 4; fill: none; marker-end: url(#arrowUp); stroke-dasharray: 9 7; }
+      .node { fill: #ffffff; stroke: #315f72; stroke-width: 2; }
+      .root { fill: #e8f4f8; stroke: #315f72; stroke-width: 3; }
+      .opponent { fill: #f4f0ff; stroke: #6b5cad; stroke-width: 3; }
+      .leaf { fill: #fff4df; stroke: #a66b00; stroke-width: 3; }
+      .chosen { stroke: #387a38; stroke-width: 5; }
+      .box { fill: #ffffff; stroke: #56707d; stroke-width: 2; }
+      .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #18323d; font-size: 18px; text-anchor: middle; }
+      .small { font-size: 14px; fill: #405864; }
+      .note { font-size: 15px; fill: #5b4a24; }
+      .score { font-size: 20px; font-weight: 700; fill: #18323d; }
+      .good { fill: #276227; }
+      .bad { fill: #9a3b20; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #405864; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1080" height="620"/>
+  <text class="text" x="540" y="38" style="font-size:23px">peta shock 化では、leaf の評価値が min-max で root 側へ上がってくる</text>
+  <text class="text note" x="540" y="66">この図では説明のため、評価値を root 側から見た値として表しています。</text>
+
+  <path class="edge" d="M 540 126 L 330 235"/>
+  <path class="edge" d="M 540 126 L 750 235"/>
+  <path class="edge" d="M 330 300 L 205 430"/>
+  <path class="edge" d="M 330 300 L 455 430"/>
+  <path class="edge" d="M 750 300 L 625 430"/>
+  <path class="edge" d="M 750 300 L 875 430"/>
+
+  <circle class="node root" cx="540" cy="112" r="52"/>
+  <text class="text" x="540" y="100">root</text>
+  <text class="text small" x="540" y="123">自分番</text>
+  <text class="text score good" x="540" y="148">+200</text>
+
+  <circle class="node opponent chosen" cx="330" cy="270" r="56"/>
+  <text class="text" x="330" y="257">相手番</text>
+  <text class="text small" x="330" y="280">小さい値を選ぶ</text>
+  <text class="text score good" x="330" y="305">+200</text>
+
+  <circle class="node opponent" cx="750" cy="270" r="56"/>
+  <text class="text" x="750" y="257">相手番</text>
+  <text class="text small" x="750" y="280">小さい値を選ぶ</text>
+  <text class="text score bad" x="750" y="305">-300</text>
+
+  <circle class="node leaf" cx="205" cy="465" r="50"/>
+  <text class="text" x="205" y="454">leaf</text>
+  <text class="text score good" x="205" y="482">+600</text>
+
+  <circle class="node leaf chosen" cx="455" cy="465" r="50"/>
+  <text class="text" x="455" y="454">leaf</text>
+  <text class="text score good" x="455" y="482">+200</text>
+
+  <circle class="node leaf" cx="625" cy="465" r="50"/>
+  <text class="text" x="625" y="454">leaf</text>
+  <text class="text score good" x="625" y="482">+100</text>
+
+  <circle class="node leaf chosen" cx="875" cy="465" r="50"/>
+  <text class="text" x="875" y="454">leaf</text>
+  <text class="text score bad" x="875" y="482">-300</text>
+
+  <path class="prop" d="M 455 410 L 360 315"/>
+  <path class="prop" d="M 875 410 L 785 315"/>
+  <path class="prop" d="M 330 210 L 498 132"/>
+
+  <text class="text small" x="265" y="360">相手は root 側に悪い手を選ぶ</text>
+  <text class="text small" x="795" y="360">相手は -300 を選ぶ</text>
+  <text class="text small" x="440" y="190">root は +200 と -300 のうち</text>
+  <text class="text small" x="440" y="212">良いほう +200 を選ぶ</text>
+
+  <rect class="box" x="65" y="535" width="950" height="58" rx="12"/>
+  <text class="text" x="540" y="560">peta shock 後の peta_book では、leaf 側の評価値をもとに内部ノードと root の評価値が計算し直される</text>
+  <text class="text small" x="540" y="583">そのため、peta_next は root 側に上がってきた評価値を使って、次に広げる枝を選びやすくなる</text>
+</svg>

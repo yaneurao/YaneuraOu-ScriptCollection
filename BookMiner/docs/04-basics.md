@@ -123,6 +123,11 @@ p
 
 `book/backup/peta_book-....db` は `makebook peta_shock` が出力した正規形の DB とみなし、高速読み込みします。この読み込みでは、先後反転局面との merge や古い評価値形式の補正は行いません。
 
+peta shock 化では、定跡ツリーの leaf 側にある評価値を、min-max で root 側へ伝播させます。
+これにより、新しく掘った leaf の評価値が、親局面や root 側の評価値へ反映されます。
+
+![peta shock 化による min-max 伝播](assets/peta-shock-minimax.svg)
+
 `r` は、path を省略した場合、`book/backup/` にある最新の通常バックアップを `YO-MATERIAL.exe` に渡します。
 
 `r` に path を指定する場合、通常は BookMiner フォルダからの相対 path として次のように書きます。
