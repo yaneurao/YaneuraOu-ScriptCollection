@@ -26,6 +26,7 @@ CSA_MOVE_LINE_RE = re.compile(r"^([+-])\d{4}[A-Z]{2}(?:$|[,\s])")
 KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
 SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
 COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
+INPUT_DATE_RE = re.compile(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$")
 PROGRESS_INTERVAL = 1000
 
 
@@ -362,10 +363,13 @@ def parse_date_value(value: date | str | None, label: str) -> date | None:
     text = value.strip()
     if not text:
         return None
-    try:
-        return date.fromisoformat(text.replace("/", "-"))
-    except ValueError as exc:
-        raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください: {value}") from exc
+    match = INPUT_DATE_RE.fullmatch(text)
+    if match is None:
+        raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください(月日1桁可): {value}")
+    parsed = make_date_from_parts(match.group(1), match.group(2), match.group(3))
+    if parsed is None:
+        raise ValueError(f"{label} に存在する日付を指定してください: {value}")
+    return parsed
 
 
 def make_effective_year_filter(
@@ -1127,8 +1131,16 @@ def add_year_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def add_date_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--start-date", default=None, help="first game date to extract, YYYY-MM-DD or YYYY/MM/DD")
-    parser.add_argument("--end-date", default=None, help="last game date to extract, YYYY-MM-DD or YYYY/MM/DD")
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="first game date to extract, YYYY-MM-DD or YYYY/MM/DD; month/day may be one digit",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        help="last game date to extract, YYYY-MM-DD or YYYY/MM/DD; month/day may be one digit",
+    )
 
 
 def print_stats(stats: Stats) -> None:

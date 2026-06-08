@@ -45,7 +45,7 @@ from denryu_kif_downloader_core import (  # noqa: E402
     fallback_denryu_tournament_options,
     fetch_denryu_tournament_options,
 )
-from kif_extractor_common import Stats, run_extractor  # noqa: E402
+from kif_extractor_common import Stats, parse_date_value, run_extractor  # noqa: E402
 from wcsc_kif_downloader_core import (  # noqa: E402
     DownloadError,
     WcscDownloadJob,
@@ -316,6 +316,7 @@ class ExtractorPane(ttk.Frame):
                 self.start_date,
                 "floodgate棋譜の対局日で絞り込みます。\n"
                 "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
+                "月日を1桁で書いても構いません。\n"
                 "空欄なら下限なしです。",
                 width=14,
             )
@@ -325,6 +326,7 @@ class ExtractorPane(ttk.Frame):
                 self.end_date,
                 "floodgate棋譜の対局日で絞り込みます。\n"
                 "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
+                "月日を1桁で書いても構いません。\n"
                 "空欄なら上限なしです。",
                 width=14,
             )
@@ -572,10 +574,7 @@ class ExtractorPane(ttk.Frame):
     def _parse_date(self, value: str, label: str) -> date | None:
         if self.kind.key != "floodgate" or not value:
             return None
-        try:
-            return date.fromisoformat(value.replace("/", "-"))
-        except ValueError as exc:
-            raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください: {value}") from exc
+        return parse_date_value(value, label)
 
     def settings(self) -> dict[str, str]:
         return {
