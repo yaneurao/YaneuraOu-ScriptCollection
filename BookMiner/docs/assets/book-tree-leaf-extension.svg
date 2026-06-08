@@ -22,7 +22,7 @@
     </style>
   </defs>
   <rect class="bg" x="0" y="0" width="980" height="560"/>
-  <text class="label" x="490" y="38" style="font-size:22px">定跡木の leaf は「すでにある末端局面」。そこから外へ伸ばす。</text>
+  <text class="label" x="490" y="38" style="font-size:22px">leaf はDB上の末端。棋譜の末尾とは別。DB外へ出る枝で判定する。</text>
 
   <path class="edge" d="M 490 92 L 330 178"/>
   <path class="edge" d="M 490 92 L 650 178"/>
@@ -72,5 +72,5 @@
 
   <rect x="48" y="430" width="315" height="82" rx="10" fill="#ffffff" stroke="#315f72" stroke-width="2"/>
   <text class="label" x="205" y="462">内部ノードでは止めない</text>
-  <text class="label small" x="205" y="488">startpos moves ... を再生して通過</text>
+  <text class="label small" x="205" y="488">ただしDB外へ出る枝は評価値を見る</text>
 </svg>
