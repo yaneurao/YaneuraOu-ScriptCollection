@@ -1092,8 +1092,8 @@ class EngineManager:
     def start_thinking_position(self, book:Book, engine:Engine, task:Task):
         """
         `startpos moves ...` 形式の1行を、棋譜の指し手通りに辿って掘る。
-        棋譜末端に到達したら、そこからTHINK_COMMAND_PLYだけbest lineを掘る。
-        途中局面は定跡木の内部ノードなので、eval_limitでは打ち切らない。
+        DB上の定跡木から外へ出る枝ではeval_limitを見て、条件を満たす場合だけ先へ進む。
+        棋譜末端まで到達できたら、そこからTHINK_COMMAND_PLYだけbest lineを掘る。
         """
         if task.position_cmd is None:
             return
@@ -1107,22 +1107,28 @@ class EngineManager:
         visited : set[Sfen] = set()
         last_thinking_ply = PLY_MIN
 
-        for i, move in enumerate(moves):
+        for move in moves:
             current_sfen, ply = trim_sfen_ply(board.sfen())
 
             if self.reached_max_book_ply(ply):
                 self.print_reached_max_book_ply(current_sfen, ply)
                 return
 
-            # 棋譜の途中局面は内部ノードなので、eval_limitでは打ち切らない。
-            # ただし未思考なら、棋譜上の局面としてbookに取り込む。
+            # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
             position_info, _ = self.get_book_position_info(book, current_sfen)
             if position_info is None or not has_considered(position_info):
-                _, _, last_thinking_ply, _ = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+                position_info, _, last_thinking_ply, ok = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+                if not ok or position_info is None:
+                    return
 
-            # 最後の1手は、定跡木leafから外へ伸ばす枝に相当する。
-            # この枝の評価値がeval_limitを超えているなら、先の局面へは進まない。
-            if i == len(moves) - 1:
+            lookahead_board = cshogi.Board(board.sfen()) # type:ignore
+            lookahead_board.push_usi(move)
+            next_sfen = trim_sfen(lookahead_board.sfen())
+            next_position_info, _ = self.get_book_position_info(book, next_sfen)
+
+            # 次局面がbook上の思考済みノードでないなら、この手は定跡木から外へ出る枝。
+            # その枝の評価値がeval_limitを超えている場合は、棋譜末端までは辿らずに止める。
+            if next_position_info is None or not has_considered(next_position_info):
                 move_eval = self.get_book_move_eval(book, current_sfen, move)
                 if isinstance(move_eval, int) and abs(move_eval) > eval_limit:
                     return
