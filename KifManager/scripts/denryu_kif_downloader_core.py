@@ -719,7 +719,8 @@ def download_denryu_from_archive(
             log=log,
             should_stop=should_stop,
         )
-        write_archive_size_marker_if_needed(output_dir, archive_filename, remote_bytes or bytes_written)
+        if not stop_requested(should_stop):
+            write_archive_size_marker_if_needed(output_dir, archive_filename, remote_bytes or bytes_written)
     finally:
         remove_tree_with_retries(work_dir, log=log)
         remove_empty_directory(tmp_root)
@@ -747,7 +748,13 @@ def extract_archive(
 ) -> tuple[int, int, int]:
     suffix = archive_path.suffix.lower()
     if suffix == ".zip":
-        return extract_zip_archive(archive_path, output_dir, overwrite, log, should_stop)
+        return extract_zip_archive(
+            archive_path=archive_path,
+            output_dir=output_dir,
+            overwrite=overwrite,
+            log=log,
+            should_stop=should_stop,
+        )
     if suffix == ".7z":
         return extract_7z_archive(archive_path, output_dir, work_dir, overwrite, log, should_stop)
     raise DenryuDownloadError(f"未対応のアーカイブ形式です: {archive_path.name}")

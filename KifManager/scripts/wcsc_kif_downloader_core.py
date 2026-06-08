@@ -437,7 +437,8 @@ def download_wcsc_archive_from_index(
             log=log,
             should_stop=should_stop,
         )
-        write_archive_size_marker_if_needed(output_dir, archive_filename, remote_bytes or bytes_written)
+        if not stop_requested(should_stop):
+            write_archive_size_marker_if_needed(output_dir, archive_filename, remote_bytes or bytes_written)
 
         return WcscDownloadStats(
             tournament=normalized_name,
@@ -767,7 +768,7 @@ def fetch_wcsc_archive_url(
 
 def wcsc_archive_filenames(normalized_name: str) -> set[str]:
     if normalized_name == "wcso1":
-        return {"wcso1_kifu.zip", "wcso1.zip"}
+        return {"wcso1_kifu.zip", "wcso1.zip", "wcso1_kifu.7z", "wcso1.7z"}
 
     match = re.fullmatch(r"wcsc(\d+)", normalized_name)
     if not match:
@@ -779,8 +780,8 @@ def wcsc_archive_filenames(normalized_name: str) -> set[str]:
     if 13 <= number <= 16:
         return {f"wcsc{number}_kifu.lzh"}
     if number == 17:
-        return {"wcsc17.zip", "wcsc17_kifu.zip"}
-    return {f"wcsc{number}_kifu.zip", f"wcsc{number}.zip"}
+        return {"wcsc17.zip", "wcsc17_kifu.zip", "wcsc17.7z", "wcsc17_kifu.7z"}
+    return {f"wcsc{number}_kifu.zip", f"wcsc{number}.zip", f"wcsc{number}_kifu.7z", f"wcsc{number}.7z"}
 
 
 def import_lhafile_module():

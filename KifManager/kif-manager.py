@@ -782,6 +782,7 @@ class WcscDownloadPane(ttk.Frame):
             "棋譜ファイルを保存する親フォルダを指定してください。\n"
             "デフォルトでは downloaded-kif/wcsc を指定します。\n"
             "実際にはこの配下に wcsc36 や wcso1 のような大会名フォルダを作成します。\n"
+            "ZIP/7zは前回展開時と同じサイズなら再ダウンロードを省略します。\n"
             "WCSC16以前はこの大会名フォルダ内にLZHの中身を展開します。",
         )
         ttk.Checkbutton(
@@ -944,6 +945,7 @@ class DenryuDownloadPane(ttk.Frame):
             "大会URL",
             self.tournament_url,
             "大会のliveページURL、公式アーカイブZIPのURL、\n"
+            "公式アーカイブ7zのURL、\n"
             "または dr6_production のような大会キーを指定できます。\n"
             "コンボボックスで大会を選ぶと自動で設定されます。",
         )
@@ -959,9 +961,10 @@ class DenryuDownloadPane(ttk.Frame):
         self._label_with_help(
             row,
             "live中継ページからダウンロード",
-            "チェックなしなら、大会ページや公式リンク集から一括ZIPを探して展開します。\n"
+            "チェックなしなら、大会ページや公式リンク集から一括ZIP/7zを探して展開します。\n"
             "チェックありなら、live中継ページの kifulist.txt から個別CSAを取得します。\n"
-            "大会終了前で一括ZIPが未公開のときはこちらを使います。",
+            "ZIP/7zは前回展開時と同じサイズなら再ダウンロードを省略します。\n"
+            "大会終了前で一括ZIP/7zが未公開のときはこちらを使います。",
         )
         ttk.Checkbutton(self, variable=self.use_live_page).grid(row=row, column=1, sticky="w", pady=6)
         row += 1
@@ -979,7 +982,7 @@ class DenryuDownloadPane(ttk.Frame):
             row,
             "既存ファイルを上書き",
             "既に同名の棋譜ファイルがある場合に上書きします。\n"
-            "チェックなしなら既存ファイルはスキップします。",
+            "チェックなしでも、既存ファイルとアーカイブ内のサイズが違う場合は置き換えます。",
         )
         ttk.Checkbutton(self, variable=self.overwrite).grid(row=row, column=1, sticky="w", pady=6)
 
