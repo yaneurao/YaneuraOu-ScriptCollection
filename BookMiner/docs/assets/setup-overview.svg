@@ -38,11 +38,13 @@
   <path class="line" d="M 270 155 H 355"/>
   <text class="text small" x="313" y="140">使う</text>
 
-  <rect class="panel settings" x="60" y="260" width="230" height="115" rx="14"/>
+  <rect class="panel settings" x="45" y="250" width="260" height="150" rx="14"/>
   <text class="text" x="175" y="292">settings/</text>
-  <text class="mono" x="175" y="322" text-anchor="middle">engine_settings.json5</text>
-  <text class="mono" x="175" y="348" text-anchor="middle">book_miner_settings.json5</text>
-  <path class="line" d="M 290 318 H 355"/>
+  <text class="mono" x="175" y="318" text-anchor="middle">*-sample.json5</text>
+  <text class="text small" x="175" y="344">コピーして編集</text>
+  <text class="mono" x="175" y="372" text-anchor="middle">engine_settings.json5</text>
+  <text class="mono" x="175" y="392" text-anchor="middle">book_miner_settings.json5</text>
+  <path class="line" d="M 305 333 H 355"/>
 
   <rect class="panel engine" x="745" y="95" width="250" height="140" rx="14"/>
   <text class="text" x="870" y="128">探索用エンジン</text>

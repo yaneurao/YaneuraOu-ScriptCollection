@@ -86,7 +86,8 @@ BookMiner は起動後、一定時間ごとに自動で通常定跡 DB を書き
 }
 ```
 
-この値は [settings/book_miner_settings.json5](../settings/book_miner_settings.json5) の `auto_save_interval_seconds` で変更します。単位は秒です。
+この値は `settings/book_miner_settings.json5` の `auto_save_interval_seconds` で変更します。単位は秒です。
+まだ実設定ファイルを作っていない場合は、[settings/book_miner_settings-sample.json5](../settings/book_miner_settings-sample.json5) をコピーして `settings/book_miner_settings.json5` を作ってください。
 
 例えば 1 時間ごとにするなら次のようにします。
 

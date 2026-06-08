@@ -23,11 +23,18 @@ YaneuraOu-ScriptCollection/
     README.md
     docs/
     settings/
+      engine_settings-sample.json5
+      book_miner_settings-sample.json5
       engine_settings.json5
       book_miner_settings.json5
 ```
 
 BookMiner は `../CommonLib/YaneShogiLib.py` を使います。`BookMiner/` だけを別フォルダに移動すると動きません。
+
+`engine_settings.json5` と `book_miner_settings.json5` は、ユーザーごとの実設定ファイルです。
+GitHub で配布されるのは `*-sample.json5` です。
+初回セットアップ時に sample をコピーして、実設定ファイルを作ってから編集してください。
+実設定ファイルは `.gitignore` に入っているので、ユーザーごとの設定が `git pull` で衝突しにくくなっています。
 
 ![BookMiner のセットアップ全体図](assets/setup-overview.svg)
 
@@ -64,9 +71,38 @@ Linux/macOS:
 python3 -m pip install cshogi json5
 ```
 
+## 設定ファイルを作成する
+
+BookMiner は次の2つの実設定ファイルを読みます。
+
+```text
+settings/engine_settings.json5
+settings/book_miner_settings.json5
+```
+
+ただし、この2つはユーザーの環境ごとに内容が変わるため、配布物としては `*-sample.json5` だけを置いています。
+初回セットアップ時に、sample をコピーして実設定ファイルを作ってください。
+
+Windows:
+
+```powershell
+Copy-Item .\settings\engine_settings-sample.json5 .\settings\engine_settings.json5
+Copy-Item .\settings\book_miner_settings-sample.json5 .\settings\book_miner_settings.json5
+```
+
+Linux/macOS:
+
+```bash
+cp settings/engine_settings-sample.json5 settings/engine_settings.json5
+cp settings/book_miner_settings-sample.json5 settings/book_miner_settings.json5
+```
+
+以後、編集するのは `*-sample.json5` ではなく、コピーして作った `engine_settings.json5` と `book_miner_settings.json5` です。
+
 ## settings/engine_settings.json5 の書き方
 
 `settings/engine_settings.json5` には、BookMiner が局面を思考させる探索用エンジンを書きます。
+このファイルは `settings/engine_settings-sample.json5` をコピーして作ります。
 
 場所は次の通りです。
 
@@ -128,6 +164,7 @@ PCのCPUスレッド数、メモリ、エンジン側の `Threads` や `USI_Hash
 ## settings/book_miner_settings.json5 の書き方
 
 `settings/book_miner_settings.json5` には、BookMiner 本体の動作設定を書きます。
+このファイルは `settings/book_miner_settings-sample.json5` をコピーして作ります。
 
 場所は次の通りです。
 
