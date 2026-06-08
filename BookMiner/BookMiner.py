@@ -991,6 +991,36 @@ class EngineManager:
             with book.lock:
                 book.searching_sfens.discard(current_sfen)
 
+    def get_book_position_info(self, book:Book, sfen:Sfen)->tuple[PositionInfo | None, bool]:
+        """
+        book上の局面情報を返す。flip側でhitしたときは第2戻り値をTrueにする。
+        """
+        sfen_f = flipped_sfen(sfen)
+
+        with book.lock:
+            if sfen in book.body:
+                return book.body[sfen], False
+            if sfen_f in book.body:
+                return book.body[sfen_f], True
+
+        return None, False
+
+    def get_book_move_eval(self, book:Book, sfen:Sfen, move:MoveStr)->Eval:
+        """
+        book上でsfenからmoveを指したときの評価値を返す。
+        moveがbookに無い、または評価値が無い場合はNoneを返す。
+        """
+        position_info, flipped_bookhit = self.get_book_position_info(book, sfen)
+        if position_info is None:
+            return None
+
+        book_move = flipped_move(move) if flipped_bookhit else move
+        for moveinfo in position_info.moveinfos:
+            if moveinfo.move == book_move:
+                return moveinfo.eval
+
+        return None
+
 
     def start_thinking(self, book:Book, engine:Engine, task:Task):
         """
@@ -1026,15 +1056,14 @@ class EngineManager:
                 return
 
             # 次の局面を辿る。
-
-            # 未探索でかつ、eval_limit以内であるような子を探す。ただし、bestが eval_limitを超えていたら掘らない。
+            # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
+            # そのため、bestがeval_limitを超えていたら、ここで延長を止める。
             besteval , _ = get_best(position_info)
 
             if besteval is None:
                 # 思考したはずなのにbestevalがない。詰みの局面か？
                 return
 
-            # bestがeval_limitを超えているのでこれ以上掘り進めない。
             if abs(besteval) > eval_limit:
                 return
 
@@ -1064,6 +1093,7 @@ class EngineManager:
         """
         `startpos moves ...` 形式の1行を、棋譜の指し手通りに辿って掘る。
         棋譜末端に到達したら、そこからTHINK_COMMAND_PLYだけbest lineを掘る。
+        途中局面は定跡木の内部ノードなので、eval_limitでは打ち切らない。
         """
         if task.position_cmd is None:
             return
@@ -1077,19 +1107,25 @@ class EngineManager:
         visited : set[Sfen] = set()
         last_thinking_ply = PLY_MIN
 
-        for move in moves:
+        for i, move in enumerate(moves):
             current_sfen, ply = trim_sfen_ply(board.sfen())
 
-            position_info, _, last_thinking_ply, ok = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
-            if not ok or position_info is None:
+            if self.reached_max_book_ply(ply):
+                self.print_reached_max_book_ply(current_sfen, ply)
                 return
 
-            besteval, _ = get_best(position_info)
-            if besteval is None:
-                return
+            # 棋譜の途中局面は内部ノードなので、eval_limitでは打ち切らない。
+            # ただし未思考なら、棋譜上の局面としてbookに取り込む。
+            position_info, _ = self.get_book_position_info(book, current_sfen)
+            if position_info is None or not has_considered(position_info):
+                _, _, last_thinking_ply, _ = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
 
-            if abs(besteval) > eval_limit:
-                return
+            # 最後の1手は、定跡木leafから外へ伸ばす枝に相当する。
+            # この枝の評価値がeval_limitを超えているなら、先の局面へは進まない。
+            if i == len(moves) - 1:
+                move_eval = self.get_book_move_eval(book, current_sfen, move)
+                if isinstance(move_eval, int) and abs(move_eval) > eval_limit:
+                    return
 
             board.push_usi(move)
 
