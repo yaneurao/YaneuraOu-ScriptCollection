@@ -68,6 +68,18 @@ position sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 mo
 BookMiner でも、先頭の `position ` を取り除いた `sfen ... moves ...` 形式を扱えます。
 ただし、通常の運用では KifManager が出力する `startpos moves ...` を使えば十分です。
 
+## .sfen ファイル
+
+やねうら王周辺では、拡張子が `.sfen` のファイルを、1行に1局分の `startpos moves ...` を書いた棋譜ファイルとして扱うことがあります。
+
+```text
+startpos moves 7g7f 3c3d 2g2f
+startpos moves 2g2f 8c8d 2f2e
+```
+
+BookMiner の `book/think_sfens.txt` も、考え方はこれと同じです。
+拡張子は `.txt` ですが、1行に1つの `startpos moves ...` を書き、`t` コマンドまたは GUI の `enqueue` で読み込みます。
+
 ## 将棋所から局面文字列を得る
 
 任意の局面の `startpos moves ...` 文字列を得るには、将棋AI用GUIの `将棋所` を使うと簡単です。

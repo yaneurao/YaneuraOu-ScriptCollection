@@ -79,8 +79,25 @@ book/backup/book_miner-20260607071000_12345.db
 やねうら王が読み込めるテキスト形式の定跡ファイル形式です。
 
 - [将棋ソフト用の標準定跡ファイルフォーマットの提案](https://yaneuraou.yaneu.com/2016/02/05/standard-shogi-book-format/)
+- [定跡の作成 - やねうら王Wiki](https://github.com/yaneurao/YaneuraOu/wiki/%E5%AE%9A%E8%B7%A1%E3%81%AE%E4%BD%9C%E6%88%90)
 
 BookMiner の `book/backup/book_miner-....db` と `book/backup/peta_book-....db` は、この形式で保存されます。
+
+この形式は、拡張子が `.db` であっても、実体はテキストファイルです。
+先頭にはフォーマット識別用のヘッダーがあり、そのあと `sfen ...` で始まる局面ブロックが並びます。
+各局面ブロックには、その局面で選べる指し手、相手の応手、評価値などが書かれます。
+
+BookMiner が書き出す通常定跡 DB には、次のような特徴があります。
+
+- 先頭に `#YANEURAOU-DB2016 1.00` を書きます。
+- 2行目に `# NOE:<局面数>` を書きます。NOE は Num Of Entries、つまりDB上の局面数です。
+- `sfen` 文字列で sort した順に局面を書き出します。
+- 評価値のある指し手だけを書き出します。
+- 各局面の指し手は、手番側から見て評価値の良い順に並べます。
+- 相手応手は `none` として書き出します。
+
+通常の BookMiner 運用では、これらをユーザーが手で調整する必要はありません。
+ただし、外部の定跡 DB を BookMiner に持ち込む場合は、やねうら王標準定跡フォーマットとして読めること、また `makebook peta_shock` に渡せるよう `sfen` 順に sort されていることを確認してください。
 
 ## 評価関数
 

@@ -33,6 +33,8 @@ book/backup/book_miner.db
 - `book/backup/book_miner-YYYYMMDDHHMMSS_N.db` が存在する場合、BookMiner はそちらの最新ファイルを優先して読み込みます。
 - 既存定跡から開始したい場合は、`book/backup/` に既存の `book_miner-*.db` が無い状態にしてください。
 - `_plyN` 付きのファイルは部分書き出しなので、起動時の自動読み込み対象にはなりません。
+- 持ち込む既存定跡は、やねうら王標準定跡フォーマットの `.db` ファイルである必要があります。
+- `makebook peta_shock` に渡す定跡 DB は `sfen` 文字列で sort されている必要があります。BookMiner が `p` で書き出したあとの `book_miner-....db` は sort 済みです。
 
 ## BookMiner を起動する
 

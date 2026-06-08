@@ -111,6 +111,10 @@ book/backup/peta_book-20260607071000_12345.db
 
 `w` コマンドで書き出しだけを行い、`r` コマンドで peta shock 化だけを行うこともできます。ただし、通常の周回作業では `p` を使うほうが安全です。`p` は、自分で書き出したバックアップファイルをそのまま変換元に使うため、`w` の完了確認漏れや、定期自動バックアップとの取り違えを避けやすくなります。
 
+BookMiner が書き出す `book_miner-....db` は、やねうら王標準定跡フォーマットのテキストファイルです。
+書き出し時には `sfen` 文字列で sort し、先頭に `#YANEURAOU-DB2016 1.00` と `# NOE:<局面数>` を付けます。
+`makebook peta_shock` は sort 済みの定跡 DB を前提にするので、BookMiner が書き出したファイルをそのまま使うのが安全です。
+
 ## peta shock 化の内部処理
 
 `p` または `r` コマンドは、通常定跡 DB を peta shock 化します。
@@ -150,6 +154,10 @@ makebook peta_shock <readbook> <writebook> [shrink] [fast]
 
 `readbook` と `writebook` は、エンジンオプション `BookDir` からの相対パスです。
 
+`shrink` は、最善手と同じ評価値の指し手以外を削除して、出力される定跡ファイルを小さくするためのオプションです。
+`fast` は、テンポラリファイルを書き出さないことで高速化するためのオプションです。ただし、そのぶんメモリ使用量は増えます。
+BookMiner の通常運用では、どちらも指定しません。
+
 BookMiner の `r` コマンドは、内部的には `YO-MATERIAL.exe` におおむね次のようなコマンドを送ります。
 
 ```text
@@ -160,6 +168,9 @@ setoption name USI_Hash value 1
 makebook peta_shock backup/book_miner-20260607071000_12345.db backup/peta_book-20260607071000_12345.db.tmp
 quit
 ```
+
+Wiki の `makebook peta_shock` 直接実行例では、使用メモリを減らすために `USI_Hash 0` を指定する説明があります。
+BookMiner では `YO-MATERIAL.exe` に対して内部的に `USI_Hash 1` を設定します。通常、ユーザーがここを手で設定する必要はありません。
 
 変換元が `book_miner-YYYYMMDDHHMMSS_局面数.db` という名前なら、実際の出力先は対応する `backup/peta_book-YYYYMMDDHHMMSS_局面数.db.tmp` です。変換に成功すると、BookMiner はこれを `book/backup/peta_book-YYYYMMDDHHMMSS_局面数.db` に置き換えます。
 
@@ -241,6 +252,10 @@ peta shock 化した定跡を更新したい場合は、先に `p` または `r`
 
 `peta_start_sfens.txt` は `n` コマンド実行時に参照されます。
 ただし通常運用では、掘りたい範囲を変えるときだけ編集すれば十分です。
+
+やねうら王の `makebook peta_shock` には、直接実行時に `book/root_sfens.txt` で開始局面を指定する仕組みがあります。
+BookMiner で次に掘る局面を探す場合は、それとは別に `settings/book_miner_settings.json5` の `peta_next_start_sfens_path`、通常は `book/peta_start_sfens.txt` を使います。
+ここを混同しないでください。
 
 ![peta_start_sfens.txt で開始局面を変える](assets/peta-start-sfens.svg)
 

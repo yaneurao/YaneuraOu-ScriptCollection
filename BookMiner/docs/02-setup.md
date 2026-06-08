@@ -237,6 +237,10 @@ make -j8 tournament COMPILER=clang++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL
 cp YaneuraOu-by-gcc "../bin/YO-MATERIAL.exe"
 ```
 
+BookMiner が使う `YO-MATERIAL.exe` は、`makebook peta_shock` コマンドを実行できる必要があります。
+自分でビルドしたものを使う場合は、起動して `makebook peta_shock` が使えるビルドになっていることを確認してください。
+やねうら王側では、定跡生成系の `makebook` コマンドは、対応するビルド設定が有効なときだけ使えます。
+
 ## やねうら王エンジンの設定方法
 
 やねうら王系エンジンでは、エンジン実行ファイルと同じフォルダに `engine_options.txt` を置くと、`isready` 時に読み込まれます。
