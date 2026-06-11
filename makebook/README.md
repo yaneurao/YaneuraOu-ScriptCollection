@@ -265,7 +265,7 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 3. 指し手をやねうら王の `Move16`、評価値を `int16_t` として一時runへ書きます。
 4. 一時runを `PackedSfen` の32 byte辞書順で k-way merge して `.ybb` を書きます。
 
-注意: `.ybb` に保存する指し手は、cshogi の `move16` ではなく、やねうら王本体の `Move16` です。通常手の移動元/移動先のbit配置は同じですが、成り/駒打ちフラグのbit位置が異なるため、cshogi の `move16` をそのまま保存してはいけません。
+注意: `.ybb` に保存する指し手は、cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、`.db` から `.ybb` へ書くときは `cshogi.move16_to_psv()`、`.ybb` から `.db` へ戻すときは `cshogi.move16_from_psv()` を使います。cshogi の内部 `move16` をそのまま保存してはいけません。
 
 メモリ使用量は、主に `--chunk-positions` と `--chunk-bytes` で決まります。
 入力 `.db` の総サイズに比例してメモリを要求する作りではありません。
@@ -326,7 +326,7 @@ python3 convert_ybb_to_db.py user_book-moves.ybb output.db
 3. 指し手列を `.db` のテキストブロックへ変換します。
 4. 一時runを SFEN 文字列順で k-way merge して `.db` を書きます。
 
-`.ybb` 内の指し手はやねうら王の `Move16` として読み、USI文字列へ戻します。cshogi の `move16` として読んではいけません。
+`.ybb` 内の指し手はやねうら王の `Move16` として読み、USI文字列へ戻します。cshogi では PSV形式の move16 として扱い、`cshogi.move16_from_psv()` で内部 `move16` へ戻してから USI文字列へ変換します。
 
 メモリ使用量は、主に `--chunk-positions` と `--chunk-bytes` で決まります。
 入力 `.ybb` の総サイズに比例してメモリを要求する作りではありません。

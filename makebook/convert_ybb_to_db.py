@@ -34,18 +34,6 @@ MOVE_NONE = 0
 MOVE_NULL = (1 << 7) + 1
 MOVE_RESIGN = (2 << 7) + 2
 MOVE_WIN = (3 << 7) + 3
-MOVE_DROP = 1 << 14
-MOVE_PROMOTE = 1 << 15
-
-DROP_TYPE_TO_PIECE = {
-    1: "P",
-    2: "L",
-    3: "N",
-    4: "S",
-    5: "B",
-    6: "R",
-    7: "G",
-}
 
 DEFAULT_CHUNK_POSITIONS = 500_000
 DEFAULT_CHUNK_BYTES = 512 * 1024 * 1024
@@ -98,13 +86,6 @@ def board_from_packed_sfen(packed_sfen: bytes) -> cshogi.Board:
     return board
 
 
-def yaneuraou_square_to_usi_square(square: int) -> str:
-    if not (0 <= square < 81):
-        raise ValueError(f"invalid yaneuraou square: {square}")
-    file_index, rank_index = divmod(square, 9)
-    return f"{chr(ord('1') + file_index)}{chr(ord('a') + rank_index)}"
-
-
 def move16_to_usi(board: cshogi.Board, move16: int) -> str:
     if move16 == MOVE_NONE:
         return "none"
@@ -115,24 +96,13 @@ def move16_to_usi(board: cshogi.Board, move16: int) -> str:
     if move16 == MOVE_WIN:
         return "win"
 
-    to_sq = move16 & 0x7F
-    from_or_piece = (move16 >> 7) & 0x7F
-
-    if move16 & MOVE_DROP:
-        piece = DROP_TYPE_TO_PIECE.get(from_or_piece)
-        if piece is None:
-            return "none"
-        return f"{piece}*{yaneuraou_square_to_usi_square(to_sq)}"
-
-    usi = f"{yaneuraou_square_to_usi_square(from_or_piece)}{yaneuraou_square_to_usi_square(to_sq)}"
-    if move16 & MOVE_PROMOTE:
-        usi += "+"
-
-    # cshogiで合法性も確認しておく。壊れたybbではnoneへ落とす。
-    move = board.move_from_usi(usi)
+    # .ybb stores YaneuraOu Move16. cshogi's PSV move16 encoding has the same
+    # bit layout, so convert it back to cshogi's internal move16 first.
+    cshogi_move16 = cshogi.move16_from_psv(move16)
+    move = board.move_from_move16(cshogi_move16)
     if move == cshogi.MOVE_NONE:
         return "none"
-    return usi
+    return cshogi.move_to_usi(move)
 
 
 class DbRunWriter:
