@@ -229,6 +229,10 @@ move16 uint16
 eval   int16
 ```
 
+`move16` は cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。
+cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、書き出し時は `cshogi.move16_to_psv()`、読み戻し時は `cshogi.move16_from_psv()` を使います。
+cshogi の内部 `move16` をそのまま保存してはいけません。
+
 数値は little endian です。
 index record は `packed_sfen[32]` の辞書順で sort します。
 

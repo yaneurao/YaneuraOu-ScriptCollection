@@ -77,6 +77,10 @@ move16 uint16
 eval   int16
 ```
 
+`move16` は cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。
+cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、書き出し時は `cshogi.move16_to_psv()`、読み戻し時は `cshogi.move16_from_psv()` を使います。
+cshogi の内部 `move16` をそのまま保存してはいけません。
+
 1つの局面の指し手列は、index record の `moves_offset` から `move_count` 件ぶん読みます。
 
 ## endianness
@@ -105,7 +109,7 @@ mate score は Python 版と同じ考え方で `VALUE_MATE = 32000` 系へ寄せ
 `.db` から `.ybb`:
 
 ```bash
-python3 ../makebook/convert_db_to_ybb.py input.db output-index.ybb
+python3 ../makebook/convert_db_to_ybb.py input.db output
 ```
 
 出力は2ファイルです。
@@ -115,11 +119,18 @@ output-index.ybb
 output-moves.ybb
 ```
 
+第2引数には `.ybb` 拡張子や `-index` / `-moves` を付けません。
+`output.ybb`、`output-index.ybb`、`output-moves.ybb` のような指定はエラーになります。
+
 `.ybb` から `.db`:
 
 ```bash
-python3 ../makebook/convert_ybb_to_db.py input-index.ybb output.db
+python3 ../makebook/convert_ybb_to_db.py input output.db
 ```
+
+第1引数には `.ybb` 拡張子や `-index` / `-moves` を付けません。
+この例では `input-index.ybb` と `input-moves.ybb` を自動的に読みます。
+`input.ybb`、`input-index.ybb`、`input-moves.ybb` のような指定はエラーになります。
 
 これらのスクリプトは `cshogi.Board.to_psfen()` / `set_psfen()` を使って packed sfen を変換します。
 最大の利点は、巨大定跡でも少ないメモリで `.db` / `.ybb` を相互変換できることです。
@@ -140,6 +151,9 @@ setoption name IgnoreBookPly value true
 
 `BookOnTheFly=true` の場合、やねうら王は `.ybb` の index file を二分探索し、必要な moves だけを読みます。
 
+`BookFile` に従来の `.db` 名を指定したとき、その `.db` が存在しなければ、同じ basename の `.ybb` pair を探します。
+例えば `user_book1.db` がなく、`user_book1-index.ybb` と `user_book1-moves.ybb` がある場合、`BookFile=user_book1.db` の指定で `.ybb` が読み込まれます。
+
 `FlippedBook=true` の場合、通常局面で hit しなければ packed sfen を直接 flip して再検索します。
 このとき SFEN文字列や `Position::set()` は経由しません。
 
@@ -150,6 +164,8 @@ setoption name IgnoreBookPly value true
 ```text
 makebook peta_shock backup/book_miner-....-index.ybb backup/peta_book-....db
 ```
+
+通常の `BookFile` と同じく、入力に `.db` 名を指定したときにその `.db` が存在しなければ、同じ basename の `.ybb` pair を入力として使います。
 
 出力は従来の `.db` です。
 BookMinerCpp の `p` コマンドはこの経路を自動で呼び出します。
