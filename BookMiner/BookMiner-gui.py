@@ -17,6 +17,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
+BOOK_MINER_CPP_EXE = BASE_DIR.parent / "BookMinerCpp" / "BookMinerCpp.exe"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
 GUI_SETTING_DEFAULTS = {
@@ -131,11 +132,13 @@ class Tooltip:
 
 
 class BookMinerGui(ttk.Frame):
-    def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False) -> None:
+    def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False, use_cpp: bool = False) -> None:
         super().__init__(master, padding=12)
         gui_settings = load_gui_settings()
         self.master = master
         self.enable_shogidb = enable_shogidb
+        self.use_cpp = use_cpp
+        self.bookminer_name = "BookMinerCpp.exe" if use_cpp else "BookMiner.py"
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
@@ -440,20 +443,32 @@ class BookMinerGui(ttk.Frame):
     def start_process(self) -> None:
         if self.is_running():
             return
-        if not BOOK_MINER_SCRIPT.is_file():
-            messagebox.showerror("起動失敗", f"BookMiner.py が見つかりません: {BOOK_MINER_SCRIPT}")
-            return
+
+        if self.use_cpp:
+            if not BOOK_MINER_CPP_EXE.is_file():
+                messagebox.showerror("起動失敗", f"BookMinerCpp.exe が見つかりません: {BOOK_MINER_CPP_EXE}")
+                return
+            args = [str(BOOK_MINER_CPP_EXE), "--from_gui"]
+            cwd = BOOK_MINER_CPP_EXE.parent
+            command_text = f"{BOOK_MINER_CPP_EXE.name} --from_gui"
+        else:
+            if not BOOK_MINER_SCRIPT.is_file():
+                messagebox.showerror("起動失敗", f"BookMiner.py が見つかりません: {BOOK_MINER_SCRIPT}")
+                return
+            args = [sys.executable, str(BOOK_MINER_SCRIPT), "--from_gui"]
+            cwd = BASE_DIR
+            command_text = f"{sys.executable} {BOOK_MINER_SCRIPT.name} --from_gui"
 
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
         try:
             self.process = subprocess.Popen(
-                [sys.executable, str(BOOK_MINER_SCRIPT), "--from_gui"],
+                args,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                cwd=BASE_DIR,
+                cwd=cwd,
                 encoding="utf-8",
                 errors="replace",
                 bufsize=0,
@@ -465,7 +480,7 @@ class BookMinerGui(ttk.Frame):
             return
 
         self._reset_progress()
-        self._append_log("other", f"$ {sys.executable} {BOOK_MINER_SCRIPT.name} --from_gui\n")
+        self._append_log("other", f"$ {command_text}\n")
         threading.Thread(target=self._read_output, daemon=True).start()
         self._update_buttons()
 
@@ -514,7 +529,7 @@ class BookMinerGui(ttk.Frame):
         process = self.process
         if process is not None:
             return_code = process.poll()
-            self._append_log("other", f"\n[GUI] BookMiner.py exited. return code = {return_code}\n")
+            self._append_log("other", f"\n[GUI] {self.bookminer_name} exited. return code = {return_code}\n")
         self.process = None
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action = None
@@ -878,15 +893,15 @@ class BookMinerGui(ttk.Frame):
     def send_command(self, command: str, origin: str = "GUI") -> bool:
         if not self.is_running() or self.process is None or self.process.stdin is None:
             if origin == "GUI":
-                messagebox.showinfo("未起動", "BookMiner.py が起動していません。GUI を再起動してください。")
+                messagebox.showinfo("未起動", f"{self.bookminer_name} が起動していません。GUI を再起動してください。")
             else:
-                self._append_log("task", f"[{origin}] BookMiner.py is not running.\n")
+                self._append_log("task", f"[{origin}] {self.bookminer_name} is not running.\n")
             return False
         if not self.command_ready:
             if origin == "GUI":
-                messagebox.showinfo("起動中", "BookMiner.py の起動処理が終わるまで待ってください。")
+                messagebox.showinfo("起動中", f"{self.bookminer_name} の起動処理が終わるまで待ってください。")
             else:
-                self._append_log("task", f"[{origin}] BookMiner.py is not ready for commands.\n")
+                self._append_log("task", f"[{origin}] {self.bookminer_name} is not ready for commands.\n")
             return False
         self._append_log("other", f"\n[{origin}] > {command}\n")
         try:
@@ -1026,16 +1041,17 @@ class BookMinerGui(ttk.Frame):
 def main() -> int:
     parser = argparse.ArgumentParser(description="BookMiner GUI")
     parser.add_argument("--shogidb", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--cpp", "--bookminer-cpp", action="store_true", help="use BookMinerCpp.exe instead of BookMiner.py")
     args = parser.parse_args()
 
     root = tk.Tk()
-    root.title("BookMiner GUI")
+    root.title("BookMiner GUI" + (" - C++" if args.cpp else ""))
     root.geometry("980x720")
     root.minsize(760, 520)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
-    gui = BookMinerGui(root, enable_shogidb=args.shogidb)
+    gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=args.cpp)
 
     def on_close() -> None:
         if not messagebox.askyesno(
