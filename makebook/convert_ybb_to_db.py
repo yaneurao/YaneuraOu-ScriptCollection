@@ -42,11 +42,27 @@ DEFAULT_MAX_OPEN_RUNS = 64
 DbRunRecord = tuple[bytes, bytes]
 
 
-def ybb_pair_from_index(index_path: Path) -> tuple[Path, Path]:
-    if not index_path.name.endswith("-index.ybb"):
-        raise ValueError(f"ybb index filename must end with -index.ybb: {index_path}")
-    base = index_path.name[: -len("-index.ybb")]
-    return index_path, index_path.with_name(f"{base}-moves.ybb")
+def validate_ybb_base_path(path: Path) -> None:
+    name = path.name
+    if (
+        name.endswith(".ybb")
+        or name.endswith("-index")
+        or name.endswith("-moves")
+        or name.endswith("-index.ybb")
+        or name.endswith("-moves.ybb")
+    ):
+        raise ValueError(
+            "specify ybb base path without .ybb, -index, or -moves suffix. "
+            f"example: user_book ; got: {path}"
+        )
+
+
+def ybb_pair_from_base(base_path: Path) -> tuple[Path, Path]:
+    validate_ybb_base_path(base_path)
+    return (
+        base_path.with_name(f"{base_path.name}-index.ybb"),
+        base_path.with_name(f"{base_path.name}-moves.ybb"),
+    )
 
 
 def trim_sfen_ply(sfen: str) -> tuple[str, int]:
@@ -283,14 +299,14 @@ def ybb_record_to_db_block(
 
 
 def convert_ybb_to_db(
-    input_index: Path,
+    input_base: Path,
     output_db: Path,
     work_dir: Path,
     chunk_positions: int,
     chunk_bytes: int,
     max_open_runs: int,
 ) -> None:
-    input_index, moves_path = ybb_pair_from_index(input_index)
+    input_index, moves_path = ybb_pair_from_base(input_base)
     record_count = read_ybb_header(input_index)
     moves_file_size = moves_path.stat().st_size
     run_paths: list[Path] = []
@@ -362,7 +378,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="やねうら王 バイナリ定跡DB .ybb を やねうら王定跡DB .db へ変換します。"
     )
-    parser.add_argument("input_index", type=Path, help="input *-index.ybb")
+    parser.add_argument(
+        "input_base",
+        type=Path,
+        help="input ybb base path. Do not add .ybb, -index, or -moves suffix.",
+    )
     parser.add_argument("output_db", type=Path)
     parser.add_argument("--tmp-dir", type=Path, default=Path("tmp"))
     parser.add_argument("--chunk-positions", type=int, default=DEFAULT_CHUNK_POSITIONS)
@@ -376,10 +396,15 @@ def main() -> None:
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
 
+    try:
+        validate_ybb_base_path(args.input_base)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     work_dir = make_work_dir(args.tmp_dir)
     try:
         convert_ybb_to_db(
-            args.input_index,
+            args.input_base,
             args.output_db,
             work_dir,
             args.chunk_positions,

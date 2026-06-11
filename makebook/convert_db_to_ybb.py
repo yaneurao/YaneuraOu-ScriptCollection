@@ -42,19 +42,27 @@ DEFAULT_MAX_OPEN_RUNS = 64
 YbbRunRecord = tuple[bytes, int, bytes]
 
 
-def ybb_index_from_output(path: Path) -> Path:
-    if path.name.endswith("-index.ybb"):
-        return path
-    if path.suffix == ".ybb":
-        return path.with_name(f"{path.stem}-index.ybb")
-    return path.with_name(f"{path.name}-index.ybb")
+def validate_ybb_base_path(path: Path) -> None:
+    name = path.name
+    if (
+        name.endswith(".ybb")
+        or name.endswith("-index")
+        or name.endswith("-moves")
+        or name.endswith("-index.ybb")
+        or name.endswith("-moves.ybb")
+    ):
+        raise ValueError(
+            "specify ybb base path without .ybb, -index, or -moves suffix. "
+            f"example: user_book ; got: {path}"
+        )
 
 
-def ybb_pair_from_index(index_path: Path) -> tuple[Path, Path]:
-    if not index_path.name.endswith("-index.ybb"):
-        raise ValueError(f"ybb index filename must end with -index.ybb: {index_path}")
-    base = index_path.name[: -len("-index.ybb")]
-    return index_path, index_path.with_name(f"{base}-moves.ybb")
+def ybb_pair_from_base(base_path: Path) -> tuple[Path, Path]:
+    validate_ybb_base_path(base_path)
+    return (
+        base_path.with_name(f"{base_path.name}-index.ybb"),
+        base_path.with_name(f"{base_path.name}-moves.ybb"),
+    )
 
 
 def trim_sfen_ply(sfen: str) -> tuple[str, int]:
@@ -272,8 +280,8 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) -
     return current
 
 
-def write_final_ybb(run_paths: list[Path], index_path: Path) -> None:
-    index_path, moves_path = ybb_pair_from_index(index_path)
+def write_final_ybb(run_paths: list[Path], output_base: Path) -> None:
+    index_path, moves_path = ybb_pair_from_base(output_base)
     index_path.parent.mkdir(parents=True, exist_ok=True)
     moves_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -321,7 +329,7 @@ def flush_chunk(
 
 def convert_db_to_ybb(
     input_db: Path,
-    output_index: Path,
+    output_base: Path,
     work_dir: Path,
     chunk_positions: int,
     chunk_bytes: int,
@@ -392,7 +400,7 @@ def convert_db_to_ybb(
 
     print(f"read positions: {total_positions}")
     run_paths = reduce_ybb_runs(run_paths, work_dir, max_open_runs)
-    write_final_ybb(run_paths, output_index)
+    write_final_ybb(run_paths, output_base)
 
 
 def make_work_dir(tmp_dir: Path) -> Path:
@@ -405,7 +413,11 @@ def main() -> None:
         description="やねうら王定跡DB .db を やねうら王 バイナリ定跡DB .ybb へ変換します。"
     )
     parser.add_argument("input_db", type=Path)
-    parser.add_argument("output", type=Path, help="output index path or base path")
+    parser.add_argument(
+        "output_base",
+        type=Path,
+        help="output ybb base path. Do not add .ybb, -index, or -moves suffix.",
+    )
     parser.add_argument("--tmp-dir", type=Path, default=Path("tmp"))
     parser.add_argument("--chunk-positions", type=int, default=DEFAULT_CHUNK_POSITIONS)
     parser.add_argument("--chunk-bytes", type=int, default=DEFAULT_CHUNK_BYTES)
@@ -418,12 +430,16 @@ def main() -> None:
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
 
-    output_index = ybb_index_from_output(args.output)
+    try:
+        validate_ybb_base_path(args.output_base)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     work_dir = make_work_dir(args.tmp_dir)
     try:
         convert_db_to_ybb(
             args.input_db,
-            output_index,
+            args.output_base,
             work_dir,
             args.chunk_positions,
             args.chunk_bytes,
@@ -435,7 +451,7 @@ def main() -> None:
         else:
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    _, moves_path = ybb_pair_from_index(output_index)
+    output_index, moves_path = ybb_pair_from_base(args.output_base)
     print(f"wrote: {output_index}")
     print(f"wrote: {moves_path}")
 
