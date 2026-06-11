@@ -44,6 +44,28 @@ kif/
 log/
 old/
 
+# BookMinerCpp keeps source/docs/samples in the repository, while generated
+# books, logs, local settings, and binaries stay local.
+!BookMinerCpp/
+!BookMinerCpp/source/
+!BookMinerCpp/source/**
+!BookMinerCpp/docs/
+!BookMinerCpp/docs/**
+!BookMinerCpp/settings/
+BookMinerCpp/settings/*.json5
+BookMinerCpp/settings/*.ini
+!BookMinerCpp/settings/*-sample.json5
+!BookMinerCpp/book/
+BookMinerCpp/book/*
+!BookMinerCpp/book/.gitkeep
+!BookMinerCpp/log/
+BookMinerCpp/log/*
+!BookMinerCpp/log/.gitkeep
+BookMinerCpp/BookMinerCpp.exe
+BookMinerCpp/YO-MATERIAL.exe
+BookMinerCpp/engine_options.txt
+BookMinerCpp/source/build/
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
