@@ -22,9 +22,11 @@ import numpy as np
 
 
 MAGIC = b"YANE-BINBOOK-V1\0"
-HEADER_STRUCT = struct.Struct("<16sQ")
+FLAG_MOVE_DEPTH = 1
+HEADER_STRUCT = struct.Struct("<16sQQ")
 INDEX_STRUCT = struct.Struct("<32sQHH")
 MOVE_STRUCT = struct.Struct("<Hh")
+MOVE_DEPTH_STRUCT = struct.Struct("<HhH")
 
 RUN_MAGIC = b"YBBRUN1\0"
 RUN_HEADER_STRUCT = struct.Struct("<8sQ")
@@ -102,19 +104,21 @@ def usi_to_move16(board: cshogi.Board, usi: str) -> int:
     return int(cshogi.move16_to_psv(cshogi.move16(move)))
 
 
-def parse_move_line(line: str) -> tuple[str, int] | None:
+def parse_move_line(line: str) -> tuple[str, int, int] | None:
     if "," in line:
         parts = [part.strip() for part in line.split(",")]
         if len(parts) < 2:
             raise ValueError(f"invalid move line: {line}")
         move_text = parts[0]
         eval_text = parts[1]
+        depth_text = parts[2] if len(parts) > 2 else "0"
     else:
         parts = line.split()
         if len(parts) < 3:
             raise ValueError(f"invalid move line: {line}")
         move_text = parts[0]
         eval_text = parts[2]
+        depth_text = parts[3] if len(parts) > 3 else "0"
 
     if eval_text.lower() == "none":
         return None
@@ -122,13 +126,17 @@ def parse_move_line(line: str) -> tuple[str, int] | None:
     value = int(eval_text)
     if value < -32768 or value > 32767:
         raise ValueError(f"eval is out of int16 range: {value}")
-    return move_text, value
+    depth = int(depth_text)
+    if depth < 0 or depth > 65535:
+        raise ValueError(f"depth is out of uint16 range: {depth}")
+    return move_text, value, depth
 
 
 class YbbRunWriter:
-    def __init__(self, path: Path, record_count: int) -> None:
+    def __init__(self, path: Path, record_count: int, move_record_size: int) -> None:
         self.path = path
         self.record_count = record_count
+        self.move_record_size = move_record_size
         self.written = 0
         self.file: BinaryIO | None = None
 
@@ -141,7 +149,7 @@ class YbbRunWriter:
         if self.file is None:
             raise RuntimeError("run writer is not open")
         packed_sfen, ply, moves_blob = record
-        move_count, remainder = divmod(len(moves_blob), MOVE_STRUCT.size)
+        move_count, remainder = divmod(len(moves_blob), self.move_record_size)
         if remainder != 0:
             raise ValueError("moves blob size is broken")
         if move_count > 65535:
@@ -162,8 +170,9 @@ class YbbRunWriter:
 
 
 class YbbRunReader:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, move_record_size: int) -> None:
         self.path = path
+        self.move_record_size = move_record_size
         self.file: BinaryIO | None = None
         self.record_count = 0
         self.remaining = 0
@@ -190,8 +199,8 @@ class YbbRunReader:
         if len(header) != RUN_RECORD_STRUCT.size:
             raise ValueError(f"broken run record: {self.path}")
         packed_sfen, ply, move_count = RUN_RECORD_STRUCT.unpack(header)
-        moves_blob = self.file.read(move_count * MOVE_STRUCT.size)
-        if len(moves_blob) != move_count * MOVE_STRUCT.size:
+        moves_blob = self.file.read(move_count * self.move_record_size)
+        if len(moves_blob) != move_count * self.move_record_size:
             raise ValueError(f"broken run move records: {self.path}")
         self.remaining -= 1
         return packed_sfen, ply, moves_blob
@@ -233,7 +242,7 @@ def iter_merged_ybb_records(readers: list[YbbRunReader]):
             heapq.heappush(heap, (next_record[0], reader_index, next_record))
 
 
-def write_ybb_run(records: list[YbbRunRecord], path: Path) -> None:
+def write_ybb_run(records: list[YbbRunRecord], path: Path, move_record_size: int) -> None:
     records.sort(key=lambda item: item[0])
     previous_key: bytes | None = None
     for packed_sfen, _, _ in records:
@@ -241,21 +250,21 @@ def write_ybb_run(records: list[YbbRunRecord], path: Path) -> None:
             raise ValueError(f"duplicated packed sfen in one chunk: {packed_sfen.hex()}")
         previous_key = packed_sfen
 
-    with YbbRunWriter(path, len(records)) as writer:
+    with YbbRunWriter(path, len(records), move_record_size) as writer:
         for record in records:
             writer.write(record)
 
 
-def merge_ybb_runs_to_run(run_paths: list[Path], output_path: Path) -> None:
+def merge_ybb_runs_to_run(run_paths: list[Path], output_path: Path, move_record_size: int) -> None:
     total = sum(read_ybb_run_count(path) for path in run_paths)
     with ExitStack() as stack:
-        readers = [stack.enter_context(YbbRunReader(path)) for path in run_paths]
-        writer = stack.enter_context(YbbRunWriter(output_path, total))
+        readers = [stack.enter_context(YbbRunReader(path, move_record_size)) for path in run_paths]
+        writer = stack.enter_context(YbbRunWriter(output_path, total, move_record_size))
         for record in iter_merged_ybb_records(readers):
             writer.write(record)
 
 
-def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) -> list[Path]:
+def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int, move_record_size: int) -> list[Path]:
     if max_open_runs < 2:
         raise ValueError("--max-open-runs must be at least 2")
 
@@ -271,7 +280,7 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) -
 
             output_path = work_dir / f"merge-{stage:02d}-{group_index:06d}.run"
             print(f"merge runs: {len(group)} -> {output_path}")
-            merge_ybb_runs_to_run(group, output_path)
+            merge_ybb_runs_to_run(group, output_path, move_record_size)
             next_runs.append(output_path)
             for path in group:
                 path.unlink(missing_ok=True)
@@ -282,7 +291,7 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) -
     return current
 
 
-def write_final_ybb(run_paths: list[Path], output_base: Path) -> None:
+def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_record_size: int) -> None:
     index_path, moves_path = ybb_pair_from_base(output_base)
     index_path.parent.mkdir(parents=True, exist_ok=True)
     moves_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,14 +302,14 @@ def write_final_ybb(run_paths: list[Path], output_base: Path) -> None:
 
     try:
         with moves_tmp.open("wb") as moves_file, index_tmp.open("wb") as index_file:
-            index_file.write(HEADER_STRUCT.pack(MAGIC, total))
+            index_file.write(HEADER_STRUCT.pack(MAGIC, total, flags))
             move_offset = 0
 
             if run_paths:
                 with ExitStack() as stack:
-                    readers = [stack.enter_context(YbbRunReader(path)) for path in run_paths]
+                    readers = [stack.enter_context(YbbRunReader(path, move_record_size)) for path in run_paths]
                     for packed_sfen, ply, moves_blob in iter_merged_ybb_records(readers):
-                        move_count = len(moves_blob) // MOVE_STRUCT.size
+                        move_count = len(moves_blob) // move_record_size
                         index_file.write(INDEX_STRUCT.pack(packed_sfen, move_offset, ply, move_count))
                         moves_file.write(moves_blob)
                         move_offset += len(moves_blob)
@@ -318,12 +327,13 @@ def flush_chunk(
     run_paths: list[Path],
     work_dir: Path,
     run_index: int,
+    move_record_size: int,
 ) -> int:
     if not records:
         return run_index
     run_path = work_dir / f"db-to-ybb-{run_index:06d}.run"
     print(f"write run: {run_path} ({len(records)} positions)")
-    write_ybb_run(records, run_path)
+    write_ybb_run(records, run_path, move_record_size)
     run_paths.append(run_path)
     records.clear()
     return run_index + 1
@@ -336,7 +346,11 @@ def convert_db_to_ybb(
     chunk_positions: int,
     chunk_bytes: int,
     max_open_runs: int,
+    include_depth: bool,
 ) -> None:
+    move_struct = MOVE_DEPTH_STRUCT if include_depth else MOVE_STRUCT
+    move_record_size = move_struct.size
+    flags = FLAG_MOVE_DEPTH if include_depth else 0
     run_paths: list[Path] = []
     chunk_records: list[YbbRunRecord] = []
     chunk_estimated_bytes = 0
@@ -362,7 +376,7 @@ def convert_db_to_ybb(
             total_positions += 1
 
             if len(chunk_records) >= chunk_positions or chunk_estimated_bytes >= chunk_bytes:
-                run_index = flush_chunk(chunk_records, run_paths, work_dir, run_index)
+                run_index = flush_chunk(chunk_records, run_paths, work_dir, run_index, move_record_size)
                 chunk_estimated_bytes = 0
 
         current_packed_sfen = None
@@ -391,18 +405,21 @@ def convert_db_to_ybb(
             parsed = parse_move_line(line)
             if parsed is None:
                 continue
-            move_text, value = parsed
+            move_text, value, depth = parsed
             move16 = usi_to_move16(board, move_text)
-            current_moves.append(MOVE_STRUCT.pack(move16, value))
+            if include_depth:
+                current_moves.append(move_struct.pack(move16, value, depth))
+            else:
+                current_moves.append(move_struct.pack(move16, value))
             if len(current_moves) > 65535:
                 raise ValueError(f"line {line_number}: too many moves: {current_sfen}")
 
     finish_current()
-    flush_chunk(chunk_records, run_paths, work_dir, run_index)
+    flush_chunk(chunk_records, run_paths, work_dir, run_index, move_record_size)
 
     print(f"read positions: {total_positions}")
-    run_paths = reduce_ybb_runs(run_paths, work_dir, max_open_runs)
-    write_final_ybb(run_paths, output_base)
+    run_paths = reduce_ybb_runs(run_paths, work_dir, max_open_runs, move_record_size)
+    write_final_ybb(run_paths, output_base, flags, move_record_size)
 
 
 def make_work_dir(tmp_dir: Path) -> Path:
@@ -424,6 +441,11 @@ def main() -> None:
     parser.add_argument("--chunk-positions", type=int, default=DEFAULT_CHUNK_POSITIONS)
     parser.add_argument("--chunk-bytes", type=int, default=DEFAULT_CHUNK_BYTES)
     parser.add_argument("--max-open-runs", type=int, default=DEFAULT_MAX_OPEN_RUNS)
+    parser.add_argument(
+        "--no-depth",
+        action="store_true",
+        help="do not write move depth to -moves.ybb. default keeps depth.",
+    )
     parser.add_argument("--keep-temp", action="store_true")
     args = parser.parse_args()
 
@@ -446,6 +468,7 @@ def main() -> None:
             args.chunk_positions,
             args.chunk_bytes,
             args.max_open_runs,
+            not args.no_depth,
         )
     finally:
         if args.keep_temp:

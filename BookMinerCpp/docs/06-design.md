@@ -179,6 +179,7 @@ index file は次の形式です。
 ```text
 magic[16] = "YANE-BINBOOK-V1\0"
 record_count uint64
+flags uint64
 records[record_count]:
   packed_sfen[32]
   moves_offset uint64
@@ -186,12 +187,21 @@ records[record_count]:
   move_count uint16
 ```
 
-move file は次の4 byte recordの連続です。
+move file は `flags` によって 4 byte または 6 byte record の連続です。
 
 ```text
+flags bit0 = 0:
 move16 uint16
 eval int16
+
+flags bit0 = 1:
+move16 uint16
+eval int16
+depth uint16
 ```
+
+BookMinerCpp は `flags bit0 = 0` の depth なし `.ybb` を書きます。
+depth 付き `.ybb` を読み込む場合も、BookMinerCpp 内部では depth を使わないので読み飛ばします。
 
 `move16` は cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。
 cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、書き出し時は `cshogi.move16_to_psv()`、読み戻し時は `cshogi.move16_from_psv()` を使います。

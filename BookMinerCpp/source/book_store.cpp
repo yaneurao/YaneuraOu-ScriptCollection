@@ -18,6 +18,16 @@ constexpr std::array<char, 16> YaneBinBookMagic = {
     'Y', 'A', 'N', 'E', '-', 'B', 'I', 'N',
     'B', 'O', 'O', 'K', '-', 'V', '1', '\0',
 };
+constexpr std::uint64_t YaneBinBookFlagMoveDepth = 1;
+constexpr std::uint64_t YaneBinBookKnownFlags = YaneBinBookFlagMoveDepth;
+constexpr std::size_t YaneBinBookHeaderSize = 32;
+constexpr std::size_t YaneBinBookMoveRecordSize = 4;
+constexpr std::size_t YaneBinBookMoveDepthRecordSize = 6;
+
+struct YaneBinBookHeader {
+    std::uint64_t record_count = 0;
+    std::uint64_t flags = 0;
+};
 
 struct YaneBinBookIndexEntry {
     PackedSfen key;
@@ -182,19 +192,25 @@ void write_u64_le(std::ostream& out, std::uint64_t value, const std::filesystem:
     write_exact(out, bytes.data(), bytes.size(), path);
 }
 
-std::uint64_t read_ybb_header(std::istream& in, const std::filesystem::path& path)
+YaneBinBookHeader read_ybb_header(std::istream& in, const std::filesystem::path& path)
 {
     std::array<char, 16> magic{};
     read_exact(in, magic.data(), magic.size(), path);
     if (magic != YaneBinBookMagic)
         throw std::runtime_error("invalid ybb magic: " + path.string());
-    return read_u64_le(in, path);
+    YaneBinBookHeader header;
+    header.record_count = read_u64_le(in, path);
+    header.flags = read_u64_le(in, path);
+    if (header.flags & ~YaneBinBookKnownFlags)
+        throw std::runtime_error("unknown ybb flags: " + path.string());
+    return header;
 }
 
-void write_ybb_header(std::ostream& out, std::uint64_t record_count, const std::filesystem::path& path)
+void write_ybb_header(std::ostream& out, std::uint64_t record_count, std::uint64_t flags, const std::filesystem::path& path)
 {
     write_exact(out, YaneBinBookMagic.data(), YaneBinBookMagic.size(), path);
     write_u64_le(out, record_count, path);
+    write_u64_le(out, flags, path);
 }
 
 YaneBinBookIndexEntry read_ybb_index_entry(std::istream& in, const std::filesystem::path& path)
@@ -585,8 +601,12 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         if (!moves_in)
             throw std::runtime_error("failed to open ybb moves book: " + moves_path.string());
 
-        const std::uint64_t record_count = read_ybb_header(index_in, path);
-        const std::uint64_t expected_index_size = 24 + record_count * YaneBinBookIndexRecordSize;
+        const auto header = read_ybb_header(index_in, path);
+        const std::uint64_t record_count = header.record_count;
+        const std::uint64_t move_record_size = (header.flags & YaneBinBookFlagMoveDepth)
+            ? YaneBinBookMoveDepthRecordSize
+            : YaneBinBookMoveRecordSize;
+        const std::uint64_t expected_index_size = YaneBinBookHeaderSize + record_count * YaneBinBookIndexRecordSize;
         if (file_size_u64(path) != expected_index_size)
             throw std::runtime_error("invalid ybb index file size: " + path.string());
         const std::uint64_t moves_size = file_size_u64(moves_path);
@@ -605,7 +625,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
             previous_key = entry.key;
             has_previous = true;
 
-            const std::uint64_t move_bytes = static_cast<std::uint64_t>(entry.move_count) * 4;
+            const std::uint64_t move_bytes = static_cast<std::uint64_t>(entry.move_count) * move_record_size;
             if (entry.moves_offset > moves_size || move_bytes > moves_size - entry.moves_offset)
                 throw std::runtime_error("ybb moves offset is out of range: " + path.string());
 
@@ -621,6 +641,8 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
                 MoveInfo move;
                 move.move16 = read_u16_le(moves_in, moves_path);
                 move.eval = static_cast<std::int16_t>(read_u16_le(moves_in, moves_path));
+                if (header.flags & YaneBinBookFlagMoveDepth)
+                    (void)read_u16_le(moves_in, moves_path);
                 if (normalize_eval)
                     move.eval = normalize_book_eval(move.eval);
                 position.moves.push_back(move);
@@ -899,7 +921,7 @@ std::size_t BookStore::save_yaneuraou_book(
             if (!moves_out)
                 throw std::runtime_error("failed to open temp ybb moves book: " + moves_tmp_path.string());
 
-            write_ybb_header(index_out, static_cast<std::uint64_t>(position_count), index_tmp_path);
+            write_ybb_header(index_out, static_cast<std::uint64_t>(position_count), 0, index_tmp_path);
 
             struct Cursor {
                 const Run* run = nullptr;
@@ -979,7 +1001,7 @@ std::size_t BookStore::save_yaneuraou_book(
                 {
                     write_u16_le(moves_out, move.move16, moves_tmp_path);
                     write_i16_le(moves_out, move.eval, moves_tmp_path);
-                    moves_offset += 4;
+                    moves_offset += YaneBinBookMoveRecordSize;
                 }
 
                 write_ybb_index_entry(index_out, entry, index_tmp_path);

@@ -215,6 +215,7 @@ index file:
 ```text
 magic[16] = "YANE-BINBOOK-V1\0"
 record_count uint64
+flags uint64
 records[record_count]:
   packed_sfen[32]
   moves_offset uint64
@@ -225,13 +226,22 @@ records[record_count]:
 moves file:
 
 ```text
+flags bit0 = 0:
 move16 uint16
 eval   int16
+
+flags bit0 = 1:
+move16 uint16
+eval   int16
+depth  uint16
 ```
 
 `move16` は cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。
 cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、書き出し時は `cshogi.move16_to_psv()`、読み戻し時は `cshogi.move16_from_psv()` を使います。
 cshogi の内部 `move16` をそのまま保存してはいけません。
+
+BookMinerCpp が保存する `.ybb` は `flags bit0 = 0` です。
+BookMinerCpp は作業DBでは `depth` を使わないため、depth 付き `.ybb` を読み込んだ場合も値は読み飛ばします。
 
 数値は little endian です。
 index record は `packed_sfen[32]` の辞書順で sort します。

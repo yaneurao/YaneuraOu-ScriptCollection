@@ -56,6 +56,30 @@ user_book-moves.ybb
 `-index.ybb` には `PackedSfen` 順に sort された固定長 index を置き、`-moves.ybb` には各局面の指し手列を置きます。
 やねうら王本体は index を二分探索して、必要な局面の指し手列だけを moves file から読みます。
 
+index file の header は次の形式です。
+
+```text
+magic[16] = "YANE-BINBOOK-V1\0"
+record_count uint64
+flags uint64
+```
+
+`flags bit0` は、moves file の各指し手 record に `depth uint16` が含まれるかを表します。
+
+```text
+flags bit0 = 0:
+  move16 uint16
+  eval   int16
+
+flags bit0 = 1:
+  move16 uint16
+  eval   int16
+  depth  uint16
+```
+
+BookMinerCpp の通常バックアップは `flags bit0 = 0` で `depth` を持ちません。
+ペタショック化済み `.db` など、指し手の `depth` を保持したい定跡は `flags bit0 = 1` で保存します。
+
 `.db` / `.ybb` の相互変換スクリプトの最大の長所は、入力ファイル全体をメモリに載せず、巨大な定跡でも少ないメモリで変換できることです。
 一定件数または一定byte数ごとに一時runを書き出し、最後に k-way merge します。
 run が多すぎる場合は `--max-open-runs` 個ずつ段階的に merge するため、数百・数千runになっても同時にopenするファイル数を抑えます。
@@ -226,6 +250,13 @@ python3 sort_largebook.py input.db sorted.db --tmp-dir /mnt/ssd/tmp
 python3 convert_db_to_ybb.py input.db output
 ```
 
+デフォルトでは、`.db` の指し手 `depth` も `.ybb` に保存します。
+`depth` が不要で moves file を小さくしたい場合は `--no-depth` を指定します。
+
+```bash
+python3 convert_db_to_ybb.py input.db output --no-depth
+```
+
 出力は2ファイルです。
 
 ```text
@@ -262,7 +293,7 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 
 1. `.db` を SFEN ブロック単位で読みます。
 2. `cshogi.Board.to_psfen()` で局面を `PackedSfen` へ変換します。
-3. 指し手をやねうら王の `Move16`、評価値を `int16_t` として一時runへ書きます。
+3. 指し手をやねうら王の `Move16`、評価値を `int16_t` として一時runへ書きます。デフォルトでは `depth uint16` も書きます。
 4. 一時runを `PackedSfen` の32 byte辞書順で k-way merge して `.ybb` を書きます。
 
 注意: `.ybb` に保存する指し手は、cshogi の内部 `move16` ではなく、やねうら王本体の `Move16` です。cshogi で扱う場合は PSV形式の move16 がこれと同じbit配置なので、`.db` から `.ybb` へ書くときは `cshogi.move16_to_psv()`、`.ybb` から `.db` へ戻すときは `cshogi.move16_from_psv()` を使います。cshogi の内部 `move16` をそのまま保存してはいけません。
@@ -278,6 +309,7 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 | `--chunk-positions N` | `500000` | 1つの一時runに含める局面数の上限。 |
 | `--chunk-bytes N` | `536870912` | 1つの一時runに含める概算byte数の上限。 |
 | `--max-open-runs N` | `64` | k-way mergeで同時にopenするrun数の上限。 |
+| `--no-depth` | なし | `.db` の指し手 `depth` を `.ybb` に保存しません。moves file を小さくしたい場合に使います。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
 
 `.ybb` は `PackedSfen` を key にするため、同一局面が複数回現れた場合はエラーにします。
@@ -323,7 +355,7 @@ python3 convert_ybb_to_db.py user_book-moves.ybb output.db
 
 1. `.ybb` の index を順に読みます。
 2. `cshogi.Board.set_psfen()` で `PackedSfen` から SFEN 文字列を復元します。
-3. 指し手列を `.db` のテキストブロックへ変換します。
+3. 指し手列を `.db` のテキストブロックへ変換します。`.ybb` に `depth` があればその値を復元し、なければ `depth=0` を書きます。
 4. 一時runを SFEN 文字列順で k-way merge して `.db` を書きます。
 
 `.ybb` 内の指し手はやねうら王の `Move16` として読み、USI文字列へ戻します。cshogi では PSV形式の move16 として扱い、`cshogi.move16_from_psv()` で内部 `move16` へ戻してから USI文字列へ変換します。

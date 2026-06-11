@@ -22,9 +22,12 @@ import numpy as np
 
 
 MAGIC = b"YANE-BINBOOK-V1\0"
-HEADER_STRUCT = struct.Struct("<16sQ")
+FLAG_MOVE_DEPTH = 1
+KNOWN_FLAGS = FLAG_MOVE_DEPTH
+HEADER_STRUCT = struct.Struct("<16sQQ")
 INDEX_STRUCT = struct.Struct("<32sQHH")
 MOVE_STRUCT = struct.Struct("<Hh")
+MOVE_DEPTH_STRUCT = struct.Struct("<HhH")
 
 RUN_MAGIC = b"DBRUN1\0\0"
 RUN_HEADER_STRUCT = struct.Struct("<8sQ")
@@ -268,34 +271,42 @@ def flush_chunk(records: list[DbRunRecord], run_paths: list[Path], work_dir: Pat
     return run_index + 1
 
 
-def read_ybb_header(index_path: Path) -> int:
+def read_ybb_header(index_path: Path) -> tuple[int, int]:
     with index_path.open("rb") as index_file:
         header = index_file.read(HEADER_STRUCT.size)
     if len(header) != HEADER_STRUCT.size:
         raise ValueError(f"broken ybb header: {index_path}")
-    magic, record_count = HEADER_STRUCT.unpack(header)
+    magic, record_count, flags = HEADER_STRUCT.unpack(header)
     if magic != MAGIC:
         raise ValueError(f"invalid ybb magic: {index_path}")
-    return int(record_count)
+    if flags & ~KNOWN_FLAGS:
+        raise ValueError(f"unknown ybb flags: {flags}")
+    return int(record_count), int(flags)
 
 
 def ybb_record_to_db_block(
     packed_sfen: bytes,
     ply: int,
     moves_blob: bytes,
+    flags: int,
 ) -> DbRunRecord:
     board = board_from_packed_sfen(packed_sfen)
     sfen_no_ply, _ = trim_sfen_ply(board.sfen())
 
-    moves: list[tuple[int, int]] = []
-    for offset in range(0, len(moves_blob), MOVE_STRUCT.size):
-        move16, value = MOVE_STRUCT.unpack(moves_blob[offset : offset + MOVE_STRUCT.size])
-        moves.append((move16, value))
+    move_struct = MOVE_DEPTH_STRUCT if flags & FLAG_MOVE_DEPTH else MOVE_STRUCT
+    moves: list[tuple[int, int, int]] = []
+    for offset in range(0, len(moves_blob), move_struct.size):
+        if flags & FLAG_MOVE_DEPTH:
+            move16, value, depth = move_struct.unpack(moves_blob[offset : offset + move_struct.size])
+        else:
+            move16, value = move_struct.unpack(moves_blob[offset : offset + move_struct.size])
+            depth = 0
+        moves.append((move16, value, depth))
     moves.sort(key=lambda item: item[1], reverse=True)
 
     lines = [f"sfen {sfen_no_ply} {ply}\n"]
-    for move16, value in moves:
-        lines.append(f"{move16_to_usi(board, move16)} none {value} 0\n")
+    for move16, value, depth in moves:
+        lines.append(f"{move16_to_usi(board, move16)} none {value} {depth}\n")
 
     key = sfen_no_ply.encode("utf-8")
     block = "".join(lines).encode("utf-8")
@@ -311,7 +322,8 @@ def convert_ybb_to_db(
     max_open_runs: int,
 ) -> None:
     input_index, moves_path = ybb_pair_from_base(input_base)
-    record_count = read_ybb_header(input_index)
+    record_count, flags = read_ybb_header(input_index)
+    move_struct = MOVE_DEPTH_STRUCT if flags & FLAG_MOVE_DEPTH else MOVE_STRUCT
     moves_file_size = moves_path.stat().st_size
     run_paths: list[Path] = []
     chunk_records: list[DbRunRecord] = []
@@ -330,7 +342,7 @@ def convert_ybb_to_db(
                 raise ValueError(f"ybb index is not strictly sorted at record {index}")
             previous_packed_sfen = packed_sfen
 
-            moves_size = move_count * MOVE_STRUCT.size
+            moves_size = move_count * move_struct.size
             if move_offset + moves_size > moves_file_size:
                 raise ValueError(f"moves offset is out of range at record {index}")
             moves_file.seek(move_offset)
@@ -338,7 +350,7 @@ def convert_ybb_to_db(
             if len(moves_blob) != moves_size:
                 raise ValueError(f"broken ybb move records at record {index}")
 
-            record = ybb_record_to_db_block(packed_sfen, ply, moves_blob)
+            record = ybb_record_to_db_block(packed_sfen, ply, moves_blob, flags)
             chunk_records.append(record)
             chunk_estimated_bytes += len(record[0]) + len(record[1])
 
