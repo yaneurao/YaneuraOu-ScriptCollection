@@ -262,8 +262,10 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 
 1. `.db` を SFEN ブロック単位で読みます。
 2. `cshogi.Board.to_psfen()` で局面を `PackedSfen` へ変換します。
-3. 指し手を `Move16`、評価値を `int16_t` として一時runへ書きます。
+3. 指し手をやねうら王の `Move16`、評価値を `int16_t` として一時runへ書きます。
 4. 一時runを `PackedSfen` の32 byte辞書順で k-way merge して `.ybb` を書きます。
+
+注意: `.ybb` に保存する指し手は、cshogi の `move16` ではなく、やねうら王本体の `Move16` です。通常手の移動元/移動先のbit配置は同じですが、成り/駒打ちフラグのbit位置が異なるため、cshogi の `move16` をそのまま保存してはいけません。
 
 メモリ使用量は、主に `--chunk-positions` と `--chunk-bytes` で決まります。
 入力 `.db` の総サイズに比例してメモリを要求する作りではありません。
@@ -323,6 +325,8 @@ python3 convert_ybb_to_db.py user_book-moves.ybb output.db
 2. `cshogi.Board.set_psfen()` で `PackedSfen` から SFEN 文字列を復元します。
 3. 指し手列を `.db` のテキストブロックへ変換します。
 4. 一時runを SFEN 文字列順で k-way merge して `.db` を書きます。
+
+`.ybb` 内の指し手はやねうら王の `Move16` として読み、USI文字列へ戻します。cshogi の `move16` として読んではいけません。
 
 メモリ使用量は、主に `--chunk-positions` と `--chunk-bytes` で決まります。
 入力 `.ybb` の総サイズに比例してメモリを要求する作りではありません。

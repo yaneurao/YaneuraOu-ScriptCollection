@@ -34,6 +34,18 @@ MOVE_NONE = 0
 MOVE_NULL = (1 << 7) + 1
 MOVE_RESIGN = (2 << 7) + 2
 MOVE_WIN = (3 << 7) + 3
+MOVE_DROP = 1 << 14
+MOVE_PROMOTE = 1 << 15
+
+DROP_PIECE_TO_TYPE = {
+    "P": 1,
+    "L": 2,
+    "N": 3,
+    "S": 4,
+    "B": 5,
+    "R": 6,
+    "G": 7,
+}
 
 DEFAULT_CHUNK_POSITIONS = 500_000
 DEFAULT_CHUNK_BYTES = 512 * 1024 * 1024
@@ -85,6 +97,30 @@ def pack_sfen(board: cshogi.Board) -> bytes:
     return psfen[0]["sfen"].tobytes()
 
 
+def usi_square_to_yaneuraou_square(file_char: str, rank_char: str) -> int:
+    file_index = ord(file_char) - ord("1")
+    rank_index = ord(rank_char) - ord("a")
+    if not (0 <= file_index < 9 and 0 <= rank_index < 9):
+        raise ValueError(f"invalid usi square: {file_char}{rank_char}")
+    return file_index * 9 + rank_index
+
+
+def yaneuraou_move16_from_usi(usi: str) -> int:
+    if len(usi) < 4:
+        raise ValueError(f"invalid usi move: {usi}")
+
+    to_sq = usi_square_to_yaneuraou_square(usi[2], usi[3])
+    if usi[1] == "*":
+        piece_type = DROP_PIECE_TO_TYPE.get(usi[0])
+        if piece_type is None:
+            raise ValueError(f"invalid drop move: {usi}")
+        return to_sq + (piece_type << 7) + MOVE_DROP
+
+    from_sq = usi_square_to_yaneuraou_square(usi[0], usi[1])
+    promote = len(usi) == 5 and usi[4] == "+"
+    return to_sq + (from_sq << 7) + (MOVE_PROMOTE if promote else 0)
+
+
 def usi_to_move16(board: cshogi.Board, usi: str) -> int:
     if usi in ("none", "None"):
         return MOVE_NONE
@@ -97,7 +133,7 @@ def usi_to_move16(board: cshogi.Board, usi: str) -> int:
     move = board.move_from_usi(usi)
     if move == cshogi.MOVE_NONE:
         raise ValueError(f"invalid move for position: {usi} / {board.sfen()}")
-    return int(cshogi.move16(move))
+    return yaneuraou_move16_from_usi(usi)
 
 
 def parse_move_line(line: str) -> tuple[str, int] | None:
