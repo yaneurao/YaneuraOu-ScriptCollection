@@ -45,5 +45,7 @@ std::array<std::uint8_t, 32> flip_packed_sfen_bytes(const std::array<std::uint8_
 std::string unpack_sfen_bytes(const std::array<std::uint8_t, 32>& packed_sfen);
 std::string flipped_sfen(const std::string& sfen_with_optional_ply);
 std::uint16_t flipped_move16(std::uint16_t move16);
+std::uint16_t yaneuraou_move16_from_usi(const std::string& usi);
+std::string yaneuraou_move16_to_usi(std::uint16_t move16);
 
 } // namespace bookminer

@@ -14,11 +14,6 @@ namespace bookminer {
 namespace {
 
 constexpr std::uint16_t MoveNone = 0;
-constexpr std::uint16_t MoveNull = (1u << 7) + 1u;
-constexpr std::uint16_t MoveResign = (2u << 7) + 2u;
-constexpr std::uint16_t MoveWin = (3u << 7) + 3u;
-constexpr std::uint16_t MoveDrop = 1u << 14;
-constexpr std::uint16_t MovePromote = 1u << 15;
 constexpr std::array<char, 16> YaneBinBookMagic = {
     'Y', 'A', 'N', 'E', '-', 'B', 'I', 'N',
     'B', 'O', 'O', 'K', '-', 'V', '1', '\0',
@@ -62,37 +57,6 @@ bool parse_int(const std::string& text, int& value)
 bool starts_with(const std::string& text, const std::string& prefix)
 {
     return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
-}
-
-int usi_to_square(char file_ch, char rank_ch)
-{
-    if (file_ch < '1' || file_ch > '9' || rank_ch < 'a' || rank_ch > 'i')
-        return 81;
-    const int file = file_ch - '1';
-    const int rank = rank_ch - 'a';
-    return file * 9 + rank;
-}
-
-bool square_is_board(int square)
-{
-    return 0 <= square && square < 81;
-}
-
-char piece_char_from_type(int piece_type)
-{
-    static constexpr char pieces[] = " PLNSBRG";
-    if (piece_type < 1 || piece_type > 7)
-        return '?';
-    return pieces[piece_type];
-}
-
-int piece_type_from_char(char ch)
-{
-    static constexpr char pieces[] = " PLNSBRG";
-    for (int i = 1; i <= 7; ++i)
-        if (pieces[i] == ch)
-            return i;
-    return 0;
 }
 
 std::string join_tokens(const std::vector<std::string>& tokens)
@@ -532,87 +496,12 @@ std::size_t PackedSfenHash::operator()(const PackedSfen& key) const noexcept
 
 std::uint16_t move16_from_usi(const std::string& usi)
 {
-    if (usi == "none")
-        return MoveNone;
-    if (usi == "null" || usi == "0000" || usi == "pass")
-        return MoveNull;
-    if (usi == "resign")
-        return MoveResign;
-    if (usi == "win")
-        return MoveWin;
-
-    if (usi.size() < 4)
-        return MoveNone;
-
-    const int to = usi_to_square(usi[2], usi[3]);
-    if (!square_is_board(to))
-        return MoveNone;
-
-    const bool promote = usi.size() == 5 && usi[4] == '+';
-    const bool drop = usi[1] == '*';
-
-    if (drop)
-    {
-        const int piece_type = piece_type_from_char(usi[0]);
-        if (piece_type == 0)
-            return MoveNone;
-        return static_cast<std::uint16_t>(to + (piece_type << 7) + MoveDrop);
-    }
-
-    const int from = usi_to_square(usi[0], usi[1]);
-    if (!square_is_board(from))
-        return MoveNone;
-
-    return static_cast<std::uint16_t>(to + (from << 7) + (promote ? MovePromote : 0));
+    return yaneuraou_move16_from_usi(usi);
 }
 
 std::string move16_to_usi(std::uint16_t move16)
 {
-    const int to = move16 & 0x7f;
-    const int from_or_piece = (move16 >> 7) & 0x7f;
-    const bool is_drop = (move16 & MoveDrop) != 0;
-    const bool is_promote = (move16 & MovePromote) != 0;
-
-    if (from_or_piece == to)
-    {
-        if (move16 == MoveResign)
-            return "resign";
-        if (move16 == MoveWin)
-            return "win";
-        if (move16 == MoveNull)
-            return "null";
-        if (move16 == MoveNone)
-            return "none";
-        return "";
-    }
-
-    if (!square_is_board(to))
-        return "";
-
-    const auto square_to_usi = [](int square) {
-        std::string out;
-        out += static_cast<char>('1' + square / 9);
-        out += static_cast<char>('a' + square % 9);
-        return out;
-    };
-
-    if (is_drop)
-    {
-        std::string out;
-        out += piece_char_from_type(from_or_piece);
-        out += '*';
-        out += square_to_usi(to);
-        return out;
-    }
-
-    if (!square_is_board(from_or_piece))
-        return "";
-
-    std::string out = square_to_usi(from_or_piece);
-    out += square_to_usi(to);
-    if (is_promote)
-        out += '+';
-    return out;
+    return yaneuraou_move16_to_usi(move16);
 }
 
 std::int16_t normalize_book_eval(int eval)

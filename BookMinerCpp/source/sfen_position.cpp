@@ -227,6 +227,16 @@ std::uint16_t flipped_move16(std::uint16_t move16)
     return YaneuraOu::flip_move(YaneuraOu::Move16(move16)).to_u16();
 }
 
+std::uint16_t yaneuraou_move16_from_usi(const std::string& usi)
+{
+    return YaneuraOu::USIEngine::to_move16(usi).to_u16();
+}
+
+std::string yaneuraou_move16_to_usi(std::uint16_t move16)
+{
+    return YaneuraOu::USIEngine::move(YaneuraOu::Move16(move16));
+}
+
 ParsedPositionCommand parse_position_command(const std::string& command)
 {
     std::string text = command;
