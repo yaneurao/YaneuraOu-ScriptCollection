@@ -47,6 +47,7 @@ class ShogiDb2DownloadJob:
     interval: float = 2.0
     overwrite: bool = False
     stop_after_skipped: int | None = None
+    page_load_error_skip_limit: int | None = None
     timeout: float = 60.0
     headless: bool = True
 
@@ -60,6 +61,7 @@ class ShogiDb2DownloadStats:
     downloaded: int
     skipped: int
     failed: int
+    page_load_errors: int
 
 
 class LinkExtractor(HTMLParser):
@@ -313,6 +315,8 @@ def download_shogidb2_kif(
         raise ShogiDb2DownloadError("timeout は 0 より大きい値を指定してください。")
     if job.stop_after_skipped is not None and job.stop_after_skipped < 1:
         raise ShogiDb2DownloadError("skipped停止件数は1以上を指定してください。")
+    if job.page_load_error_skip_limit is not None and job.page_load_error_skip_limit < 1:
+        raise ShogiDb2DownloadError("page読み込みエラーskip回数は1以上を指定してください。")
 
     tournament_name, tournament_url = normalize_tournament_url(job.tournament_url)
     output_dir = job.output_root.expanduser() / sanitize_path_part(tournament_name)
@@ -324,6 +328,9 @@ def download_shogidb2_kif(
     downloaded = 0
     skipped = 0
     failed = 0
+    page_load_errors = 0
+    page_load_error_skip_count = 0
+    page_load_error_skip_active = False
 
     browser = ShogiDb2KifBrowser(headless=job.headless, timeout=job.timeout)
     try:
@@ -336,17 +343,42 @@ def download_shogidb2_kif(
             if job.end_page is not None and page > job.end_page:
                 break
 
-            game_urls = collect_game_urls_from_page(
-                tournament_url,
-                page,
-                timeout=job.timeout,
-                limiter=limiter,
-                should_stop=should_stop,
-            )
+            try:
+                game_urls = collect_game_urls_from_page(
+                    tournament_url,
+                    page,
+                    timeout=job.timeout,
+                    limiter=limiter,
+                    should_stop=should_stop,
+                )
+            except Exception as exc:
+                page_load_errors += 1
+                if job.page_load_error_skip_limit is None:
+                    raise
+                if page_load_error_skip_active:
+                    page_load_error_skip_count += 1
+                    if log is not None:
+                        log(
+                            f"page {page}: load error skipped "
+                            f"{page_load_error_skip_count}/{job.page_load_error_skip_limit}: {exc}\n"
+                        )
+                else:
+                    page_load_error_skip_active = True
+                    page_load_error_skip_count = 0
+                    if log is not None:
+                        log(f"page {page}: load error: {exc}\n")
+                if page_load_error_skip_count >= job.page_load_error_skip_limit:
+                    if log is not None:
+                        log(f"stop: page load error skip reached {job.page_load_error_skip_limit}\n")
+                    break
+                page += 1
+                continue
             if stop_requested(should_stop):
                 if log is not None:
                     log("stop requested\n")
                 break
+            page_load_error_skip_active = False
+            page_load_error_skip_count = 0
             pages_scanned += 1
             if log is not None:
                 log(f"page {page}: {len(game_urls)} games\n")
@@ -408,6 +440,7 @@ def download_shogidb2_kif(
         downloaded=downloaded,
         skipped=skipped,
         failed=failed,
+        page_load_errors=page_load_errors,
     )
 
 
@@ -446,6 +479,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="stop after skipped reaches this count. Disabled by default.",
     )
+    parser.add_argument(
+        "--page-load-error-skip-limit",
+        type=parse_positive_int,
+        default=None,
+        help="skip following pages until page load errors reach this count. Disabled by default.",
+    )
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--no-headless", action="store_true")
     parser.add_argument("--list-tournaments", action="store_true")
@@ -469,6 +508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 interval=args.interval,
                 overwrite=args.overwrite,
                 stop_after_skipped=args.stop_after_skipped,
+                page_load_error_skip_limit=args.page_load_error_skip_limit,
                 timeout=args.timeout,
                 headless=not args.no_headless,
             ),
@@ -481,6 +521,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         f"tournament={stats.tournament} pages={stats.pages_scanned} found={stats.found} "
         f"downloaded={stats.downloaded} skipped={stats.skipped} failed={stats.failed} "
+        f"page_load_errors={stats.page_load_errors} "
         f"output={stats.output_dir}"
     )
     return 0

@@ -1215,6 +1215,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
         self.end_page = tk.StringVar(value="1")
         self.interval = tk.StringVar(value="2")
         self.stop_after_skipped = tk.StringVar(value="")
+        self.page_load_error_skip_limit = tk.StringVar(value="")
         self.overwrite = tk.BooleanVar(value=False)
         self.tournament_options: list[ShogiDb2TournamentOption] = []
         self.option_by_display: dict[str, ShogiDb2TournamentOption] = {}
@@ -1286,6 +1287,8 @@ class ShogiDb2DownloadPane(ttk.Frame):
         row += 1
         self._skipped_stop_row(row)
         row += 1
+        self._page_error_skip_row(row)
+        row += 1
         self._label_with_help(
             row,
             "既存ファイルを上書き",
@@ -1326,6 +1329,20 @@ class ShogiDb2DownloadPane(ttk.Frame):
         ttk.Label(frame, text="skippedが").pack(side="left")
         ttk.Entry(frame, textvariable=self.stop_after_skipped, width=10).pack(side="left", padx=(6, 6))
         ttk.Label(frame, text="件に達したら停止").pack(side="left")
+
+    def _page_error_skip_row(self, row: int) -> None:
+        self._label_with_help(
+            row,
+            "page skip",
+            "棋戦ページ自体の読み込みエラーが続く場合に、指定回数までは次ページへ進みます。\n"
+            "正常に読み込めたらskipカウントは0に戻ります。\n"
+            "空欄ならこの設定は無効です。",
+        )
+        frame = ttk.Frame(self)
+        frame.grid(row=row, column=1, sticky="w", pady=6)
+        ttk.Label(frame, text="page読み込みエラーは").pack(side="left")
+        ttk.Entry(frame, textvariable=self.page_load_error_skip_limit, width=10).pack(side="left", padx=(6, 6))
+        ttk.Label(frame, text="回まではskipする").pack(side="left")
 
     def _url_row(
         self,
@@ -1454,6 +1471,10 @@ class ShogiDb2DownloadPane(ttk.Frame):
                 self.stop_after_skipped.get(),
                 "skipped停止件数",
             ),
+            page_load_error_skip_limit=self._parse_optional_positive_int(
+                self.page_load_error_skip_limit.get(),
+                "page読み込みエラーskip回数",
+            ),
         )
 
     def _parse_page(self, value: str, label: str) -> int:
@@ -1486,6 +1507,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
             "end_page": self.end_page.get(),
             "interval": self.interval.get(),
             "stop_after_skipped": self.stop_after_skipped.get(),
+            "page_load_error_skip_limit": self.page_load_error_skip_limit.get(),
             "overwrite": self.overwrite.get(),
         }
 
@@ -1504,6 +1526,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
         self.end_page.set(str(settings.get("end_page", "1")))
         self.interval.set(str(settings.get("interval", "2") or "2"))
         self.stop_after_skipped.set(str(settings.get("stop_after_skipped", "") or ""))
+        self.page_load_error_skip_limit.set(str(settings.get("page_load_error_skip_limit", "") or ""))
         self.overwrite.set(bool(settings.get("overwrite", False)))
 
 
@@ -1944,6 +1967,10 @@ class KifManager(tk.Tk):
             f"[shogidb2] stop skip  : "
             f"{job.stop_after_skipped if job.stop_after_skipped is not None else 'disabled'}\n"
         )
+        self._put_log(
+            f"[shogidb2] page skip  : "
+            f"{job.page_load_error_skip_limit if job.page_load_error_skip_limit is not None else 'disabled'}\n"
+        )
 
         try:
             stats = download_shogidb2_kif(
@@ -2006,6 +2033,7 @@ class KifManager(tk.Tk):
         return (
             f"tournament={stats.tournament} pages={stats.pages_scanned} found={stats.found} "
             f"downloaded={stats.downloaded} skipped={stats.skipped} failed={stats.failed} "
+            f"page_load_errors={stats.page_load_errors} "
             f"output={stats.output_dir}"
         )
 
