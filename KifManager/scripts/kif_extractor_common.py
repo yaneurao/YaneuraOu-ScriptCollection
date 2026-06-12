@@ -29,6 +29,7 @@ COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
 INPUT_DATE_RE = re.compile(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$")
 INPUT_YEAR_RE = re.compile(r"^(\d{4})$")
 PROGRESS_INTERVAL = 1000
+WHITE_TO_MOVE_STARTING_SFEN = cshogi.STARTING_SFEN.replace(" b ", " w ", 1)
 
 
 class ParseError(Exception):
@@ -903,11 +904,11 @@ def parse_csa(
 def parse_kif(
     path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
 ) -> list[GameRecord]:
-    parsed = KIF.Parser.parse_str(read_text(path))
+    parsed, initial_sfen, raw_moves = parse_kif_text(read_text(path))
     names = read_names(parsed.names, path)
     if not allow_non_startpos:
-        ensure_startpos(parsed.sfen)
-    moves = moves_to_usi(parsed.moves)
+        ensure_startpos(initial_sfen)
+    moves = moves_to_usi(raw_moves)
     if not moves:
         raise ParseError("no moves found")
     eval_records = extract_eval_records(path) if include_eval_records else []
@@ -916,12 +917,86 @@ def parse_kif(
             path,
             names[0],
             names[1],
-            parsed.sfen,
+            initial_sfen,
             moves,
             eval_records=eval_records,
             game_date=infer_game_date_from_path(path),
         )
     ]
+
+
+def parse_kif_text(text: str) -> tuple[object, str, Sequence[int]]:
+    normalized_text = normalize_kif_text(text)
+    try:
+        parsed = KIF.Parser.parse_str(normalized_text)
+        return parsed, parsed.sfen, parse_kif_moves_with_board(normalized_text, parsed.sfen)
+    except Exception:
+        if not has_kif_handicap_label(text, "その他"):
+            raise
+
+    fallback_text = replace_kif_handicap_label(normalized_text, "平手")
+    parsed = KIF.Parser.parse_str(fallback_text)
+    candidate_sfens = [parsed.sfen]
+    if parsed.sfen == cshogi.STARTING_SFEN:
+        candidate_sfens.append(WHITE_TO_MOVE_STARTING_SFEN)
+
+    for sfen in candidate_sfens:
+        try:
+            moves = parse_kif_moves_with_board(fallback_text, sfen)
+        except ParseError:
+            continue
+        return parsed, sfen, moves
+
+    raise ParseError('Cannot normalize handycap type "other"')
+
+
+def normalize_kif_text(text: str) -> str:
+    return normalize_kif_move_notation(normalize_kif_handicap_label(text))
+
+
+def normalize_kif_handicap_label(text: str) -> str:
+    return text.replace("手合割：平手x", "手合割：平手")
+
+
+def normalize_kif_move_notation(text: str) -> str:
+    return text.replace("成らず", "").replace("不成り", "").replace("不成", "")
+
+
+def has_kif_handicap_label(text: str, label: str) -> bool:
+    return f"手合割：{label}" in text
+
+
+def replace_kif_handicap_label(text: str, label: str) -> str:
+    return re.sub(r"^手合割：.*$", f"手合割：{label}", text, count=1, flags=re.MULTILINE)
+
+
+def parse_kif_moves_with_board(text: str, sfen: str) -> list[int]:
+    board = cshogi.Board(sfen)
+    moves: list[int] = []
+    for line in normalize_kif_move_notation(text).splitlines():
+        if not KIF_MOVE_LINE_RE.match(line):
+            continue
+
+        try:
+            move, result, comment = KIF.Parser.parse_move_str(line.strip(), board)
+        except Exception as exc:
+            raise ParseError(f"cannot parse move line: {line}") from exc
+
+        if move is None:
+            if result is not None or comment is not None:
+                break
+            raise ParseError(f"cannot parse move line: {line}")
+
+        try:
+            legal_move = board.move_from_usi(cshogi.move_to_usi(move))
+        except Exception as exc:
+            raise ParseError(f"cannot convert move line: {line}") from exc
+        if not board.is_legal(legal_move):
+            raise ParseError(f"illegal move line: {line}")
+        moves.append(legal_move)
+        board.push(legal_move)
+
+    return moves
 
 
 def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
