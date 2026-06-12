@@ -236,7 +236,7 @@ python3 denryu-kif-downloader.py --list-tournaments
 処理後に件数が表示されます。
 
 ```text
-scanned=289 selected=289 skipped_year=0 skipped_date=0 skipped_finalist=0 skipped_name=0 skipped_rating=0 skipped_reversal=0 skipped_parse=0 skipped_duplicate=0
+scanned=289 selected=289 skipped_year=0 skipped_date=0 skipped_finalist=0 skipped_name=0 skipped_rating=0 skipped_reversal=0 skipped_handicap=0 skipped_parse=0 skipped_duplicate=0
 ```
 
 - `scanned`: 対象拡張子として見つけたファイル数
@@ -247,5 +247,6 @@ scanned=289 selected=289 skipped_year=0 skipped_date=0 skipped_finalist=0 skippe
 - `skipped_name`: プレイヤー名フィルタで除外した対局数
 - `skipped_rating`: rating 条件で除外した対局数
 - `skipped_reversal`: 逆転棋譜条件で除外した対局数
+- `skipped_handicap`: 駒落ち除外条件で除外した対局数
 - `skipped_parse`: パース不能、手なし、非 startpos などで除外したファイル数
-- `skipped_duplicate`: 重複した `startpos moves ...` 行として除外した対局数
+- `skipped_duplicate`: 重複した position 行として除外した対局数

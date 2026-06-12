@@ -116,6 +116,7 @@ class ExtractJob:
     end_date: date | None
     wcsc_finalists_only: bool
     reversal_threshold: int | None
+    exclude_handicap: bool
     require_rating: bool
     log_target_files: bool
     verbose: bool
@@ -268,6 +269,7 @@ class ExtractorPane(ttk.Frame):
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
         self.reversal_enabled = tk.BooleanVar(value=False)
         self.reversal_threshold = tk.StringVar(value="400")
+        self.exclude_handicap = tk.BooleanVar(value=False)
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -380,6 +382,8 @@ class ExtractorPane(ttk.Frame):
             )
 
         row = self._reversal_row(row)
+        if self.kind.key == "other":
+            row = self._exclude_handicap_row(row)
 
     def _path_row(
         self,
@@ -433,6 +437,16 @@ class ExtractorPane(ttk.Frame):
         ttk.Label(frame, text="評価値").pack(side="left", padx=(6, 4))
         ttk.Entry(frame, textvariable=self.reversal_threshold, width=8).pack(side="left")
         ttk.Label(frame, text="から逆転した棋譜").pack(side="left", padx=(4, 0))
+        return row + 1
+
+    def _exclude_handicap_row(self, row: int) -> int:
+        self._label_with_help(
+            row,
+            "駒落ちの棋譜を除く",
+            "初期局面が平手ではなく、かつ盤上と持駒の合計が40枚未満の棋譜を除外します。\n"
+            "この条件に該当しない非平手局面は、sfen形式のposition文字列として出力します。",
+        )
+        ttk.Checkbutton(self, variable=self.exclude_handicap).grid(row=row, column=1, sticky="w", pady=6)
         return row + 1
 
     def _browse_input_dir(self) -> None:
@@ -521,6 +535,7 @@ class ExtractorPane(ttk.Frame):
             end_date,
             self.wcsc_finalists_only.get(),
             reversal_threshold,
+            self.kind.key == "other" and self.exclude_handicap.get(),
             self.kind.has_rating and min_rating is not None,
             log_target_files,
             verbose,
@@ -598,6 +613,7 @@ class ExtractorPane(ttk.Frame):
             "wcsc_finalists_only": self.wcsc_finalists_only.get(),
             "reversal_enabled": self.reversal_enabled.get(),
             "reversal_threshold": self.reversal_threshold.get(),
+            "exclude_handicap": self.exclude_handicap.get(),
         }
 
     def apply_settings(self, settings: object) -> None:
@@ -615,6 +631,7 @@ class ExtractorPane(ttk.Frame):
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
         self.reversal_enabled.set(bool(settings.get("reversal_enabled", False)))
         self.reversal_threshold.set(str(settings.get("reversal_threshold", "400") or "400"))
+        self.exclude_handicap.set(bool(settings.get("exclude_handicap", False)))
 
 
 class DownloadPlaceholderPane(ttk.Frame):
@@ -1768,6 +1785,8 @@ class KifManager(tk.Tk):
                 self._put_log(f"[{job.kind.title}] finalists only: True\n")
             if job.reversal_threshold is not None:
                 self._put_log(f"[{job.kind.title}] reversal threshold: {job.reversal_threshold}\n")
+            if job.exclude_handicap:
+                self._put_log(f"[{job.kind.title}] exclude handicap games\n")
             if job.log_target_files:
                 self._put_log(f"[{job.kind.title}] log target files: True\n")
 
@@ -1786,6 +1805,8 @@ class KifManager(tk.Tk):
                         end_date=job.end_date,
                         wcsc_finalists_only=job.wcsc_finalists_only,
                         reversal_threshold=job.reversal_threshold,
+                        exclude_handicap=job.exclude_handicap,
+                        allow_non_startpos=job.kind.key == "other",
                         require_rating=job.require_rating,
                         log_target_files=job.log_target_files,
                         verbose=job.verbose,
@@ -1919,6 +1940,7 @@ class KifManager(tk.Tk):
             f"skipped_finalist={stats.skipped_finalist} "
             f"skipped_name={stats.skipped_name} skipped_rating={stats.skipped_rating} "
             f"skipped_reversal={stats.skipped_reversal} "
+            f"skipped_handicap={stats.skipped_handicap} "
             f"skipped_parse={stats.skipped_parse} skipped_duplicate={stats.skipped_duplicate}"
         )
 

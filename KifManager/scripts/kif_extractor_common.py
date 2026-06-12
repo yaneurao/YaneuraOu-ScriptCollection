@@ -67,6 +67,7 @@ class GameRecord:
     path: Path
     black: str
     white: str
+    initial_sfen: str
     moves: list[str]
     black_rating: float | None = None
     white_rating: float | None = None
@@ -93,6 +94,7 @@ class Stats:
     skipped_name: int = 0
     skipped_rating: int = 0
     skipped_reversal: int = 0
+    skipped_handicap: int = 0
     skipped_parse: int = 0
     skipped_duplicate: int = 0
 
@@ -759,6 +761,7 @@ def should_skip_by_csa_header(
             path,
             header.black,
             header.white,
+            cshogi.STARTING_SFEN,
             [],
             header.black_rating,
             header.white_rating,
@@ -860,7 +863,9 @@ def extract_eval_records(path: Path) -> list[EvalRecord]:
     return []
 
 
-def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
+def parse_csa(
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+) -> list[GameRecord]:
     parsed_games = CSA.Parser.parse_file(str(path))
     if not parsed_games:
         raise ParseError("no CSA game found")
@@ -872,7 +877,8 @@ def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRec
         game_date = read_csa_header(path).game_date
     for parsed in parsed_games:
         names = read_names(parsed.names, path)
-        ensure_startpos(parsed.sfen)
+        if not allow_non_startpos:
+            ensure_startpos(parsed.sfen)
         moves = moves_to_usi(parsed.moves)
         if not moves:
             raise ParseError("no moves found")
@@ -883,6 +889,7 @@ def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRec
                 path,
                 names[0],
                 names[1],
+                parsed.sfen,
                 moves,
                 optional_float(ratings[0] if len(ratings) >= 1 else None),
                 optional_float(ratings[1] if len(ratings) >= 2 else None),
@@ -893,15 +900,28 @@ def parse_csa(path: Path, *, include_eval_records: bool = False) -> list[GameRec
     return records
 
 
-def parse_kif(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
-    parsed = KIF.Parser.parse_file(str(path))
+def parse_kif(
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+) -> list[GameRecord]:
+    parsed = KIF.Parser.parse_str(read_text(path))
     names = read_names(parsed.names, path)
-    ensure_startpos(parsed.sfen)
+    if not allow_non_startpos:
+        ensure_startpos(parsed.sfen)
     moves = moves_to_usi(parsed.moves)
     if not moves:
         raise ParseError("no moves found")
     eval_records = extract_eval_records(path) if include_eval_records else []
-    return [GameRecord(path, names[0], names[1], moves, eval_records=eval_records, game_date=infer_game_date_from_path(path))]
+    return [
+        GameRecord(
+            path,
+            names[0],
+            names[1],
+            parsed.sfen,
+            moves,
+            eval_records=eval_records,
+            game_date=infer_game_date_from_path(path),
+        )
+    ]
 
 
 def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
@@ -913,6 +933,17 @@ def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
 def ensure_startpos(sfen: str) -> None:
     if sfen != cshogi.STARTING_SFEN:
         raise ParseError(f"unsupported initial position: {sfen}")
+
+
+def initial_piece_count(sfen: str) -> int:
+    board = cshogi.Board(sfen)
+    board_pieces = sum(1 for piece in board.pieces if piece)
+    hand_pieces = sum(sum(hand) for hand in board.pieces_in_hand)
+    return board_pieces + hand_pieces
+
+
+def is_handicap_game(game: GameRecord) -> bool:
+    return game.initial_sfen != cshogi.STARTING_SFEN and initial_piece_count(game.initial_sfen) < 40
 
 
 def moves_to_usi(moves: Sequence[int]) -> list[str]:
@@ -928,12 +959,22 @@ def optional_float(value: object) -> float | None:
         return None
 
 
-def parse_games(path: Path, *, include_eval_records: bool = False) -> list[GameRecord]:
+def parse_games(
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+) -> list[GameRecord]:
     suffix = path.suffix.lower()
     if suffix in {".kif", ".kifu"}:
-        return parse_kif(path, include_eval_records=include_eval_records)
+        return parse_kif(
+            path,
+            include_eval_records=include_eval_records,
+            allow_non_startpos=allow_non_startpos,
+        )
     if suffix in {".csa", ".csv"}:
-        return parse_csa(path, include_eval_records=include_eval_records)
+        return parse_csa(
+            path,
+            include_eval_records=include_eval_records,
+            allow_non_startpos=allow_non_startpos,
+        )
     raise ParseError(f"unsupported suffix: {path.suffix}")
 
 
@@ -947,6 +988,8 @@ def collect_games_from_roots(
     date_filter: DateFilter | None,
     wcsc_finalists_only: bool,
     reversal_threshold: int | None,
+    exclude_handicap: bool,
+    allow_non_startpos: bool,
     require_rating: bool,
     log_target_files: bool,
     verbose: bool,
@@ -975,7 +1018,11 @@ def collect_games_from_roots(
             continue
 
         try:
-            parsed_games = parse_games(path, include_eval_records=reversal_threshold is not None)
+            parsed_games = parse_games(
+                path,
+                include_eval_records=reversal_threshold is not None,
+                allow_non_startpos=allow_non_startpos,
+            )
         except Exception as exc:
             stats.skipped_parse += 1
             if verbose:
@@ -1015,6 +1062,10 @@ def collect_games_from_roots(
                 stats.skipped_reversal += 1
                 continue
 
+            if exclude_handicap and is_handicap_game(game):
+                stats.skipped_handicap += 1
+                continue
+
             stats.selected += 1
             games.append(game)
             if log_target_files and game.path not in logged_target_files:
@@ -1036,6 +1087,8 @@ def collect_games(
     date_filter: DateFilter | None,
     wcsc_finalists_only: bool,
     reversal_threshold: int | None,
+    exclude_handicap: bool,
+    allow_non_startpos: bool,
     require_rating: bool,
     log_target_files: bool,
     verbose: bool,
@@ -1050,10 +1103,22 @@ def collect_games(
             date_filter=date_filter,
             wcsc_finalists_only=wcsc_finalists_only,
             reversal_threshold=reversal_threshold,
+            exclude_handicap=exclude_handicap,
+            allow_non_startpos=allow_non_startpos,
             require_rating=require_rating,
             log_target_files=log_target_files,
             verbose=verbose,
         )
+
+
+def position_line(game: GameRecord) -> str:
+    if game.initial_sfen == cshogi.STARTING_SFEN:
+        line = "startpos moves"
+    else:
+        line = f"sfen {game.initial_sfen} moves"
+    if game.moves:
+        line += " " + " ".join(game.moves)
+    return line
 
 
 def write_position_lines(games: Sequence[GameRecord], output_path: Path) -> tuple[int, int]:
@@ -1064,9 +1129,7 @@ def write_position_lines(games: Sequence[GameRecord], output_path: Path) -> tupl
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="\n") as out:
         for game in games:
-            line = "startpos moves"
-            if game.moves:
-                line += " " + " ".join(game.moves)
+            line = position_line(game)
             if line in seen:
                 skipped_duplicate += 1
                 continue
@@ -1092,6 +1155,8 @@ def run_extractor(
     end_date: date | str | None = None,
     wcsc_finalists_only: bool = False,
     reversal_threshold: int | None = None,
+    exclude_handicap: bool = False,
+    allow_non_startpos: bool = False,
     require_rating: bool = False,
     log_target_files: bool = False,
     verbose: bool = False,
@@ -1111,6 +1176,8 @@ def run_extractor(
         date_filter=date_filter,
         wcsc_finalists_only=wcsc_finalists_only and source_kind in {"wcsc", "denryu"},
         reversal_threshold=reversal_threshold,
+        exclude_handicap=exclude_handicap,
+        allow_non_startpos=allow_non_startpos,
         require_rating=require_rating,
         log_target_files=log_target_files,
         verbose=verbose,
@@ -1165,6 +1232,7 @@ def print_stats(stats: Stats) -> None:
     print(
         "scanned={scanned} selected={selected} skipped_year={skipped_year} "
         "skipped_date={skipped_date} skipped_finalist={skipped_finalist} skipped_name={skipped_name} "
-        "skipped_rating={skipped_rating} skipped_reversal={skipped_reversal} skipped_parse={skipped_parse} "
+        "skipped_rating={skipped_rating} skipped_reversal={skipped_reversal} skipped_handicap={skipped_handicap} "
+        "skipped_parse={skipped_parse} "
         "skipped_duplicate={skipped_duplicate}".format(**stats.__dict__)
     )
