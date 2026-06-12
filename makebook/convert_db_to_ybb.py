@@ -44,27 +44,10 @@ DEFAULT_MAX_OPEN_RUNS = 64
 YbbRunRecord = tuple[bytes, int, bytes]
 
 
-def validate_ybb_base_path(path: Path) -> None:
-    name = path.name
-    if (
-        name.endswith(".ybb")
-        or name.endswith("-index")
-        or name.endswith("-moves")
-        or name.endswith("-index.ybb")
-        or name.endswith("-moves.ybb")
-    ):
-        raise ValueError(
-            "specify ybb base path without .ybb, -index, or -moves suffix. "
-            f"example: user_book ; got: {path}"
-        )
-
-
-def ybb_pair_from_base(base_path: Path) -> tuple[Path, Path]:
-    validate_ybb_base_path(base_path)
-    return (
-        base_path.with_name(f"{base_path.name}-index.ybb"),
-        base_path.with_name(f"{base_path.name}-moves.ybb"),
-    )
+def ybb_path_from_output(path: Path) -> Path:
+    if path.suffix == ".ybb":
+        return path
+    return path.with_name(f"{path.name}.ybb")
 
 
 def trim_sfen_ply(sfen: str) -> tuple[str, int]:
@@ -292,17 +275,17 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int, m
 
 
 def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_record_size: int) -> None:
-    index_path, moves_path = ybb_pair_from_base(output_base)
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    moves_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = ybb_path_from_output(output_base)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    index_tmp = index_path.with_name(index_path.name + ".tmp")
-    moves_tmp = moves_path.with_name(moves_path.name + ".tmp")
+    output_tmp = output_path.with_name(output_path.name + ".tmp")
     total = sum(read_ybb_run_count(path) for path in run_paths)
+    index_size = HEADER_STRUCT.size + total * INDEX_STRUCT.size
 
     try:
-        with moves_tmp.open("wb") as moves_file, index_tmp.open("wb") as index_file:
-            index_file.write(HEADER_STRUCT.pack(MAGIC, total, flags))
+        with output_tmp.open("w+b") as output_file:
+            output_file.write(HEADER_STRUCT.pack(MAGIC, total, flags))
+            index_offset = HEADER_STRUCT.size
             move_offset = 0
 
             if run_paths:
@@ -310,15 +293,16 @@ def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_r
                     readers = [stack.enter_context(YbbRunReader(path, move_record_size)) for path in run_paths]
                     for packed_sfen, ply, moves_blob in iter_merged_ybb_records(readers):
                         move_count = len(moves_blob) // move_record_size
-                        index_file.write(INDEX_STRUCT.pack(packed_sfen, move_offset, ply, move_count))
-                        moves_file.write(moves_blob)
+                        output_file.seek(index_size + move_offset)
+                        output_file.write(moves_blob)
+                        output_file.seek(index_offset)
+                        output_file.write(INDEX_STRUCT.pack(packed_sfen, move_offset, ply, move_count))
+                        index_offset += INDEX_STRUCT.size
                         move_offset += len(moves_blob)
 
-        os.replace(moves_tmp, moves_path)
-        os.replace(index_tmp, index_path)
+        os.replace(output_tmp, output_path)
     except Exception:
-        index_tmp.unlink(missing_ok=True)
-        moves_tmp.unlink(missing_ok=True)
+        output_tmp.unlink(missing_ok=True)
         raise
 
 
@@ -435,7 +419,7 @@ def main() -> None:
     parser.add_argument(
         "output_base",
         type=Path,
-        help="output ybb base path. Do not add .ybb, -index, or -moves suffix.",
+        help="output ybb path. .ybb suffix is optional.",
     )
     parser.add_argument("--tmp-dir", type=Path, default=Path("tmp"))
     parser.add_argument("--chunk-positions", type=int, default=DEFAULT_CHUNK_POSITIONS)
@@ -444,7 +428,7 @@ def main() -> None:
     parser.add_argument(
         "--no-depth",
         action="store_true",
-        help="do not write move depth to -moves.ybb. default keeps depth.",
+        help="do not write move depth records. default keeps depth.",
     )
     parser.add_argument("--keep-temp", action="store_true")
     args = parser.parse_args()
@@ -453,11 +437,6 @@ def main() -> None:
         raise ValueError("--chunk-positions must be positive")
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
-
-    try:
-        validate_ybb_base_path(args.output_base)
-    except ValueError as exc:
-        parser.error(str(exc))
 
     work_dir = make_work_dir(args.tmp_dir)
     try:
@@ -476,9 +455,7 @@ def main() -> None:
         else:
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    output_index, moves_path = ybb_pair_from_base(args.output_base)
-    print(f"wrote: {output_index}")
-    print(f"wrote: {moves_path}")
+    print(f"wrote: {ybb_path_from_output(args.output_base)}")
 
 
 if __name__ == "__main__":

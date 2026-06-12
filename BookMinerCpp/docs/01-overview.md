@@ -36,7 +36,7 @@ GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに
 - 指し手は `Move16` 相当の2 byteで保持します。
 - 評価値は `int16_t` で保持します。
 - 内部DBは memtable と sorted run 群による LSM-tree 風の構造です。
-- 通常バックアップは `.db` ではなく、2ファイル構成の `.ybb` で保存します。
+- 通常バックアップは `.db` ではなく `.ybb` で保存します。
 - peta shock 化は C++ で再実装せず、`YO-MATERIAL.exe` の `makebook peta_shock` を呼び出します。
 - `.db` と `.ybb` の相互変換は `YaneuraOu-ScriptCollection/makebook/` のスクリプトを使います。
 

@@ -27,6 +27,7 @@ KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
 SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
 COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
 INPUT_DATE_RE = re.compile(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$")
+INPUT_YEAR_RE = re.compile(r"^(\d{4})$")
 PROGRESS_INTERVAL = 1000
 
 
@@ -343,8 +344,8 @@ def make_date_filter(
     start_date: date | str | None,
     end_date: date | str | None,
 ) -> DateFilter | None:
-    parsed_start = parse_date_value(start_date, "開始日")
-    parsed_end = parse_date_value(end_date, "終了日")
+    parsed_start = parse_date_value(start_date, "開始日", year_only_month_day=(1, 1))
+    parsed_end = parse_date_value(end_date, "終了日", year_only_month_day=(12, 31))
     if parsed_start is None and parsed_end is None:
         return None
     if source_kind != "floodgate":
@@ -354,7 +355,12 @@ def make_date_filter(
     return DateFilter(source_kind, parsed_start, parsed_end)
 
 
-def parse_date_value(value: date | str | None, label: str) -> date | None:
+def parse_date_value(
+    value: date | str | None,
+    label: str,
+    *,
+    year_only_month_day: tuple[int, int] | None = None,
+) -> date | None:
     if value is None:
         return None
     if isinstance(value, date):
@@ -363,9 +369,21 @@ def parse_date_value(value: date | str | None, label: str) -> date | None:
     text = value.strip()
     if not text:
         return None
+    year_match = INPUT_YEAR_RE.fullmatch(text)
+    if year_match is not None and year_only_month_day is not None:
+        month, day = year_only_month_day
+        parsed = make_date_from_parts(year_match.group(1), str(month), str(day))
+        if parsed is None:
+            raise ValueError(f"{label} に存在する日付を指定してください: {value}")
+        return parsed
+
     match = INPUT_DATE_RE.fullmatch(text)
     if match is None:
-        raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください(月日1桁可): {value}")
+        if year_only_month_day is None:
+            raise ValueError(f"{label} は YYYY-MM-DD または YYYY/MM/DD 形式で指定してください(月日1桁可): {value}")
+        raise ValueError(
+            f"{label} は YYYY、YYYY-MM-DD または YYYY/MM/DD 形式で指定してください(月日1桁可): {value}"
+        )
     parsed = make_date_from_parts(match.group(1), match.group(2), match.group(3))
     if parsed is None:
         raise ValueError(f"{label} に存在する日付を指定してください: {value}")
@@ -1134,12 +1152,12 @@ def add_date_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--start-date",
         default=None,
-        help="first game date to extract, YYYY-MM-DD or YYYY/MM/DD; month/day may be one digit",
+        help="first game date to extract; YYYY means YYYY-01-01; also accepts YYYY-MM-DD or YYYY/MM/DD",
     )
     parser.add_argument(
         "--end-date",
         default=None,
-        help="last game date to extract, YYYY-MM-DD or YYYY/MM/DD; month/day may be one digit",
+        help="last game date to extract; YYYY means YYYY-12-31; also accepts YYYY-MM-DD or YYYY/MM/DD",
     )
 
 

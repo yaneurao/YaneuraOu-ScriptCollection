@@ -73,7 +73,7 @@ BookMinerCpp は起動時に `book/backup/` から通常DBを読みます。
 
 ```text
 book/backup/book_miner-YYYYMMDDHHMMSS_N.db
-book/backup/book_miner-YYYYMMDDHHMMSS_N-index.ybb
+book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 ```
 
 この2種類を同じ候補として扱い、ファイル名のタイムスタンプが新しいものを読みます。
@@ -88,8 +88,7 @@ book/backup/book_miner-YYYYMMDDHHMMSS_N-index.ybb
 BookMinerCpp の通常保存は `.ybb` です。
 
 ```text
-book/backup/book_miner-YYYYMMDDHHMMSS_N-index.ybb
-book/backup/book_miner-YYYYMMDDHHMMSS_N-moves.ybb
+book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 ```
 
 `N` は保存対象の局面数です。
@@ -101,7 +100,7 @@ book/backup/book_miner-YYYYMMDDHHMMSS_N-moves.ybb
 `p` コマンドは、BookMinerCpp の `.ybb` バックアップを `YO-MATERIAL.exe` に渡します。
 
 ```text
-makebook peta_shock backup/book_miner-....-index.ybb backup/peta_book-....db.tmp
+makebook peta_shock backup/book_miner-....ybb backup/peta_book-....db.tmp
 ```
 
 peta shock 化の出力は、現時点では従来のやねうら王標準定跡 `.db` です。
@@ -121,7 +120,7 @@ book/backup/book_miner.db
 ```
 
 に置いてから BookMinerCpp を起動してください。
-タイムスタンプ付きの `book_miner-*.db` や `book_miner-*-index.ybb` がある場合は、そちらが優先されます。
+タイムスタンプ付きの `book_miner-*.db` や `book_miner-*.ybb` がある場合は、そちらが優先されます。
 
 起動後に `p` または `w` で保存すると、以後は `.ybb` の通常バックアップに乗ります。
 

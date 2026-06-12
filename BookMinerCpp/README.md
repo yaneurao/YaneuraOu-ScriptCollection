@@ -29,8 +29,7 @@ python3 BookMiner-gui.py --cpp
 BookMinerCpp の通常バックアップは、やねうら王 バイナリ定跡DB (`.ybb`) として保存します。
 
 ```text
-BookMinerCpp/book/backup/book_miner-YYYYMMDDHHMMSS_N-index.ybb
-BookMinerCpp/book/backup/book_miner-YYYYMMDDHHMMSS_N-moves.ybb
+BookMinerCpp/book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 ```
 
 内部の定跡DBは `PackedSfen` key、`Move16`、`int16_t eval` を使い、memtable と sorted run 群による LSM-tree 風の構造で保持します。

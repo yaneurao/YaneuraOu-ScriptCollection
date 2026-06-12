@@ -124,7 +124,6 @@ std::int16_t normalize_book_eval(int eval);
 std::string trim_sfen(const std::string& sfen_with_optional_prefix_and_ply);
 std::pair<std::string, int> trim_sfen_ply(const std::string& sfen_with_optional_prefix_and_ply);
 std::filesystem::path temp_book_path(const std::filesystem::path& path);
-bool is_yane_bin_book_index_path(const std::filesystem::path& path);
-std::filesystem::path yane_bin_book_moves_path(const std::filesystem::path& index_path);
+bool is_yane_bin_book_path(const std::filesystem::path& path);
 
 } // namespace bookminer

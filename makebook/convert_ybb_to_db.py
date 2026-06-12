@@ -45,27 +45,17 @@ DEFAULT_MAX_OPEN_RUNS = 64
 DbRunRecord = tuple[bytes, bytes]
 
 
-def validate_ybb_base_path(path: Path) -> None:
+def ybb_single_path_from_base(base_path: Path) -> Path:
+    return base_path.with_name(f"{base_path.name}.ybb")
+
+
+def resolve_ybb_input(path: Path) -> Path:
     name = path.name
-    if (
-        name.endswith(".ybb")
-        or name.endswith("-index")
-        or name.endswith("-moves")
-        or name.endswith("-index.ybb")
-        or name.endswith("-moves.ybb")
-    ):
-        raise ValueError(
-            "specify ybb base path without .ybb, -index, or -moves suffix. "
-            f"example: user_book ; got: {path}"
-        )
-
-
-def ybb_pair_from_base(base_path: Path) -> tuple[Path, Path]:
-    validate_ybb_base_path(base_path)
-    return (
-        base_path.with_name(f"{base_path.name}-index.ybb"),
-        base_path.with_name(f"{base_path.name}-moves.ybb"),
-    )
+    if name.endswith("-index.ybb") or name.endswith("-moves.ybb"):
+        raise ValueError(f"split ybb is not supported. specify a single .ybb path: {path}")
+    if name.endswith(".ybb"):
+        return path
+    return ybb_single_path_from_base(path)
 
 
 def trim_sfen_ply(sfen: str) -> tuple[str, int]:
@@ -321,22 +311,26 @@ def convert_ybb_to_db(
     chunk_bytes: int,
     max_open_runs: int,
 ) -> None:
-    input_index, moves_path = ybb_pair_from_base(input_base)
-    record_count, flags = read_ybb_header(input_index)
+    input_ybb = resolve_ybb_input(input_base)
+    record_count, flags = read_ybb_header(input_ybb)
     move_struct = MOVE_DEPTH_STRUCT if flags & FLAG_MOVE_DEPTH else MOVE_STRUCT
-    moves_file_size = moves_path.stat().st_size
+    moves_base = HEADER_STRUCT.size + record_count * INDEX_STRUCT.size
+    file_size = input_ybb.stat().st_size
+    if file_size < moves_base:
+        raise ValueError(f"broken ybb index area: {input_ybb}")
+    moves_file_size = file_size - moves_base
     run_paths: list[Path] = []
     chunk_records: list[DbRunRecord] = []
     chunk_estimated_bytes = 0
     run_index = 0
     previous_packed_sfen: bytes | None = None
 
-    with input_index.open("rb") as index_file, moves_path.open("rb") as moves_file:
+    with input_ybb.open("rb") as index_file, input_ybb.open("rb") as moves_file:
         index_file.seek(HEADER_STRUCT.size)
         for index in range(record_count):
             header = index_file.read(INDEX_STRUCT.size)
             if len(header) != INDEX_STRUCT.size:
-                raise ValueError(f"broken ybb index record: {input_index}")
+                raise ValueError(f"broken ybb index record: {input_ybb}")
             packed_sfen, move_offset, ply, move_count = INDEX_STRUCT.unpack(header)
             if previous_packed_sfen is not None and packed_sfen <= previous_packed_sfen:
                 raise ValueError(f"ybb index is not strictly sorted at record {index}")
@@ -345,7 +339,7 @@ def convert_ybb_to_db(
             moves_size = move_count * move_struct.size
             if move_offset + moves_size > moves_file_size:
                 raise ValueError(f"moves offset is out of range at record {index}")
-            moves_file.seek(move_offset)
+            moves_file.seek(moves_base + move_offset)
             moves_blob = moves_file.read(moves_size)
             if len(moves_blob) != moves_size:
                 raise ValueError(f"broken ybb move records at record {index}")
@@ -397,7 +391,7 @@ def main() -> None:
     parser.add_argument(
         "input_base",
         type=Path,
-        help="input ybb base path. Do not add .ybb, -index, or -moves suffix.",
+        help="input ybb path. .ybb suffix is optional.",
     )
     parser.add_argument("output_db", type=Path)
     parser.add_argument("--tmp-dir", type=Path, default=Path("tmp"))
@@ -413,7 +407,7 @@ def main() -> None:
         raise ValueError("--chunk-bytes must be positive")
 
     try:
-        validate_ybb_base_path(args.input_base)
+        resolve_ybb_input(args.input_base)
     except ValueError as exc:
         parser.error(str(exc))
 

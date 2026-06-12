@@ -46,17 +46,15 @@ sfen <sfen>
 ## やねうら王 バイナリ定跡DB `.ybb`
 
 やねうら王 バイナリ定跡DB `.ybb` は、BookMinerCpp と、やねうら王本体の on-the-fly 定跡 probe 用のバイナリ定跡形式です。
-2ファイルで1つの定跡を表します。
 
 ```text
-user_book-index.ybb
-user_book-moves.ybb
+user_book.ybb
 ```
 
-`-index.ybb` には `PackedSfen` 順に sort された固定長 index を置き、`-moves.ybb` には各局面の指し手列を置きます。
-やねうら王本体は index を二分探索して、必要な局面の指し手列だけを moves file から読みます。
+ファイル先頭に `PackedSfen` 順に sort された固定長 index 領域を置き、その直後に各局面の指し手列を置きます。
+やねうら王本体は index を二分探索して、必要な局面の指し手列だけを同じ `.ybb` の moves 領域から読みます。
 
-index file の header は次の形式です。
+index 領域の header は次の形式です。
 
 ```text
 magic[16] = "YANE-BINBOOK-V1\0"
@@ -64,7 +62,19 @@ record_count uint64
 flags uint64
 ```
 
-`flags bit0` は、moves file の各指し手 record に `depth uint16` が含まれるかを表します。
+index record は次の形式です。
+
+```text
+packed_sfen[32]
+moves_offset uint64
+ply uint16
+move_count uint16
+```
+
+`moves_offset` は moves 領域先頭からの相対位置です。
+index 領域のサイズは `32 + record_count * 44` byte なので、moves 領域の開始位置は header だけで求まります。
+
+`flags bit0` は、moves 領域の各指し手 record に `depth uint16` が含まれるかを表します。
 
 ```text
 flags bit0 = 0:
@@ -251,43 +261,33 @@ python3 convert_db_to_ybb.py input.db output
 ```
 
 デフォルトでは、`.db` の指し手 `depth` も `.ybb` に保存します。
-`depth` が不要で moves file を小さくしたい場合は `--no-depth` を指定します。
+`depth` が不要で moves 領域を小さくしたい場合は `--no-depth` を指定します。
 
 ```bash
 python3 convert_db_to_ybb.py input.db output --no-depth
 ```
 
-出力は2ファイルです。
+出力は `.ybb` です。
 
 ```text
-output-index.ybb
-output-moves.ybb
+output.ybb
 ```
 
-第2引数には、`.ybb` 拡張子や `-index` / `-moves` を付けない basename だけを指定します。
+第2引数には、`.ybb` path または `.ybb` 拡張子なしの basename を指定します。
+basename を指定した場合は `.ybb` を補います。
 
 正しい例:
 
 ```bash
 python3 convert_db_to_ybb.py input.db user_book
+python3 convert_db_to_ybb.py input.db user_book.ybb
 ```
 
-この場合、次の2ファイルが生成されます。
+この場合、次のファイルが生成されます。
 
 ```text
-user_book-index.ybb
-user_book-moves.ybb
+user_book.ybb
 ```
-
-誤った例:
-
-```bash
-python3 convert_db_to_ybb.py input.db user_book.ybb
-python3 convert_db_to_ybb.py input.db user_book-index.ybb
-python3 convert_db_to_ybb.py input.db user_book-moves.ybb
-```
-
-これらは、basename と index/moves file の区別が曖昧になるためエラーにします。
 
 処理の流れ:
 
@@ -309,7 +309,7 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 | `--chunk-positions N` | `500000` | 1つの一時runに含める局面数の上限。 |
 | `--chunk-bytes N` | `536870912` | 1つの一時runに含める概算byte数の上限。 |
 | `--max-open-runs N` | `64` | k-way mergeで同時にopenするrun数の上限。 |
-| `--no-depth` | なし | `.db` の指し手 `depth` を `.ybb` に保存しません。moves file を小さくしたい場合に使います。 |
+| `--no-depth` | なし | `.db` の指し手 `depth` を `.ybb` に保存しません。moves 領域を小さくしたい場合に使います。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
 
 `.ybb` は `PackedSfen` を key にするため、同一局面が複数回現れた場合はエラーにします。
@@ -325,31 +325,31 @@ python3 convert_db_to_ybb.py input.db user_book-moves.ybb
 python3 convert_ybb_to_db.py input output.db
 ```
 
-第1引数には、`.ybb` 拡張子や `-index` / `-moves` を付けない basename だけを指定します。
-対応する `input-index.ybb` と `input-moves.ybb` は同じフォルダから自動的に読みます。
+第1引数には、`.ybb` path または `.ybb` 拡張子なしの basename を指定します。
+basename を指定した場合は `.ybb` を補います。
+`-index` / `-moves` suffix は指定できません。
 
 正しい例:
 
 ```bash
 python3 convert_ybb_to_db.py user_book output.db
+python3 convert_ybb_to_db.py user_book.ybb output.db
 ```
 
-この場合、次の2ファイルを入力として読みます。
+この場合、次のファイルを入力として読みます。
 
 ```text
-user_book-index.ybb
-user_book-moves.ybb
+user_book.ybb
 ```
 
 誤った例:
 
 ```bash
-python3 convert_ybb_to_db.py user_book.ybb output.db
 python3 convert_ybb_to_db.py user_book-index.ybb output.db
 python3 convert_ybb_to_db.py user_book-moves.ybb output.db
 ```
 
-これらは、basename と index/moves file の区別が曖昧になるためエラーにします。
+これらは、旧2ファイル形式の名前なのでエラーにします。
 
 処理の流れ:
 

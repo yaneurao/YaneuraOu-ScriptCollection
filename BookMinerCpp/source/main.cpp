@@ -1041,7 +1041,7 @@ std::vector<fs::path> collect_book_backup_paths()
         if (filename.rfind(std::string(BookDbName) + "-", 0) != 0)
             continue;
         const bool is_text_book = entry.path().extension() == ".db";
-        const bool is_ybb_book = bookminer::is_yane_bin_book_index_path(entry.path());
+        const bool is_ybb_book = bookminer::is_yane_bin_book_path(entry.path());
         if (!is_text_book && !is_ybb_book)
             continue;
         if (filename.find("_ply") != std::string::npos)
@@ -1074,14 +1074,14 @@ fs::path make_backup_path(std::size_t position_count, std::optional<int> ply_lim
     std::string filename = std::string(BookDbName) + "-" + make_time_stamp() + "_" + std::to_string(position_count);
     if (ply_limit.has_value())
         filename += "_ply" + std::to_string(*ply_limit);
-    filename += "-index.ybb";
+    filename += ".ybb";
     return fs::path(BookBackupDir) / filename;
 }
 
 std::optional<std::pair<std::string, std::size_t>> parse_regular_book_backup_name(const fs::path& path)
 {
     const std::string filename = path.filename().string();
-    const std::regex pattern("^" + std::string(BookDbName) + R"(-(\d{14})_(\d+)(?:\.db|-index\.ybb)$)");
+    const std::regex pattern("^" + std::string(BookDbName) + R"(-(\d{14})_(\d+)(?:\.db|\.ybb)$)");
     std::smatch match;
     if (!std::regex_match(filename, match, pattern))
         return std::nullopt;
@@ -1104,7 +1104,7 @@ fs::path resolve_peta_source_book_path(const std::optional<std::string>& path)
     {
         auto latest = get_latest_book_backup_or_none();
         if (!latest.has_value())
-            throw std::runtime_error(std::string("book backup file not found : ") + BookBackupDir + "/" + BookDbName + "-*.db or " + BookDbName + "-*-index.ybb");
+            throw std::runtime_error(std::string("book backup file not found : ") + BookBackupDir + "/" + BookDbName + "-*.db or " + BookDbName + "-*.ybb");
         return *latest;
     }
 
