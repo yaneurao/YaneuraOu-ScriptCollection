@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import heapq
 import os
-import shutil
 import struct
 import sys
 import tempfile
@@ -29,9 +28,12 @@ from YaneuraOuBookLib import (
     YBB_MOVE_DEPTH_STRUCT as MOVE_DEPTH_STRUCT,
     YBB_MOVE_STRUCT as MOVE_STRUCT,
     board_from_packed_sfen,
+    cleanup_work_dir,
+    format_position_progress,
     move16_to_usi,
     read_ybb_header,
     resolve_ybb_input,
+    should_report_progress,
     trim_number,
 )
 
@@ -162,16 +164,25 @@ def write_db_run(records: list[DbRunRecord], path: Path) -> None:
             writer.write(record)
 
 
-def merge_db_runs_to_run(run_paths: list[Path], output_path: Path) -> None:
+def merge_db_runs_to_run(run_paths: list[Path], output_path: Path, progress_interval: int) -> None:
     total = sum(read_db_run_count(path) for path in run_paths)
     with ExitStack() as stack:
         readers = [stack.enter_context(DbRunReader(path)) for path in run_paths]
         writer = stack.enter_context(DbRunWriter(output_path, total))
+        done = 0
         for record in iter_merged_db_records(readers):
             writer.write(record)
+            done += 1
+            if should_report_progress(done, total, progress_interval):
+                print(f"merge run progress: {output_path} ({format_position_progress(done, total)})")
 
 
-def reduce_db_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) -> list[Path]:
+def reduce_db_runs(
+    run_paths: list[Path],
+    work_dir: Path,
+    max_open_runs: int,
+    progress_interval: int,
+) -> list[Path]:
     if max_open_runs < 2:
         raise ValueError("--max-open-runs must be at least 2")
 
@@ -186,8 +197,12 @@ def reduce_db_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) ->
                 continue
 
             output_path = work_dir / f"merge-{stage:02d}-{group_index:06d}.run"
-            print(f"merge runs: {len(group)} -> {output_path}")
-            merge_db_runs_to_run(group, output_path)
+            group_total = sum(read_db_run_count(path) for path in group)
+            print(
+                f"merge runs: {len(group)} -> {output_path} "
+                f"(positions={group_total:,})"
+            )
+            merge_db_runs_to_run(group, output_path, progress_interval)
             next_runs.append(output_path)
             for path in group:
                 path.unlink(missing_ok=True)
@@ -198,11 +213,21 @@ def reduce_db_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int) ->
     return current
 
 
-def flush_chunk(records: list[DbRunRecord], run_paths: list[Path], work_dir: Path, run_index: int) -> int:
+def flush_chunk(
+    records: list[DbRunRecord],
+    run_paths: list[Path],
+    work_dir: Path,
+    run_index: int,
+    processed_positions: int,
+    total_positions: int | None,
+) -> int:
     if not records:
         return run_index
     run_path = work_dir / f"ybb-to-db-{run_index:06d}.run"
-    print(f"write run: {run_path} ({len(records)} positions)")
+    print(
+        f"write run: {run_path} "
+        f"(chunk={len(records):,} positions, {format_position_progress(processed_positions, total_positions)})"
+    )
     write_db_run(records, run_path)
     run_paths.append(run_path)
     records.clear()
@@ -248,6 +273,7 @@ def convert_ybb_to_db(
 ) -> None:
     input_ybb = resolve_ybb_input(input_base)
     record_count, flags = read_ybb_header(input_ybb)
+    print(f"input positions: {record_count:,}")
     move_struct = MOVE_DEPTH_STRUCT if flags & FLAG_MOVE_DEPTH else MOVE_STRUCT
     moves_base = HEADER_STRUCT.size + record_count * INDEX_STRUCT.size
     file_size = input_ybb.stat().st_size
@@ -284,15 +310,22 @@ def convert_ybb_to_db(
             chunk_estimated_bytes += len(record[0]) + len(record[1])
 
             if len(chunk_records) >= chunk_positions or chunk_estimated_bytes >= chunk_bytes:
-                run_index = flush_chunk(chunk_records, run_paths, work_dir, run_index)
+                run_index = flush_chunk(
+                    chunk_records,
+                    run_paths,
+                    work_dir,
+                    run_index,
+                    index + 1,
+                    record_count,
+                )
                 chunk_estimated_bytes = 0
 
-    flush_chunk(chunk_records, run_paths, work_dir, run_index)
-    run_paths = reduce_db_runs(run_paths, work_dir, max_open_runs)
-    write_final_db(run_paths, output_db)
+    flush_chunk(chunk_records, run_paths, work_dir, run_index, record_count, record_count)
+    run_paths = reduce_db_runs(run_paths, work_dir, max_open_runs, chunk_positions)
+    write_final_db(run_paths, output_db, chunk_positions)
 
 
-def write_final_db(run_paths: list[Path], output_db: Path) -> None:
+def write_final_db(run_paths: list[Path], output_db: Path, progress_interval: int) -> None:
     output_db.parent.mkdir(parents=True, exist_ok=True)
     output_tmp = output_db.with_name(output_db.name + ".tmp")
     total = sum(read_db_run_count(path) for path in run_paths)
@@ -305,8 +338,15 @@ def write_final_db(run_paths: list[Path], output_db: Path) -> None:
             if run_paths:
                 with ExitStack() as stack:
                     readers = [stack.enter_context(DbRunReader(path)) for path in run_paths]
+                    done = 0
                     for _, block in iter_merged_db_records(readers):
                         output_file.write(block)
+                        done += 1
+                        if should_report_progress(done, total, progress_interval):
+                            print(
+                                f"write db progress: {output_db} "
+                                f"({format_position_progress(done, total)})"
+                            )
 
         os.replace(output_tmp, output_db)
     except Exception:
@@ -346,6 +386,7 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
 
+    tmp_dir_existed = args.tmp_dir.exists()
     work_dir = make_work_dir(args.tmp_dir)
     try:
         convert_ybb_to_db(
@@ -360,7 +401,7 @@ def main() -> None:
         if args.keep_temp:
             print(f"keep temp: {work_dir}")
         else:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            cleanup_work_dir(work_dir, args.tmp_dir, tmp_dir_existed)
 
     print(f"wrote: {args.output_db}")
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import heapq
 import os
-import shutil
 import struct
 import sys
 import tempfile
@@ -30,7 +29,11 @@ from YaneuraOuBookLib import (
     YBB_MAGIC as MAGIC,
     YBB_MOVE_DEPTH_STRUCT as MOVE_DEPTH_STRUCT,
     YBB_MOVE_STRUCT as MOVE_STRUCT,
+    cleanup_work_dir,
+    count_yaneuraou_db_positions,
+    format_position_progress,
     pack_sfen,
+    should_report_progress,
     trim_sfen_ply,
     usi_to_move16,
     ybb_path_from_output,
@@ -198,16 +201,31 @@ def write_ybb_run(records: list[YbbRunRecord], path: Path, move_record_size: int
             writer.write(record)
 
 
-def merge_ybb_runs_to_run(run_paths: list[Path], output_path: Path, move_record_size: int) -> None:
+def merge_ybb_runs_to_run(
+    run_paths: list[Path],
+    output_path: Path,
+    move_record_size: int,
+    progress_interval: int,
+) -> None:
     total = sum(read_ybb_run_count(path) for path in run_paths)
     with ExitStack() as stack:
         readers = [stack.enter_context(YbbRunReader(path, move_record_size)) for path in run_paths]
         writer = stack.enter_context(YbbRunWriter(output_path, total, move_record_size))
+        done = 0
         for record in iter_merged_ybb_records(readers):
             writer.write(record)
+            done += 1
+            if should_report_progress(done, total, progress_interval):
+                print(f"merge run progress: {output_path} ({format_position_progress(done, total)})")
 
 
-def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int, move_record_size: int) -> list[Path]:
+def reduce_ybb_runs(
+    run_paths: list[Path],
+    work_dir: Path,
+    max_open_runs: int,
+    move_record_size: int,
+    progress_interval: int,
+) -> list[Path]:
     if max_open_runs < 2:
         raise ValueError("--max-open-runs must be at least 2")
 
@@ -222,8 +240,12 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int, m
                 continue
 
             output_path = work_dir / f"merge-{stage:02d}-{group_index:06d}.run"
-            print(f"merge runs: {len(group)} -> {output_path}")
-            merge_ybb_runs_to_run(group, output_path, move_record_size)
+            group_total = sum(read_ybb_run_count(path) for path in group)
+            print(
+                f"merge runs: {len(group)} -> {output_path} "
+                f"(positions={group_total:,})"
+            )
+            merge_ybb_runs_to_run(group, output_path, move_record_size, progress_interval)
             next_runs.append(output_path)
             for path in group:
                 path.unlink(missing_ok=True)
@@ -234,7 +256,13 @@ def reduce_ybb_runs(run_paths: list[Path], work_dir: Path, max_open_runs: int, m
     return current
 
 
-def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_record_size: int) -> None:
+def write_final_ybb(
+    run_paths: list[Path],
+    output_base: Path,
+    flags: int,
+    move_record_size: int,
+    progress_interval: int,
+) -> None:
     output_path = ybb_path_from_output(output_base)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -247,6 +275,7 @@ def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_r
             output_file.write(HEADER_STRUCT.pack(MAGIC, total, flags))
             index_offset = HEADER_STRUCT.size
             move_offset = 0
+            done = 0
 
             if run_paths:
                 with ExitStack() as stack:
@@ -259,6 +288,12 @@ def write_final_ybb(run_paths: list[Path], output_base: Path, flags: int, move_r
                         output_file.write(INDEX_STRUCT.pack(packed_sfen, move_offset, ply, move_count))
                         index_offset += INDEX_STRUCT.size
                         move_offset += len(moves_blob)
+                        done += 1
+                        if should_report_progress(done, total, progress_interval):
+                            print(
+                                f"write ybb progress: {output_path} "
+                                f"({format_position_progress(done, total)})"
+                            )
 
         os.replace(output_tmp, output_path)
     except Exception:
@@ -272,11 +307,16 @@ def flush_chunk(
     work_dir: Path,
     run_index: int,
     move_record_size: int,
+    processed_positions: int,
+    total_positions: int | None,
 ) -> int:
     if not records:
         return run_index
     run_path = work_dir / f"db-to-ybb-{run_index:06d}.run"
-    print(f"write run: {run_path} ({len(records)} positions)")
+    print(
+        f"write run: {run_path} "
+        f"(chunk={len(records):,} positions, {format_position_progress(processed_positions, total_positions)})"
+    )
     write_ybb_run(records, run_path, move_record_size)
     run_paths.append(run_path)
     records.clear()
@@ -300,6 +340,8 @@ def convert_db_to_ybb(
     chunk_estimated_bytes = 0
     run_index = 0
     total_positions = 0
+    input_positions = count_yaneuraou_db_positions(input_db)
+    print(f"input positions: {input_positions:,}")
 
     current_packed_sfen: bytes | None = None
     current_ply = 1
@@ -320,7 +362,15 @@ def convert_db_to_ybb(
             total_positions += 1
 
             if len(chunk_records) >= chunk_positions or chunk_estimated_bytes >= chunk_bytes:
-                run_index = flush_chunk(chunk_records, run_paths, work_dir, run_index, move_record_size)
+                run_index = flush_chunk(
+                    chunk_records,
+                    run_paths,
+                    work_dir,
+                    run_index,
+                    move_record_size,
+                    total_positions,
+                    input_positions,
+                )
                 chunk_estimated_bytes = 0
 
         current_packed_sfen = None
@@ -359,11 +409,22 @@ def convert_db_to_ybb(
                 raise ValueError(f"line {line_number}: too many moves: {current_sfen}")
 
     finish_current()
-    flush_chunk(chunk_records, run_paths, work_dir, run_index, move_record_size)
+    flush_chunk(
+        chunk_records,
+        run_paths,
+        work_dir,
+        run_index,
+        move_record_size,
+        total_positions,
+        input_positions,
+    )
 
-    print(f"read positions: {total_positions}")
-    run_paths = reduce_ybb_runs(run_paths, work_dir, max_open_runs, move_record_size)
-    write_final_ybb(run_paths, output_base, flags, move_record_size)
+    print(
+        f"read positions: {total_positions:,} "
+        f"(input={input_positions:,}, skipped={max(input_positions - total_positions, 0):,})"
+    )
+    run_paths = reduce_ybb_runs(run_paths, work_dir, max_open_runs, move_record_size, chunk_positions)
+    write_final_ybb(run_paths, output_base, flags, move_record_size, chunk_positions)
 
 
 def make_work_dir(tmp_dir: Path) -> Path:
@@ -398,6 +459,7 @@ def main() -> None:
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
 
+    tmp_dir_existed = args.tmp_dir.exists()
     work_dir = make_work_dir(args.tmp_dir)
     try:
         convert_db_to_ybb(
@@ -413,7 +475,7 @@ def main() -> None:
         if args.keep_temp:
             print(f"keep temp: {work_dir}")
         else:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            cleanup_work_dir(work_dir, args.tmp_dir, tmp_dir_existed)
 
     print(f"wrote: {ybb_path_from_output(args.output_base)}")
 

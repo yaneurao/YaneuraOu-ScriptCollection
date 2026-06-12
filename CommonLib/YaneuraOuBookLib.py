@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,66 @@ def read_text_lines(path: str):
             line = raw.rstrip("\n").rstrip("\r").strip(" \t")
             if line != "":
                 yield line
+
+
+def parse_yaneuraou_noe(line: str) -> int | None:
+    line = line.strip()
+    if not line.startswith("#"):
+        return None
+
+    body = line[1:].strip()
+    if not body.upper().startswith("NOE"):
+        return None
+
+    value_text = body[3:].strip()
+    if value_text.startswith(":") or value_text.startswith("="):
+        value_text = value_text[1:].strip()
+    if not value_text:
+        return None
+
+    token = value_text.split()[0].replace(",", "")
+    return int(token) if token.isdigit() else None
+
+
+def count_yaneuraou_db_positions(path: str | Path) -> int:
+    count = 0
+    with Path(path).open("r", encoding="utf-8-sig", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            noe = parse_yaneuraou_noe(line)
+            if noe is not None:
+                return noe
+            if line.startswith("sfen "):
+                count += 1
+    return count
+
+
+def format_position_progress(done: int, total: int | None) -> str:
+    if total is None:
+        return f"done={done:,}, total=unknown, remaining=unknown"
+
+    remaining = max(total - done, 0)
+    percent = 100.0 if total == 0 else done * 100.0 / total
+    return f"done={done:,}/{total:,}, remaining={remaining:,}, {percent:.2f}%"
+
+
+def should_report_progress(done: int, total: int | None, interval: int) -> bool:
+    if done <= 0:
+        return False
+    if total is not None and done >= total:
+        return True
+    return interval > 0 and done % interval == 0
+
+
+def cleanup_work_dir(work_dir: str | Path, tmp_dir: str | Path, tmp_dir_existed: bool) -> None:
+    shutil.rmtree(work_dir, ignore_errors=True)
+    if tmp_dir_existed:
+        return
+
+    try:
+        Path(tmp_dir).rmdir()
+    except OSError:
+        pass
 
 
 def split_space_tokens(line: str) -> list[str]:
