@@ -10,7 +10,7 @@ ARFLAGS = rcs
 
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -ffunction-sections -fdata-sections
 CPPFLAGS ?=
-CPPFLAGS += -isystem $(YANEURAOU_ROOT) -DUSE_PIECE_VALUE -DUSE_SFEN_PACKER -DNO_SSE -DTARGET_CPU=\"OTHER\" -DUNICODE
+CPPFLAGS += -isystem $(YANEURAOU_ROOT) -DUSE_PIECE_VALUE -DNO_SSE -DTARGET_CPU=\"OTHER\" -DUNICODE
 YANEURAOU_WARNINGS := \
 	-Wno-unused-parameter \
 	-Wno-sign-compare \

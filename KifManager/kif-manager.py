@@ -317,6 +317,7 @@ class ExtractorPane(ttk.Frame):
                 "floodgate棋譜の対局日で絞り込みます。\n"
                 "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
                 "月日を1桁で書いても構いません。\n"
+                "年だけの場合は、その年の1月1日として扱います。\n"
                 "空欄なら下限なしです。",
                 width=14,
             )
@@ -327,6 +328,7 @@ class ExtractorPane(ttk.Frame):
                 "floodgate棋譜の対局日で絞り込みます。\n"
                 "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
                 "月日を1桁で書いても構いません。\n"
+                "年だけの場合は、その年の12月31日として扱います。\n"
                 "空欄なら上限なしです。",
                 width=14,
             )
@@ -498,8 +500,8 @@ class ExtractorPane(ttk.Frame):
         min_rating = self._parse_min_rating()
         start_year = self._parse_year(self.start_year.get().strip(), "開始年")
         end_year = self._parse_year(self.end_year.get().strip(), "終了年")
-        start_date = self._parse_date(self.start_date.get().strip(), "開始日")
-        end_date = self._parse_date(self.end_date.get().strip(), "終了日")
+        start_date = self._parse_date(self.start_date.get().strip(), "開始日", year_only_month_day=(1, 1))
+        end_date = self._parse_date(self.end_date.get().strip(), "終了日", year_only_month_day=(12, 31))
         reversal_threshold = self._parse_reversal_threshold()
         if start_year is not None and end_year is not None and start_year > end_year:
             raise ValueError("開始年は終了年以下を指定してください。")
@@ -571,10 +573,16 @@ class ExtractorPane(ttk.Frame):
             raise ValueError(f"{label} は1以上を指定してください。")
         return year
 
-    def _parse_date(self, value: str, label: str) -> date | None:
+    def _parse_date(
+        self,
+        value: str,
+        label: str,
+        *,
+        year_only_month_day: tuple[int, int],
+    ) -> date | None:
         if self.kind.key != "floodgate" or not value:
             return None
-        return parse_date_value(value, label)
+        return parse_date_value(value, label, year_only_month_day=year_only_month_day)
 
     def settings(self) -> dict[str, str]:
         return {
