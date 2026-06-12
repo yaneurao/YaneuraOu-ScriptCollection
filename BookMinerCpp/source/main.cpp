@@ -23,6 +23,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
@@ -54,6 +55,27 @@ constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settin
 constexpr int PetaShockProgressIntervalSeconds = 10;
 constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
+
+bool is_yaneuraou_progress_bar_line(const std::string& line)
+{
+    constexpr std::string_view Prefix = "0% [";
+    constexpr std::string_view Suffix = "] 100%";
+    std::string_view view(line);
+    while (!view.empty() && view.back() == '\r')
+        view.remove_suffix(1);
+    if (view.size() <= Prefix.size() + Suffix.size())
+        return false;
+    if (view.substr(0, Prefix.size()) != Prefix)
+        return false;
+    if (view.substr(view.size() - Suffix.size()) != Suffix)
+        return false;
+
+    view.remove_prefix(Prefix.size());
+    view.remove_suffix(Suffix.size());
+    return !view.empty() && std::all_of(view.begin(), view.end(), [](char ch) {
+        return ch == '.';
+    });
+}
 
 class Logger {
 public:
@@ -1199,7 +1221,7 @@ void emit_prefixed_output_line(std::string line)
 {
     if (!line.empty() && line.back() == '\r')
         line.pop_back();
-    if (!line.empty())
+    if (!line.empty() && !is_yaneuraou_progress_bar_line(line))
         log_line("[peta_shock] " + line);
 }
 

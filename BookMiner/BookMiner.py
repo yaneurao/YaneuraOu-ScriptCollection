@@ -1789,6 +1789,15 @@ def to_book_dir_relative_path(path:str)->str:
     return rel.replace(os.sep, '/')
 
 
+def is_yaneuraou_progress_bar_line(line:str)->bool:
+    line = line.strip()
+    if not line.startswith("0% [") or not line.endswith("] 100%"):
+        return False
+
+    bar = line[len("0% ["):-len("] 100%")]
+    return bool(bar) and all(ch == "." for ch in bar)
+
+
 def run_peta_shock_makebook(source_book_path:str)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
@@ -1864,7 +1873,7 @@ def run_peta_shock_makebook(source_book_path:str)->str:
                 output_done = True
             else:
                 line = line.rstrip()
-                if line:
+                if line and not is_yaneuraou_progress_bar_line(line):
                     print(f"[peta_shock] {line}")
         except queue.Empty:
             pass
