@@ -7,12 +7,16 @@ import argparse
 import sys
 from dataclasses import dataclass
 from collections import defaultdict
+from pathlib import Path
 
 import cshogi  # type: ignore
 import numpy as np
 
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+if str(COMMON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_LIB_DIR))
+import YaneuraOuBookLib as BookLib
 
-YANEURAOU_BOOK_HEADER_V1 = "#YANEURAOU-DB2016 1.00"
 
 SQ_NB = 81
 APERY_PROMOTE = 1 << 14
@@ -35,26 +39,6 @@ class BookMove:
     value: int
     depth: int
     move_count: int
-
-
-def trim_number(s: str) -> str:
-    end = len(s)
-    while end > 0 and s[end - 1] in (" ", "\t", "\r", "\n"):
-        end -= 1
-    while end > 0 and s[end - 1].isdigit():
-        end -= 1
-    while end > 0 and s[end - 1] in (" ", "\t", "\r", "\n"):
-        end -= 1
-    return s[:end]
-
-
-def sfen_ply(sfen: str) -> int:
-    left = trim_number(sfen)
-    tail = sfen[len(left) :]
-    try:
-        return int(tail.strip())
-    except ValueError:
-        return 0
 
 
 def square_to_usi(sq: int) -> str:
@@ -90,12 +74,6 @@ def insert_book_move(book: dict[str, list[BookMove]], sfen: str, new_move: BookM
             moves[i] = new_move
             return
     moves.append(new_move)
-
-
-def normalize_sfen(sfen: str) -> str:
-    board = cshogi.Board()
-    board.set_sfen(sfen)
-    return board.sfen()
 
 
 def read_apery_entries(path: str) -> dict[int, list[BookMove]]:
@@ -146,7 +124,7 @@ def convert_from_apery(src: str, dst: str, unreg_depth: int) -> None:
 
         sfen = board.sfen()
         if unreg_depth == unreg_depth_current:
-            sfen_for_key = trim_number(sfen)
+            sfen_for_key = BookLib.trim_number(sfen)
             if sfen_for_key in seen:
                 return
             seen.add(sfen_for_key)
@@ -159,7 +137,7 @@ def convert_from_apery(src: str, dst: str, unreg_depth: int) -> None:
                 return
         else:
             if unreg_depth != unreg_depth_current:
-                sfen_for_key = trim_number(sfen)
+                sfen_for_key = BookLib.trim_number(sfen)
                 if sfen_for_key in seen:
                     return
                 seen.add(sfen_for_key)
@@ -203,35 +181,19 @@ def convert_from_apery(src: str, dst: str, unreg_depth: int) -> None:
 
 
 def write_yaneuraou_book(book: dict[str, list[BookMove]], dst: str) -> None:
-    vectored_book: list[tuple[str, list[BookMove]]] = []
-    book_ply: dict[str, int] = {}
-
+    converted: dict[str, list[BookLib.BookMove]] = {}
     for sfen, moves in book.items():
-        if not moves:
-            continue
-        normalized = normalize_sfen(sfen)
-        vectored_book.append((normalized, moves))
-        sfen_left = trim_number(normalized)
-        ply = sfen_ply(normalized)
-        book_ply[sfen_left] = min(book_ply.get(sfen_left, ply), ply)
-
-    vectored_book.sort(key=lambda item: item[0])
-
-    with open(dst, "w", encoding="utf-8", newline="\r\n") as f:
-        f.write(YANEURAOU_BOOK_HEADER_V1 + "\n")
-        for sfen, moves in vectored_book:
-            sfen_left = trim_number(sfen)
-            if book_ply[sfen_left] != sfen_ply(sfen):
-                continue
-
-            f.write(f"sfen {sfen}\n")
-            for move in sorted_book_moves(moves):
-                f.write(
-                    f"{apery_move16_to_usi(move.move)} "
-                    f"{apery_move16_to_usi(move.ponder)} "
-                    f"{move.value} {move.depth} {move.move_count}\n"
-                )
-
+        converted[sfen] = [
+            BookLib.BookMove(
+                apery_move16_to_usi(move.move),
+                apery_move16_to_usi(move.ponder),
+                move.value,
+                move.depth,
+                move.move_count,
+            )
+            for move in moves
+        ]
+    BookLib.write_yaneuraou_book(converted, dst)
     print(f"wrote = {dst}")
 
 

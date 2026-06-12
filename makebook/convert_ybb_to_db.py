@@ -12,90 +12,38 @@ import heapq
 import os
 import shutil
 import struct
+import sys
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from typing import BinaryIO
 
-import cshogi
-import numpy as np
-
-
-MAGIC = b"YANE-BINBOOK-V1\0"
-FLAG_MOVE_DEPTH = 1
-KNOWN_FLAGS = FLAG_MOVE_DEPTH
-HEADER_STRUCT = struct.Struct("<16sQQ")
-INDEX_STRUCT = struct.Struct("<32sQHH")
-MOVE_STRUCT = struct.Struct("<Hh")
-MOVE_DEPTH_STRUCT = struct.Struct("<HhH")
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+if str(COMMON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_LIB_DIR))
+from YaneuraOuBookLib import (
+    YANEURAOU_BOOK_HEADER_V1,
+    YBB_FLAG_MOVE_DEPTH as FLAG_MOVE_DEPTH,
+    YBB_HEADER_STRUCT as HEADER_STRUCT,
+    YBB_INDEX_STRUCT as INDEX_STRUCT,
+    YBB_MOVE_DEPTH_STRUCT as MOVE_DEPTH_STRUCT,
+    YBB_MOVE_STRUCT as MOVE_STRUCT,
+    board_from_packed_sfen,
+    move16_to_usi,
+    read_ybb_header,
+    resolve_ybb_input,
+    trim_number,
+)
 
 RUN_MAGIC = b"DBRUN1\0\0"
 RUN_HEADER_STRUCT = struct.Struct("<8sQ")
 RUN_RECORD_STRUCT = struct.Struct("<II")
-
-MOVE_NONE = 0
-MOVE_NULL = (1 << 7) + 1
-MOVE_RESIGN = (2 << 7) + 2
-MOVE_WIN = (3 << 7) + 3
 
 DEFAULT_CHUNK_POSITIONS = 500_000
 DEFAULT_CHUNK_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_OPEN_RUNS = 64
 
 DbRunRecord = tuple[bytes, bytes]
-
-
-def ybb_single_path_from_base(base_path: Path) -> Path:
-    return base_path.with_name(f"{base_path.name}.ybb")
-
-
-def resolve_ybb_input(path: Path) -> Path:
-    name = path.name
-    if name.endswith("-index.ybb") or name.endswith("-moves.ybb"):
-        raise ValueError(f"split ybb is not supported. specify a single .ybb path: {path}")
-    if name.endswith(".ybb"):
-        return path
-    return ybb_single_path_from_base(path)
-
-
-def trim_sfen_ply(sfen: str) -> tuple[str, int]:
-    tokens = sfen.split()
-    if tokens and tokens[0] == "sfen":
-        tokens = tokens[1:]
-    ply = 1
-    if tokens:
-        try:
-            ply = int(tokens[-1])
-            tokens = tokens[:-1]
-        except ValueError:
-            pass
-    return " ".join(tokens), ply
-
-
-def board_from_packed_sfen(packed_sfen: bytes) -> cshogi.Board:
-    board = cshogi.Board()
-    psfen = np.frombuffer(packed_sfen, dtype=cshogi.PackedSfen, count=1)
-    board.set_psfen(psfen)
-    return board
-
-
-def move16_to_usi(board: cshogi.Board, move16: int) -> str:
-    if move16 == MOVE_NONE:
-        return "none"
-    if move16 == MOVE_NULL:
-        return "null"
-    if move16 == MOVE_RESIGN:
-        return "resign"
-    if move16 == MOVE_WIN:
-        return "win"
-
-    # .ybb stores YaneuraOu Move16. cshogi's PSV move16 encoding has the same
-    # bit layout, so convert it back to cshogi's internal move16 first.
-    cshogi_move16 = cshogi.move16_from_psv(move16)
-    move = board.move_from_move16(cshogi_move16)
-    if move == cshogi.MOVE_NONE:
-        return "none"
-    return cshogi.move_to_usi(move)
 
 
 class DbRunWriter:
@@ -261,19 +209,6 @@ def flush_chunk(records: list[DbRunRecord], run_paths: list[Path], work_dir: Pat
     return run_index + 1
 
 
-def read_ybb_header(index_path: Path) -> tuple[int, int]:
-    with index_path.open("rb") as index_file:
-        header = index_file.read(HEADER_STRUCT.size)
-    if len(header) != HEADER_STRUCT.size:
-        raise ValueError(f"broken ybb header: {index_path}")
-    magic, record_count, flags = HEADER_STRUCT.unpack(header)
-    if magic != MAGIC:
-        raise ValueError(f"invalid ybb magic: {index_path}")
-    if flags & ~KNOWN_FLAGS:
-        raise ValueError(f"unknown ybb flags: {flags}")
-    return int(record_count), int(flags)
-
-
 def ybb_record_to_db_block(
     packed_sfen: bytes,
     ply: int,
@@ -281,7 +216,7 @@ def ybb_record_to_db_block(
     flags: int,
 ) -> DbRunRecord:
     board = board_from_packed_sfen(packed_sfen)
-    sfen_no_ply, _ = trim_sfen_ply(board.sfen())
+    sfen_no_ply = trim_number(board.sfen())
 
     move_struct = MOVE_DEPTH_STRUCT if flags & FLAG_MOVE_DEPTH else MOVE_STRUCT
     moves: list[tuple[int, int, int]] = []
@@ -364,7 +299,7 @@ def write_final_db(run_paths: list[Path], output_db: Path) -> None:
 
     try:
         with output_tmp.open("wb") as output_file:
-            output_file.write(b"#YANEURAOU-DB2016 1.00\n")
+            output_file.write(f"{YANEURAOU_BOOK_HEADER_V1}\n".encode("ascii"))
             output_file.write(f"# NOE:{total}\n".encode("ascii"))
 
             if run_paths:

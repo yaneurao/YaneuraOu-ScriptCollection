@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+if str(COMMON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_LIB_DIR))
 from YaneuraOuBookLib import read_yaneuraou_book, write_yaneuraou_book
 
 

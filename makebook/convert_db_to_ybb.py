@@ -12,79 +12,39 @@ import heapq
 import os
 import shutil
 import struct
+import sys
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from typing import BinaryIO
 
 import cshogi
-import numpy as np
 
-
-MAGIC = b"YANE-BINBOOK-V1\0"
-FLAG_MOVE_DEPTH = 1
-HEADER_STRUCT = struct.Struct("<16sQQ")
-INDEX_STRUCT = struct.Struct("<32sQHH")
-MOVE_STRUCT = struct.Struct("<Hh")
-MOVE_DEPTH_STRUCT = struct.Struct("<HhH")
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+if str(COMMON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_LIB_DIR))
+from YaneuraOuBookLib import (
+    YBB_FLAG_MOVE_DEPTH as FLAG_MOVE_DEPTH,
+    YBB_HEADER_STRUCT as HEADER_STRUCT,
+    YBB_INDEX_STRUCT as INDEX_STRUCT,
+    YBB_MAGIC as MAGIC,
+    YBB_MOVE_DEPTH_STRUCT as MOVE_DEPTH_STRUCT,
+    YBB_MOVE_STRUCT as MOVE_STRUCT,
+    pack_sfen,
+    trim_sfen_ply,
+    usi_to_move16,
+    ybb_path_from_output,
+)
 
 RUN_MAGIC = b"YBBRUN1\0"
 RUN_HEADER_STRUCT = struct.Struct("<8sQ")
 RUN_RECORD_STRUCT = struct.Struct("<32sHH")
-
-MOVE_NONE = 0
-MOVE_NULL = (1 << 7) + 1
-MOVE_RESIGN = (2 << 7) + 2
-MOVE_WIN = (3 << 7) + 3
 
 DEFAULT_CHUNK_POSITIONS = 500_000
 DEFAULT_CHUNK_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_OPEN_RUNS = 64
 
 YbbRunRecord = tuple[bytes, int, bytes]
-
-
-def ybb_path_from_output(path: Path) -> Path:
-    if path.suffix == ".ybb":
-        return path
-    return path.with_name(f"{path.name}.ybb")
-
-
-def trim_sfen_ply(sfen: str) -> tuple[str, int]:
-    tokens = sfen.split()
-    if tokens and tokens[0] == "sfen":
-        tokens = tokens[1:]
-    ply = 1
-    if tokens:
-        try:
-            ply = int(tokens[-1])
-            tokens = tokens[:-1]
-        except ValueError:
-            pass
-    return " ".join(tokens), ply
-
-
-def pack_sfen(board: cshogi.Board) -> bytes:
-    psfen = np.empty(1, dtype=cshogi.PackedSfen)
-    board.to_psfen(psfen)
-    return psfen[0]["sfen"].tobytes()
-
-
-def usi_to_move16(board: cshogi.Board, usi: str) -> int:
-    if usi in ("none", "None"):
-        return MOVE_NONE
-    if usi in ("null", "0000", "pass"):
-        return MOVE_NULL
-    if usi == "resign":
-        return MOVE_RESIGN
-    if usi == "win":
-        return MOVE_WIN
-    move = board.move_from_usi(usi)
-    if move == cshogi.MOVE_NONE:
-        raise ValueError(f"invalid move for position: {usi} / {board.sfen()}")
-    # .ybb stores YaneuraOu Move16. cshogi's PSV move16 encoding has the same
-    # bit layout, while cshogi.move16() itself uses different drop/promote bits.
-    return int(cshogi.move16_to_psv(cshogi.move16(move)))
 
 
 def parse_move_line(line: str) -> tuple[str, int, int] | None:

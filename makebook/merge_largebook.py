@@ -10,7 +10,23 @@ import sys
 import tempfile
 from pathlib import Path
 
-from YaneuraOuBookLib import BookMove, read_yaneuraou_book_blocks, write_yaneuraou_book_block, write_yaneuraou_header
+from convert_db_to_ybb import (
+    DEFAULT_CHUNK_BYTES,
+    DEFAULT_MAX_OPEN_RUNS,
+    convert_db_to_ybb,
+)
+
+COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
+if str(COMMON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_LIB_DIR))
+from YaneuraOuBookLib import (
+    BookMove,
+    is_ybb_path,
+    read_yaneuraou_book_blocks,
+    write_yaneuraou_book_block,
+    write_yaneuraou_header,
+    ybb_path_from_output,
+)
 from sort_largebook import DEFAULT_CHUNK_POSITIONS, tmp_root_from_arg
 
 
@@ -117,6 +133,8 @@ def merge_largebook(
     *,
     tmp_dir: str | None,
     chunk_positions: int,
+    chunk_bytes: int,
+    max_open_runs: int,
     ignore_book_ply: bool,
     keep_temp: bool,
 ) -> None:
@@ -140,9 +158,20 @@ def merge_largebook(
             chunk_positions=chunk_positions,
             ignore_book_ply=ignore_book_ply,
         )
+        output_db = str(work_dir / "merged.db") if is_ybb_path(dst) else dst
         same_nodes, different_nodes1, different_nodes2, positions, entries = merge_sorted_books(
-            sorted1, sorted2, dst
+            sorted1, sorted2, output_db
         )
+        if is_ybb_path(dst):
+            convert_db_to_ybb(
+                Path(output_db),
+                ybb_path_from_output(Path(dst)),
+                work_dir,
+                chunk_positions,
+                chunk_bytes,
+                max_open_runs,
+                True,
+            )
         print(f"same nodes = {same_nodes} , different nodes =  {different_nodes1} + {different_nodes2}")
         print(f"positions = {positions}")
         print(f"entries   = {entries}")
@@ -173,6 +202,18 @@ def main() -> None:
         help=f"positions per sort run; default {DEFAULT_CHUNK_POSITIONS}",
     )
     parser.add_argument(
+        "--chunk-bytes",
+        type=int,
+        default=DEFAULT_CHUNK_BYTES,
+        help=f"bytes per ybb conversion run; default {DEFAULT_CHUNK_BYTES}",
+    )
+    parser.add_argument(
+        "--max-open-runs",
+        type=int,
+        default=DEFAULT_MAX_OPEN_RUNS,
+        help=f"max ybb conversion runs to open at once; default {DEFAULT_MAX_OPEN_RUNS}",
+    )
+    parser.add_argument(
         "--ignore-book-ply",
         action="store_true",
         help="ignore ply when reading source positions",
@@ -186,6 +227,10 @@ def main() -> None:
 
     if args.chunk_positions <= 0:
         raise SystemExit("--chunk-positions must be positive")
+    if args.chunk_bytes <= 0:
+        raise SystemExit("--chunk-bytes must be positive")
+    if args.max_open_runs < 2:
+        raise SystemExit("--max-open-runs must be at least 2")
 
     merge_largebook(
         args.src1,
@@ -193,6 +238,8 @@ def main() -> None:
         args.dst,
         tmp_dir=args.tmp_dir,
         chunk_positions=args.chunk_positions,
+        chunk_bytes=args.chunk_bytes,
+        max_open_runs=args.max_open_runs,
         ignore_book_ply=args.ignore_book_ply,
         keep_temp=args.keep_temp,
     )
