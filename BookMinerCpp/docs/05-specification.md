@@ -25,7 +25,7 @@ q                 保存して終了
 !                 保存せず終了
 w [ply_limit]     通常DBを手動保存
 p                 通常DB保存、peta_shock、peta book 読み込み
-r [path]          指定DB、または最新通常DBを peta_shock して読み込み
+r [path]          指定 peta book、または最新 peta book を読み込み
 n eval_diff [max_step]
 t [path]
 e eval_limit
@@ -77,13 +77,13 @@ book_miner-....ybb.tmp
 
 ## peta book
 
-`p` / `r` によって作られる peta book は、現時点では従来のやねうら王標準定跡 `.db` です。
+`p` または外部の `makebook peta_shock` によって作られる peta book は、現時点では従来のやねうら王標準定跡 `.db` です。
 
 ```text
 book/backup/peta_book-YYYYMMDDHHMMSS_N.db
 ```
 
-BookMinerCpp は peta shock 化を自前実装せず、`YO-MATERIAL.exe` に次のようなコマンドを送ります。
+BookMinerCpp は `p` コマンドでの peta shock 化を自前実装せず、`YO-MATERIAL.exe` に次のようなコマンドを送ります。
 
 ```text
 setoption name BookDir value book
@@ -95,6 +95,8 @@ quit
 ```
 
 成功後に `.tmp` を `.db` へ置き換えます。
+
+`r` コマンドは peta shock 化を行わず、既に存在する `peta_book-....db` を読み込みます。path 省略時は `book/backup/` にある最新の peta book を選びます。
 
 ## 内部データモデル
 
@@ -282,6 +284,7 @@ GUI が拾う主なタグは Python 版と揃えます。
 [TaskQueueDone]
 [MiningProgress]
 [PetaCommandDone]
+[PetaReadDone]
 [PetaNextDone]
 ```
 

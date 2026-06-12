@@ -56,12 +56,12 @@
   <text class="text small" x="918" y="266">通常はこちら</text>
 
   <rect class="group" x="55" y="345" width="280" height="185" rx="14"/>
-  <text class="text" x="195" y="377">変換だけ行う</text>
+  <text class="text" x="195" y="377">peta_bookを読む</text>
   <rect class="make" x="92" y="410" width="86" height="58" rx="10"/>
   <text class="code" x="135" y="446">r</text>
-  <text class="text small" x="235" y="434">既存DBを</text>
-  <text class="text small" x="235" y="456">peta_shock化</text>
-  <text class="text small" x="195" y="502">通常運用では p のほうが安全</text>
+  <text class="text small" x="235" y="434">外部変換済み</text>
+  <text class="text small" x="235" y="456">peta_bookを読む</text>
+  <text class="text small" x="195" y="502">先にbook/backupへ置く</text>
 
   <rect class="group" x="390" y="345" width="280" height="185" rx="14"/>
   <text class="text" x="530" y="377">確認・修復</text>

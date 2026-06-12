@@ -82,9 +82,9 @@ w 100
 book/backup/book_miner-20260607071000_12345_ply100.db
 ```
 
-`r` コマンドが自動選択するのは、`_plyN` が付いていない最新バックアップです。
+`_plyN` 付きのファイルは一部だけを書き出したものです。起動時の自動読み込み対象にはなりません。
 
-書き出しは一度 `*.db.tmp` に行い、完了後に `*.db` へ置換します。書き出し途中のファイルを `r` が読まないようにするためです。
+書き出しは一度 `*.db.tmp` に行い、完了後に `*.db` へ置換します。書き出し途中のファイルを完成済みバックアップとして扱わないためです。
 
 ## `p`
 
@@ -94,11 +94,11 @@ book/backup/book_miner-20260607071000_12345_ply100.db
 p
 ```
 
-`p` は、手作業で `w` の完了を確認してから `r` を入力する代わりに使うコマンドです。
+`p` は、現在の定跡 DB をその場で peta shock 化し、すぐに `peta_book` として使えるようにするコマンドです。
 
 重要なのは、`p` は `book/backup/` の最新ファイルを探すのではなく、`p` 自身がいま書き出したバックアップファイルをそのまま peta shock 化することです。これにより、定期自動バックアップや別の書き出しとタイミングが重なった場合でも、意図しないファイルを変換元にしにくくなります。
 
-通常の周回作業では、`w` と `r` を個別に使うより `p` を使うほうが安全です。
+通常の周回作業では、BookMiner が動いている環境で `p` を使うのが基本です。
 
 `p` で作られる通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。
 
@@ -107,24 +107,23 @@ book/backup/book_miner-20260607103251_14505901.db
 book/backup/peta_book-20260607103251_14505901.db
 ```
 
-`r` で明示した変換元のファイル名から局面数が分からない場合は、変換時刻だけを使って `book/backup/peta_book-YYYYMMDDHHMMSS.db` を作ります。
-
 ## `r`
 
-通常定跡 DB を peta shock 化し、生成された `book/backup/peta_book-....db` を読み込みます。
+peta shock 化済みの `book/backup/peta_book-....db` を読み込みます。
 
 ```text
 r
 ```
 
 `r` は read の略です。
+`r` 自体は peta shock 化を行いません。別マシンで変換した定跡を持ち込む場合など、先に自分で `peta_book-....db` を作って `book/backup/` に置いてから使います。
 
-path を省略した場合は、`book/backup/` にある最新の通常バックアップを使います。
+path を省略した場合は、`book/backup/` にある最新の `peta_book-....db` を読みます。
 
-変換元を明示することもできます。
+読み込む peta book を明示することもできます。
 
 ```text
-r book/backup/book_miner-20260607071000_12345.db
+r book/backup/peta_book-20260607071000_12345.db
 ```
 
 指定した path は、まず BookMiner.py の実行フォルダからの相対 path として解決されます。通常は BookMiner フォルダで起動するので、上のように `book/backup/...` と指定します。
@@ -132,18 +131,12 @@ r book/backup/book_miner-20260607071000_12345.db
 次に、`book/` からの相対 path としても解決します。そのため、次の指定も同じファイルを指します。
 
 ```text
-r backup/book_miner-20260607071000_12345.db
+r backup/peta_book-20260607071000_12345.db
 ```
 
-`YO-MATERIAL.exe` の `makebook peta_shock` に渡すときは、BookMiner が `BookDir book` を設定するため、内部的には `backup/book_miner-....db` のような `book/` からの相対 path に変換されます。
-
-`r` は `BookMiner.py` と同じフォルダにある `YO-MATERIAL.exe` を起動します。
-
-内部的には、`book/backup/` の中で一番タイムスタンプが新しい通常定跡 DB から peta shock 化を行い、結果を `book/backup/peta_book-....db` に保存し、それをメモリ内に読み込みます。
+GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....db` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
 
 このあと `n` コマンドを使うと、次に掘る局面を列挙できます。
-
-変換中は `[peta_shock] running...` のようなログが出ます。
 
 ## `n`
 

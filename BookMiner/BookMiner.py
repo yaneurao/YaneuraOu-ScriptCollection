@@ -1680,6 +1680,31 @@ def get_latest_book_backup()->str:
     return path
 
 
+def collect_peta_book_paths()->list[str]:
+    paths : list[str] = []
+    if not os.path.isdir(BOOK_BACKUP_DIR):
+        return paths
+
+    for filename in os.listdir(BOOK_BACKUP_DIR):
+        if not filename.startswith(f"{PETA_BOOK_DB_NAME}-"):
+            continue
+        if not filename.endswith(".db"):
+            continue
+        path = os.path.join(BOOK_BACKUP_DIR, filename)
+        if os.path.isfile(path):
+            paths.append(path)
+
+    paths.sort(key=lambda path: os.path.basename(path))
+    return paths
+
+
+def get_latest_peta_book()->str:
+    paths = collect_peta_book_paths()
+    if not paths:
+        raise Exception(f"peta book file not found : {BOOK_BACKUP_DIR}/{PETA_BOOK_DB_NAME}-*.db")
+    return paths[-1]
+
+
 def load_latest_book_backup(book:Book):
     path = get_latest_book_backup_or_none()
     if path is None:
@@ -1707,6 +1732,26 @@ def resolve_peta_source_book_path(path:str|None)->str:
             return candidate
 
     raise Exception(f"peta source book not found : {path}")
+
+
+def resolve_peta_book_path(path:str|None)->str:
+    """
+    peta_readで読み込むpeta_shock済み定跡DBを返す。
+    path省略時は、book/backup/ の最新 peta_book を用いる。
+    """
+    if path is None:
+        return get_latest_peta_book()
+
+    candidates = [
+        path,
+        os.path.join(BOOK_DIR, path),
+    ]
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    raise Exception(f"peta book not found : {path}")
 
 
 def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
@@ -1845,13 +1890,11 @@ def run_peta_shock_makebook(source_book_path:str)->str:
     return peta_path
 
 
-def read_peta_book(source_book_path:str|None = None):
+def read_peta_book(peta_book_path:str|None = None):
     """
-    最新または指定された通常定跡DBをpeta_shock化し、
-    生成された book/backup/peta_book-*.db を peta_book に読み込む。
+    最新または指定されたpeta_shock済み定跡DBを peta_book に読み込む。
     """
-    source_book_path = resolve_peta_source_book_path(source_book_path)
-    peta_path = run_peta_shock_makebook(source_book_path)
+    peta_path = resolve_peta_book_path(peta_book_path)
 
     print(f"read peta shocked book , path = {peta_path}")
     global peta_book
@@ -1860,15 +1903,24 @@ def read_peta_book(source_book_path:str|None = None):
     print("reading the peta_book has done.")
 
 
+def make_and_read_peta_book(source_book_path:str|None = None):
+    """
+    最新または指定された通常定跡DBをpeta_shock化し、生成されたpeta_bookを読み込む。
+    """
+    source_book_path = resolve_peta_source_book_path(source_book_path)
+    peta_path = run_peta_shock_makebook(source_book_path)
+    read_peta_book(peta_path)
+
+
 def write_and_read_peta_book(book:Book):
     """
     現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
-    `w` の完了を待ってから `r` を手入力する事故を避けるための一括コマンド。
+    周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
     """
     print("start p command : write backup, peta_shock, and read peta book.")
     source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
     print(f"p command source book = {source_book_path}")
-    read_peta_book(source_book_path)
+    make_and_read_peta_book(source_book_path)
     print("..p command has done.")
     print("[PetaCommandDone]")
 
@@ -2303,7 +2355,7 @@ def user_input(from_gui:bool = False):
                 print("  M : merge flipped positions")
                 print("  E : EvalLimit , e [eval_limit]")
                 print("  B : bfs for ply")
-                print("  R    : make and read peta shocked book , r (source book path)")
+                print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
                 print("  H : Help")
@@ -2365,8 +2417,9 @@ def user_input(from_gui:bool = False):
 
             elif i == 'r':
                 # peta_read
-                source_book_path = inp[1] if len(inp) >= 2 else None
-                read_peta_book(source_book_path)
+                peta_book_path = inp[1] if len(inp) >= 2 else None
+                read_peta_book(peta_book_path)
+                print("[PetaReadDone]")
 
             elif i == 'p':
                 # write and peta_read

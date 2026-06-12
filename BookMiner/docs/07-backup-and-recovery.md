@@ -22,7 +22,7 @@ BookMiner は起動時に、`book/backup/` にある最新の通常定跡 DB を
 
 `book/backup/book_miner-....db` は BookMiner 自身が書き出した正規形の DB とみなし、起動時は高速読み込みします。この読み込みでは、先後反転局面との merge や古い評価値形式の補正は行いません。
 
-`p` または `r` で作成される `book/backup/peta_book-....db` も、`makebook peta_shock` が出力した正規形の DB とみなし、高速読み込みします。
+`p` または外部の `makebook peta_shock` で作成される `book/backup/peta_book-....db` も、peta shock 化済みの正規形 DB とみなし、高速読み込みします。
 
 通常定跡 DB がまだ存在しない場合は、空の定跡として起動します。
 
@@ -58,7 +58,7 @@ w
 
 このコマンドは、現在の定跡 DB を `book/backup/` に書き出します。
 
-`p` コマンドも、最初に現在の定跡 DB を `book/backup/` に書き出します。そのあと、書き出したバックアップを peta shock 化して `book/backup/peta_book-....db` として読み込みます。通常の周回作業では `p` を使うと、書き出し完了前に `r` を実行してしまう事故を避けやすくなります。
+`p` コマンドも、最初に現在の定跡 DB を `book/backup/` に書き出します。そのあと、書き出したバックアップを peta shock 化して `book/backup/peta_book-....db` として読み込みます。通常の周回作業では `p` を使うと、書き出しと peta shock 化と読み込みをまとめて実行できます。
 
 手数制限を付けた書き出しもできます。
 

@@ -35,7 +35,7 @@ GUI 上の操作は Python 版と同じです。
 
 ```text
 手順0. 棋譜抽出
-手順1. peta_shock
+手順1. peta_shock / peta_read
 手順2. peta_next
 手順3. enqueue
 手順4. 自動enqueue
@@ -58,6 +58,7 @@ cd YaneuraOu-ScriptCollection/BookMinerCpp
 
 ```text
 p                 現在DBを書き出し、peta_shock 化して読み込む
+r                 最新の peta_book を読み込む
 n 100             peta_next を実行し、think_sfens.txt を作る
 e 400             eval_limit を 400 にする
 t                 book/think_sfens.txt を探索キューへ積む
@@ -111,6 +112,8 @@ book/backup/peta_book-YYYYMMDDHHMMSS_N.db
 
 `N` は変換元の通常DBの局面数です。
 
+`r` コマンドは peta shock 化を実行せず、`book/backup/` にある最新の `peta_book-....db`、または指定した peta book を読み込みます。別マシンで peta shock 化した定跡を使う場合は、その `peta_book-....db` を `book/backup/` に置いてから `r` を実行します。
+
 ## 既存定跡を持ち込む
 
 既存のやねうら王標準定跡 `.db` から始める手順は Python 版と同じです。
@@ -123,4 +126,3 @@ book/backup/book_miner.db
 タイムスタンプ付きの `book_miner-*.db` や `book_miner-*.ybb` がある場合は、そちらが優先されます。
 
 起動後に `p` または `w` で保存すると、以後は `.ybb` の通常バックアップに乗ります。
-

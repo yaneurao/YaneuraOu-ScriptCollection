@@ -52,9 +52,11 @@ python3 BookMiner-gui.py
 
 起動時に `book/backup/book_miner.db` が読み込まれます。
 
-## 手順1. peta_shock 化する
+## 手順1. peta_book を用意して読み込む
 
-既存定跡を読み込んだら、まず peta shock 化します。
+既存定跡を読み込んだら、まず peta shock 化した定跡を BookMiner の `peta_book` として読み込みます。
+
+BookMiner を動かしている環境でそのまま変換できる場合は、`peta_shock` を使います。
 
 CLI:
 
@@ -70,6 +72,24 @@ GUI:
 
 `p` コマンドは、現在メモリ上にある定跡を `book/backup/` に正規の名前で書き出し、そのファイルを peta shock 化して読み込みます。
 
+メモリなどの都合で別マシンで peta shock 化する場合は、先に外部で `peta_book-....db` を作り、そのファイルをこの BookMiner の `book/backup/` に置いてから `r` コマンドを使います。GUI では手順1の `peta_read` ボタンがこれに対応します。
+
+外部変換の例:
+
+```text
+makebook peta_shock backup/book_miner-20260607103251_14505901.db backup/peta_book-20260607103251_14505901.db
+```
+
+`peta_read` / `r` は変換を実行しません。すでに peta shock 化された `peta_book-....db` を読み込むだけです。
+
+```text
+r
+```
+
+```text
+手順1. peta_read
+```
+
 ![peta_shock と peta_next](assets/peta-shock-next.svg)
 
 出力例:
@@ -79,7 +99,7 @@ book/backup/book_miner-20260607103251_14505901.db
 book/backup/peta_book-20260607103251_14505901.db
 ```
 
-この時点で、既存定跡は BookMiner の通常バックアップ形式に乗ります。
+この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
 ## 手順2. peta_next で leaf から先の局面を列挙する
 
@@ -162,11 +182,12 @@ GUI:
 ```
 
 これにより、新しく探索された leaf の評価値をもとに、peta shock 化された定跡が作り直されます。
+別環境で peta shock 化済みの `peta_book-....db` を作った場合は、そのファイルを `book/backup/` に置いてから `peta_read` を使います。
 
 このあとさらに広げたい場合は、次の手順を繰り返します。
 
 ```text
-手順1. peta_shock
+手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
 手順3. enqueue    eval_limit 99999
 ```

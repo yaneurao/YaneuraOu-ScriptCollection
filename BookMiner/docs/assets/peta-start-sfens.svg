@@ -57,5 +57,5 @@
   <text class="text small" x="620" y="390">C</text>
   <circle class="node" cx="520" cy="325" r="28"/>
   <text class="text small" x="520" y="330">start</text>
-  <text class="text small" x="520" y="445">peta_bookを更新したい場合は、先に p または r で読み込み直す。</text>
+  <text class="text small" x="520" y="445">peta_book更新は p で作るか、外部作成後に r で読む。</text>
 </svg>

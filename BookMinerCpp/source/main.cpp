@@ -1068,6 +1068,38 @@ std::optional<fs::path> get_latest_book_backup_or_none()
     return std::nullopt;
 }
 
+std::vector<fs::path> collect_peta_book_paths()
+{
+    std::vector<fs::path> paths;
+    if (!fs::is_directory(BookBackupDir))
+        return paths;
+
+    for (const auto& entry : fs::directory_iterator(BookBackupDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        const auto filename = entry.path().filename().string();
+        if (filename.rfind(std::string(PetaBookDbName) + "-", 0) != 0)
+            continue;
+        if (entry.path().extension() != ".db")
+            continue;
+        paths.push_back(entry.path());
+    }
+
+    std::sort(paths.begin(), paths.end(), [](const fs::path& lhs, const fs::path& rhs) {
+        return lhs.filename().string() < rhs.filename().string();
+    });
+    return paths;
+}
+
+fs::path get_latest_peta_book()
+{
+    auto paths = collect_peta_book_paths();
+    if (paths.empty())
+        throw std::runtime_error(std::string("peta book file not found : ") + BookBackupDir + "/" + PetaBookDbName + "-*.db");
+    return paths.back();
+}
+
 fs::path make_backup_path(std::size_t position_count, std::optional<int> ply_limit)
 {
     fs::create_directories(BookBackupDir);
@@ -1118,6 +1150,23 @@ fs::path resolve_peta_source_book_path(const std::optional<std::string>& path)
             return candidate;
 
     throw std::runtime_error("peta source book not found : " + *path);
+}
+
+fs::path resolve_peta_book_path(const std::optional<std::string>& path)
+{
+    if (!path.has_value())
+        return get_latest_peta_book();
+
+    const std::vector<fs::path> candidates = {
+        fs::path(*path),
+        fs::path(BookDir) / *path,
+    };
+
+    for (const auto& candidate : candidates)
+        if (fs::is_regular_file(candidate))
+            return candidate;
+
+    throw std::runtime_error("peta book not found : " + *path);
 }
 
 std::string to_book_dir_relative_path(const fs::path& path)
@@ -1489,14 +1538,23 @@ void load_latest_book_backup(bookminer::BookStore& book)
     log_line("done.." + std::to_string(book.size()) + " positions.");
 }
 
-void read_peta_book(const fs::path& app_dir, bookminer::BookStore& peta_book, const std::optional<std::string>& source_book_path)
+void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::string>& peta_book_path)
 {
-    const fs::path source = resolve_peta_source_book_path(source_book_path);
-    const fs::path peta_path = run_peta_shock_makebook(app_dir, source);
+    const fs::path peta_path = resolve_peta_book_path(peta_book_path);
 
     log_line("read peta shocked book , path = " + peta_path.string());
     peta_book.load_yaneuraou_book(peta_path, false, book_read_progress, nullptr);
     log_line("reading the peta_book has done.");
+}
+
+void make_and_read_peta_book(
+    const fs::path& app_dir,
+    bookminer::BookStore& peta_book,
+    const std::optional<std::string>& source_book_path)
+{
+    const fs::path source = resolve_peta_source_book_path(source_book_path);
+    const fs::path peta_path = run_peta_shock_makebook(app_dir, source);
+    read_peta_book(peta_book, std::optional<std::string>{peta_path.string()});
 }
 
 void write_and_read_peta_book(const fs::path& app_dir, const bookminer::BookStore& book, bookminer::BookStore& peta_book)
@@ -1504,7 +1562,7 @@ void write_and_read_peta_book(const fs::path& app_dir, const bookminer::BookStor
     log_line("start p command : write backup, peta_shock, and read peta book.");
     const auto source_book_path = save_book_backup(book, std::nullopt);
     log_line("p command source book = " + source_book_path.string());
-    read_peta_book(app_dir, peta_book, std::optional<std::string>{source_book_path.string()});
+    make_and_read_peta_book(app_dir, peta_book, std::optional<std::string>{source_book_path.string()});
     log_line("..p command has done.");
     log_line("[PetaCommandDone]");
 }
@@ -1517,7 +1575,7 @@ void print_help()
     log_line("  W : write book backup        , w (ply_limit)");
     log_line("  T : think positions          , t (think_sfens path)");
     log_line("  E : EvalLimit                , e [eval_limit]");
-    log_line("  R : make and read peta shocked book , r (source book path)");
+    log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
     log_line("  H : Help");
@@ -1689,10 +1747,11 @@ int main(int argc, char* argv[])
             }
             else if (command == "r")
             {
-                std::optional<std::string> source_book_path;
+                std::optional<std::string> peta_book_path;
                 if (tokens.size() >= 2)
-                    source_book_path = tokens[1];
-                read_peta_book(app_dir, peta_book, source_book_path);
+                    peta_book_path = tokens[1];
+                read_peta_book(peta_book, peta_book_path);
+                log_line("[PetaReadDone]");
             }
             else
             {

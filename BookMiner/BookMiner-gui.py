@@ -36,6 +36,7 @@ ENGINE_READY_RE = re.compile(r"\[EngineReadyProgress\]\s+(\d+)/(\d+)")
 BACKUP_STATUS_RE = re.compile(r"\[(BackupServiceStarted|BackupNext|BackupStart|BackupDone)\](.*)")
 COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
+PETA_READ_DONE_RE = re.compile(r"\[PetaReadDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 STEP_BUTTON_WIDTH = 12
 LOG_MAX_LINES = 1000
@@ -208,6 +209,14 @@ class BookMinerGui(ttk.Frame):
         )
         self.peta_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
+        self.peta_read_button = ttk.Button(
+            commands,
+            text="peta_read",
+            width=STEP_BUTTON_WIDTH,
+            command=self.send_peta_read,
+        )
+        self.peta_read_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(self.peta_read_button, "`r` を送信します。外部で peta shock 化して book/backup/ に置いた最新 peta_book を読み込みます。")
 
         ttk.Label(commands, text="手順2.").grid(row=2, column=0, sticky="w", pady=3)
         self.next_button = ttk.Button(
@@ -274,6 +283,7 @@ class BookMinerGui(ttk.Frame):
         )
         self.command_buttons = [
             self.peta_button,
+            self.peta_read_button,
             self.next_button,
             self.enqueue_button,
             self.auto_check,
@@ -766,6 +776,11 @@ class BookMinerGui(ttk.Frame):
                     self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_next.")
                 return
 
+        if PETA_READ_DONE_RE.search(line):
+            if self.busy_action == "manual_peta_read":
+                self.busy_action = None
+                return
+
         if PETA_NEXT_DONE_RE.search(line):
             if self.busy_action == "manual_peta_next":
                 self.busy_action = None
@@ -873,6 +888,7 @@ class BookMinerGui(ttk.Frame):
             "peta_shock" in lower
             or "p command" in lower
             or "[petacommanddone]" in lower
+            or "[petareaddone]" in lower
             or "[petanextdone]" in lower
             or "peta shocked book" in lower
             or "peta_next" in lower
@@ -937,6 +953,14 @@ class BookMinerGui(ttk.Frame):
         if not self._begin_manual_action("manual_peta_shock"):
             return False
         if self.send_command("p"):
+            return True
+        self.busy_action = None
+        return False
+
+    def send_peta_read(self) -> bool:
+        if not self._begin_manual_action("manual_peta_read"):
+            return False
+        if self.send_command("r"):
             return True
         self.busy_action = None
         return False
