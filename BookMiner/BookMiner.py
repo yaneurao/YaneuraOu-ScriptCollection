@@ -486,6 +486,30 @@ def parse_position_string(s:PositionStr)->tuple[Sfen, list[MoveStr]]:
     return sfen, moves
 
 
+def checked_push_usi(board:cshogi.Board, move:MoveStr, *, context:str = ""):
+    """
+    cshogi.Board.push_usi() は非合法手で例外を投げず 0 を返す場合がある。
+    think_sfens.txt 由来の手順はここで明示的に合法手チェックしてから進める。
+    """
+    try:
+        move32 = board.move_from_usi(move)
+    except Exception as exc:
+        detail = f"invalid usi move: {move}"
+        if context:
+            detail += f" / {context}"
+        detail += f" / {board.sfen()}"
+        raise ValueError(detail) from exc
+
+    if not move32 or not board.is_legal(move32):
+        detail = f"illegal usi move: {move}"
+        if context:
+            detail += f" / {context}"
+        detail += f" / {board.sfen()}"
+        raise ValueError(detail)
+
+    board.push(move32)
+
+
 def append_position_move(position_cmd:PositionStr, move:MoveStr)->PositionStr:
     position_cmd = position_cmd.strip()
     if ' moves ' in position_cmd:
@@ -506,9 +530,22 @@ def decode_position_string(s : PositionStr)->Sfen:
 
     board = cshogi.Board(sfen) # type:ignore
     for move in moves:
-        board.push_usi(move)
+        checked_push_usi(board, move, context=s)
     
     return board.sfen()
+
+
+def legal_move_count_for_position(s:PositionStr)->int:
+    """
+    positionコマンドで指定できる局面を展開し、その局面の合法手数を返す。
+    """
+    sfen, moves = parse_position_string(s)
+
+    board = cshogi.Board(sfen) # type:ignore
+    for move in moves:
+        checked_push_usi(board, move, context=s)
+
+    return len(board.legal_moves) # type:ignore
 
 
 def index_of(a:list[Any] | str, x:Any):
@@ -711,8 +748,11 @@ class Engine:
 
             この形式に対応する。
         '''
+        multipv_step = max(1, self.global_settings.multipv)
+        multipv_limit = max(1, legal_move_count_for_position(sfen))
+
         # "MultiPV"の値を決定する。
-        multipv = self.global_settings.multipv
+        multipv = min(multipv_step, multipv_limit)
         self.send_usi(f"multipv {multipv}")
 
         # 1番目とN番目の指し手の評価値の差がこの範囲に収まらないなら再探索。
@@ -751,8 +791,11 @@ class Engine:
                 # 候補手がmultipvの個数だけあって、1番目と末尾の指して手の評価値の差がδ以内であるなら、multipvの範囲を少しずつ増やす。
                 # nodesは初期値の半分にする。
                 if len(node) == multipv and abs(node[0].eval - node[-1].eval) <= multipv_delta: # type:ignore
+                    if multipv >= multipv_limit:
+                        return node
+
                     # multipvの範囲を広げて再度"go"コマンドを思考エンジンに送信する。
-                    multipv += self.global_settings.multipv
+                    multipv = min(multipv + multipv_step, multipv_limit)
                     nodes = half_nodes
                     self.send_usi(f"multipv {multipv}")
                     self.send_usi(f"go nodes {nodes}")
@@ -1076,7 +1119,7 @@ class EngineManager:
 
                 move = moveinfo.move
 
-                board.push_usi(move)
+                checked_push_usi(board, move, context=current_sfen)
                 next_sfen = trim_sfen(board.sfen())
 
                 current_sfen = next_sfen
@@ -1122,7 +1165,7 @@ class EngineManager:
                     return
 
             lookahead_board = cshogi.Board(board.sfen()) # type:ignore
-            lookahead_board.push_usi(move)
+            checked_push_usi(lookahead_board, move, context=task.position_cmd)
             next_sfen = trim_sfen(lookahead_board.sfen())
             next_position_info, _ = self.get_book_position_info(book, next_sfen)
 
@@ -1133,7 +1176,7 @@ class EngineManager:
                 if isinstance(move_eval, int) and abs(move_eval) > eval_limit:
                     return
 
-            board.push_usi(move)
+            checked_push_usi(board, move, context=task.position_cmd)
 
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
         self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit))
@@ -1984,7 +2027,7 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
                         # それだと好ましくないので、sfenのほうを用いる。
                         board = cshogi.Board(sfen_with_ply)
                         move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
-                        board.push_usi(move)
+                        checked_push_usi(board, move, context=position_cmd)
                         next_sfen = board.sfen()
                         _, next_ply = trim_sfen_ply(next_sfen)
                         if next_ply >= max_book_ply:
@@ -2043,10 +2086,27 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
         return
 
     with open(path, 'r') as r:
-        lines = [line.strip() for line in r if line.strip() and not line.lstrip().startswith('#')]
+        raw_lines = [
+            (line_number, line.strip())
+            for line_number, line in enumerate(r, 1)
+            if line.strip() and not line.lstrip().startswith('#')
+        ]
+
+    lines : list[PositionStr] = []
+    skipped = 0
+    for line_number, line in raw_lines:
+        try:
+            decode_position_string(line)
+        except Exception as exc:
+            skipped += 1
+            print(f"({job_counter_local}) skip illegal position command line {line_number}: {line} : {exc}")
+            continue
+        lines.append(line)
 
     total = len(lines)
     print(f'({job_counter_local}) read {total} position commands.')
+    if skipped:
+        print(f'({job_counter_local}) skipped {skipped} illegal position commands.')
     engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
 
     for line in lines:
@@ -2159,7 +2219,7 @@ def inquire_position(book:Book, position_cmd:str):
     # 指し手で進めていく。
     for move , next_move in zip(moves , moves[1:] + [None]):
         print(f"move = {move}")
-        board.push_usi(move) # type:ignore
+        checked_push_usi(board, move, context=position_cmd) # type:ignore
         sfen = trim_sfen(board.sfen())
         dump_sfen(book, sfen, next_move)
 

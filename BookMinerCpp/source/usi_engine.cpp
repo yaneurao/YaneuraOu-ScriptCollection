@@ -1,6 +1,7 @@
 #include "usi_engine.h"
 
 #include "book_store.h"
+#include "sfen_position.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -63,6 +64,15 @@ int parse_mate_eval(const std::string& value)
     if (mate_ply < 0)
         return -ValueMate - mate_ply;
     return ValueMate;
+}
+
+int legal_move_count_for_position_command(const std::string& command)
+{
+    const auto parsed = parse_position_command(command);
+    auto position = SfenPosition::from_sfen(parsed.start_sfen_with_ply);
+    for (const auto& move : parsed.moves)
+        position.push_usi(move);
+    return static_cast<int>(position.legal_moves().size());
 }
 
 std::filesystem::path resolve_local_engine_path(const std::filesystem::path& app_dir, const std::string& path)
@@ -235,8 +245,9 @@ void UsiEngine::usinewgame(const LogCallback& log)
 
 std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, double node_ratio, const LogCallback& log)
 {
-    int multipv = std::max(1, config_.multipv);
-    const int multipv_step = multipv;
+    const int multipv_step = std::max(1, config_.multipv);
+    const int multipv_limit = std::max(1, legal_move_count_for_position_command(position_command));
+    int multipv = std::min(multipv_step, multipv_limit);
     const int multipv_delta = std::max(0, config_.multipv_delta);
 
     send_line("multipv " + std::to_string(multipv));
@@ -276,7 +287,10 @@ std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, d
             if (static_cast<int>(node.size()) == multipv && !node.empty()
                 && std::abs(node.front().eval - node.back().eval) <= multipv_delta)
             {
-                multipv += multipv_step;
+                if (multipv >= multipv_limit)
+                    return node;
+
+                multipv = std::min(multipv + multipv_step, multipv_limit);
                 nodes = half_nodes;
                 send_line("multipv " + std::to_string(multipv));
                 send_line("go nodes " + std::to_string(nodes));
