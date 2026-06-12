@@ -46,6 +46,7 @@ class ShogiDb2DownloadJob:
     end_page: int | None = 1
     interval: float = 2.0
     overwrite: bool = False
+    stop_after_skipped: int | None = None
     timeout: float = 60.0
     headless: bool = True
 
@@ -310,6 +311,8 @@ def download_shogidb2_kif(
         raise ShogiDb2DownloadError("アクセス間隔(秒)は0以上を指定してください。")
     if job.timeout <= 0:
         raise ShogiDb2DownloadError("timeout は 0 より大きい値を指定してください。")
+    if job.stop_after_skipped is not None and job.stop_after_skipped < 1:
+        raise ShogiDb2DownloadError("skipped停止件数は1以上を指定してください。")
 
     tournament_name, tournament_url = normalize_tournament_url(job.tournament_url)
     output_dir = job.output_root.expanduser() / sanitize_path_part(tournament_name)
@@ -362,6 +365,10 @@ def download_shogidb2_kif(
                     skipped += 1
                     if log is not None:
                         log(f"[page {page} {index}/{len(game_urls)}] skipped: {destination.name}\n")
+                    if job.stop_after_skipped is not None and skipped >= job.stop_after_skipped:
+                        if log is not None:
+                            log(f"stop: skipped reached {job.stop_after_skipped}\n")
+                        break
                     continue
 
                 try:
@@ -386,6 +393,8 @@ def download_shogidb2_kif(
                         log(f"[page {page} {index}/{len(game_urls)}] failed: {game_url}: {exc}\n")
 
             if stop_requested(should_stop):
+                break
+            if job.stop_after_skipped is not None and skipped >= job.stop_after_skipped:
                 break
             page += 1
     finally:
@@ -412,6 +421,16 @@ def parse_page(value: str) -> int:
     return page
 
 
+def parse_positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be an integer.") from exc
+    if number < 1:
+        raise argparse.ArgumentTypeError("value must be 1 or greater.")
+    return number
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download KIF files from shogidb2.")
     parser.add_argument("tournament", nargs="?", help="tournament name or shogidb2 tournament URL")
@@ -421,6 +440,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--until-empty", action="store_true", help="ignore --end-page and continue until an empty page")
     parser.add_argument("--interval", type=float, default=2.0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--stop-after-skipped",
+        type=parse_positive_int,
+        default=None,
+        help="stop after skipped reaches this count. Disabled by default.",
+    )
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--no-headless", action="store_true")
     parser.add_argument("--list-tournaments", action="store_true")
@@ -443,6 +468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 end_page=None if args.until_empty else args.end_page,
                 interval=args.interval,
                 overwrite=args.overwrite,
+                stop_after_skipped=args.stop_after_skipped,
                 timeout=args.timeout,
                 headless=not args.no_headless,
             ),

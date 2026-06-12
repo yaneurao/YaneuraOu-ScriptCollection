@@ -1214,6 +1214,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
         self.start_page = tk.StringVar(value="1")
         self.end_page = tk.StringVar(value="1")
         self.interval = tk.StringVar(value="2")
+        self.stop_after_skipped = tk.StringVar(value="")
         self.overwrite = tk.BooleanVar(value=False)
         self.tournament_options: list[ShogiDb2TournamentOption] = []
         self.option_by_display: dict[str, ShogiDb2TournamentOption] = {}
@@ -1283,6 +1284,8 @@ class ShogiDb2DownloadPane(ttk.Frame):
             width=10,
         )
         row += 1
+        self._skipped_stop_row(row)
+        row += 1
         self._label_with_help(
             row,
             "既存ファイルを上書き",
@@ -1310,6 +1313,19 @@ class ShogiDb2DownloadPane(ttk.Frame):
     ) -> None:
         self._label_with_help(row, label, help_text)
         ttk.Entry(self, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
+
+    def _skipped_stop_row(self, row: int) -> None:
+        self._label_with_help(
+            row,
+            "skipped停止",
+            "既存ファイルのためスキップした件数が指定数に達したら停止します。\n"
+            "空欄ならこの設定は無効です。",
+        )
+        frame = ttk.Frame(self)
+        frame.grid(row=row, column=1, sticky="w", pady=6)
+        ttk.Label(frame, text="skippedが").pack(side="left")
+        ttk.Entry(frame, textvariable=self.stop_after_skipped, width=10).pack(side="left", padx=(6, 6))
+        ttk.Label(frame, text="件に達したら停止").pack(side="left")
 
     def _url_row(
         self,
@@ -1434,6 +1450,10 @@ class ShogiDb2DownloadPane(ttk.Frame):
             end_page=end_page,
             interval=parse_download_interval(self.interval.get()),
             overwrite=self.overwrite.get(),
+            stop_after_skipped=self._parse_optional_positive_int(
+                self.stop_after_skipped.get(),
+                "skipped停止件数",
+            ),
         )
 
     def _parse_page(self, value: str, label: str) -> int:
@@ -1445,6 +1465,18 @@ class ShogiDb2DownloadPane(ttk.Frame):
             raise ValueError(f"{label}は1以上を指定してください。")
         return page
 
+    def _parse_optional_positive_int(self, value: str, label: str) -> int | None:
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = int(text)
+        except ValueError as exc:
+            raise ValueError(f"{label}は整数で指定してください。") from exc
+        if number < 1:
+            raise ValueError(f"{label}は1以上を指定してください。")
+        return number
+
     def settings(self) -> dict[str, object]:
         return {
             "tournament_choice": self.tournament_choice.get(),
@@ -1453,6 +1485,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
             "start_page": self.start_page.get(),
             "end_page": self.end_page.get(),
             "interval": self.interval.get(),
+            "stop_after_skipped": self.stop_after_skipped.get(),
             "overwrite": self.overwrite.get(),
         }
 
@@ -1470,6 +1503,7 @@ class ShogiDb2DownloadPane(ttk.Frame):
         self.start_page.set(str(settings.get("start_page", "1") or "1"))
         self.end_page.set(str(settings.get("end_page", "1")))
         self.interval.set(str(settings.get("interval", "2") or "2"))
+        self.stop_after_skipped.set(str(settings.get("stop_after_skipped", "") or ""))
         self.overwrite.set(bool(settings.get("overwrite", False)))
 
 
@@ -1906,6 +1940,10 @@ class KifManager(tk.Tk):
         )
         self._put_log(f"[shogidb2] interval   : {job.interval}\n")
         self._put_log(f"[shogidb2] overwrite  : {job.overwrite}\n")
+        self._put_log(
+            f"[shogidb2] stop skip  : "
+            f"{job.stop_after_skipped if job.stop_after_skipped is not None else 'disabled'}\n"
+        )
 
         try:
             stats = download_shogidb2_kif(
