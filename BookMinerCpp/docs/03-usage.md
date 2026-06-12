@@ -101,18 +101,18 @@ book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 `p` コマンドは、BookMinerCpp の `.ybb` バックアップを `YO-MATERIAL.exe` に渡します。
 
 ```text
-makebook peta_shock backup/book_miner-....ybb backup/peta_book-....db.tmp
+makebook peta_shock backup/book_miner-....ybb backup/peta_book-....ybb.tmp
 ```
 
-peta shock 化の出力は、現時点では従来のやねうら王標準定跡 `.db` です。
+peta shock 化の出力形式は入力形式に合わせます。BookMinerCpp の通常バックアップは `.ybb` なので、通常は `.ybb` が出力されます。
 
 ```text
-book/backup/peta_book-YYYYMMDDHHMMSS_N.db
+book/backup/peta_book-YYYYMMDDHHMMSS_N.ybb
 ```
 
 `N` は変換元の通常DBの局面数です。
 
-`r` コマンドは peta shock 化を実行せず、`book/backup/` にある最新の `peta_book-....db`、または指定した peta book を読み込みます。別マシンで peta shock 化した定跡を使う場合は、その `peta_book-....db` を `book/backup/` に置いてから `r` を実行します。
+`r` コマンドは peta shock 化を実行せず、`book/backup/` にある最新の `peta_book-....db` または `peta_book-....ybb`、または指定した peta book を読み込みます。別マシンで peta shock 化した定跡を使う場合は、その peta book を `book/backup/` に置いてから `r` を実行します。
 
 ## 既存定跡を持ち込む
 

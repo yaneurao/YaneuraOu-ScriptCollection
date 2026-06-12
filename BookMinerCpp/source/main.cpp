@@ -1103,7 +1103,9 @@ std::vector<fs::path> collect_peta_book_paths()
         const auto filename = entry.path().filename().string();
         if (filename.rfind(std::string(PetaBookDbName) + "-", 0) != 0)
             continue;
-        if (entry.path().extension() != ".db")
+        const bool is_text_book = entry.path().extension() == ".db";
+        const bool is_ybb_book = bookminer::is_yane_bin_book_path(entry.path());
+        if (!is_text_book && !is_ybb_book)
             continue;
         paths.push_back(entry.path());
     }
@@ -1118,7 +1120,7 @@ fs::path get_latest_peta_book()
 {
     auto paths = collect_peta_book_paths();
     if (paths.empty())
-        throw std::runtime_error(std::string("peta book file not found : ") + BookBackupDir + "/" + PetaBookDbName + "-*.db");
+        throw std::runtime_error(std::string("peta book file not found : ") + BookBackupDir + "/" + PetaBookDbName + "-*.db or " + PetaBookDbName + "-*.ybb");
     return paths.back();
 }
 
@@ -1144,12 +1146,13 @@ std::optional<std::pair<std::string, std::size_t>> parse_regular_book_backup_nam
 
 fs::path peta_book_backup_path_from_source(const fs::path& source_book_path)
 {
+    const std::string extension = bookminer::is_yane_bin_book_path(source_book_path) ? ".ybb" : ".db";
     const auto parsed = parse_regular_book_backup_name(source_book_path);
     if (!parsed.has_value())
-        return fs::path(BookBackupDir) / (std::string(PetaBookDbName) + "-" + make_time_stamp() + ".db");
+        return fs::path(BookBackupDir) / (std::string(PetaBookDbName) + "-" + make_time_stamp() + extension);
 
     const auto& [timestamp, position_count] = *parsed;
-    return fs::path(BookBackupDir) / (std::string(PetaBookDbName) + "-" + timestamp + "_" + std::to_string(position_count) + ".db");
+    return fs::path(BookBackupDir) / (std::string(PetaBookDbName) + "-" + timestamp + "_" + std::to_string(position_count) + extension);
 }
 
 fs::path resolve_peta_source_book_path(const std::optional<std::string>& path)

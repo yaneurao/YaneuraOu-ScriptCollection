@@ -77,10 +77,10 @@ book_miner-....ybb.tmp
 
 ## peta book
 
-`p` または外部の `makebook peta_shock` によって作られる peta book は、現時点では従来のやねうら王標準定跡 `.db` です。
+`p` または外部の `makebook peta_shock` によって作られる peta book は、入力形式と同じ形式で保存します。BookMinerCpp の通常バックアップは `.ybb` なので、通常は `.ybb` です。
 
 ```text
-book/backup/peta_book-YYYYMMDDHHMMSS_N.db
+book/backup/peta_book-YYYYMMDDHHMMSS_N.ybb
 ```
 
 BookMinerCpp は `p` コマンドでの peta shock 化を自前実装せず、`YO-MATERIAL.exe` に次のようなコマンドを送ります。
@@ -90,13 +90,13 @@ setoption name BookDir value book
 setoption name BookFile value no_book
 setoption name FlippedBook value true
 setoption name USI_Hash value 1
-makebook peta_shock backup/book_miner-....ybb backup/peta_book-....db.tmp
+makebook peta_shock backup/book_miner-....ybb backup/peta_book-....ybb.tmp
 quit
 ```
 
-成功後に `.tmp` を `.db` へ置き換えます。
+成功後に `.tmp` を正式名へ置き換えます。
 
-`r` コマンドは peta shock 化を行わず、既に存在する `peta_book-....db` を読み込みます。path 省略時は `book/backup/` にある最新の peta book を選びます。
+`r` コマンドは peta shock 化を行わず、既に存在する `peta_book-....db` または `peta_book-....ybb` を読み込みます。path 省略時は `book/backup/` にある最新の peta book を選びます。
 
 ## 内部データモデル
 

@@ -168,10 +168,10 @@ setoption name IgnoreBookPly value true
 やねうら王の `makebook peta_shock` は、`.ybb` を入力として受け取れるようにしています。
 
 ```text
-makebook peta_shock backup/book_miner-....ybb backup/peta_book-....db
+makebook peta_shock backup/book_miner-....ybb backup/peta_book-....ybb
 ```
 
 通常の `BookFile` と同じく、入力に `.db` 名を指定したときにその `.db` が存在しなければ、同じ basename の `.ybb` を入力として使います。
 
-出力は従来の `.db` です。
+出力形式は入力形式に合わせます。`.db` 入力なら `.db`、`.ybb` 入力なら `.ybb` です。
 BookMinerCpp の `p` コマンドはこの経路を自動で呼び出します。
