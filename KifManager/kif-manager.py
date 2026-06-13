@@ -633,7 +633,7 @@ class ExtractorPane(ttk.Frame):
             return None
         return parse_date_value(value, label, year_only_month_day=year_only_month_day)
 
-    def settings(self) -> dict[str, str]:
+    def settings(self) -> dict[str, object]:
         return {
             "input_dir": self.input_dir.get(),
             "output_path": self.output_path.get(),
@@ -681,7 +681,7 @@ class DownloadPlaceholderPane(ttk.Frame):
             row=0, column=0, sticky="w"
         )
 
-    def settings(self) -> dict[str, str]:
+    def settings(self) -> dict[str, object]:
         return {}
 
     def apply_settings(self, settings: object) -> None:
@@ -694,6 +694,7 @@ class FloodgateDownloadPane(ttk.Frame):
         self.kind = kind
         self.year = tk.StringVar(value=str(datetime.now().year))
         self.output_dir = tk.StringVar(value=FLOODGATE_DEFAULT_OUTPUT_DIR)
+        self.download_today = tk.BooleanVar(value=False)
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -721,6 +722,8 @@ class FloodgateDownloadPane(ttk.Frame):
             "既存ファイルとサーバー上のサイズが同じならダウンロードを省略します。\n"
             "デフォルトでは downloaded-kif/floodgate に保存します。",
         )
+        row += 1
+        self._download_today_row(row)
 
     def _label_with_help(self, row: int, label: str, help_text: str) -> None:
         label_frame = ttk.Frame(self)
@@ -758,6 +761,16 @@ class FloodgateDownloadPane(ttk.Frame):
         )
         return row + 1
 
+    def _download_today_row(self, row: int) -> None:
+        self._label_with_help(
+            row,
+            "当日分もダウンロードする",
+            "年別アーカイブにまだ入っていない当日分を floodgate の today ページから取得します。\n"
+            "出力フォルダ配下の YYYYMMDD フォルダに .csa ファイルを保存します。\n"
+            "デフォルトはオフです。",
+        )
+        ttk.Checkbutton(self, variable=self.download_today).grid(row=row, column=1, sticky="w", pady=6)
+
     def _browse_output_dir(self) -> None:
         selected = filedialog.askdirectory(initialdir=self._initial_dir(self.output_dir.get()))
         if selected:
@@ -791,12 +804,13 @@ class FloodgateDownloadPane(ttk.Frame):
         if output_path.exists() and not output_path.is_dir():
             raise ValueError(f"出力フォルダがファイルです: {output_path}")
 
-        return FloodgateDownloadJob(year, output_path)
+        return FloodgateDownloadJob(year, output_path, download_today=self.download_today.get())
 
-    def settings(self) -> dict[str, str]:
+    def settings(self) -> dict[str, object]:
         return {
             "year": self.year.get(),
             "output_dir": self.output_dir.get(),
+            "download_today": self.download_today.get(),
         }
 
     def apply_settings(self, settings: object) -> None:
@@ -804,6 +818,7 @@ class FloodgateDownloadPane(ttk.Frame):
             return
         self.year.set(str(settings.get("year", datetime.now().year) or datetime.now().year))
         self.output_dir.set(str(settings.get("output_dir", FLOODGATE_DEFAULT_OUTPUT_DIR) or FLOODGATE_DEFAULT_OUTPUT_DIR))
+        self.download_today.set(bool(settings.get("download_today", False)))
 
 
 class WcscDownloadPane(ttk.Frame):
@@ -1924,6 +1939,7 @@ class KifManager(tk.Tk):
         self._put_log("[floodgate] start\n")
         self._put_log(f"[floodgate] year      : {job.year}\n")
         self._put_log(f"[floodgate] output dir: {job.output_dir}\n")
+        self._put_log(f"[floodgate] today     : {job.download_today}\n")
 
         try:
             stats = download_floodgate_kif(
@@ -2052,10 +2068,17 @@ class KifManager(tk.Tk):
         )
 
     def _floodgate_download_stats_text(self, stats: FloodgateDownloadStats) -> str:
-        return (
+        text = (
             f"year={stats.year} skipped={stats.skipped} bytes={stats.bytes_written} "
             f"destination={stats.destination}"
         )
+        if stats.today is not None:
+            text += (
+                f" today_found={stats.today.found} today_downloaded={stats.today.downloaded} "
+                f"today_skipped={stats.today.skipped} today_failed={stats.today.failed} "
+                f"today_bytes={stats.today.bytes_written} today_dir={stats.today.destination_dir}"
+            )
+        return text
 
     def _wcsc_download_stats_text(self, stats: WcscDownloadStats) -> str:
         return (

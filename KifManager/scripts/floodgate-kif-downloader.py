@@ -25,18 +25,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="directory to save wdoorYYYY.7z. Default: downloaded-kif/floodgate",
     )
     parser.add_argument("--timeout", type=float, default=60.0, help="network timeout in seconds. Default: 60")
+    parser.add_argument(
+        "--download-today",
+        action="store_true",
+        help="also download today's CSA files into output-dir/YYYYMMDD",
+    )
     args = parser.parse_args(argv)
 
     try:
         stats = download_floodgate_kif(
-            FloodgateDownloadJob(args.year, args.output_dir, timeout=args.timeout),
+            FloodgateDownloadJob(args.year, args.output_dir, download_today=args.download_today, timeout=args.timeout),
             log=lambda text: print(text, end=""),
         )
     except (FloodgateDownloadError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"skipped={stats.skipped} downloaded={stats.bytes_written} destination={stats.destination}")
+    text = f"skipped={stats.skipped} downloaded={stats.bytes_written} destination={stats.destination}"
+    if stats.today is not None:
+        text += (
+            f" today_found={stats.today.found} today_downloaded={stats.today.downloaded}"
+            f" today_skipped={stats.today.skipped} today_failed={stats.today.failed}"
+            f" today_dir={stats.today.destination_dir}"
+        )
+    print(text)
     return 0
 
 

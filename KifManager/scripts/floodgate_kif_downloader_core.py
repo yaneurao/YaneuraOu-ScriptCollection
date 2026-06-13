@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 
 
 FLOODGATE_TOP_URL = "https://wdoor.c.u-tokyo.ac.jp/shogi/"
+FLOODGATE_TODAY_URL = "https://wdoor.c.u-tokyo.ac.jp/shogi/x/today/"
 USER_AGENT = "YaneuraOu-KifManager-Floodgate-Kif-Downloader/1.0"
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
@@ -23,7 +25,19 @@ class FloodgateDownloadError(Exception):
 class FloodgateDownloadJob:
     year: int
     output_dir: Path
+    download_today: bool = False
     timeout: float = 60.0
+
+
+@dataclass(frozen=True)
+class TodayDownloadStats:
+    url: str
+    destination_dir: Path
+    found: int
+    downloaded: int
+    skipped: int
+    failed: int
+    bytes_written: int
 
 
 @dataclass(frozen=True)
@@ -35,6 +49,7 @@ class FloodgateDownloadStats:
     skipped: bool = False
     remote_bytes: int | None = None
     local_bytes: int | None = None
+    today: TodayDownloadStats | None = None
 
 
 class LinkExtractor(HTMLParser):
@@ -99,6 +114,42 @@ def download_to_file(
     return bytes_written
 
 
+def download_changed_file(
+    url: str,
+    destination: Path,
+    timeout: float,
+    should_stop: Callable[[], bool] | None,
+) -> tuple[int, bool, int | None, int | None]:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and not destination.is_file():
+        raise FloodgateDownloadError(f"出力先が通常ファイルではありません: {destination}")
+
+    try:
+        remote_bytes = fetch_content_length(url, timeout)
+    except OSError:
+        remote_bytes = None
+    local_bytes = destination.stat().st_size if destination.exists() else None
+    if remote_bytes is not None and local_bytes == remote_bytes:
+        return 0, True, remote_bytes, local_bytes
+
+    temporary = destination.with_name(destination.name + ".tmp")
+    try:
+        bytes_written = download_to_file(url, temporary, timeout, should_stop)
+        if remote_bytes is not None and bytes_written != remote_bytes:
+            raise FloodgateDownloadError(
+                f"ダウンロードサイズが一致しません: expected={remote_bytes} actual={bytes_written}"
+            )
+        if remote_bytes is None and local_bytes == bytes_written:
+            temporary.unlink(missing_ok=True)
+            return bytes_written, True, remote_bytes, local_bytes
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+    temporary.replace(destination)
+    return bytes_written, False, remote_bytes, local_bytes
+
+
 def decode_text(data: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis"):
         try:
@@ -129,6 +180,100 @@ def find_archive_url(year: int, *, timeout: float = 60.0) -> str:
 
 def destination_filename(year: int) -> str:
     return f"wdoor{year}.7z"
+
+
+def today_folder_name_from_html(html: str) -> str:
+    match = re.search(r"Folders and files:\s*(20\d{2})/(\d{2})/(\d{2})", html)
+    if match:
+        return "".join(match.groups())
+    return date.today().strftime("%Y%m%d")
+
+
+def csa_filename_from_url(url: str) -> str:
+    filename = unquote(Path(urlparse(url).path).name)
+    if not filename.lower().endswith(".csa"):
+        raise FloodgateDownloadError(f"CSAファイル名ではありません: {url}")
+    return filename
+
+
+def extract_today_csa_urls(html: str, *, base_url: str = FLOODGATE_TODAY_URL) -> list[str]:
+    parser = LinkExtractor()
+    parser.feed(html)
+    urls: list[str] = []
+    seen: set[str] = set()
+    for href in parser.hrefs:
+        filename = unquote(Path(urlparse(href).path).name)
+        if not filename.lower().endswith(".csa"):
+            continue
+        url = urljoin(base_url, href)
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+    return urls
+
+
+def download_today_csa_files(
+    output_dir: Path,
+    *,
+    timeout: float,
+    log: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> TodayDownloadStats:
+    if stop_requested(should_stop):
+        raise FloodgateDownloadError("停止要求を受け付けました。")
+
+    html = decode_text(fetch_bytes(FLOODGATE_TODAY_URL, timeout))
+    today_dir = output_dir.expanduser() / today_folder_name_from_html(html)
+    csa_urls = extract_today_csa_urls(html)
+    if log is not None:
+        log(f"today url: {FLOODGATE_TODAY_URL}\n")
+        log(f"today output: {today_dir}\n")
+        log(f"today files: {len(csa_urls)}\n")
+
+    downloaded = 0
+    skipped = 0
+    failed = 0
+    bytes_written_total = 0
+    for index, url in enumerate(csa_urls, start=1):
+        if stop_requested(should_stop):
+            raise FloodgateDownloadError("停止要求を受け付けました。")
+        filename = csa_filename_from_url(url)
+        destination = today_dir / filename
+        try:
+            bytes_written, is_skipped, _remote_bytes, _local_bytes = download_changed_file(
+                url,
+                destination,
+                timeout,
+                should_stop,
+            )
+        except Exception as exc:
+            if stop_requested(should_stop):
+                raise
+            failed += 1
+            if log is not None:
+                log(f"[today {index}/{len(csa_urls)}] failed: {filename}: {exc}\n")
+            continue
+
+        bytes_written_total += bytes_written
+        if is_skipped:
+            skipped += 1
+            if log is not None:
+                log(f"[today {index}/{len(csa_urls)}] skipped: {filename}\n")
+        else:
+            downloaded += 1
+            if log is not None:
+                log(f"[today {index}/{len(csa_urls)}] downloaded: {filename} ({bytes_written} bytes)\n")
+
+    return TodayDownloadStats(
+        url=FLOODGATE_TODAY_URL,
+        destination_dir=today_dir,
+        found=len(csa_urls),
+        downloaded=downloaded,
+        skipped=skipped,
+        failed=failed,
+        bytes_written=bytes_written_total,
+    )
 
 
 def download_floodgate_kif(
@@ -172,6 +317,11 @@ def download_floodgate_kif(
     if remote_bytes is not None and local_bytes == remote_bytes:
         if log is not None:
             log(f"skip     : existing file has same size ({local_bytes} bytes)\n")
+        today_stats = (
+            download_today_csa_files(job.output_dir, timeout=job.timeout, log=log, should_stop=should_stop)
+            if job.download_today
+            else None
+        )
         return FloodgateDownloadStats(
             year=year,
             archive_url=archive_url,
@@ -180,6 +330,7 @@ def download_floodgate_kif(
             skipped=True,
             remote_bytes=remote_bytes,
             local_bytes=local_bytes,
+            today=today_stats,
         )
 
     temporary = destination.with_name(destination.name + ".tmp")
@@ -195,6 +346,11 @@ def download_floodgate_kif(
             if log is not None:
                 log(f"skip     : downloaded file has same size as existing file ({local_bytes} bytes)\n")
             temporary.unlink(missing_ok=True)
+            today_stats = (
+                download_today_csa_files(job.output_dir, timeout=job.timeout, log=log, should_stop=should_stop)
+                if job.download_today
+                else None
+            )
             return FloodgateDownloadStats(
                 year=year,
                 archive_url=archive_url,
@@ -203,6 +359,7 @@ def download_floodgate_kif(
                 skipped=True,
                 remote_bytes=remote_bytes,
                 local_bytes=local_bytes,
+                today=today_stats,
             )
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -210,6 +367,11 @@ def download_floodgate_kif(
 
     temporary.replace(destination)
 
+    today_stats = (
+        download_today_csa_files(job.output_dir, timeout=job.timeout, log=log, should_stop=should_stop)
+        if job.download_today
+        else None
+    )
     return FloodgateDownloadStats(
         year=year,
         archive_url=archive_url,
@@ -218,4 +380,5 @@ def download_floodgate_kif(
         skipped=False,
         remote_bytes=remote_bytes,
         local_bytes=local_bytes,
+        today=today_stats,
     )
