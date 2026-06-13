@@ -110,6 +110,7 @@ class ExtractJob:
     both_player_list: Path | None
     either_player_list: Path | None
     min_rating: float | None
+    losing_player_min_rating: float | None
     start_year: int | None
     end_year: int | None
     start_date: date | None
@@ -262,6 +263,7 @@ class ExtractorPane(ttk.Frame):
         self.both_player_list = tk.StringVar()
         self.either_player_list = tk.StringVar()
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
+        self.losing_player_min_rating = tk.StringVar(value="4000" if kind.key == "floodgate" else "")
         self.start_year = tk.StringVar()
         self.end_year = tk.StringVar()
         self.start_date = tk.StringVar()
@@ -375,11 +377,13 @@ class ExtractorPane(ttk.Frame):
                 row,
                 "min-rating",
                 self.min_rating,
-                "先手と後手の両方のratingがこの値以上の棋譜だけを抽出します。\n"
+                "指定期間内に一度でもこのrating以上になったプレイヤー同士の棋譜だけを抽出します。\n"
                 "空欄にするとratingでは絞り込みません。\n"
-                "ratingが見つからない棋譜は、min-rating指定時には除外されます。",
+                "ratingが見つからないプレイヤーは、この条件の対象になりません。",
                 width=14,
             )
+        if self.kind.key == "floodgate":
+            row = self._losing_player_rating_row(row)
 
         row = self._reversal_row(row)
         if self.kind.key == "other":
@@ -421,6 +425,20 @@ class ExtractorPane(ttk.Frame):
     ) -> int:
         self._label_with_help(row, label, help_text)
         ttk.Entry(self, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
+        return row + 1
+
+    def _losing_player_rating_row(self, row: int) -> int:
+        self._label_with_help(
+            row,
+            "負けた棋譜",
+            "指定期間内に一度でもこのrating以上になったプレイヤーが負けた棋譜を追加します。\n"
+            "相手のratingは問いません。\n"
+            "空欄にするとこの追加条件は無効です。",
+        )
+        frame = ttk.Frame(self)
+        frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=6)
+        ttk.Entry(frame, textvariable=self.losing_player_min_rating, width=8).pack(side="left")
+        ttk.Label(frame, text="以上のプレイヤーが負けた棋譜も追加する").pack(side="left", padx=(4, 0))
         return row + 1
 
     def _reversal_row(self, row: int) -> int:
@@ -512,6 +530,7 @@ class ExtractorPane(ttk.Frame):
         both_player_list = self._optional_file(self.both_player_list.get().strip(), "both-player-list")
         either_player_list = self._optional_file(self.either_player_list.get().strip(), "either-player-list")
         min_rating = self._parse_min_rating()
+        losing_player_min_rating = self._parse_losing_player_min_rating()
         start_year = self._parse_year(self.start_year.get().strip(), "開始年")
         end_year = self._parse_year(self.end_year.get().strip(), "終了年")
         start_date = self._parse_date(self.start_date.get().strip(), "開始日", year_only_month_day=(1, 1))
@@ -529,6 +548,7 @@ class ExtractorPane(ttk.Frame):
             both_player_list,
             either_player_list,
             min_rating,
+            losing_player_min_rating,
             start_year,
             end_year,
             start_date,
@@ -561,6 +581,20 @@ class ExtractorPane(ttk.Frame):
             raise ValueError(f"min-rating が数値ではありません: {value}") from exc
         if rating < 0:
             raise ValueError("min-rating は 0 以上を指定してください。")
+        return rating
+
+    def _parse_losing_player_min_rating(self) -> float | None:
+        if self.kind.key != "floodgate":
+            return None
+        value = self.losing_player_min_rating.get().strip()
+        if not value:
+            return None
+        try:
+            rating = float(value)
+        except ValueError as exc:
+            raise ValueError(f"負けた棋譜のratingが数値ではありません: {value}") from exc
+        if rating < 0:
+            raise ValueError("負けた棋譜のratingは 0 以上を指定してください。")
         return rating
 
     def _parse_reversal_threshold(self) -> int | None:
@@ -606,6 +640,7 @@ class ExtractorPane(ttk.Frame):
             "both_player_list": self.both_player_list.get(),
             "either_player_list": self.either_player_list.get(),
             "min_rating": self.min_rating.get(),
+            "losing_player_min_rating": self.losing_player_min_rating.get(),
             "start_year": self.start_year.get(),
             "end_year": self.end_year.get(),
             "start_date": self.start_date.get(),
@@ -624,6 +659,10 @@ class ExtractorPane(ttk.Frame):
         self.both_player_list.set(str(settings.get("both_player_list", settings.get("filtered_player_list", ""))))
         self.either_player_list.set(str(settings.get("either_player_list", "")))
         self.min_rating.set(str(settings.get("min_rating", self.kind.default_min_rating) or self.kind.default_min_rating))
+        default_losing_player_min_rating = "4000" if self.kind.key == "floodgate" else ""
+        self.losing_player_min_rating.set(
+            str(settings.get("losing_player_min_rating", default_losing_player_min_rating))
+        )
         self.start_year.set(str(settings.get("start_year", "")))
         self.end_year.set(str(settings.get("end_year", "")))
         self.start_date.set(str(settings.get("start_date", "")))
@@ -1826,6 +1865,8 @@ class KifManager(tk.Tk):
                 self._put_log(f"[{job.kind.title}] either : {job.either_player_list}\n")
             if job.require_rating:
                 self._put_log(f"[{job.kind.title}] rating : {job.min_rating}\n")
+            if job.losing_player_min_rating is not None:
+                self._put_log(f"[{job.kind.title}] losing-player rating : {job.losing_player_min_rating}\n")
             if job.start_year is not None or job.end_year is not None:
                 self._put_log(
                     f"[{job.kind.title}] years  : "
@@ -1865,6 +1906,7 @@ class KifManager(tk.Tk):
                         exclude_handicap=job.exclude_handicap,
                         allow_non_startpos=job.kind.key == "other",
                         require_rating=job.require_rating,
+                        losing_player_min_rating=job.losing_player_min_rating,
                         log_target_files=job.log_target_files,
                         verbose=job.verbose,
                     )

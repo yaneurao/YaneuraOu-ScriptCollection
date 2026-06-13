@@ -23,6 +23,10 @@ SUPPORTED_SUFFIXES = {".csa", ".csv", ".kif", ".kifu"}
 ARCHIVE_SUFFIXES = {".zip", ".7z"}
 CSA_MOVE_RE = re.compile(r"^[+-]\d{4}[A-Z]{2}$")
 CSA_MOVE_LINE_RE = re.compile(r"^([+-])\d{4}[A-Z]{2}(?:$|[,\s])")
+CSA_BLACK_NAME_RE = re.compile(r"^N\+(.*)$")
+CSA_WHITE_NAME_RE = re.compile(r"^N-(.*)$")
+CSA_BLACK_RATE_RE = re.compile(r"^'black_rate\s*:\s*(.+)$", re.IGNORECASE)
+CSA_WHITE_RATE_RE = re.compile(r"^'white_rate\s*:\s*(.+)$", re.IGNORECASE)
 KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
 SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
 COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
@@ -74,6 +78,7 @@ class GameRecord:
     white_rating: float | None = None
     eval_records: list[EvalRecord] = field(default_factory=list)
     game_date: date | None = None
+    winner: int | None = None
 
 
 @dataclass
@@ -666,6 +671,34 @@ def rating_passes(game: GameRecord, min_rating: float | None) -> bool:
     return game.black_rating >= min_rating and game.white_rating >= min_rating
 
 
+def players_in_rating_set(game: GameRecord, players: set[str]) -> bool:
+    return normalize_player_name(game.black) in players and normalize_player_name(game.white) in players
+
+
+def losing_player_in_rating_set(game: GameRecord, players: set[str]) -> bool:
+    if game.winner == cshogi.BLACK:
+        loser = game.white
+    elif game.winner == cshogi.WHITE:
+        loser = game.black
+    else:
+        return False
+    return normalize_player_name(loser) in players
+
+
+def floodgate_rating_filter_passes(
+    game: GameRecord,
+    min_rating_players: set[str] | None,
+    losing_player_rating_players: set[str] | None,
+) -> bool:
+    if min_rating_players is None and losing_player_rating_players is None:
+        return True
+    if min_rating_players is not None and players_in_rating_set(game, min_rating_players):
+        return True
+    if losing_player_rating_players is not None and losing_player_in_rating_set(game, losing_player_rating_players):
+        return True
+    return False
+
+
 def reversal_passes(game: GameRecord, threshold: int | None) -> bool:
     if threshold is None:
         return True
@@ -710,17 +743,17 @@ def scan_csa_header_lines(lines: Iterable[str]) -> CsaHeader:
         line = raw_line.strip()
         if not line:
             continue
-        if line.startswith("N+"):
-            header.black = line[2:].strip()
+        if match := CSA_BLACK_NAME_RE.match(line):
+            header.black = match.group(1).strip()
             continue
-        if line.startswith("N-"):
-            header.white = line[2:].strip()
+        if match := CSA_WHITE_NAME_RE.match(line):
+            header.white = match.group(1).strip()
             continue
-        if line.startswith("'black_rate:"):
-            header.black_rating = optional_float(line.rsplit(":", 1)[-1])
+        if match := CSA_BLACK_RATE_RE.match(line):
+            header.black_rating = optional_float(match.group(1))
             continue
-        if line.startswith("'white_rate:"):
-            header.white_rating = optional_float(line.rsplit(":", 1)[-1])
+        if match := CSA_WHITE_RATE_RE.match(line):
+            header.white_rating = optional_float(match.group(1))
             continue
         if header.game_date is None:
             header.game_date = find_date_in_text(line)
@@ -732,7 +765,6 @@ def scan_csa_header_lines(lines: Iterable[str]) -> CsaHeader:
 def should_skip_by_csa_header(
     path: Path,
     player_filters: PlayerFilters,
-    min_rating: float | None,
     date_filter: DateFilter | None,
     stats: Stats,
 ) -> bool:
@@ -741,7 +773,6 @@ def should_skip_by_csa_header(
     if (
         not player_filters.both_patterns
         and not player_filters.either_patterns
-        and min_rating is None
         and date_filter is None
     ):
         return False
@@ -757,21 +788,50 @@ def should_skip_by_csa_header(
         stats.skipped_name += 1
         return True
 
-    if min_rating is not None:
-        pseudo_game = GameRecord(
-            path,
-            header.black,
-            header.white,
-            cshogi.STARTING_SFEN,
-            [],
-            header.black_rating,
-            header.white_rating,
-        )
-        if not rating_passes(pseudo_game, min_rating):
-            stats.skipped_rating += 1
-            return True
-
     return False
+
+
+def collect_high_rating_players_from_headers(
+    paths: Sequence[Path],
+    *,
+    thresholds: Sequence[float],
+    year_filter: YearFilter | None,
+    date_filter: DateFilter | None,
+    verbose: bool,
+) -> dict[float, set[str]]:
+    players_by_threshold = {threshold: set() for threshold in thresholds}
+    if not thresholds:
+        return players_by_threshold
+
+    progress = CountProgress("rating集計中", len(paths))
+    for index, path in enumerate(paths, start=1):
+        progress.update(index)
+        if path.suffix.lower() not in {".csa", ".csv"}:
+            continue
+        if year_filter is not None and not year_filter_passes(path, year_filter):
+            continue
+
+        try:
+            header = read_csa_header(path)
+        except Exception as exc:
+            if verbose:
+                print(f"skip rating header: {path}: {exc}", file=sys.stderr)
+            continue
+
+        game_date = header.game_date or infer_game_date_from_path(path)
+        if not date_filter_passes(game_date, date_filter):
+            continue
+
+        for name, rating in ((header.black, header.black_rating), (header.white, header.white_rating)):
+            if not name or rating is None:
+                continue
+            normalized_name = normalize_player_name(name)
+            for threshold in thresholds:
+                if rating >= threshold:
+                    players_by_threshold[threshold].add(normalized_name)
+
+    progress.update(len(paths), force=True)
+    return players_by_threshold
 
 
 def parse_eval_from_comment(line: str) -> int | None:
@@ -874,8 +934,9 @@ def parse_csa(
     records: list[GameRecord] = []
     eval_records = extract_eval_records(path) if include_eval_records else []
     game_date = infer_game_date_from_path(path)
+    header = read_csa_header(path)
     if game_date is None:
-        game_date = read_csa_header(path).game_date
+        game_date = header.game_date
     for parsed in parsed_games:
         names = read_names(parsed.names, path)
         if not allow_non_startpos:
@@ -892,10 +953,11 @@ def parse_csa(
                 names[1],
                 parsed.sfen,
                 moves,
-                optional_float(ratings[0] if len(ratings) >= 1 else None),
-                optional_float(ratings[1] if len(ratings) >= 2 else None),
-                eval_records,
-                game_date,
+                optional_float(ratings[0] if len(ratings) >= 1 else None) or header.black_rating,
+                optional_float(ratings[1] if len(ratings) >= 2 else None) or header.white_rating,
+                eval_records=eval_records,
+                game_date=game_date,
+                winner=csa_winner_side(getattr(parsed, "win", None)),
             )
         )
     return records
@@ -1034,6 +1096,14 @@ def optional_float(value: object) -> float | None:
         return None
 
 
+def csa_winner_side(value: object) -> int | None:
+    if value == cshogi.BLACK_WIN:
+        return cshogi.BLACK
+    if value == cshogi.WHITE_WIN:
+        return cshogi.WHITE
+    return None
+
+
 def parse_games(
     path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
 ) -> list[GameRecord]:
@@ -1066,6 +1136,7 @@ def collect_games_from_roots(
     exclude_handicap: bool,
     allow_non_startpos: bool,
     require_rating: bool,
+    losing_player_min_rating: float | None,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1081,6 +1152,32 @@ def collect_games_from_roots(
     paths = [path for input_root in input_roots for path in iter_kifu_files(input_root)]
     parse_progress = CountProgress("解析中", len(paths))
     effective_min_rating = min_rating if require_rating else None
+    rating_thresholds: list[float] = []
+    if source_kind == "floodgate":
+        rating_thresholds = list(
+            dict.fromkeys(
+                threshold
+                for threshold in (effective_min_rating, losing_player_min_rating)
+                if threshold is not None
+            )
+        )
+    rating_players_by_threshold = collect_high_rating_players_from_headers(
+        paths,
+        thresholds=rating_thresholds,
+        year_filter=year_filter,
+        date_filter=date_filter,
+        verbose=verbose,
+    )
+    min_rating_players = (
+        rating_players_by_threshold.get(effective_min_rating)
+        if source_kind == "floodgate" and effective_min_rating is not None
+        else None
+    )
+    losing_player_rating_players = (
+        rating_players_by_threshold.get(losing_player_min_rating)
+        if source_kind == "floodgate" and losing_player_min_rating is not None
+        else None
+    )
 
     for path in paths:
         stats.scanned += 1
@@ -1089,7 +1186,7 @@ def collect_games_from_roots(
             stats.skipped_year += 1
             continue
 
-        if should_skip_by_csa_header(path, player_filters, effective_min_rating, date_filter, stats):
+        if should_skip_by_csa_header(path, player_filters, date_filter, stats):
             continue
 
         try:
@@ -1129,7 +1226,15 @@ def collect_games_from_roots(
                 stats.skipped_name += 1
                 continue
 
-            if not rating_passes(game, effective_min_rating):
+            if source_kind == "floodgate":
+                rating_ok = floodgate_rating_filter_passes(
+                    game,
+                    min_rating_players,
+                    losing_player_rating_players,
+                )
+            else:
+                rating_ok = rating_passes(game, effective_min_rating)
+            if not rating_ok:
                 stats.skipped_rating += 1
                 continue
 
@@ -1165,6 +1270,7 @@ def collect_games(
     exclude_handicap: bool,
     allow_non_startpos: bool,
     require_rating: bool,
+    losing_player_min_rating: float | None,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1181,6 +1287,7 @@ def collect_games(
             exclude_handicap=exclude_handicap,
             allow_non_startpos=allow_non_startpos,
             require_rating=require_rating,
+            losing_player_min_rating=losing_player_min_rating,
             log_target_files=log_target_files,
             verbose=verbose,
         )
@@ -1233,6 +1340,7 @@ def run_extractor(
     exclude_handicap: bool = False,
     allow_non_startpos: bool = False,
     require_rating: bool = False,
+    losing_player_min_rating: float | None = None,
     log_target_files: bool = False,
     verbose: bool = False,
 ) -> Stats:
@@ -1254,6 +1362,7 @@ def run_extractor(
         exclude_handicap=exclude_handicap,
         allow_non_startpos=allow_non_startpos,
         require_rating=require_rating,
+        losing_player_min_rating=losing_player_min_rating,
         log_target_files=log_target_files,
         verbose=verbose,
     )

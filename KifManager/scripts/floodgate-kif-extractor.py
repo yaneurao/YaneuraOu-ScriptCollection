@@ -17,7 +17,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--min-rating",
         type=float,
         default=None,
-        help="minimum floodgate rating required for both players",
+        help="minimum floodgate rating reached by both players during the selected period",
+    )
+    parser.add_argument(
+        "--losing-player-min-rating",
+        type=float,
+        default=None,
+        help="also extract games lost by a player who reached this floodgate rating during the selected period",
     )
     args = parser.parse_args(argv)
 
@@ -32,6 +38,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         end_date=args.end_date,
         reversal_threshold=args.reversal_threshold,
         require_rating=args.min_rating is not None,
+        losing_player_min_rating=args.losing_player_min_rating,
         verbose=args.verbose,
     )
     print_stats(stats)
