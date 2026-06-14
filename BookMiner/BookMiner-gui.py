@@ -38,6 +38,9 @@ COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
 PETA_READ_DONE_RE = re.compile(r"\[PetaReadDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
+PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
+PETA_MAKEBOOK_DONE_RE = re.compile(r"\.\.peta_shock makebook has done|peta_shock makebook failed", re.IGNORECASE)
+PETA_MAKEBOOK_CONTEXT_RE = re.compile(r"^\s*(engine path|source book|peta book|command)\s*=", re.IGNORECASE)
 STEP_BUTTON_WIDTH = 12
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
@@ -167,6 +170,7 @@ class BookMinerGui(ttk.Frame):
         )
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action: str | None = None
+        self.peta_makebook_active = False
         self.task_queue_remaining: int | None = None
 
         self.eval_diff = tk.StringVar(value=gui_settings.get("eval_diff", GUI_SETTING_DEFAULTS["eval_diff"]))
@@ -566,11 +570,19 @@ class BookMinerGui(ttk.Frame):
             self.output_buffer = ""
 
     def _handle_progress_line(self, line: str) -> None:
+        self._handle_peta_makebook_context_line(line)
         self._handle_startup_line(line)
         self._handle_book_progress_line(line)
         self._handle_task_queue_progress_line(line)
         self._handle_mining_progress_line(line)
         self._handle_auto_enqueue_line(line)
+
+    def _handle_peta_makebook_context_line(self, line: str) -> None:
+        if PETA_MAKEBOOK_START_RE.search(line):
+            self.peta_makebook_active = True
+            return
+        if PETA_MAKEBOOK_DONE_RE.search(line) or PETA_COMMAND_DONE_RE.search(line):
+            self.peta_makebook_active = False
 
     def _handle_startup_line(self, line: str) -> None:
         stage_match = STARTUP_STAGE_RE.search(line)
@@ -890,6 +902,8 @@ class BookMinerGui(ttk.Frame):
             or "[petacommanddone]" in lower
             or "[petareaddone]" in lower
             or "[petanextdone]" in lower
+            or self.peta_makebook_active
+            or PETA_MAKEBOOK_CONTEXT_RE.search(line)
             or "peta shocked book" in lower
             or "peta_next" in lower
             or "root sfen" in lower
