@@ -25,6 +25,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="also extract games lost by a player who reached this floodgate rating during the selected period",
     )
+    parser.add_argument(
+        "--drawing-player-min-rating",
+        type=float,
+        default=None,
+        help="also extract drawn games by a player who reached this floodgate rating during the selected period",
+    )
     args = parser.parse_args(argv)
 
     stats = run_extractor(
@@ -39,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         reversal_threshold=args.reversal_threshold,
         require_rating=args.min_rating is not None,
         losing_player_min_rating=args.losing_player_min_rating,
+        drawing_player_min_rating=args.drawing_player_min_rating,
         verbose=args.verbose,
     )
     print_stats(stats)

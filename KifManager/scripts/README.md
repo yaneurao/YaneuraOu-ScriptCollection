@@ -105,7 +105,7 @@ dlshogi
 floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、指定期間内に一度でも下限rating以上になったプレイヤー同士の棋譜と、対局日の範囲を指定できます。
 
 ```bash
-python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--reversal-threshold X] [--verbose]
+python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--drawing-player-min-rating X] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -126,6 +126,8 @@ python3 floodgate-kif-extractor.py \
 `--min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤー同士の棋譜だけを出力します。rating が見つからないプレイヤーはこの条件の対象になりません。
 
 `--losing-player-min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤーが負けた棋譜も追加します。相手の rating は問いません。
+
+`--drawing-player-min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤーが引き分けた棋譜も追加します。相手の rating は問いません。
 
 ## floodgate-kif-downloader.py
 

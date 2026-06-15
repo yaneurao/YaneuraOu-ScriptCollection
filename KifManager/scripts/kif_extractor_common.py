@@ -79,6 +79,7 @@ class GameRecord:
     eval_records: list[EvalRecord] = field(default_factory=list)
     game_date: date | None = None
     winner: int | None = None
+    draw: bool = False
 
 
 @dataclass
@@ -685,16 +686,25 @@ def losing_player_in_rating_set(game: GameRecord, players: set[str]) -> bool:
     return normalize_player_name(loser) in players
 
 
+def drawing_player_in_rating_set(game: GameRecord, players: set[str]) -> bool:
+    if not game.draw:
+        return False
+    return normalize_player_name(game.black) in players or normalize_player_name(game.white) in players
+
+
 def floodgate_rating_filter_passes(
     game: GameRecord,
     min_rating_players: set[str] | None,
     losing_player_rating_players: set[str] | None,
+    drawing_player_rating_players: set[str] | None,
 ) -> bool:
-    if min_rating_players is None and losing_player_rating_players is None:
+    if min_rating_players is None and losing_player_rating_players is None and drawing_player_rating_players is None:
         return True
     if min_rating_players is not None and players_in_rating_set(game, min_rating_players):
         return True
     if losing_player_rating_players is not None and losing_player_in_rating_set(game, losing_player_rating_players):
+        return True
+    if drawing_player_rating_players is not None and drawing_player_in_rating_set(game, drawing_player_rating_players):
         return True
     return False
 
@@ -958,6 +968,7 @@ def parse_csa(
                 eval_records=eval_records,
                 game_date=game_date,
                 winner=csa_winner_side(getattr(parsed, "win", None)),
+                draw=csa_is_draw(getattr(parsed, "endgame", None), getattr(parsed, "win", None)),
             )
         )
     return records
@@ -1090,6 +1101,17 @@ def moves_to_usi(moves: Sequence[int]) -> list[str]:
 def optional_float(value: object) -> float | None:
     if value is None:
         return None
+    if isinstance(value, str):
+        text = value.strip()
+        candidates = [text]
+        if ":" in text:
+            candidates.append(text.rsplit(":", 1)[1].strip())
+        for candidate in candidates:
+            try:
+                return float(candidate)
+            except (TypeError, ValueError):
+                pass
+        return None
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -1102,6 +1124,10 @@ def csa_winner_side(value: object) -> int | None:
     if value == cshogi.WHITE_WIN:
         return cshogi.WHITE
     return None
+
+
+def csa_is_draw(endgame: object, win: object) -> bool:
+    return win == cshogi.DRAW and endgame in {"%SENNICHITE", "%JISHOGI"}
 
 
 def parse_games(
@@ -1137,6 +1163,7 @@ def collect_games_from_roots(
     allow_non_startpos: bool,
     require_rating: bool,
     losing_player_min_rating: float | None,
+    drawing_player_min_rating: float | None,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1157,7 +1184,7 @@ def collect_games_from_roots(
         rating_thresholds = list(
             dict.fromkeys(
                 threshold
-                for threshold in (effective_min_rating, losing_player_min_rating)
+                for threshold in (effective_min_rating, losing_player_min_rating, drawing_player_min_rating)
                 if threshold is not None
             )
         )
@@ -1176,6 +1203,11 @@ def collect_games_from_roots(
     losing_player_rating_players = (
         rating_players_by_threshold.get(losing_player_min_rating)
         if source_kind == "floodgate" and losing_player_min_rating is not None
+        else None
+    )
+    drawing_player_rating_players = (
+        rating_players_by_threshold.get(drawing_player_min_rating)
+        if source_kind == "floodgate" and drawing_player_min_rating is not None
         else None
     )
 
@@ -1231,6 +1263,7 @@ def collect_games_from_roots(
                     game,
                     min_rating_players,
                     losing_player_rating_players,
+                    drawing_player_rating_players,
                 )
             else:
                 rating_ok = rating_passes(game, effective_min_rating)
@@ -1271,6 +1304,7 @@ def collect_games(
     allow_non_startpos: bool,
     require_rating: bool,
     losing_player_min_rating: float | None,
+    drawing_player_min_rating: float | None,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1288,6 +1322,7 @@ def collect_games(
             allow_non_startpos=allow_non_startpos,
             require_rating=require_rating,
             losing_player_min_rating=losing_player_min_rating,
+            drawing_player_min_rating=drawing_player_min_rating,
             log_target_files=log_target_files,
             verbose=verbose,
         )
@@ -1341,6 +1376,7 @@ def run_extractor(
     allow_non_startpos: bool = False,
     require_rating: bool = False,
     losing_player_min_rating: float | None = None,
+    drawing_player_min_rating: float | None = None,
     log_target_files: bool = False,
     verbose: bool = False,
 ) -> Stats:
@@ -1363,6 +1399,7 @@ def run_extractor(
         allow_non_startpos=allow_non_startpos,
         require_rating=require_rating,
         losing_player_min_rating=losing_player_min_rating,
+        drawing_player_min_rating=drawing_player_min_rating,
         log_target_files=log_target_files,
         verbose=verbose,
     )
