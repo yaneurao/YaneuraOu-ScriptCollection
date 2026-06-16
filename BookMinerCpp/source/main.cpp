@@ -556,6 +556,7 @@ private:
     struct JobProgress {
         std::size_t total = 0;
         std::size_t taken = 0;
+        bool done_reported = false;
     };
 
     void worker_loop(bookminer::UsiEngine& engine)
@@ -586,6 +587,7 @@ private:
         std::size_t job_taken = 0;
         std::size_t job_total = 0;
         bool should_report = false;
+        bool should_report_job_done = false;
 
         const auto now = std::chrono::steady_clock::now();
         {
@@ -598,12 +600,15 @@ private:
             ++job.taken;
             job_taken = job.taken;
             job_total = job.total;
+            should_report_job_done = job.total > 0 && job.taken >= job.total && !job.done_reported;
+            if (should_report_job_done)
+                job.done_reported = true;
 
             const auto remaining = total_enqueued > total_taken ? total_enqueued - total_taken : 0;
             if (last_task_progress_report_.time_since_epoch().count() == 0
                 || now - last_task_progress_report_ >= std::chrono::seconds(10)
                 || remaining == 0
-                || job_taken == job_total)
+                || should_report_job_done)
             {
                 should_report = true;
                 last_task_progress_report_ = now;
@@ -620,6 +625,15 @@ private:
             + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
             + " job_remaining=" + std::to_string(job_remaining)
             + " remaining=" + std::to_string(remaining));
+
+        if (should_report_job_done)
+        {
+            log_line("[TaskQueueJobDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
+                + " job=" + std::to_string(task.job_id)
+                + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
+                + " job_remaining=0"
+                + " remaining=" + std::to_string(remaining));
+        }
 
         if (remaining == 0)
         {
@@ -640,9 +654,15 @@ private:
             total_taken = total_taken_;
             total_enqueued = total_enqueued_;
         }
-        log_line("[TaskQueueDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
+        log_line("[TaskQueueJobDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
             + " job_progress=0/0 job_remaining=0 remaining=" + std::to_string(total_enqueued - total_taken));
+        if (total_taken >= total_enqueued)
+        {
+            log_line("[TaskQueueDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
+                + " job=" + std::to_string(job_id)
+                + " job_progress=0/0 job_remaining=0 remaining=0");
+        }
     }
 
     bookminer::BookStore& book_;

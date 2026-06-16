@@ -169,6 +169,9 @@ class TaskQueueJobProgress:
     # このjobでworkerが受け取った対局棋譜数。
     taken : int = 0
 
+    # このjobの完了ログを出力済みか。
+    done_reported : bool = False
+
 
 @dataclass
 class BookMinerSettings:
@@ -1268,7 +1271,10 @@ class EngineManager:
     def start_task_queue_progress(self, job_id:int, added_count:int, path:str, eval_limit:int):
         with self.task_progress_lock:
             self.task_progress_total += added_count
-            self.task_progress_jobs[job_id] = TaskQueueJobProgress(total=added_count)
+            self.task_progress_jobs[job_id] = TaskQueueJobProgress(
+                total=added_count,
+                done_reported=added_count == 0,
+            )
             total = self.task_progress_total
             taken = self.task_progress_taken
             remaining = max(total - taken, 0)
@@ -1279,6 +1285,11 @@ class EngineManager:
             f"job={job_id} job_progress=0/{added_count} job_remaining={added_count} "
             f"added={added_count} remaining={remaining} path={path} eval_limit={eval_limit}"
         )
+        if added_count == 0:
+            print(
+                f"[TaskQueueJobDone] {taken}/{total} "
+                f"job={job_id} job_progress=0/0 job_remaining=0 remaining={remaining}"
+            )
         if remaining == 0:
             print(
                 f"[TaskQueueDone] {taken}/{total} "
@@ -1303,7 +1314,14 @@ class EngineManager:
             job_total = job_progress.total
             remaining = max(total - taken, 0)
             job_remaining = max(job_total - job_taken, 0)
-            should_report = remaining == 0 or job_remaining == 0
+            should_report_job_done = (
+                job_total > 0
+                and job_taken >= job_total
+                and not job_progress.done_reported
+            )
+            if should_report_job_done:
+                job_progress.done_reported = True
+            should_report = remaining == 0 or should_report_job_done
             if not should_report:
                 should_report = now - self.task_progress_last_report >= TASK_QUEUE_PROGRESS_INTERVAL
             if not should_report:
@@ -1316,6 +1334,12 @@ class EngineManager:
             f"job={task.job_id} job_progress={job_taken}/{job_total} "
             f"job_remaining={job_remaining} remaining={remaining}"
         )
+        if should_report_job_done:
+            print(
+                f"[TaskQueueJobDone] {taken}/{total} "
+                f"job={task.job_id} job_progress={job_taken}/{job_total} "
+                f"job_remaining=0 remaining={remaining}"
+            )
 
     def report_mining_progress(self, position_count:int, force:bool = False):
         now = time.time()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import pickle
 import queue
@@ -29,6 +30,8 @@ GUI_SETTING_DEFAULTS = {
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
+TASK_QUEUE_JOB_STATUS_RE = re.compile(r"\[TaskQueue(Start|Progress|JobDone|Done)\]\s+(\d+)/(\d+|\?)(.*)")
+TASK_QUEUE_FIELD_RE = re.compile(r"\b([A-Za-z_]+)=([^\s]+)")
 MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
 STARTUP_STAGE_RE = re.compile(r"\[StartupStage\]\s+stage=(\S+)\s+message=(.*)")
 ENGINE_INIT_RE = re.compile(r"\[EngineInit(Start|Progress|Done)\]\s+(\d+)/(\d+)")
@@ -64,6 +67,14 @@ LOG_VIEW_MODES = [
 ]
 LOG_VIEW_MODE_LABELS = {key: label for key, label in LOG_VIEW_MODES}
 LOG_VIEW_MODE_KEYS = {label: key for key, label in LOG_VIEW_MODES}
+
+
+@dataclass
+class TaskJobListItem:
+    job_id: int
+    taken: int
+    total: int | None
+    remaining: int | None
 
 
 def normalize_log_view_mode(value: str | None) -> str:
@@ -150,6 +161,9 @@ class BookMinerGui(ttk.Frame):
         log_view_mode = normalize_log_view_mode(gui_settings.get("log_view_mode"))
         self.log_view_mode = tk.StringVar(value=LOG_VIEW_MODE_LABELS[log_view_mode])
         self.log_view_frames: dict[str, ttk.Frame] = {}
+        self.task_list_mode_enabled = tk.BooleanVar(value=False)
+        self.task_job_items: dict[int, TaskJobListItem] = {}
+        self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.progress_labels = {
             "read": tk.StringVar(value="定跡読込: 待機中"),
             "engine": tk.StringVar(value="エンジン起動: 待機中"),
@@ -336,6 +350,7 @@ class BookMinerGui(ttk.Frame):
         Tooltip(log_view_combo, "ログ欄の並べ方を 4×1、1×4、2×2、タブ化から選びます。")
 
         self._build_log_views(log_area)
+        self._update_task_view_mode()
         self._update_log_view()
 
         self._update_buttons()
@@ -351,6 +366,8 @@ class BookMinerGui(ttk.Frame):
         self.latest_mining_positions = None
         self.mining_samples.clear()
         self.task_queue_remaining = None
+        self.task_job_items.clear()
+        self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action = None
         self.command_ready = False
@@ -372,15 +389,63 @@ class BookMinerGui(ttk.Frame):
     def _register_log_widget(self, key: str, text: scrolledtext.ScrolledText) -> None:
         self.log_widgets.setdefault(key, []).append(text)
 
+    def _add_log_header(self, parent: ttk.Frame, title: str, key: str) -> None:
+        header = ttk.Frame(parent)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 3))
+        ttk.Label(header, text=title).pack(side="left")
+        if key != "task":
+            return
+
+        check = ttk.Checkbutton(
+            header,
+            text="タスク一覧",
+            variable=self.task_list_mode_enabled,
+            command=self._update_task_view_mode,
+        )
+        check.pack(side="left", padx=(12, 0))
+        Tooltip(check, "jobごとの enqueue 進捗一覧に切り替えます。完了した job は一覧から消えます。")
+
+    def _add_log_content(self, parent: ttk.Frame, key: str, height: int) -> None:
+        text = scrolledtext.ScrolledText(parent, wrap="word", height=height)
+        text.grid(row=1, column=0, sticky="nsew")
+        text.configure(state="disabled")
+        self._register_log_widget(key, text)
+
+        if key != "task":
+            return
+
+        list_frame = ttk.Frame(parent)
+        list_frame.grid(row=1, column=0, sticky="nsew")
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+
+        tree = ttk.Treeview(
+            list_frame,
+            columns=("job", "progress", "remaining"),
+            show="headings",
+            height=height,
+        )
+        tree.heading("job", text="job")
+        tree.heading("progress", text="進捗")
+        tree.heading("remaining", text="残り")
+        tree.column("job", width=90, minwidth=70, anchor="w", stretch=False)
+        tree.column("progress", width=160, minwidth=110, anchor="center", stretch=True)
+        tree.column("remaining", width=90, minwidth=70, anchor="e", stretch=False)
+
+        yscroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=yscroll.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+
+        self.task_job_views.append((text, list_frame, tree))
+        self._refresh_task_job_tree(tree)
+
     def _add_log_pane(self, paned: ttk.PanedWindow, title: str, key: str, height: int) -> None:
         frame = ttk.Frame(paned, padding=(0, 0, 0, 4))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(1, weight=1)
-        ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
-        text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
-        text.grid(row=1, column=0, sticky="nsew")
-        text.configure(state="disabled")
-        self._register_log_widget(key, text)
+        self._add_log_header(frame, title, key)
+        self._add_log_content(frame, key, height)
         paned.add(frame, weight=1)
 
     def _build_log_views(self, parent: ttk.Frame) -> None:
@@ -415,11 +480,8 @@ class BookMinerGui(ttk.Frame):
             frame.grid(row=row, column=col, sticky="nsew")
             frame.columnconfigure(0, weight=1)
             frame.rowconfigure(1, weight=1)
-            ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
-            text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
-            text.grid(row=1, column=0, sticky="nsew")
-            text.configure(state="disabled")
-            self._register_log_widget(key, text)
+            self._add_log_header(frame, title, key)
+            self._add_log_content(frame, key, height)
 
     def _build_tabbed_logs(self, parent: ttk.Frame) -> None:
         notebook = ttk.Notebook(parent)
@@ -431,13 +493,40 @@ class BookMinerGui(ttk.Frame):
             frame = ttk.Frame(notebook, padding=(0, 4, 0, 0))
             frame.columnconfigure(0, weight=1)
             frame.rowconfigure(1, weight=1)
-            ttk.Label(frame, text=title).grid(row=0, column=0, sticky="w", pady=(0, 3))
-            text = scrolledtext.ScrolledText(frame, wrap="word", height=height)
-            text.grid(row=1, column=0, sticky="nsew")
-            text.configure(state="disabled")
-            self._register_log_widget(key, text)
+            self._add_log_header(frame, title, key)
+            self._add_log_content(frame, key, height)
             notebook.add(frame, text=tab_title)
             self.log_tab_keys[key] = frame
+
+    def _update_task_view_mode(self) -> None:
+        show_list = self.task_list_mode_enabled.get()
+        for text, list_frame, _tree in self.task_job_views:
+            if show_list:
+                text.grid_remove()
+                list_frame.grid()
+            else:
+                list_frame.grid_remove()
+                text.grid()
+                text.see("end")
+
+    def _refresh_task_job_views(self) -> None:
+        for _text, _list_frame, tree in self.task_job_views:
+            self._refresh_task_job_tree(tree)
+
+    def _refresh_task_job_tree(self, tree: ttk.Treeview) -> None:
+        children = tree.get_children()
+        if children:
+            tree.delete(*children)
+        for job_id in sorted(self.task_job_items):
+            item = self.task_job_items[job_id]
+            total_display = str(item.total) if item.total is not None else "?"
+            remaining_display = str(item.remaining) if item.remaining is not None else "-"
+            tree.insert(
+                "",
+                "end",
+                iid=str(job_id),
+                values=(f"job {job_id}", f"{item.taken}/{total_display}", remaining_display),
+            )
 
     def _update_log_view(self) -> None:
         mode = normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get()))
@@ -573,6 +662,7 @@ class BookMinerGui(ttk.Frame):
         self._handle_peta_makebook_context_line(line)
         self._handle_startup_line(line)
         self._handle_book_progress_line(line)
+        self._handle_task_job_list_line(line)
         self._handle_task_queue_progress_line(line)
         self._handle_mining_progress_line(line)
         self._handle_auto_enqueue_line(line)
@@ -710,6 +800,72 @@ class BookMinerGui(ttk.Frame):
             return
 
         self._maybe_start_auto_enqueue()
+
+    def _handle_task_job_list_line(self, line: str) -> None:
+        match = TASK_QUEUE_JOB_STATUS_RE.search(line)
+        if match is None:
+            return
+
+        phase, _count_text, _total_text, rest = match.groups()
+        fields = dict(TASK_QUEUE_FIELD_RE.findall(rest))
+
+        if phase == "Done":
+            self.task_job_items.clear()
+            self._refresh_task_job_views()
+            return
+
+        job_text = fields.get("job")
+        if job_text is None:
+            return
+
+        try:
+            job_id = int(job_text)
+        except ValueError:
+            return
+
+        if phase == "JobDone":
+            self.task_job_items.pop(job_id, None)
+            self._refresh_task_job_views()
+            return
+
+        progress_text = fields.get("job_progress")
+        if progress_text is None:
+            return
+
+        progress_match = re.fullmatch(r"(\d+)/(\d+|\?)", progress_text)
+        if progress_match is None:
+            return
+
+        taken_text, total_text = progress_match.groups()
+        taken = int(taken_text)
+        total = None if total_text == "?" else int(total_text)
+        remaining = self._parse_task_job_remaining(fields.get("job_remaining"), taken, total)
+
+        if total == 0 or remaining == 0 or (total is not None and taken >= total):
+            self.task_job_items.pop(job_id, None)
+        else:
+            self.task_job_items[job_id] = TaskJobListItem(
+                job_id=job_id,
+                taken=taken,
+                total=total,
+                remaining=remaining,
+            )
+        self._refresh_task_job_views()
+
+    def _parse_task_job_remaining(
+        self,
+        remaining_text: str | None,
+        taken: int,
+        total: int | None,
+    ) -> int | None:
+        if remaining_text is not None:
+            try:
+                return int(remaining_text)
+            except ValueError:
+                return None
+        if total is None:
+            return None
+        return max(total - taken, 0)
 
     def _handle_mining_progress_line(self, line: str) -> None:
         match = MINING_PROGRESS_RE.search(line)

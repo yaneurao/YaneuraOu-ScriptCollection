@@ -281,6 +281,7 @@ GUI が拾う主なタグは Python 版と揃えます。
 [BookWriteDone]
 [TaskQueueStart]
 [TaskQueueProgress]
+[TaskQueueJobDone]
 [TaskQueueDone]
 [MiningProgress]
 [PetaCommandDone]
