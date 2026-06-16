@@ -19,6 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 SETTINGS_PATH = BASE_DIR / "kif-manager-settings.pickle"
 SETTINGS_VERSION = 1
+OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION = 2
 EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
 BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "think_sfens.txt").resolve())
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
@@ -273,7 +274,7 @@ class ExtractorPane(ttk.Frame):
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
         self.reversal_enabled = tk.BooleanVar(value=False)
         self.reversal_threshold = tk.StringVar(value="400")
-        self.exclude_handicap = tk.BooleanVar(value=False)
+        self.exclude_handicap = tk.BooleanVar(value=kind.key == "other")
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -388,7 +389,8 @@ class ExtractorPane(ttk.Frame):
             row = self._losing_player_rating_row(row)
             row = self._drawing_player_rating_row(row)
 
-        row = self._reversal_row(row)
+        if self.kind.key != "other":
+            row = self._reversal_row(row)
         if self.kind.key == "other":
             row = self._exclude_handicap_row(row)
 
@@ -631,6 +633,8 @@ class ExtractorPane(ttk.Frame):
         return rating
 
     def _parse_reversal_threshold(self) -> int | None:
+        if self.kind.key == "other":
+            return None
         if not self.reversal_enabled.get():
             return None
         value = self.reversal_threshold.get().strip()
@@ -683,6 +687,9 @@ class ExtractorPane(ttk.Frame):
             "reversal_enabled": self.reversal_enabled.get(),
             "reversal_threshold": self.reversal_threshold.get(),
             "exclude_handicap": self.exclude_handicap.get(),
+            "exclude_handicap_default_version": OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
+            if self.kind.key == "other"
+            else None,
         }
 
     def apply_settings(self, settings: object) -> None:
@@ -706,9 +713,16 @@ class ExtractorPane(ttk.Frame):
         self.start_date.set(str(settings.get("start_date", "")))
         self.end_date.set(str(settings.get("end_date", "")))
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
-        self.reversal_enabled.set(bool(settings.get("reversal_enabled", False)))
+        self.reversal_enabled.set(False if self.kind.key == "other" else bool(settings.get("reversal_enabled", False)))
         self.reversal_threshold.set(str(settings.get("reversal_threshold", "400") or "400"))
-        self.exclude_handicap.set(bool(settings.get("exclude_handicap", False)))
+        default_exclude_handicap = self.kind.key == "other"
+        if (
+            self.kind.key == "other"
+            and settings.get("exclude_handicap_default_version") != OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
+        ):
+            self.exclude_handicap.set(True)
+        else:
+            self.exclude_handicap.set(bool(settings.get("exclude_handicap", default_exclude_handicap)))
 
 
 class DownloadPlaceholderPane(ttk.Frame):
