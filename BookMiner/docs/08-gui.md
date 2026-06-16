@@ -51,6 +51,7 @@ book/think_sfens.txt
 
 棋譜から新しく掘る場合は、`棋譜抽出` を使います。
 既存の定跡DBを peta shock 化して leaf を延長する場合は、BookMiner 上で変換するなら `peta_shock`、別マシンなどで変換済みの `peta_book-....db` を持ち込むなら `peta_read` のあとに `peta_next` を使います。
+peta shock 化の意味と `peta_next` との関係は [10. peta shock 化](10-peta-shock.md) を参照してください。
 
 局面を用意できたら、`enqueue` で探索キューへ積みます。
 
@@ -185,6 +186,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 ```text
 [TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400
 [TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000
+[TaskQueueJobDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0
 [TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0
 ```
 
@@ -192,13 +194,20 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 
 `job_progress=30000/50000` は、そのログ行の `job=1` が投入した対局棋譜だけを見た進捗です。複数回 enqueue して job が混ざっている場合でも、各 job がどれくらい worker に渡ったかを確認できます。
 
+`[TaskQueueJobDone]` は、その `job` の全タスクが worker に渡ったときに出ます。`remaining` が 0 でなければ、他の job のタスクが queue に残っています。
+
+`タスク状況ログ` の `タスク一覧` チェックを入れると、ログ表示の代わりに現存 job の一覧を表示します。
+各行には `job`、`進捗` (`job_progress`)、`残り` (`job_remaining`) が表示されます。
+`[TaskQueueJobDone]` または `job_remaining=0` を受け取った job は一覧から削除されます。
+
 複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが worker に渡った状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
 [TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400
+[TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000
 ```
 
-ログは前回出力からおおむね 10 秒以上経過したとき、または最後のタスクを worker が受け取ったときに更新されます。
+ログは前回出力からおおむね 10 秒以上経過したとき、job の最後のタスクを worker が受け取ったとき、または全体 queue の最後のタスクを worker が受け取ったときに更新されます。
 
 自動enqueueは、この `remaining` が指定値より少なくなったときに発火します。
 手動で `peta_shock`、`peta_read`、`peta_next`、`enqueue`、`DB手動保存` を実行している間は、自動enqueueは開始しません。

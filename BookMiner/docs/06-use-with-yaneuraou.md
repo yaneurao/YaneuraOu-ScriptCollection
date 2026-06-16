@@ -14,6 +14,8 @@ BookMiner/book/backup/peta_book-20260607103251_14505901.db
 
 `w` コマンドで作られる `book/backup/book_miner-....db` もやねうら王の通常定跡形式ですが、対局用には peta shock 化後の `peta_book-....db` を使うのが基本です。
 
+通常bookではなく peta_book を使う理由は [10. peta shock 化](10-peta-shock.md) を参照してください。
+
 ![生成した定跡をやねうら王で使う流れ](assets/yaneuraou-use-book.svg)
 
 ## やねうら王の book フォルダに置く

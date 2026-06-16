@@ -113,14 +113,10 @@ BookMiner が書き出す通常定跡 DB には、次のような特徴があり
 
 peta shock 化は、やねうら王の `makebook peta_shock` コマンドです。
 
-これは、通常定跡 DB を後ろから解析し、定跡として使いやすい DB に変換する処理です。もう少し専門的に言うと、定跡ツリーでmin-max探索した結果と同じ結果にした定跡DBを作ります。
+通常定跡 DB を後ろから解析し、leaf 側の評価値を min-max で root 側へ伝播させた peta_book を作ります。
+BookMiner では、次に掘る leaf を探す `peta_next` と、対局用定跡の作成に使います。
 
-![peta shock 化による min-max 伝播](assets/peta-shock-minimax.svg)
-
-通常定跡 DB では、leaf 側にある評価値がまだ root 側へ十分に反映されていないことがあります。
-peta shock 化を行うと、定跡ツリーを後ろから辿り、leaf の評価値を min-max で親局面へ伝播させます。
-その結果、root 側の局面評価も、leaf 側の探索結果をもとに計算し直されます。
-
+詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
 
 ## MATERIAL 版
 

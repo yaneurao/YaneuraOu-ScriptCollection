@@ -10,6 +10,8 @@
 
 探索後に再度 peta shock 化すると、既存定跡内の局面評価も、新しく伸ばした先の評価値をもとに計算し直されます。
 
+ここでは手順を中心に説明します。peta shock 化そのものの意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) を参照してください。
+
 ![定跡木と leaf からの延長](assets/book-tree-leaf-extension.svg)
 
 ## 既存定跡を配置する

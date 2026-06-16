@@ -96,6 +96,8 @@ p
 
 `p` は、現在の定跡 DB をその場で peta shock 化し、すぐに `peta_book` として使えるようにするコマンドです。
 
+何を変換しているのか、なぜ `peta_book` が必要なのかは [10. peta shock 化](10-peta-shock.md) を参照してください。
+
 重要なのは、`p` は `book/backup/` の最新ファイルを探すのではなく、`p` 自身がいま書き出したバックアップファイルをそのまま peta shock 化することです。これにより、定期自動バックアップや別の書き出しとタイミングが重なった場合でも、意図しないファイルを変換元にしにくくなります。
 
 通常の周回作業では、BookMiner が動いている環境で `p` を使うのが基本です。
@@ -148,6 +150,7 @@ n 30
 
 アルゴリズムの説明は下記のページをご覧ください。
 
+- [10. peta shock 化](10-peta-shock.md)
 - [YaneuraOu-ScriptCollection/PetaNext](../../PetaNext/README.md)
 
 出力先:

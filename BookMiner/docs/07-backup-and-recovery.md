@@ -60,6 +60,8 @@ w
 
 `p` コマンドも、最初に現在の定跡 DB を `book/backup/` に書き出します。そのあと、書き出したバックアップを peta shock 化して `book/backup/peta_book-....db` として読み込みます。通常の周回作業では `p` を使うと、書き出しと peta shock 化と読み込みをまとめて実行できます。
 
+peta shock 化と `peta_book` の意味は [10. peta shock 化](10-peta-shock.md) を参照してください。
+
 手数制限を付けた書き出しもできます。
 
 ```text
