@@ -118,7 +118,6 @@ class ExtractJob:
     start_date: date | None
     end_date: date | None
     wcsc_finalists_only: bool
-    reversal_threshold: int | None
     exclude_handicap: bool
     require_rating: bool
     log_target_files: bool
@@ -272,8 +271,6 @@ class ExtractorPane(ttk.Frame):
         self.start_date = tk.StringVar()
         self.end_date = tk.StringVar()
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
-        self.reversal_enabled = tk.BooleanVar(value=False)
-        self.reversal_threshold = tk.StringVar(value="400")
         self.exclude_handicap = tk.BooleanVar(value=kind.key == "other")
 
         self.columnconfigure(1, weight=1)
@@ -389,8 +386,6 @@ class ExtractorPane(ttk.Frame):
             row = self._losing_player_rating_row(row)
             row = self._drawing_player_rating_row(row)
 
-        if self.kind.key != "other":
-            row = self._reversal_row(row)
         if self.kind.key == "other":
             row = self._exclude_handicap_row(row)
 
@@ -458,22 +453,6 @@ class ExtractorPane(ttk.Frame):
         frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=6)
         ttk.Entry(frame, textvariable=self.drawing_player_min_rating, width=8).pack(side="left")
         ttk.Label(frame, text="以上のプレイヤーが引き分けた棋譜も追加する").pack(side="left", padx=(4, 0))
-        return row + 1
-
-    def _reversal_row(self, row: int) -> int:
-        self._label_with_help(
-            row,
-            "逆転棋譜",
-            "片方のプレイヤー自身が出力した評価値が一度この絶対値以上になり、\n"
-            "その後、同じプレイヤーの出力評価値が0をまたいだ棋譜だけを抽出します。\n"
-            "評価値コメントが見つからない棋譜は、この条件を有効にした場合は除外されます。",
-        )
-        frame = ttk.Frame(self)
-        frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=6)
-        ttk.Checkbutton(frame, variable=self.reversal_enabled).pack(side="left")
-        ttk.Label(frame, text="評価値").pack(side="left", padx=(6, 4))
-        ttk.Entry(frame, textvariable=self.reversal_threshold, width=8).pack(side="left")
-        ttk.Label(frame, text="から逆転した棋譜").pack(side="left", padx=(4, 0))
         return row + 1
 
     def _exclude_handicap_row(self, row: int) -> int:
@@ -555,7 +534,6 @@ class ExtractorPane(ttk.Frame):
         end_year = self._parse_year(self.end_year.get().strip(), "終了年")
         start_date = self._parse_date(self.start_date.get().strip(), "開始日", year_only_month_day=(1, 1))
         end_date = self._parse_date(self.end_date.get().strip(), "終了日", year_only_month_day=(12, 31))
-        reversal_threshold = self._parse_reversal_threshold()
         if start_year is not None and end_year is not None and start_year > end_year:
             raise ValueError("開始年は終了年以下を指定してください。")
         if start_date is not None and end_date is not None and start_date > end_date:
@@ -575,7 +553,6 @@ class ExtractorPane(ttk.Frame):
             start_date,
             end_date,
             self.wcsc_finalists_only.get(),
-            reversal_threshold,
             self.kind.key == "other" and self.exclude_handicap.get(),
             self.kind.has_rating and min_rating is not None,
             log_target_files,
@@ -632,22 +609,6 @@ class ExtractorPane(ttk.Frame):
             raise ValueError("引き分けた棋譜のratingは 0 以上を指定してください。")
         return rating
 
-    def _parse_reversal_threshold(self) -> int | None:
-        if self.kind.key == "other":
-            return None
-        if not self.reversal_enabled.get():
-            return None
-        value = self.reversal_threshold.get().strip()
-        if not value:
-            raise ValueError("逆転棋譜の評価値を指定してください。")
-        try:
-            threshold = int(value)
-        except ValueError as exc:
-            raise ValueError(f"逆転棋譜の評価値は整数で指定してください: {value}") from exc
-        if threshold <= 0:
-            raise ValueError("逆転棋譜の評価値は 1 以上を指定してください。")
-        return threshold
-
     def _parse_year(self, value: str, label: str) -> int | None:
         if self.kind.year_source is None or not value:
             return None
@@ -684,8 +645,6 @@ class ExtractorPane(ttk.Frame):
             "start_date": self.start_date.get(),
             "end_date": self.end_date.get(),
             "wcsc_finalists_only": self.wcsc_finalists_only.get(),
-            "reversal_enabled": self.reversal_enabled.get(),
-            "reversal_threshold": self.reversal_threshold.get(),
             "exclude_handicap": self.exclude_handicap.get(),
             "exclude_handicap_default_version": OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
             if self.kind.key == "other"
@@ -713,8 +672,6 @@ class ExtractorPane(ttk.Frame):
         self.start_date.set(str(settings.get("start_date", "")))
         self.end_date.set(str(settings.get("end_date", "")))
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
-        self.reversal_enabled.set(False if self.kind.key == "other" else bool(settings.get("reversal_enabled", False)))
-        self.reversal_threshold.set(str(settings.get("reversal_threshold", "400") or "400"))
         default_exclude_handicap = self.kind.key == "other"
         if (
             self.kind.key == "other"
@@ -1950,8 +1907,6 @@ class KifManager(tk.Tk):
                 )
             if job.wcsc_finalists_only:
                 self._put_log(f"[{job.kind.title}] finalists only: True\n")
-            if job.reversal_threshold is not None:
-                self._put_log(f"[{job.kind.title}] reversal threshold: {job.reversal_threshold}\n")
             if job.exclude_handicap:
                 self._put_log(f"[{job.kind.title}] exclude handicap games\n")
             if job.log_target_files:
@@ -1971,7 +1926,7 @@ class KifManager(tk.Tk):
                         start_date=job.start_date,
                         end_date=job.end_date,
                         wcsc_finalists_only=job.wcsc_finalists_only,
-                        reversal_threshold=job.reversal_threshold,
+                        reversal_threshold=None,
                         exclude_handicap=job.exclude_handicap,
                         allow_non_startpos=job.kind.key == "other",
                         require_rating=job.require_rating,
@@ -2117,7 +2072,6 @@ class KifManager(tk.Tk):
             f"skipped_year={stats.skipped_year} skipped_date={stats.skipped_date} "
             f"skipped_finalist={stats.skipped_finalist} "
             f"skipped_name={stats.skipped_name} skipped_rating={stats.skipped_rating} "
-            f"skipped_reversal={stats.skipped_reversal} "
             f"skipped_handicap={stats.skipped_handicap} "
             f"skipped_parse={stats.skipped_parse} skipped_duplicate={stats.skipped_duplicate}"
         )
