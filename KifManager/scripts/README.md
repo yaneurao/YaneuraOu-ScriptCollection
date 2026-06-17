@@ -134,7 +134,7 @@ python3 floodgate-kif-extractor.py \
 floodgate の年別棋譜アーカイブをダウンロードします。
 
 ```bash
-python3 floodgate-kif-downloader.py YEAR [--output-dir downloaded-kif/floodgate] [--download-today]
+python3 floodgate-kif-downloader.py YEAR [--output-dir downloaded-kif/floodgate] [--download-yesterday] [--download-today]
 ```
 
 例:
@@ -147,7 +147,9 @@ python3 floodgate-kif-downloader.py 2026
 
 出力ファイルは指定フォルダ直下の `wdoorYYYY.7z` です。今年のアーカイブも日付を付けず、例えば `wdoor2026.7z` に保存します。サーバー上のファイルサイズと既存ファイルのサイズが同じ場合は、ダウンロードを省略します。サイズが異なる場合は `.tmp` にダウンロードしてから `wdoorYYYY.7z` に置き換えます。
 
-`--download-today` を指定した場合だけ、floodgate の today ページから当日分の `.csa` を取得し、出力フォルダ配下の `YYYYMMDD/` に保存します。
+`--download-yesterday` を指定した場合は、floodgate の日別ページから前日分の `.csa` を取得し、出力フォルダ配下の `YYYYMMDD/` に保存します。年別アーカイブの更新時刻より前に実行すると、前日5:00以降の棋譜が年別アーカイブにまだ入っていないことがあるため、このオプションで補完できます。
+
+`--download-today` を指定した場合は、floodgate の today ページから当日分の `.csa` を取得し、出力フォルダ配下の `YYYYMMDD/` に保存します。
 
 ## wcsc-kif-extractor.py
 

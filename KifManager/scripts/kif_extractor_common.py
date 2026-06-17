@@ -730,9 +730,20 @@ def reversal_passes(game: GameRecord, threshold: int | None) -> bool:
     return False
 
 
-def read_csa_header(path: Path) -> CsaHeader:
+def read_csa_header(
+    path: Path,
+    *,
+    require_names: bool = True,
+    require_ratings: bool = True,
+    require_date: bool = True,
+) -> CsaHeader:
     with path.open("rb") as f:
-        return scan_csa_header_lines(decode_lines(f))
+        return scan_csa_header_lines(
+            decode_lines(f),
+            require_names=require_names,
+            require_ratings=require_ratings,
+            require_date=require_date,
+        )
 
 
 def decode_lines(lines: Iterable[bytes]) -> Iterable[str]:
@@ -747,7 +758,29 @@ def decode_lines(lines: Iterable[bytes]) -> Iterable[str]:
             yield raw_line.decode("utf-8", errors="replace")
 
 
-def scan_csa_header_lines(lines: Iterable[str]) -> CsaHeader:
+def csa_header_has_required_fields(
+    header: CsaHeader,
+    *,
+    require_names: bool,
+    require_ratings: bool,
+    require_date: bool,
+) -> bool:
+    if require_names and (not header.black or not header.white):
+        return False
+    if require_ratings and (header.black_rating is None or header.white_rating is None):
+        return False
+    if require_date and header.game_date is None:
+        return False
+    return True
+
+
+def scan_csa_header_lines(
+    lines: Iterable[str],
+    *,
+    require_names: bool = True,
+    require_ratings: bool = True,
+    require_date: bool = True,
+) -> CsaHeader:
     header = CsaHeader()
     for raw_line in lines:
         line = raw_line.strip()
@@ -755,18 +788,53 @@ def scan_csa_header_lines(lines: Iterable[str]) -> CsaHeader:
             continue
         if match := CSA_BLACK_NAME_RE.match(line):
             header.black = match.group(1).strip()
+            if csa_header_has_required_fields(
+                header,
+                require_names=require_names,
+                require_ratings=require_ratings,
+                require_date=require_date,
+            ):
+                break
             continue
         if match := CSA_WHITE_NAME_RE.match(line):
             header.white = match.group(1).strip()
+            if csa_header_has_required_fields(
+                header,
+                require_names=require_names,
+                require_ratings=require_ratings,
+                require_date=require_date,
+            ):
+                break
             continue
         if match := CSA_BLACK_RATE_RE.match(line):
             header.black_rating = optional_float(match.group(1))
+            if csa_header_has_required_fields(
+                header,
+                require_names=require_names,
+                require_ratings=require_ratings,
+                require_date=require_date,
+            ):
+                break
             continue
         if match := CSA_WHITE_RATE_RE.match(line):
             header.white_rating = optional_float(match.group(1))
+            if csa_header_has_required_fields(
+                header,
+                require_names=require_names,
+                require_ratings=require_ratings,
+                require_date=require_date,
+            ):
+                break
             continue
         if header.game_date is None:
             header.game_date = find_date_in_text(line)
+        if csa_header_has_required_fields(
+            header,
+            require_names=require_names,
+            require_ratings=require_ratings,
+            require_date=require_date,
+        ):
+            break
         if line.startswith("%") or CSA_MOVE_RE.match(line):
             break
     return header
@@ -787,7 +855,12 @@ def should_skip_by_csa_header(
     ):
         return False
 
-    header = read_csa_header(path)
+    header = read_csa_header(
+        path,
+        require_names=bool(player_filters.both_patterns or player_filters.either_patterns),
+        require_ratings=False,
+        require_date=date_filter is not None,
+    )
     if date_filter is not None:
         game_date = header.game_date or infer_game_date_from_path(path)
         if not date_filter_passes(game_date, date_filter):
@@ -822,7 +895,7 @@ def collect_high_rating_players_from_headers(
             continue
 
         try:
-            header = read_csa_header(path)
+            header = read_csa_header(path, require_date=date_filter is not None)
         except Exception as exc:
             if verbose:
                 print(f"skip rating header: {path}: {exc}", file=sys.stderr)
