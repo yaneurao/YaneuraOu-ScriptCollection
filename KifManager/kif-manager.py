@@ -20,6 +20,7 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 SETTINGS_PATH = BASE_DIR / "kif-manager-settings.pickle"
 SETTINGS_VERSION = 1
 OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION = 2
+FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION = 1
 EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
 BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "think_sfens.txt").resolve())
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
@@ -703,7 +704,8 @@ class FloodgateDownloadPane(ttk.Frame):
         self.kind = kind
         self.year = tk.StringVar(value=str(datetime.now().year))
         self.output_dir = tk.StringVar(value=FLOODGATE_DEFAULT_OUTPUT_DIR)
-        self.download_today = tk.BooleanVar(value=False)
+        self.download_yesterday = tk.BooleanVar(value=True)
+        self.download_today = tk.BooleanVar(value=True)
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -731,6 +733,8 @@ class FloodgateDownloadPane(ttk.Frame):
             "既存ファイルとサーバー上のサイズが同じならダウンロードを省略します。\n"
             "デフォルトでは downloaded-kif/floodgate に保存します。",
         )
+        row += 1
+        self._download_yesterday_row(row)
         row += 1
         self._download_today_row(row)
 
@@ -770,13 +774,23 @@ class FloodgateDownloadPane(ttk.Frame):
         )
         return row + 1
 
+    def _download_yesterday_row(self, row: int) -> None:
+        self._label_with_help(
+            row,
+            "前日分もダウンロードする",
+            "年別アーカイブ更新時刻の都合で漏れやすい前日分を、floodgate の日別ページから取得します。\n"
+            "出力フォルダ配下の YYYYMMDD フォルダに .csa ファイルを保存します。\n"
+            "デフォルトはオンです。",
+        )
+        ttk.Checkbutton(self, variable=self.download_yesterday).grid(row=row, column=1, sticky="w", pady=6)
+
     def _download_today_row(self, row: int) -> None:
         self._label_with_help(
             row,
             "当日分もダウンロードする",
             "年別アーカイブにまだ入っていない当日分を floodgate の today ページから取得します。\n"
             "出力フォルダ配下の YYYYMMDD フォルダに .csa ファイルを保存します。\n"
-            "デフォルトはオフです。",
+            "デフォルトはオンです。",
         )
         ttk.Checkbutton(self, variable=self.download_today).grid(row=row, column=1, sticky="w", pady=6)
 
@@ -813,13 +827,20 @@ class FloodgateDownloadPane(ttk.Frame):
         if output_path.exists() and not output_path.is_dir():
             raise ValueError(f"出力フォルダがファイルです: {output_path}")
 
-        return FloodgateDownloadJob(year, output_path, download_today=self.download_today.get())
+        return FloodgateDownloadJob(
+            year,
+            output_path,
+            download_yesterday=self.download_yesterday.get(),
+            download_today=self.download_today.get(),
+        )
 
     def settings(self) -> dict[str, object]:
         return {
             "year": self.year.get(),
             "output_dir": self.output_dir.get(),
+            "download_yesterday": self.download_yesterday.get(),
             "download_today": self.download_today.get(),
+            "daily_download_default_version": FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION,
         }
 
     def apply_settings(self, settings: object) -> None:
@@ -827,7 +848,12 @@ class FloodgateDownloadPane(ttk.Frame):
             return
         self.year.set(str(settings.get("year", datetime.now().year) or datetime.now().year))
         self.output_dir.set(str(settings.get("output_dir", FLOODGATE_DEFAULT_OUTPUT_DIR) or FLOODGATE_DEFAULT_OUTPUT_DIR))
-        self.download_today.set(bool(settings.get("download_today", False)))
+        if settings.get("daily_download_default_version") != FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION:
+            self.download_yesterday.set(True)
+            self.download_today.set(True)
+        else:
+            self.download_yesterday.set(bool(settings.get("download_yesterday", True)))
+            self.download_today.set(bool(settings.get("download_today", True)))
 
 
 class WcscDownloadPane(ttk.Frame):
@@ -1949,6 +1975,7 @@ class KifManager(tk.Tk):
         self._put_log("[floodgate] start\n")
         self._put_log(f"[floodgate] year      : {job.year}\n")
         self._put_log(f"[floodgate] output dir: {job.output_dir}\n")
+        self._put_log(f"[floodgate] yesterday : {job.download_yesterday}\n")
         self._put_log(f"[floodgate] today     : {job.download_today}\n")
 
         try:
@@ -2081,6 +2108,15 @@ class KifManager(tk.Tk):
             f"year={stats.year} skipped={stats.skipped} bytes={stats.bytes_written} "
             f"destination={stats.destination}"
         )
+        if stats.yesterday is not None:
+            text += (
+                f" yesterday_found={stats.yesterday.found} "
+                f"yesterday_downloaded={stats.yesterday.downloaded} "
+                f"yesterday_skipped={stats.yesterday.skipped} "
+                f"yesterday_failed={stats.yesterday.failed} "
+                f"yesterday_bytes={stats.yesterday.bytes_written} "
+                f"yesterday_dir={stats.yesterday.destination_dir}"
+            )
         if stats.today is not None:
             text += (
                 f" today_found={stats.today.found} today_downloaded={stats.today.downloaded} "
