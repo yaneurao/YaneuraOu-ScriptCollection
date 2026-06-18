@@ -1144,6 +1144,17 @@ fs::path get_latest_peta_book()
     return paths.back();
 }
 
+bool is_supported_peta_book_path(const fs::path& path)
+{
+    return path.extension() == ".db" || bookminer::is_yane_bin_book_path(path);
+}
+
+void ensure_supported_peta_book_path(const fs::path& path, const std::string& label)
+{
+    if (!is_supported_peta_book_path(path))
+        throw std::runtime_error(label + " must be .db or .ybb : " + path.string());
+}
+
 fs::path make_backup_path(std::size_t position_count, std::optional<int> ply_limit)
 {
     fs::create_directories(BookBackupDir);
@@ -1182,6 +1193,7 @@ fs::path resolve_peta_source_book_path(const std::optional<std::string>& path)
         auto latest = get_latest_book_backup_or_none();
         if (!latest.has_value())
             throw std::runtime_error(std::string("book backup file not found : ") + BookBackupDir + "/" + BookDbName + "-*.db or " + BookDbName + "-*.ybb");
+        ensure_supported_peta_book_path(*latest, "peta source book");
         return *latest;
     }
 
@@ -1192,7 +1204,10 @@ fs::path resolve_peta_source_book_path(const std::optional<std::string>& path)
 
     for (const auto& candidate : candidates)
         if (fs::is_regular_file(candidate))
+        {
+            ensure_supported_peta_book_path(candidate, "peta source book");
             return candidate;
+        }
 
     throw std::runtime_error("peta source book not found : " + *path);
 }
@@ -1209,7 +1224,10 @@ fs::path resolve_peta_book_path(const std::optional<std::string>& path)
 
     for (const auto& candidate : candidates)
         if (fs::is_regular_file(candidate))
+        {
+            ensure_supported_peta_book_path(candidate, "peta book");
             return candidate;
+        }
 
     throw std::runtime_error("peta book not found : " + *path);
 }

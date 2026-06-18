@@ -268,6 +268,11 @@ def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
 
 
 def temp_book_path(path:str)->str:
+    directory, filename = os.path.split(path)
+    stem, extension = os.path.splitext(filename)
+    if extension.lower() == ".db":
+        temp_name = f"tmp-{stem}{extension}"
+        return os.path.join(directory, temp_name) if directory else temp_name
     return f"{path}.tmp"
 
 
@@ -1729,6 +1734,15 @@ def get_latest_peta_book()->str:
     return paths[-1]
 
 
+def is_supported_peta_book_path(path:str)->bool:
+    return os.path.splitext(path)[1].lower() == ".db"
+
+
+def ensure_supported_peta_book_path(path:str, label:str):
+    if not is_supported_peta_book_path(path):
+        raise Exception(f"{label} must be .db : {path}")
+
+
 def load_latest_book_backup(book:Book):
     path = get_latest_book_backup_or_none()
     if path is None:
@@ -1744,7 +1758,9 @@ def resolve_peta_source_book_path(path:str|None)->str:
     path省略時は、最新の通常バックアップを用いる。
     """
     if path is None:
-        return get_latest_book_backup()
+        latest = get_latest_book_backup()
+        ensure_supported_peta_book_path(latest, "peta source book")
+        return latest
 
     candidates = [
         path,
@@ -1753,6 +1769,7 @@ def resolve_peta_source_book_path(path:str|None)->str:
 
     for candidate in candidates:
         if os.path.isfile(candidate):
+            ensure_supported_peta_book_path(candidate, "peta source book")
             return candidate
 
     raise Exception(f"peta source book not found : {path}")
@@ -1764,7 +1781,9 @@ def resolve_peta_book_path(path:str|None)->str:
     path省略時は、book/backup/ の最新 peta_book を用いる。
     """
     if path is None:
-        return get_latest_peta_book()
+        latest = get_latest_peta_book()
+        ensure_supported_peta_book_path(latest, "peta book")
+        return latest
 
     candidates = [
         path,
@@ -1773,6 +1792,7 @@ def resolve_peta_book_path(path:str|None)->str:
 
     for candidate in candidates:
         if os.path.isfile(candidate):
+            ensure_supported_peta_book_path(candidate, "peta book")
             return candidate
 
     raise Exception(f"peta book not found : {path}")

@@ -570,6 +570,9 @@ std::string trim_sfen(const std::string& sfen_with_optional_prefix_and_ply)
 
 std::filesystem::path temp_book_path(const std::filesystem::path& path)
 {
+    const auto extension = path.extension().string();
+    if (extension == ".db" || extension == ".ybb")
+        return path.parent_path() / ("tmp-" + path.stem().string() + extension);
     return std::filesystem::path(path.string() + ".tmp");
 }
 
