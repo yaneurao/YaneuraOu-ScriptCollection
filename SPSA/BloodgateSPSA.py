@@ -227,6 +227,9 @@ class SharedState:
         engine_settings = []
         for engine_settings_path in paths:
             print_log(f"Read engine settings, path = {engine_settings_path}")
+            if not os.path.exists(engine_settings_path):
+                sample_path = engine_settings_path.replace(".json5", "-sample.json5")
+                raise FileNotFoundError(f"{engine_settings_path} not found. Copy {sample_path} and edit it.")
             with open(engine_settings_path, 'r', encoding='utf-8') as f:
                 engine_settings.append(json5.load(f))
         return engine_settings
@@ -476,6 +479,10 @@ def user_input():
     global SCALE, MOBILITY, RESULT_TABLE_COLS
 
     # 設定ファイルの読み込み
+    if not os.path.exists(SETTING_PATH):
+        sample_path = SETTING_PATH.replace(".json5", "-sample.json5")
+        raise FileNotFoundError(f"{SETTING_PATH} not found. Copy {sample_path} and edit it.")
+
     with open(SETTING_PATH, "r", encoding="utf-8") as f:
         settings = json5.load(f)
 

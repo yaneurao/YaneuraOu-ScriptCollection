@@ -53,7 +53,30 @@ SPSAするためのツール類。
 
 - `BloodgateSPSA.py` がSPSAフレームワーク
 
-- `SPSA-settings.json`がその設定ファイル。JSON形式なので内容を適宜変更する。
+- `settings/SPSA-settings.json5`がその設定ファイル。JSON5形式なので内容を適宜変更する。
+- `settings/*-sample.json5`はテンプレートで、Git管理される。実際に使う設定ファイルはテンプレートをコピーして作る。
+
+PowerShell:
+
+```
+Copy-Item .\settings\SPSA-settings-sample.json5 .\settings\SPSA-settings.json5
+Copy-Item .\settings\engine_settings1-sample.json5 .\settings\engine_settings1.json5
+Copy-Item .\settings\engine_settings2-sample.json5 .\settings\engine_settings2.json5
+```
+
+bash:
+
+```
+cp settings/SPSA-settings-sample.json5 settings/SPSA-settings.json5
+cp settings/engine_settings1-sample.json5 settings/engine_settings1.json5
+cp settings/engine_settings2-sample.json5 settings/engine_settings2.json5
+```
+
+以後、編集するのは `*-sample.json5` ではなく、コピーして作った実設定ファイルである。
+実設定ファイルはGit管理しないため、`git pull`時にユーザーごとの設定変更でconflictしない。
+
+`settings/engine_settings1.json5` は基準エンジン、`settings/engine_settings2.json5` はSPSA対象エンジンである。
+どちらのファイルにも複数エンジンを書けるが、`multi`の合計は一致させる必要がある。
 
 > python BloodgateSPSA.py
 

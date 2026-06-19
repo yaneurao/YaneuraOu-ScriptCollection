@@ -1,0 +1,10 @@
+[
+    {
+        // SPSA対象エンジン。
+        // 基準側とmulti合計を一致させる。
+        "path": "engines/tune/YaneuraOu-tune.exe",
+        "name": "tune",
+        "nodes": 500000,
+        "multi": 1
+    }
+]

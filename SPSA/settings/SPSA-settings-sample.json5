@@ -1,0 +1,21 @@
+{
+    // 対局開始を行う互角局面集のファイルPATH。
+    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+
+    // 思考エンジンの設定ファイル。
+    // 1つ目が基準エンジン、2つ目がSPSA対象エンジン。
+    // 各ファイル内には複数エンジンを書ける。
+    // 基準側とSPSA対象側のmulti合計は一致させる必要がある。
+    "ENGINE_SETTINGS": [
+        "settings/engine_settings1.json5",
+        "settings/engine_settings2.json5"
+    ],
+
+    // 標準的な将棋盤。
+    // falseにすると55将棋など変則将棋にも使える。
+    // ただし千日手判定はできなくなる。
+    "STANDARD_BOARD": true,
+
+    // tune.pyの'tune'コマンドで生成したパラメーターファイル。
+    "PARAMETERS_PATH": "param/YaneuraOu.params"
+}

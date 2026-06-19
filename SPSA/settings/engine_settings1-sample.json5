@@ -1,0 +1,11 @@
+[
+    {
+        // 基準エンジン。
+        // 複数の基準エンジンを使う場合は、この配列に要素を追加する。
+        // 重みはmultiで調整する。
+        "path": "engines/reference/YaneuraOu.exe",
+        "name": "reference",
+        "nodes": 500000,
+        "multi": 1
+    }
+]
