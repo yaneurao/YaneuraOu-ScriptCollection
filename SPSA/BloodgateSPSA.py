@@ -205,6 +205,8 @@ class SharedState:
         # ↑のvを書き換える時用のlock object
         self.param_lock = Lock()
 
+        self.validate_tunable_options_are_not_fixed()
+
         # 勝率マネージャー
         self.win_manager = WinManager()
 
@@ -233,6 +235,107 @@ class SharedState:
             with open(engine_settings_path, 'r', encoding='utf-8') as f:
                 engine_settings.append(json5.load(f))
         return engine_settings
+
+    def validate_tunable_options_are_not_fixed(self):
+        """
+        やねうら王は engine_options.txt / eval_options.txt で読み込まれた項目を fixed にする。
+        fixed になった項目は通常の setoption では変更できないので、SPSA対象に含めると
+        対局時には値が変わらないまま、パラメーターファイルだけが更新されてしまう。
+        """
+
+        if len(self.engine_settings) < 2:
+            return
+
+        tunable_names = {p.name for p in self.parameters if not p.not_used}
+        if not tunable_names:
+            return
+
+        conflicts : list[str] = []
+        for engine_setting in self.engine_settings[1]:
+            engine_path = engine_setting.get("path", "")
+            if engine_path.startswith("ssh"):
+                continue
+
+            engine_file = Path(engine_path).expanduser()
+            if not engine_file.is_absolute():
+                engine_file = Path(engine_file)
+            engine_dir = engine_file.resolve().parent
+
+            option_files = [engine_dir / "engine_options.txt"]
+            eval_dir = self.read_option_value(option_files[0], "EvalDir")
+            if eval_dir:
+                eval_path = Path(eval_dir)
+                if not eval_path.is_absolute():
+                    eval_path = engine_dir / eval_path
+                option_files.append(eval_path / "eval_options.txt")
+            else:
+                option_files.append(engine_dir / "eval" / "eval_options.txt")
+
+            for option_file in option_files:
+                fixed_options = self.read_option_names(option_file)
+                duplicated = sorted(tunable_names & fixed_options)
+                if duplicated:
+                    conflicts.append(f"{option_file}: {', '.join(duplicated)}")
+
+        if conflicts:
+            raise ValueError(
+                "SPSA target engine fixes tunable option(s) in engine_options.txt/eval_options.txt. "
+                "Remove these entries, otherwise setoption from SPSA is ignored:\n"
+                + "\n".join(conflicts))
+
+    def read_option_value(self, path:Path, name:str)->str|None:
+        for option_name, option_value in self.read_options_file(path):
+            if option_name.lower() == name.lower():
+                return option_value
+        return None
+
+    def read_option_names(self, path:Path)->set[str]:
+        return {name for name, _ in self.read_options_file(path)}
+
+    def read_options_file(self, path:Path)->list[tuple[str, str]]:
+        if not path.exists():
+            return []
+
+        options : list[tuple[str, str]] = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                parsed = self.parse_option_line(line)
+                if parsed is not None:
+                    options.append(parsed)
+        return options
+
+    def parse_option_line(self, line:str)->tuple[str, str]|None:
+        line = line.split("//", 1)[0].strip()
+        if not line:
+            return None
+
+        if "=" in line and not line.lower().startswith("option "):
+            name, value = line.split("=", 1)
+            return name.strip(), value.strip()
+
+        tokens = line.split()
+        if not tokens:
+            return None
+
+        if tokens[0].lower() != "option":
+            return tokens[0], " ".join(tokens[1:])
+
+        lower_tokens = [t.lower() for t in tokens]
+        if "name" not in lower_tokens:
+            return None
+
+        name_pos = lower_tokens.index("name") + 1
+        end_pos = len(tokens)
+        for marker in ("type", "default", "value", "min", "max", "var"):
+            if marker in lower_tokens[name_pos:]:
+                end_pos = min(end_pos, lower_tokens.index(marker, name_pos))
+
+        name = " ".join(tokens[name_pos:end_pos]).strip()
+        value = ""
+        if "default" in lower_tokens:
+            default_pos = lower_tokens.index("default") + 1
+            value = tokens[default_pos] if default_pos < len(tokens) else ""
+        return (name, value) if name else None
 
     def write_parameters(self):
         # パラメーターを元のファイルを書き出す。
@@ -315,12 +418,13 @@ class ShogiMatch:
                 shift = self.generate_shift_params(params)
                 p_shift_plus  = self.add_params(params, shift, +SCALE)
                 p_shift_minus = self.add_params(params, shift, -SCALE)
+                root_sfen = self.pick_root_sfen()
 
                 # 変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_plus)
 
                 # 対局
-                winner = self.game_play(start_player)
+                winner = self.game_play(start_player, root_sfen)
 
                 # 勝ち数のカウント
                 self.shared.win_manager.update(winner, self.t[0].engine_name)
@@ -333,7 +437,7 @@ class ShogiMatch:
                 # 逆方向に変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_minus)
 
-                winner = self.game_play(start_player)
+                winner = self.game_play(start_player, root_sfen)
                 self.shared.win_manager.update(winner, self.t[0].engine_name)
                 step += winner_to_step[winner] * -1.0
 
@@ -348,7 +452,10 @@ class ShogiMatch:
             print_log(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
 
 
-    def game_play(self, start_player : int):
+    def pick_root_sfen(self)->str:
+        return self.shared.root_sfens[rand(len(self.shared.root_sfens))].rstrip()
+
+    def game_play(self, start_player : int, root_sfen:str|None = None):
         """ 1局だけ対局する """
 
         # 対局開始前のisready送信
@@ -359,7 +466,8 @@ class ShogiMatch:
         board = Board() if self.shared.standard_board else NonStandardBoard()
 
         # 対局開始局面(互角局面集からランダム)
-        root_sfen = self.shared.root_sfens[rand(len(self.shared.root_sfens))].rstrip()
+        if root_sfen is None:
+            root_sfen = self.pick_root_sfen()
 
         board.set_position(root_sfen)
 
