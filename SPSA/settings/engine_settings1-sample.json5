@@ -3,9 +3,22 @@
         // 基準エンジン。
         // 複数の基準エンジンを使う場合は、この配列に要素を追加する。
         // 重みはmultiで調整する。
+
+        // エンジン自体は、"engine_options.txt"で置換表サイズやスレッド数について
+        // "USI_Hash 1024"とか"Threads 1"とかして設定されているものとする。
+
         "path": "engines/reference/YaneuraOu.exe",
         "name": "reference",
         "nodes": 500000,
         "multi": 1
     }
+
+    /* // ssh越しに基準エンジンを複数起動する例。multiの数だけsshコマンドを起動する。
+    {
+        "path":"ssh -o ServerAliveInterval=15 9950b suisho10.bat",
+        "name":"suisho10",
+        "nodes":500000,
+        "multi":32 // ssh越しに32個インスタンスを起動する
+    }
+    */
 ]
