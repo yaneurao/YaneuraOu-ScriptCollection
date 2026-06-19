@@ -56,12 +56,54 @@ class WinManager:
         # 勝ったプレイヤーの履歴 0..player0の勝ち、1..player1の勝ち、2..draw。
         self.win_count : list[int] = []
 
+        # 基準エンジンごとの勝敗履歴。
+        self.win_count_by_opponent : dict[str, list[int]] = {}
+
         # ↑を書き換える時のlock
         self.lock = Lock()
-    
-    def update(self, winner:int):
+
+    def build_summary(self, results:list[int])->str:
+        summary = []
+
+        # 直近nの勝率、レート差などを出力。
+        n = RATE_OUTPUT_INTERVAL
+        while len(results) >= n:
+            # n が RATE_OUTPUT_INTERVAL × 2^m である
+
+            win  = results[-n:].count(1) # player 1の勝利回数
+            lose = results[-n:].count(0) # player 0の勝利回数
+            draw = results[-n:].count(2)
+
+            if win + lose == 0:
+                win_rate = "?"
+                rate_diff = "?"
+            else:
+                win_rate = win / (win + lose)
+                if win_rate == 0:
+                    rate_diff = "-INF"
+                elif win_rate == 1:
+                    rate_diff = "+INF"
+                else:
+                    rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
+                    win_rate  = f"{win_rate:.3f}"
+
+            # Last N SPSA対象エンジンから見た win-draw-lose 勝率 R差
+            summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
+
+            # レートだけ表示用に積むか。
+            # summary.append(f"R{rate_diff}")
+
+            n *= 2
+
+        # '|' 区切りでNの降順で直近 RESULT_TABLE_COLS つ出力
+        summary.reverse()
+        return ' | '.join(summary[:RESULT_TABLE_COLS])
+
+    def update(self, winner:int, opponent_name:str):
         with self.lock:
             self.win_count.append(winner)
+            opponent_results = self.win_count_by_opponent.setdefault(opponent_name, [])
+            opponent_results.append(winner)
 
             # 途中経過の表示用に勝敗を1文字で出力してやる。
             # print("LWD"[winner], end="")
@@ -70,42 +112,13 @@ class WinManager:
             total = len(self.win_count)
 
             if total % RATE_OUTPUT_INTERVAL == 0:
-                
-                summary = []
+                print_log(f"{total} : ALL : {self.build_summary(self.win_count)}")
 
-                # 直近nの勝率、レート差などを出力。
-                n = RATE_OUTPUT_INTERVAL
-                while len(self.win_count) >= n:
-                    # n が RATE_OUTPUT_INTERVAL × 2^m である
-
-                    win  = self.win_count[-n:].count(1) # player 1の勝利回数
-                    lose = self.win_count[-n:].count(0) # player 0の勝利回数
-                    draw = self.win_count[-n:].count(2)
-
-                    if win + lose == 0:
-                        win_rate = "?"
-                        rate_diff = "?"
-                    else:
-                        win_rate = win / (win + lose)
-                        if win_rate == 0:
-                            rate_diff = "-INF"
-                        elif win_rate == 1:
-                            rate_diff = "+INF"
-                        else:
-                            rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
-                            win_rate  = f"{win_rate:.3f}"
-
-                    # Last N SPSA対象エンジンから見た win-draw-lose 勝率 R差
-                    summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
-
-                    # レートだけ表示用に積むか。
-                    # summary.append(f"R{rate_diff}")
-
-                    n *= 2
-
-                # '|' 区切りでNの降順で直近 RESULT_TABLE_COLS つ出力
-                summary.reverse()
-                print_log(f"{total} : {' | '.join(summary[:RESULT_TABLE_COLS])}")
+                for name in sorted(self.win_count_by_opponent.keys()):
+                    results = self.win_count_by_opponent[name]
+                    if len(results) < RATE_OUTPUT_INTERVAL:
+                        continue
+                    print_log(f"{total} : {name} : {len(results)} games : {self.build_summary(results)}")
 
 class GameMatcher:
     """
@@ -136,8 +149,11 @@ class GameMatcher:
                     print_log(f"player {i}, engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , nodes = {t.engine_nodes}, thread_id = {t.thread_id}")
             threads_all.append(threads)
 
+        if len(threads_all) != 2:
+            raise ValueError(f"ENGINE_SETTINGS must contain exactly 2 engine setting files, actual = {len(threads_all)}")
+
         if len(threads_all[0]) != len(threads_all[1]):
-            print_log(f"Warnging! : Number of engines mismatch, {len(threads_all[0])} != {len(threads_all[1])}")
+            raise ValueError(f"Number of engines mismatch, {len(threads_all[0])} != {len(threads_all[1])}")
 
         # 対局情報を格納
         self.shared      = shared
@@ -304,7 +320,7 @@ class ShogiMatch:
                 winner = self.game_play(start_player)
 
                 # 勝ち数のカウント
-                self.shared.win_manager.update(winner)
+                self.shared.win_manager.update(winner, self.t[0].engine_name)
 
                 step = winner_to_step[winner] * +1.0
 
@@ -315,7 +331,7 @@ class ShogiMatch:
                 self.set_engine_options(params, p_shift_minus)
 
                 winner = self.game_play(start_player)
-                self.shared.win_manager.update(winner)
+                self.shared.win_manager.update(winner, self.t[0].engine_name)
                 step += winner_to_step[winner] * -1.0
 
                 # パラメーターをshift(方角)×step分だけ変異させる。
