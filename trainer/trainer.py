@@ -224,14 +224,10 @@ def parse_train_log(path: Path, teacher_root: Path | None) -> list[TrainLogRow]:
 
         if message.startswith("lr_scheduler lr="):
             current_lr = message.split("=", 1)[1]
-            if state.lr == "nan":
-                state.lr = current_lr
             continue
 
-        if message.startswith("lr=") and current_lr == "nan":
+        if message.startswith("lr="):
             current_lr = message.split("=", 1)[1]
-            if state.lr == "nan":
-                state.lr = current_lr
             continue
 
         if message.startswith("train position num ="):
@@ -857,7 +853,7 @@ def run_one_round(
                 "--checkpoint",
                 str(out_dir / "checkpoint-{epoch:04}.pth"),
                 "--log",
-                str(out_dir / f"train-{file_index:04}.log"),
+                str(out_dir / f"train-{checkpoint_number_for_file:04}.log"),
             ]
 
             if previous_checkpoint.exists():
@@ -934,7 +930,7 @@ def run_one_round(
         if tmp_checkpoint.exists():
             tmp_checkpoint.unlink()
         config_path = out_dir / f"ptl-config-{checkpoint_number_for_file:04}.yaml"
-        log_path = out_dir / f"train-{file_index:04}.log"
+        log_path = out_dir / f"train-{checkpoint_number_for_file:04}.log"
         write_ptl_config(
             config_path,
             out_dir=out_dir,
