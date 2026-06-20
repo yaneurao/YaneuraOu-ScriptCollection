@@ -333,6 +333,7 @@ user_book.ybb
 ## convert_ybb_db-gui.py
 
 GUI から `.db` と `.ybb` を相互変換します。
+PyInstaller で単体実行ファイル化しやすいように、この GUI 版の変換経路は `cshogi` / `numpy` に依存しません。
 
 ```bash
 python3 convert_ybb_db-gui.py

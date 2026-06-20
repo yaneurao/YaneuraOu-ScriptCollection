@@ -12,21 +12,18 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from convert_db_to_ybb import (
-    DEFAULT_CHUNK_BYTES as DB_TO_YBB_CHUNK_BYTES,
-    DEFAULT_CHUNK_POSITIONS as DB_TO_YBB_CHUNK_POSITIONS,
-    DEFAULT_MAX_OPEN_RUNS as DB_TO_YBB_MAX_OPEN_RUNS,
+from ybb_db_converter_pure import (
+    DEFAULT_CHUNK_BYTES,
+    DEFAULT_CHUNK_POSITIONS,
+    DEFAULT_MAX_OPEN_RUNS,
+    cleanup_work_dir,
     convert_db_to_ybb,
-    make_work_dir as make_db_to_ybb_work_dir,
-)
-from convert_ybb_to_db import (
-    DEFAULT_CHUNK_BYTES as YBB_TO_DB_CHUNK_BYTES,
-    DEFAULT_CHUNK_POSITIONS as YBB_TO_DB_CHUNK_POSITIONS,
-    DEFAULT_MAX_OPEN_RUNS as YBB_TO_DB_MAX_OPEN_RUNS,
     convert_ybb_to_db,
-    make_work_dir as make_ybb_to_db_work_dir,
+    make_db_to_ybb_work_dir,
+    make_ybb_to_db_work_dir,
+    resolve_ybb_input,
+    ybb_path_from_output,
 )
-from YaneuraOuBookLib import cleanup_work_dir, resolve_ybb_input, ybb_path_from_output
 
 
 DEFAULT_TMP_DIR = Path(tempfile.gettempdir()) / "yaneuraou-book-converter"
@@ -119,9 +116,9 @@ def run_conversion(
                 input_path,
                 output_path,
                 work_dir,
-                DB_TO_YBB_CHUNK_POSITIONS,
-                DB_TO_YBB_CHUNK_BYTES,
-                DB_TO_YBB_MAX_OPEN_RUNS,
+                DEFAULT_CHUNK_POSITIONS,
+                DEFAULT_CHUNK_BYTES,
+                DEFAULT_MAX_OPEN_RUNS,
                 include_depth,
             )
         finally:
@@ -139,9 +136,9 @@ def run_conversion(
             input_path,
             output_path,
             work_dir,
-            YBB_TO_DB_CHUNK_POSITIONS,
-            YBB_TO_DB_CHUNK_BYTES,
-            YBB_TO_DB_MAX_OPEN_RUNS,
+            DEFAULT_CHUNK_POSITIONS,
+            DEFAULT_CHUNK_BYTES,
+            DEFAULT_MAX_OPEN_RUNS,
         )
     finally:
         if keep_temp:
