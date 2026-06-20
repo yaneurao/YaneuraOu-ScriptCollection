@@ -88,6 +88,11 @@ OLD_BOOK_MATE_THRESHOLD      =   99000
 # `t`コマンドで思考させるときに垂直に何手分(固定で)掘るか。
 THINK_COMMAND_PLY = 6 # 3
 
+TASK_RESULT_DONE = "done"
+TASK_RESULT_DEFERRED = "deferred"
+MAX_TASK_DEFER_COUNT = 1000
+TASK_DEFER_SLEEP_SECONDS = 0.01
+
 # ============================================================
 #                     型定義
 # ============================================================
@@ -160,6 +165,9 @@ class Task:
     # `t`コマンドで積まれたタスクの進捗表示用。
     job_id : int = 0
 
+    # 他workerが同じ局面を探索中だったためにqueue末尾へ戻した回数。
+    defer_count : int = 0
+
 
 @dataclass
 class TaskQueueJobProgress:
@@ -214,6 +222,25 @@ class ListRingQueue(Generic[T]):
                     self._count += 1
                     return
             time.sleep(1)  # 満杯時は待機(バッファはふんだんにあるので1秒ぐらい待っても突然空にはならない)
+
+    def _grow_unlocked(self) -> None:
+        new_max = self._max * 2
+        new_buf: list[T | None] = [None] * new_max
+        for i in range(self._count):
+            new_buf[i] = self._buf[(self._head + i) % self._max]
+        self._buf = new_buf
+        self._max = new_max
+        self._head = 0
+        self._tail = self._count
+
+    def put_deferred(self, item: T) -> None:
+        """worker内からの再投入用。満杯でもworkerを詰まらせないよう必要なら拡張する。"""
+        with self._lock:
+            if self._count >= self._max:
+                self._grow_unlocked()
+            self._buf[self._tail] = item
+            self._tail = (self._tail + 1) % self._max
+            self._count += 1
 
     def get(self) -> T:
         """空なら sleep(1) で待機してから取得"""
@@ -970,15 +997,15 @@ class EngineManager:
 
         if self.reached_max_book_ply(ply):
             self.print_reached_max_book_ply(current_sfen, ply)
-            return None, current_sfen, last_thinking_ply, False
+            return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE
 
         with book.lock:
             if current_sfen in visited or current_sfen_f in visited:
-                return None, current_sfen, last_thinking_ply, False
+                return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE
 
             if current_sfen in book.searching_sfens or current_sfen_f in book.searching_sfens:
-                # 他のスレッドが探索しているのでこのスレッドでやることはない。
-                return None, current_sfen, last_thinking_ply, False
+                # 他のスレッドが探索中なので、このtaskはqueue末尾へ戻して後で再試行する。
+                return None, current_sfen, last_thinking_ply, TASK_RESULT_DEFERRED
 
             if current_sfen in book.body:
                 position_info = book.body[current_sfen]
@@ -1036,7 +1063,7 @@ class EngineManager:
                 if self.global_settings.from_gui and book_position_count is not None:
                     self.report_mining_progress(book_position_count)
 
-            return position_info, current_sfen, last_thinking_ply, True
+            return position_info, current_sfen, last_thinking_ply, TASK_RESULT_DONE
 
         finally:
             with book.lock:
@@ -1102,9 +1129,11 @@ class EngineManager:
                 break
 
             # 現局面を必要なら思考する。
-            position_info, current_sfen, last_thinking_ply, ok = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
-            if not ok or position_info is None:
-                return
+            position_info, current_sfen, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+            if status == TASK_RESULT_DEFERRED:
+                return TASK_RESULT_DEFERRED
+            if position_info is None:
+                return TASK_RESULT_DONE
 
             # 次の局面を辿る。
             # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
@@ -1113,10 +1142,10 @@ class EngineManager:
 
             if besteval is None:
                 # 思考したはずなのにbestevalがない。詰みの局面か？
-                return
+                return TASK_RESULT_DONE
 
             if abs(besteval) > eval_limit:
-                return
+                return TASK_RESULT_DONE
 
             board = cshogi.Board(current_sfen)
             for moveinfo in position_info.moveinfos:
@@ -1135,9 +1164,11 @@ class EngineManager:
                 break # best_moveがeval_limitの範囲である限り辿っていくだけ
             else:
                 # 条件に当てはまる指し手が見つからなかったので、これ以上掘り進めない。
-                return
+                return TASK_RESULT_DONE
             
             ply += 1
+
+        return TASK_RESULT_DONE
 
 
     def start_thinking_position(self, book:Book, engine:Engine, task:Task):
@@ -1147,7 +1178,7 @@ class EngineManager:
         棋譜末端まで到達できたら、そこからTHINK_COMMAND_PLYだけbest lineを掘る。
         """
         if task.position_cmd is None:
-            return
+            return TASK_RESULT_DONE
 
         eval_limit = task.eval_limit
         sfen, moves = parse_position_string(task.position_cmd)
@@ -1163,14 +1194,16 @@ class EngineManager:
 
             if self.reached_max_book_ply(ply):
                 self.print_reached_max_book_ply(current_sfen, ply)
-                return
+                return TASK_RESULT_DONE
 
             # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
             position_info, _ = self.get_book_position_info(book, current_sfen)
             if position_info is None or not has_considered(position_info):
-                position_info, _, last_thinking_ply, ok = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
-                if not ok or position_info is None:
-                    return
+                position_info, _, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+                if status == TASK_RESULT_DEFERRED:
+                    return TASK_RESULT_DEFERRED
+                if position_info is None:
+                    return TASK_RESULT_DONE
 
             lookahead_board = cshogi.Board(board.sfen()) # type:ignore
             checked_push_usi(lookahead_board, move, context=task.position_cmd)
@@ -1182,12 +1215,12 @@ class EngineManager:
             if next_position_info is None or not has_considered(next_position_info):
                 move_eval = self.get_book_move_eval(book, current_sfen, move)
                 if isinstance(move_eval, int) and abs(move_eval) > eval_limit:
-                    return
+                    return TASK_RESULT_DONE
 
             checked_push_usi(board, move, context=task.position_cmd)
 
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
-        self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit))
+        return self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit))
 
     """
     def parallel_think(self, book:Book, think_sfens:list[Sfen]):
@@ -1250,23 +1283,49 @@ class EngineManager:
         # start_task_workers()で開始されたworker
 
         while True:
+            task : Task | None = None
             try:
                 task = self.task_queue.get()
-                self.report_task_queue_progress(task)
 
                 # 局面を掘っていく。
                 if task.position_cmd is not None:
-                    self.start_thinking_position(book, engine, task)
+                    result = self.start_thinking_position(book, engine, task)
                 else:
-                    self.start_thinking(book, engine, task)
+                    result = self.start_thinking(book, engine, task)
+
+                if result == TASK_RESULT_DEFERRED:
+                    self.defer_task(task)
+                    continue
+
+                self.report_task_queue_progress(task)
 
             except Exception as e:
                 print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+                if task is not None:
+                    self.report_task_queue_progress(task)
 
 
     def put_task(self, task:Task):
         # (taskがなければ)taskを積む
         self.task_queue.put(task)  # 満杯ならここでブロック
+
+    def defer_task(self, task:Task):
+        task.defer_count += 1
+        if task.defer_count > MAX_TASK_DEFER_COUNT:
+            print(
+                f"[TaskQueueDeferLimit] job={task.job_id} "
+                f"defer_count={task.defer_count} position={task.position_cmd or task.sfen}"
+            )
+            self.report_task_queue_progress(task)
+            return
+
+        if task.defer_count == 1 or task.defer_count % 100 == 0:
+            print(
+                f"[TaskQueueDeferred] job={task.job_id} "
+                f"defer_count={task.defer_count} position={task.position_cmd or task.sfen}"
+            )
+        time.sleep(TASK_DEFER_SLEEP_SECONDS)
+        self.task_queue.put_deferred(task)
 
     def join_task(self):
         # 全task queueのjoin待ち
@@ -1360,7 +1419,7 @@ class EngineManager:
 # ============================================================
 
 # tコマンドのtask番号。(連番で増えていく)
-job_counter : int = 1
+job_counter : int = 0
 
 def get_job_counter()->int:
     global job_counter
