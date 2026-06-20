@@ -1,6 +1,6 @@
 # PetaNext
 
-ペタショック化されたやねうら王形式の定跡ファイルから、**次に思考エンジンで掘ると良い leaf node(末端の局面) の sfen(局面文字列)** を書き出すスクリプト。
+ペタショック化されたやねうら王形式の定跡ファイルから、**次に思考エンジンで掘ると良い leaf node(末端の局面) までの手順**と、その leaf の sfen(局面文字列)を書き出すスクリプト。
 
 次の記事も参考にすること。
 
@@ -25,7 +25,7 @@
 
 ## 本スクリプトの動作
 
-ペタショック化された定跡 (`peta_book.db` 形式) を読み、root 局面から BFS で展開して、定跡ツリーの leaf に当たる sfen 一覧を書き出す。
+ペタショック化された定跡 (`peta_book.db` 形式) を読み、root 局面から BFS で展開して、定跡ツリーの leaf に当たる局面までの `startpos moves ...` 形式の手順と、ply付きSFENの両方を書き出す。
 
 展開規則:
 
@@ -35,7 +35,7 @@
 
 `root の bestmove からの絶対基準` で評価値の下限を制限することで、BFS 深さ方向に累積で評価値が下がり続けて、現実的でない leaf に到達することを防いでいる。
 
-書き出された leaf sfen を、思考エンジン側 (例: BookMiner などのワーカー) に流し込んで掘らせるのが想定ワークフロー。
+書き出された leaf までの手順を、思考エンジン側 (例: BookMiner などのワーカー) に流し込んで掘らせるのが想定ワークフロー。局面集合として扱いたい場合や `sfen_to_hcp.py` に渡す場合は、同時に出力される `-sfen` 付きファイルを使う。
 
 ペタショック化自体 (= 定跡ツリーを min-max で内部ノードの評価値を書き換える処理) は本スクリプトでは行わない。やねうら王本体の `makebook peta_shock` コマンドを使う。
 
@@ -135,11 +135,14 @@ PetaNext> w
 
 ### 出力ファイル
 
-- `think_sfens-black.txt` — 先手定跡用 leaf sfen 一覧（`--white-only` 指定時は出力されない）
-- `think_sfens-white.txt` — 後手定跡用 leaf sfen 一覧（`--black-only` 指定時は出力されない）
+- `think_sfens-black.txt` — 先手定跡用 leaf までの `startpos moves ...` / `sfen ... moves ...` 一覧（`--white-only` 指定時は出力されない）
+- `think_sfens-white.txt` — 後手定跡用 leaf までの `startpos moves ...` / `sfen ... moves ...` 一覧（`--black-only` 指定時は出力されない）
 - `think_sfens.txt` — 上記 2 ファイルを 1 行ずつ交互にマージしたもの（両方出力した時のみ作成）
+- `think_sfens-black-sfen.txt` — 先手定跡用 leaf の ply付きSFEN一覧
+- `think_sfens-white-sfen.txt` — 後手定跡用 leaf の ply付きSFEN一覧
+- `think_sfens-sfen.txt` — 上記 2 つのSFENファイルを 1 行ずつ交互にマージしたもの（両方出力した時のみ作成）
 
-各行は ply 付き SFEN (`<board> <turn> <hand> <ply>`)。
+デフォルトの `think_sfens*.txt` は、BookMiner の `t` コマンドに渡しやすい手順形式です。`*-sfen.txt` は各行が ply 付き SFEN (`<board> <turn> <hand> <ply>`) です。
 
 ## 派生スクリプトを書く時の参考
 

@@ -1,5 +1,5 @@
 # ペタショック化されたやねうら王形式の定跡から、
-# 「次に掘ると良い leaf node の sfen」を書き出すスクリプト。
+# 「次に掘ると良い leaf node までの手順」と sfen を書き出すスクリプト。
 #
 # 開始局面 (root) は root_sfen.txt のようなテキストで指定する。
 #
@@ -60,6 +60,27 @@ class PositionInfo:
     # 注: peta_book では eval 降順で書かれている前提 (やねうら王が出力する形式)。
     # bestmove は moveinfos[0]。
     moveinfos : list[MoveInfo]
+
+
+@dataclass
+class RootPosition:
+    # leaf までの手順を書き出すために保持する USI position 文字列。
+    position_cmd : PositionStr
+    # 探索・定跡DB lookup に使う ply 付き SFEN。
+    sfen_with_ply : Sfen
+
+
+@dataclass
+class LeafOutput:
+    position_cmd : PositionStr
+    sfen_with_ply : Sfen
+
+
+@dataclass
+class PetaNextNode:
+    sfen_with_ply : Sfen
+    root_best_eval : int
+    eval_diff : int
 
 
 # ============================================================
@@ -167,19 +188,40 @@ def decode_position_string(s: PositionStr) -> Sfen:
     return board.sfen()
 
 
-def read_root_sfens(path: str) -> list[Sfen]:
-    """root sfen ファイルを読み、各行を decode_position_string で ply 付き SFEN にして返す。"""
-    sfens : list[Sfen] = []
+def normalize_position_command(s: PositionStr, sfen_with_ply: Sfen) -> PositionStr:
+    """leaf 出力用の USI position 文字列へ正規化する。"""
+    s = s.strip()
+    if s.startswith('position '):
+        s = s[len('position '):].strip()
+    if not s:
+        return "startpos"
+    if s == "startpos" or s.startswith("startpos moves"):
+        return s
+    if s.startswith("sfen "):
+        return s
+    return f"sfen {sfen_with_ply}"
+
+
+def append_position_move(position_cmd: PositionStr, move: Move) -> PositionStr:
+    if ' moves ' in position_cmd or position_cmd.endswith(' moves'):
+        return f"{position_cmd} {move}"
+    return f"{position_cmd} moves {move}"
+
+
+def read_root_positions(path: str) -> list[RootPosition]:
+    """root ファイルを読み、手順文字列と ply 付き SFEN のペアにして返す。"""
+    roots : list[RootPosition] = []
     with open(path, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            sfens.append(decode_position_string(line))
-    if not sfens:
+            sfen_with_ply = decode_position_string(line)
+            roots.append(RootPosition(normalize_position_command(line, sfen_with_ply), sfen_with_ply))
+    if not roots:
         # ファイルは存在するが全行がコメント/空行だった場合は startpos のみで動かす。
-        return [SFEN_START_PLY1]
-    return sfens
+        return [RootPosition("startpos", SFEN_START_PLY1)]
+    return roots
 
 
 # ============================================================
@@ -209,14 +251,14 @@ def get_best_eval(pos: PositionInfo) -> int | None:
 
 def peta_next_one_turn(
     peta_book: dict[Sfen, PositionInfo],
-    root_sfens: list[Sfen],
+    root_positions: list[RootPosition],
     peta_eval_diff: int,
     max_ply: int,
     turn: int,
     verbose: bool = True,
-) -> list[Sfen]:
+) -> list[LeafOutput]:
     """
-    指定された turn (1=先手定跡, 0=後手定跡) について、leaf node の sfen 一覧を返す。
+    指定された turn (1=先手定跡, 0=後手定跡) について、leaf node 一覧を返す。
 
     アルゴリズム:
       - 各 root から BFS で展開する。
@@ -230,39 +272,39 @@ def peta_next_one_turn(
     現実的でない leaf に到達することを防ぐ (Discord の説明にある 2a の制限)。
     """
     # 順序を保つために dict をセット代わりに使う
-    leaf_sfens : dict[Sfen, None] = {}
+    leafs : dict[PositionStr, LeafOutput] = {}
 
     # 訪問済み局面 (ply無し sfen で管理)
     visited : set[Sfen] = set()
 
-    # 現周の局面集合: sfen(ply付き) -> (root_best_eval(手番側視点), eval_diff)
-    current_sfens : dict[Sfen, tuple[int, int]] = {}
+    # 現周の局面集合: position文字列 -> 探索状態
+    current_positions : dict[PositionStr, PetaNextNode] = {}
 
-    for sfen_with_ply in root_sfens:
-        sfen_trim, _ply = trim_sfen_ply(sfen_with_ply)
+    for root in root_positions:
+        sfen_trim, _ply = trim_sfen_ply(root.sfen_with_ply)
         pos, _flipped = lookup(peta_book, sfen_trim)
         if pos is None:
             # root 自体が定跡に無い。これも leaf として記録する。
-            leaf_sfens[sfen_with_ply] = None
+            leafs[root.position_cmd] = LeafOutput(root.position_cmd, root.sfen_with_ply)
             continue
         root_best = get_best_eval(pos)
         if root_best is None:
-            leaf_sfens[sfen_with_ply] = None
+            leafs[root.position_cmd] = LeafOutput(root.position_cmd, root.sfen_with_ply)
             continue
-        current_sfens[sfen_with_ply] = (root_best, peta_eval_diff)
+        current_positions[root.position_cmd] = PetaNextNode(root.sfen_with_ply, root_best, peta_eval_diff)
         if verbose:
-            print(f"root sfen: {sfen_with_ply}  root_best = {root_best}")
+            print(f"root sfen: {root.sfen_with_ply}  root_best = {root_best}")
 
     step = 1
-    while current_sfens:
-        next_sfens : dict[Sfen, tuple[int, int]] = {}
+    while current_positions:
+        next_positions : dict[PositionStr, PetaNextNode] = {}
 
         # この step で実際に展開対象になった局面の ply を集めて表示用に使う。
-        # (root_sfens に異なる ply の局面が混在しうるので、min/max を出す)
+        # (root_positions に異なる ply の局面が混在しうるので、min/max を出す)
         plys_this_step : list[int] = []
 
-        for sfen_with_ply, (root_best_eval, eval_diff) in current_sfens.items():
-            sfen_trim, ply = trim_sfen_ply(sfen_with_ply)
+        for position_cmd, node in current_positions.items():
+            sfen_trim, ply = trim_sfen_ply(node.sfen_with_ply)
 
             # max_ply を超えたら掘らない (leaf にも記録しない)
             if ply > max_ply:
@@ -277,7 +319,7 @@ def peta_next_one_turn(
             pos, flipped_hit = lookup(peta_book, sfen_trim)
             if pos is None:
                 # 定跡ツリーを出た -> leaf
-                leaf_sfens[sfen_with_ply] = None
+                leafs[position_cmd] = LeafOutput(position_cmd, node.sfen_with_ply)
                 continue
 
             moveinfos = pos.moveinfos
@@ -289,7 +331,7 @@ def peta_next_one_turn(
 
             is_my_turn = (ply % 2 == turn)
             # 手番側: bestmove のみ。非手番側: root_best_eval - eval_diff 以上の eval を持つ手すべて。
-            eval_low = best_eval if is_my_turn else (root_best_eval - eval_diff)
+            eval_low = best_eval if is_my_turn else (node.root_best_eval - node.eval_diff)
 
             for mi in moveinfos:
                 if not isinstance(mi.eval, int):
@@ -301,12 +343,17 @@ def peta_next_one_turn(
                 # peta_book は先手局面に統一されている前提なので、flipped_hit のときは move も flip して戻す。
                 move = flipped_move(mi.move) if flipped_hit else mi.move
 
-                board = board_from_sfen(sfen_with_ply)
+                board = board_from_sfen(node.sfen_with_ply)
                 board.push_usi(move)
                 next_sfen_with_ply = board.sfen()
+                next_position_cmd = append_position_move(position_cmd, move)
 
                 # 次局面では root_best_eval を符号反転 (手番側視点で持つため)
-                next_sfens[next_sfen_with_ply] = (-root_best_eval, eval_diff)
+                next_positions[next_position_cmd] = PetaNextNode(
+                    next_sfen_with_ply,
+                    -node.root_best_eval,
+                    node.eval_diff,
+                )
 
         if plys_this_step:
             pmin, pmax = min(plys_this_step), max(plys_this_step)
@@ -314,12 +361,12 @@ def peta_next_one_turn(
         else:
             ply_str = "-"
         if verbose:
-            print(f"step={step}  ply={ply_str}  next={len(next_sfens)}  leaf={len(leaf_sfens)}")
+            print(f"step={step}  ply={ply_str}  next={len(next_positions)}  leaf={len(leafs)}")
 
-        current_sfens = next_sfens
+        current_positions = next_positions
         step += 1
 
-    return list(leaf_sfens.keys())
+    return list(leafs.values())
 
 
 # ============================================================
@@ -336,33 +383,33 @@ def selected_sides(args) -> list[tuple[str, int]]:
     return sides
 
 
-def load_roots(args, verbose: bool = True) -> list[Sfen]:
+def load_roots(args, verbose: bool = True) -> list[RootPosition]:
     if args.root_sfen is None:
         if verbose:
             print("no --root-sfen specified, using startpos as the only root")
-        return [SFEN_START_PLY1]
+        return [RootPosition("startpos", SFEN_START_PLY1)]
 
-    root_sfens = read_root_sfens(args.root_sfen)
+    root_positions = read_root_positions(args.root_sfen)
     if verbose:
-        print(f"loaded {len(root_sfens)} root sfens from {args.root_sfen}")
-    return root_sfens
+        print(f"loaded {len(root_positions)} root positions from {args.root_sfen}")
+    return root_positions
 
 
 def build_outputs(
     peta_book: dict[Sfen, PositionInfo],
-    root_sfens: list[Sfen],
+    root_positions: list[RootPosition],
     peta_eval_diff: int,
     max_ply: int,
     sides: list[tuple[str, int]],
     verbose: bool = True,
-) -> dict[str, list[Sfen]]:
-    outputs : dict[str, list[Sfen]] = {}
+) -> dict[str, list[LeafOutput]]:
+    outputs : dict[str, list[LeafOutput]] = {}
     for label, turn in sides:
         if verbose:
             print(f"--- {label} (turn={turn}) ---")
         outputs[label] = peta_next_one_turn(
             peta_book,
-            root_sfens,
+            root_positions,
             peta_eval_diff,
             max_ply,
             turn,
@@ -371,38 +418,61 @@ def build_outputs(
     return outputs
 
 
-def write_outputs(outputs: dict[str, list[Sfen]], out_dir: str, verbose: bool = True) -> dict[str, str]:
+def write_merged_leafs(
+    output_path: str,
+    black: list[LeafOutput],
+    white: list[LeafOutput],
+    attr: str,
+) -> None:
+    with open(output_path, 'w', encoding='utf-8') as fbw:
+        for lb, lw in zip_longest(black, white, fillvalue=None):
+            if lb is not None:
+                fbw.write(getattr(lb, attr) + '\n')
+            if lw is not None:
+                fbw.write(getattr(lw, attr) + '\n')
+
+
+def write_outputs(outputs: dict[str, list[LeafOutput]], out_dir: str, verbose: bool = True) -> dict[str, str]:
     os.makedirs(out_dir, exist_ok=True)
     paths: dict[str, str] = {}
 
     for label, leafs in outputs.items():
         out_path = os.path.join(out_dir, f"think_sfens-{label}.txt")
         with open(out_path, 'w', encoding='utf-8') as w:
-            for s in leafs:
-                w.write(s + '\n')
+            for leaf in leafs:
+                w.write(leaf.position_cmd + '\n')
         paths[f"{label}_path"] = out_path
         if verbose:
-            print(f"write {out_path}, {len(leafs)} leaf sfens")
+            print(f"write {out_path}, {len(leafs)} leaf position commands")
+
+        sfen_path = os.path.join(out_dir, f"think_sfens-{label}-sfen.txt")
+        with open(sfen_path, 'w', encoding='utf-8') as w:
+            for leaf in leafs:
+                w.write(leaf.sfen_with_ply + '\n')
+        paths[f"{label}_sfen_path"] = sfen_path
+        if verbose:
+            print(f"write {sfen_path}, {len(leafs)} leaf sfens")
 
     # 先手・後手両方ある場合のみ、交互マージした合体ファイルを作る。
     if 'black' in outputs and 'white' in outputs:
         bw_path = os.path.join(out_dir, "think_sfens.txt")
         b = outputs.get('black', [])
         w = outputs.get('white', [])
-        with open(bw_path, 'w', encoding='utf-8') as fbw:
-            for lb, lw in zip_longest(b, w, fillvalue=None):
-                if lb is not None:
-                    fbw.write(lb + '\n')
-                if lw is not None:
-                    fbw.write(lw + '\n')
+        write_merged_leafs(bw_path, b, w, "position_cmd")
         paths["merged_path"] = bw_path
         if verbose:
-            print(f"write {bw_path}, {len(b) + len(w)} leaf sfens (merged)")
+            print(f"write {bw_path}, {len(b) + len(w)} leaf position commands (merged)")
+
+        bw_sfen_path = os.path.join(out_dir, "think_sfens-sfen.txt")
+        write_merged_leafs(bw_sfen_path, b, w, "sfen_with_ply")
+        paths["merged_sfen_path"] = bw_sfen_path
+        if verbose:
+            print(f"write {bw_sfen_path}, {len(b) + len(w)} leaf sfens (merged)")
 
     return paths
 
 
-def print_summary(outputs: dict[str, list[Sfen]], peta_eval_diff: int, max_ply: int) -> None:
+def print_summary(outputs: dict[str, list[LeafOutput]], peta_eval_diff: int, max_ply: int) -> None:
     black = len(outputs.get('black', []))
     white = len(outputs.get('white', []))
     total = sum(len(v) for v in outputs.values())
@@ -417,7 +487,7 @@ def print_summary(outputs: dict[str, list[Sfen]], peta_eval_diff: int, max_ply: 
         print(f"  total: {total}")
 
 
-def output_counts(outputs: dict[str, list[Sfen]]) -> dict[str, int]:
+def output_counts(outputs: dict[str, list[LeafOutput]]) -> dict[str, int]:
     return {
         "black": len(outputs.get('black', [])),
         "white": len(outputs.get('white', [])),
@@ -425,11 +495,11 @@ def output_counts(outputs: dict[str, list[Sfen]]) -> dict[str, int]:
     }
 
 
-def interactive_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[Sfen]) -> None:
+def interactive_loop(args, peta_book: dict[Sfen, PositionInfo], root_positions: list[RootPosition]) -> None:
     sides = selected_sides(args)
     current_eval_diff = args.peta_eval_diff
     current_max_ply = args.max_ply
-    last_outputs : dict[str, list[Sfen]] | None = None
+    last_outputs : dict[str, list[LeafOutput]] | None = None
 
     print("interactive mode")
     print("commands: n [peta_eval_diff] [max_ply], w, status, h, q")
@@ -469,7 +539,7 @@ def interactive_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list
 
         if cmd == "status":
             print(f"peta_book positions: {len(peta_book)}")
-            print(f"root sfens: {len(root_sfens)}")
+            print(f"root positions: {len(root_positions)}")
             print(f"out_dir: {args.out_dir}")
             print(f"current peta_eval_diff: {current_eval_diff}")
             print(f"current max_ply: {current_max_ply}")
@@ -502,7 +572,7 @@ def interactive_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list
 
             last_outputs = build_outputs(
                 peta_book,
-                root_sfens,
+                root_positions,
                 current_eval_diff,
                 current_max_ply,
                 sides,
@@ -523,16 +593,17 @@ def emit_json(payload: dict) -> None:
     print(json_dumps(payload), flush=True)
 
 
-def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[Sfen]) -> None:
+def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_positions: list[RootPosition]) -> None:
     sides = selected_sides(args)
     current_eval_diff = args.peta_eval_diff
     current_max_ply = args.max_ply
-    last_outputs : dict[str, list[Sfen]] | None = None
+    last_outputs : dict[str, list[LeafOutput]] | None = None
 
     emit_json({
         "event": "ready",
         "positions": len(peta_book),
-        "root_sfens": len(root_sfens),
+        "root_sfens": len(root_positions),
+        "root_positions": len(root_positions),
         "out_dir": args.out_dir,
         "peta_eval_diff": current_eval_diff,
         "max_ply": current_max_ply,
@@ -557,7 +628,8 @@ def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[
                 payload = {
                     "event": "status",
                     "positions": len(peta_book),
-                    "root_sfens": len(root_sfens),
+                    "root_sfens": len(root_positions),
+                    "root_positions": len(root_positions),
                     "out_dir": args.out_dir,
                     "peta_eval_diff": current_eval_diff,
                     "max_ply": current_max_ply,
@@ -576,7 +648,7 @@ def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[
                     current_max_ply = int(msg["max_ply"])
                 last_outputs = build_outputs(
                     peta_book,
-                    root_sfens,
+                    root_positions,
                     current_eval_diff,
                     current_max_ply,
                     sides,
@@ -620,7 +692,7 @@ def json_lines_loop(args, peta_book: dict[Sfen, PositionInfo], root_sfens: list[
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ペタショック化されたやねうら王定跡から、次に掘ると良い leaf node の sfen を書き出す。",
+        description="ペタショック化されたやねうら王定跡から、次に掘ると良い leaf node までの手順と sfen を書き出す。",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('--peta-book', default='peta_book.db',
@@ -657,19 +729,19 @@ def main():
     if not args.json_lines:
         print(f"loaded {len(peta_book)} positions")
 
-    root_sfens = load_roots(args, verbose=not args.json_lines)
+    root_positions = load_roots(args, verbose=not args.json_lines)
     sides = selected_sides(args)
 
     if args.interactive:
         if args.json_lines:
-            json_lines_loop(args, peta_book, root_sfens)
+            json_lines_loop(args, peta_book, root_positions)
             return
-        interactive_loop(args, peta_book, root_sfens)
+        interactive_loop(args, peta_book, root_positions)
         return
 
     outputs = build_outputs(
         peta_book,
-        root_sfens,
+        root_positions,
         args.peta_eval_diff,
         args.max_ply,
         sides,
