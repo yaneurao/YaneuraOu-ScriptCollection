@@ -674,9 +674,11 @@ class BookMinerGui(ttk.Frame):
     def _handle_peta_makebook_context_line(self, line: str) -> None:
         if PETA_MAKEBOOK_START_RE.search(line):
             self.peta_makebook_active = True
+            self._update_buttons()
             return
         if PETA_MAKEBOOK_DONE_RE.search(line) or PETA_COMMAND_DONE_RE.search(line):
             self.peta_makebook_active = False
+            self._update_buttons()
 
     def _handle_startup_line(self, line: str) -> None:
         stage_match = STARTUP_STAGE_RE.search(line)
@@ -764,6 +766,7 @@ class BookMinerGui(ttk.Frame):
 
         if phase == "Done" and key == "write" and self.busy_action == "manual_backup":
             self.busy_action = None
+            self._update_buttons()
 
     def _handle_task_queue_progress_line(self, line: str) -> None:
         match = TASK_QUEUE_PROGRESS_RE.search(line)
@@ -794,12 +797,14 @@ class BookMinerGui(ttk.Frame):
 
         if self.busy_action == "manual_enqueue" and phase == "Start":
             self.busy_action = None
+            self._update_buttons()
             return
 
         if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and phase == "Start":
             self._append_log("task", "[GUI] auto enqueue sequence completed.\n")
             self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
             self.busy_action = None
+            self._update_buttons()
             self._maybe_start_auto_enqueue()
             return
 
@@ -944,11 +949,13 @@ class BookMinerGui(ttk.Frame):
         if "Exception :" in line and self.busy_action is not None:
             self._append_log("other", "[GUI] BookMiner command failed. manual busy state was cleared.\n")
             self.busy_action = None
+            self._update_buttons()
             return
 
         if PETA_COMMAND_DONE_RE.search(line):
             if self.busy_action == "manual_peta_shock":
                 self.busy_action = None
+                self._update_buttons()
                 return
 
             if self.auto_enqueue_state == AUTO_ENQUEUE_PETA:
@@ -963,11 +970,13 @@ class BookMinerGui(ttk.Frame):
         if PETA_READ_DONE_RE.search(line):
             if self.busy_action == "manual_peta_read":
                 self.busy_action = None
+                self._update_buttons()
                 return
 
         if PETA_NEXT_DONE_RE.search(line):
             if self.busy_action == "manual_peta_next":
                 self.busy_action = None
+                self._update_buttons()
                 return
 
             if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
@@ -1023,6 +1032,7 @@ class BookMinerGui(ttk.Frame):
 
         self.auto_enqueue_state = AUTO_ENQUEUE_PETA
         self.busy_action = "auto_enqueue"
+        self._update_buttons()
         self._append_log(
             "task",
             f"[GUI] auto enqueue started. remaining={self.task_queue_remaining}, threshold={threshold}\n",
@@ -1036,6 +1046,7 @@ class BookMinerGui(ttk.Frame):
         if self.busy_action == "auto_enqueue":
             self.busy_action = None
         self.auto_enqueue_enabled.set(False)
+        self._update_buttons()
 
     def _begin_manual_action(self, action: str) -> bool:
         if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
@@ -1045,6 +1056,7 @@ class BookMinerGui(ttk.Frame):
             messagebox.showinfo("実行中", "BookMinerコマンドの実行中です。完了してから操作してください。")
             return False
         self.busy_action = action
+        self._update_buttons()
         return True
 
     def _classify_log_line(self, line: str) -> str:
@@ -1141,6 +1153,7 @@ class BookMinerGui(ttk.Frame):
         if self.send_command("p"):
             return True
         self.busy_action = None
+        self._update_buttons()
         return False
 
     def send_peta_read(self) -> bool:
@@ -1149,6 +1162,7 @@ class BookMinerGui(ttk.Frame):
         if self.send_command("r"):
             return True
         self.busy_action = None
+        self._update_buttons()
         return False
 
     def send_backup(self) -> bool:
@@ -1157,6 +1171,7 @@ class BookMinerGui(ttk.Frame):
         if self.send_command("w"):
             return True
         self.busy_action = None
+        self._update_buttons()
         return False
 
     def send_think(self, auto: bool = False) -> bool:
@@ -1182,6 +1197,7 @@ class BookMinerGui(ttk.Frame):
             return True
         if not auto:
             self.busy_action = None
+            self._update_buttons()
         return False
 
     def send_peta_next(self, auto: bool = False) -> bool:
@@ -1213,12 +1229,14 @@ class BookMinerGui(ttk.Frame):
                     messagebox.showerror("入力エラー", "max step には整数を指定してください。")
                 if not auto:
                     self.busy_action = None
+                    self._update_buttons()
                 return False
         origin = "AUTO" if auto else "GUI"
         if self.send_command(f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}", origin=origin):
             return True
         if not auto:
             self.busy_action = None
+            self._update_buttons()
         return False
 
     def _append_log(self, key: str, text: str) -> None:
@@ -1246,6 +1264,18 @@ class BookMinerGui(ttk.Frame):
         command_state = "normal" if running and self.command_ready else "disabled"
         for button in self.command_buttons:
             button.configure(state=command_state)
+
+        if not hasattr(self, "next_button"):
+            return
+
+        peta_book_busy = (
+            self.peta_makebook_active
+            or self.busy_action in {"manual_peta_shock", "manual_peta_read", "manual_peta_next", "auto_enqueue"}
+        )
+        if command_state == "disabled" or peta_book_busy:
+            self.next_button.configure(state="disabled")
+        else:
+            self.next_button.configure(state="normal")
 
 
 def main() -> int:
