@@ -116,8 +116,8 @@ quit
 ```
 
 生成先は一度 `*.tmp` とし、成功後に正式名へ置換します。
-正式な `YO-MATERIAL.exe` の配置場所は `BookMinerCpp/YO-MATERIAL.exe` です。
-開発時のみ `../BookMiner/YO-MATERIAL.exe` もフォールバックとして探します。
+`YO-MATERIAL.exe` は Python版 BookMiner と同じ `BookMiner/YO-MATERIAL.exe` を使います。
+BookMinerCpp から見た相対パスでは `../BookMiner/YO-MATERIAL.exe` です。
 
 やねうら王側にも `.ybb` reader / writer を追加し、通常の `BookFile=user_book.ybb` と、`makebook peta_shock` の入力・出力の両方で使えるようにします。
 peta shock 後の出力形式は入力形式に合わせます。

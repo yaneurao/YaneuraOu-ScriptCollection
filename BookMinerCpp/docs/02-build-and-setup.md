@@ -43,14 +43,16 @@ BookMinerCpp は peta shock 化のために `YO-MATERIAL.exe` を呼び出しま
 配置場所は次です。
 
 ```text
-BookMinerCpp/YO-MATERIAL.exe
+BookMiner/YO-MATERIAL.exe
 ```
 
 `YO-MATERIAL.exe` は、評価関数ファイルを必要としない MATERIAL 版やねうら王です。
 peta shock 化だけに使うので、探索用エンジンとは別です。
 
-開発環境では、`BookMinerCpp/YO-MATERIAL.exe` が見つからない場合に `../BookMiner/YO-MATERIAL.exe` も探します。
-通常は `BookMinerCpp/YO-MATERIAL.exe` を置いてください。
+Python版 BookMiner と同じ実行ファイルを使います。
+BookMinerCpp から見た相対パスでは `../BookMiner/YO-MATERIAL.exe` です。
+`YO-MATERIAL.exe` は同梱していません。自分で MATERIAL 版のやねうら王をビルドするか、やねうら王News Letterで頒布されている最新の MATERIAL 版を入手してください。
+入手した実行ファイルは `YO-MATERIAL.exe` という名前に変更して、`BookMiner/YO-MATERIAL.exe` に配置します。
 
 ## 設定ファイル
 

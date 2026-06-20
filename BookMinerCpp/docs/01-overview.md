@@ -56,7 +56,6 @@ GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに
 ```text
 BookMinerCpp/
   BookMinerCpp.exe
-  YO-MATERIAL.exe
   README.md
   docs/
   settings/

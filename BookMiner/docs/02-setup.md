@@ -264,7 +264,8 @@ BookMiner/
   YO-MATERIAL.exe
 ```
 
-Windows(x64) AVX2 用にビルドしたものは配置済みです。Windows(x64) 以外の環境で動かす場合や、別の CPU 向けに使う場合は、自分の環境向けにビルドしてください。
+`YO-MATERIAL.exe` は同梱していません。自分で MATERIAL 版のやねうら王をビルドするか、やねうら王News Letterで頒布されている最新の MATERIAL 版を入手してください。
+入手した実行ファイルは `YO-MATERIAL.exe` という名前に変更して、上記の場所に配置します。
 
 ビルド用の make コマンドは、例えば次のように書きます。`TARGET_CPU` は使う PC の CPU に合わせて変更してください。
 
