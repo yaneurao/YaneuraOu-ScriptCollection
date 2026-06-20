@@ -59,6 +59,12 @@ class WinManager:
         # 基準エンジンごとの勝敗履歴。
         self.win_count_by_opponent : dict[str, list[int]] = {}
 
+        # node倍率ごとの勝敗履歴。
+        self.win_count_by_node_multiplier : dict[str, list[int]] = {}
+
+        # 基準エンジン × node倍率ごとの勝敗履歴。
+        self.win_count_by_opponent_and_node_multiplier : dict[str, list[int]] = {}
+
         # ↑を書き換える時のlock
         self.lock = Lock()
 
@@ -99,11 +105,17 @@ class WinManager:
         summary.reverse()
         return ' | '.join(summary[:RESULT_TABLE_COLS])
 
-    def update(self, winner:int, opponent_name:str):
+    def update(self, winner:int, opponent_name:str, node_multiplier:float):
         with self.lock:
             self.win_count.append(winner)
             opponent_results = self.win_count_by_opponent.setdefault(opponent_name, [])
             opponent_results.append(winner)
+            node_multiplier_name = format_node_multiplier(node_multiplier)
+            node_results = self.win_count_by_node_multiplier.setdefault(node_multiplier_name, [])
+            node_results.append(winner)
+            opponent_node_name = f"{opponent_name} node x{node_multiplier_name}"
+            opponent_node_results = self.win_count_by_opponent_and_node_multiplier.setdefault(opponent_node_name, [])
+            opponent_node_results.append(winner)
 
             # 途中経過の表示用に勝敗を1文字で出力してやる。
             # print("LWD"[winner], end="")
@@ -119,6 +131,32 @@ class WinManager:
                     if len(results) < RATE_OUTPUT_INTERVAL:
                         continue
                     print_log(f"{total} : {name} : {len(results)} games : {self.build_summary(results)}")
+
+                for name in sorted(self.win_count_by_node_multiplier.keys(), key=node_multiplier_sort_key):
+                    results = self.win_count_by_node_multiplier[name]
+                    if len(results) < RATE_OUTPUT_INTERVAL:
+                        continue
+                    print_log(f"{total} : node x{name} : {len(results)} games : {self.build_summary(results)}")
+
+                for name in sorted(self.win_count_by_opponent_and_node_multiplier.keys()):
+                    results = self.win_count_by_opponent_and_node_multiplier[name]
+                    if len(results) < RATE_OUTPUT_INTERVAL:
+                        continue
+                    print_log(f"{total} : {name} : {len(results)} games : {self.build_summary(results)}")
+
+def format_node_multiplier(value:float)->str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
+def node_multiplier_sort_key(value:str)->float:
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
+
+def scaled_nodes(nodes:int, node_multiplier:float)->int:
+    return max(1, int(nodes * node_multiplier + 0.5))
 
 class GameMatcher:
     """
@@ -200,6 +238,11 @@ class SharedState:
         # エンジン設定
         self.engine_settings = self.read_engine_settings(settings["ENGINE_SETTINGS"])
 
+        # 対局ごとに掛けるnode倍率。未指定なら従来通り1倍固定。
+        self.node_multipliers = self.read_node_multipliers(settings)
+        self.node_multiplier_index = 0
+        self.node_multiplier_lock = Lock()
+
         # パラメーターファイル
         self.parameters : list[Entry] = read_parameters(settings["PARAMETERS_PATH"])
         # ↑のvを書き換える時用のlock object
@@ -212,6 +255,8 @@ class SharedState:
 
         # 標準的な将棋盤なのか
         self.standard_board = self.settings["STANDARD_BOARD"]
+
+        print_log(f"Node multipliers = {', '.join(format_node_multiplier(x) for x in self.node_multipliers)}")
 
 
     def read_start_sfens(self, path:str)->list[Sfen]:
@@ -235,6 +280,25 @@ class SharedState:
             with open(engine_settings_path, 'r', encoding='utf-8') as f:
                 engine_settings.append(json5.load(f))
         return engine_settings
+
+    def read_node_multipliers(self, settings:dict)->list[float]:
+        multipliers = settings.get("NODE_MULTIPLIERS", settings.get("node_multipliers", [1]))
+        if not isinstance(multipliers, list) or not multipliers:
+            raise ValueError("NODE_MULTIPLIERS must be a non-empty list.")
+
+        result : list[float] = []
+        for value in multipliers:
+            multiplier = float(value)
+            if not math.isfinite(multiplier) or multiplier <= 0:
+                raise ValueError(f"NODE_MULTIPLIERS contains invalid value: {value}")
+            result.append(multiplier)
+        return result
+
+    def next_node_multiplier(self)->float:
+        with self.node_multiplier_lock:
+            multiplier = self.node_multipliers[self.node_multiplier_index % len(self.node_multipliers)]
+            self.node_multiplier_index += 1
+            return multiplier
 
     def validate_tunable_options_are_not_fixed(self):
         """
@@ -419,15 +483,16 @@ class ShogiMatch:
                 p_shift_plus  = self.add_params(params, shift, +SCALE)
                 p_shift_minus = self.add_params(params, shift, -SCALE)
                 root_sfen = self.pick_root_sfen()
+                node_multiplier = self.shared.next_node_multiplier()
 
                 # 変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_plus)
 
                 # 対局
-                winner = self.game_play(start_player, root_sfen)
+                winner = self.game_play(start_player, root_sfen, node_multiplier)
 
                 # 勝ち数のカウント
-                self.shared.win_manager.update(winner, self.t[0].engine_name)
+                self.shared.win_manager.update(winner, self.t[0].engine_name, node_multiplier)
 
                 step = winner_to_step[winner] * +1.0
 
@@ -437,8 +502,8 @@ class ShogiMatch:
                 # 逆方向に変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_minus)
 
-                winner = self.game_play(start_player, root_sfen)
-                self.shared.win_manager.update(winner, self.t[0].engine_name)
+                winner = self.game_play(start_player, root_sfen, node_multiplier)
+                self.shared.win_manager.update(winner, self.t[0].engine_name, node_multiplier)
                 step += winner_to_step[winner] * -1.0
 
                 # パラメーターをshift(方角)×step分だけ変異させる。
@@ -455,7 +520,7 @@ class ShogiMatch:
     def pick_root_sfen(self)->str:
         return self.shared.root_sfens[rand(len(self.shared.root_sfens))].rstrip()
 
-    def game_play(self, start_player : int, root_sfen:str|None = None):
+    def game_play(self, start_player : int, root_sfen:str|None = None, node_multiplier:float = 1.0):
         """ 1局だけ対局する """
 
         # 対局開始前のisready送信
@@ -486,7 +551,7 @@ class ShogiMatch:
         winner : int = -1
 
         while True:
-            nodes = self.t[player].engine_nodes
+            nodes = scaled_nodes(self.t[player].engine_nodes, node_multiplier)
             sfen = board.sfen()
             bestmove,_ = self.engines[player].go(sfen, nodes)
 

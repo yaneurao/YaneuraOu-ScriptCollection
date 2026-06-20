@@ -78,6 +78,16 @@ cp settings/engine_settings2-sample.json5 settings/engine_settings2.json5
 `settings/engine_settings1.json5` は基準エンジン、`settings/engine_settings2.json5` はSPSA対象エンジンである。
 どちらのファイルにも複数エンジンを書けるが、`multi`の合計は一致させる必要がある。
 
+`settings/SPSA-settings.json5` の `NODE_MULTIPLIERS` には、各エンジン設定の `nodes` に掛ける倍率を指定できる。
+
+```json5
+    "NODE_MULTIPLIERS": [1, 2, 2.5, 3],
+```
+
+この場合、SPSAの `+SCALE` / `-SCALE` の2局ペアごとに、`1倍`, `2倍`, `2.5倍`, `3倍`, `1倍` ... の順にnode数が変わる。
+たとえば `engine_settings*.json5` 側の `nodes` が `1000000` なら、実際の探索node数は `1000000`, `2000000`, `2500000`, `3000000` の順になる。
+未指定時は `[1]` と同じで、従来通り固定node数で対局する。
+
 > python BloodgateSPSA.py
 
 と実行すると、互角局面集を読み込み、入力コマンド待ちの状態になる。

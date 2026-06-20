@@ -6,11 +6,16 @@
     // 1つ目が基準エンジン、2つ目がSPSA対象エンジン。
     // 各ファイル内には複数エンジンを書ける。
     // 基準側とSPSA対象側のmulti合計は一致させる必要がある。
-
     "ENGINE_SETTINGS": [
         "settings/engine_settings1.json5",
         "settings/engine_settings2.json5"
     ],
+
+    // engine_settings*.json5 の nodes に掛ける倍率。
+    // SPSAの +SCALE / -SCALE の2局ペアごとに、先頭から順番に使う。
+    // 例: [1, 2, 2.5, 3] なら 1倍, 2倍, 2.5倍, 3倍, 1倍... の順。
+    // 未指定時は [1] と同じ。
+    "NODE_MULTIPLIERS": [1],
 
     // 標準的な将棋盤。
     // falseにすると55将棋など変則将棋にも使える。
