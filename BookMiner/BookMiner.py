@@ -1564,6 +1564,17 @@ def parse_noe_line(line:str)->int|None:
         return None
 
 
+def estimate_book_position_count_from_name(path:str)->int|None:
+    """BookMiner backup / peta book のファイル名末尾の _N.db から局面数を読む。"""
+    filename = os.path.basename(path)
+    for prefix in (BOOK_DB_NAME, PETA_BOOK_DB_NAME):
+        pattern = rf"^{re.escape(prefix)}-\d{{14}}_(\d+)\.db$"
+        match = re.fullmatch(pattern, filename)
+        if match is not None:
+            return int(match.group(1))
+    return None
+
+
 def print_book_read_start(path:str, total:int|None):
     print(f"[BookReadStart] 0/{book_progress_total_text(total)} path={path}")
 
@@ -1590,7 +1601,7 @@ def read_yaneuraou_book_file(
     moveinfos : list[MoveInfo] = []
     ply = 0
     count = 0
-    total_positions : int|None = None
+    total_positions : int|None = estimate_book_position_count_from_name(path)
 
     print_book_read_start(path, total_positions)
 

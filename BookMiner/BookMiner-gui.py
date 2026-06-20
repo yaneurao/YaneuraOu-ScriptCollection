@@ -1107,6 +1107,16 @@ class BookMinerGui(ttk.Frame):
             or re.search(r"\(\d+\) read \d+ position commands", line)
         ):
             return "task"
+        book_progress_match = BOOK_PROGRESS_RE.search(line)
+        if (
+            book_progress_match is not None
+            and book_progress_match.group(1) == "Read"
+            and (
+                self.peta_makebook_active
+                or self.busy_action in {"manual_peta_shock", "manual_peta_read", "auto_enqueue"}
+            )
+        ):
+            return "peta"
         if (
             "peta_shock" in lower
             or "p command" in lower
