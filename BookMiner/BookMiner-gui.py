@@ -44,6 +44,11 @@ PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
 PETA_MAKEBOOK_DONE_RE = re.compile(r"\.\.peta_shock makebook has done|peta_shock makebook failed", re.IGNORECASE)
 PETA_MAKEBOOK_CONTEXT_RE = re.compile(r"^\s*(engine path|source book|peta book|command)\s*=", re.IGNORECASE)
+PETA_MAKEBOOK_LINE_RE = re.compile(
+    r"retrograde analysis|read a book db|write a book db|makebook peta_shock",
+    re.IGNORECASE,
+)
+YANEURAOU_PROGRESS_BAR_RE = re.compile(r"^\s*0%\s+\[.*\]\s+100%\s*$")
 STEP_BUTTON_WIDTH = 12
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
@@ -646,11 +651,11 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_output(self, text: str) -> None:
         self.output_buffer += text
-        while "\n" in self.output_buffer:
-            line, self.output_buffer = self.output_buffer.split("\n", 1)
-            line = line + "\n"
-            self._handle_progress_line(line)
-            self._append_log(self._classify_log_line(line), line)
+        while True:
+            line = self._take_output_line()
+            if line is None:
+                break
+            self._handle_log_output_line(line)
 
         if self.output_buffer.endswith("> "):
             self._append_log("other", self.output_buffer)
@@ -658,9 +663,31 @@ class BookMinerGui(ttk.Frame):
 
     def _flush_output_buffer(self) -> None:
         if self.output_buffer:
-            self._handle_progress_line(self.output_buffer)
-            self._append_log(self._classify_log_line(self.output_buffer), self.output_buffer)
+            self._handle_log_output_line(self.output_buffer)
             self.output_buffer = ""
+
+    def _take_output_line(self) -> str | None:
+        newline_index = self.output_buffer.find("\n")
+        carriage_index = self.output_buffer.find("\r")
+        indexes = [index for index in (newline_index, carriage_index) if index != -1]
+        if not indexes:
+            return None
+
+        index = min(indexes)
+        separator = self.output_buffer[index]
+        line = self.output_buffer[:index]
+        self.output_buffer = self.output_buffer[index + 1 :]
+        if separator == "\r" and self.output_buffer.startswith("\n"):
+            self.output_buffer = self.output_buffer[1:]
+        return line + "\n"
+
+    def _handle_log_output_line(self, line: str) -> None:
+        self._handle_progress_line(line)
+        if not self._should_suppress_log_line(line):
+            self._append_log(self._classify_log_line(line), line)
+
+    def _should_suppress_log_line(self, line: str) -> bool:
+        return YANEURAOU_PROGRESS_BAR_RE.fullmatch(line.strip()) is not None
 
     def _handle_progress_line(self, line: str) -> None:
         self._handle_peta_makebook_context_line(line)
@@ -1086,8 +1113,8 @@ class BookMinerGui(ttk.Frame):
             or "[petacommanddone]" in lower
             or "[petareaddone]" in lower
             or "[petanextdone]" in lower
-            or self.peta_makebook_active
             or PETA_MAKEBOOK_CONTEXT_RE.search(line)
+            or PETA_MAKEBOOK_LINE_RE.search(line)
             or "peta shocked book" in lower
             or "peta_next" in lower
             or "root sfen" in lower
