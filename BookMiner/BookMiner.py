@@ -12,7 +12,8 @@ from pathlib import Path
 
 from dataclasses import dataclass
 from typing import TypeAlias, Any, Callable, Generic, TypeVar
-from threading import Lock, Thread
+from collections import deque
+from threading import Condition, Lock, Thread
 from itertools import zip_longest
 
 try:
@@ -270,6 +271,59 @@ class ListRingQueue(Generic[T]):
         with self._lock:
             self._buf = [None] * self._max
             self._head = self._tail = self._count = 0
+
+
+class JobRoundRobinQueue(Generic[T]):
+    """job_idごとに公平に取り出すqueue。
+
+    tコマンドはjobごとに大量のtaskを投入するため、単一FIFOだと後続jobが長時間
+    進まない。worker側はこのqueueからjobをround-robinで取り出す。
+    """
+
+    def __init__(self):
+        self._jobs: dict[int, deque[T]] = {}
+        self._job_order: deque[int] = deque()
+        self._count = 0
+        self._condition = Condition()
+
+    def _job_id(self, item: T) -> int:
+        return int(getattr(item, "job_id", 0) or 0)
+
+    def put(self, item: T) -> None:
+        with self._condition:
+            job_id = self._job_id(item)
+            queue = self._jobs.get(job_id)
+            if queue is None:
+                queue = deque()
+                self._jobs[job_id] = queue
+                self._job_order.append(job_id)
+            queue.append(item)
+            self._count += 1
+            self._condition.notify()
+
+    def put_deferred(self, item: T) -> None:
+        self.put(item)
+
+    def get(self) -> T:
+        with self._condition:
+            while self._count == 0:
+                self._condition.wait()
+
+            job_id = self._job_order.popleft()
+            queue = self._jobs[job_id]
+            item = queue.popleft()
+            self._count -= 1
+
+            if queue:
+                self._job_order.append(job_id)
+            else:
+                del self._jobs[job_id]
+
+            return item
+
+    def qsize(self) -> int:
+        with self._condition:
+            return self._count
 
 # CLI表示用の10分間探索呼び出し回数
 CALL_COUNT : int = 0
@@ -1270,7 +1324,7 @@ class EngineManager:
 
     def start_task_workers(self, book:Book):
         # このqueueにtaskを積むとそれが処理されていく。
-        self.task_queue : ListRingQueue = ListRingQueue(len(self.engines))
+        self.task_queue : JobRoundRobinQueue[Task] = JobRoundRobinQueue()
 
         threads : list[Thread] = []
         for engine in self.engines:
