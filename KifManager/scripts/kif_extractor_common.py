@@ -11,7 +11,7 @@ import sys
 import time
 import zipfile
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -29,6 +29,10 @@ CSA_BLACK_RATE_RE = re.compile(r"^'black_rate\s*:\s*(.+)$", re.IGNORECASE)
 CSA_WHITE_RATE_RE = re.compile(r"^'white_rate\s*:\s*(.+)$", re.IGNORECASE)
 KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
 SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
+SEPARATED_DATETIME_RE = re.compile(
+    r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?"
+)
+COMPACT_DATETIME_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?!\d)")
 COMPACT_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)")
 INPUT_DATE_RE = re.compile(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$")
 INPUT_YEAR_RE = re.compile(r"^(\d{4})$")
@@ -124,6 +128,8 @@ class DateFilter:
     source_kind: str
     start_date: date | None = None
     end_date: date | None = None
+    start_datetime: datetime | None = None
+    end_datetime: datetime | None = None
 
 
 def read_text(path: Path) -> str:
@@ -361,7 +367,11 @@ def make_date_filter(
         return None
     if parsed_start is not None and parsed_end is not None and parsed_start > parsed_end:
         raise ValueError("開始日は終了日以下を指定してください。")
-    return DateFilter(source_kind, parsed_start, parsed_end)
+    start_datetime = datetime.combine(parsed_start, datetime.min.time()) if parsed_start is not None else None
+    end_datetime = (
+        datetime.combine(parsed_end + timedelta(days=1), datetime.min.time()) if parsed_end is not None else None
+    )
+    return DateFilter(source_kind, parsed_start, parsed_end, start_datetime, end_datetime)
 
 
 def parse_date_value(
@@ -431,8 +441,18 @@ def year_filter_passes(path: Path, year_filter: YearFilter) -> bool:
     return True
 
 
-def date_filter_passes(game_date: date | None, date_filter: DateFilter | None) -> bool:
+def date_filter_passes(
+    game_date: date | None,
+    date_filter: DateFilter | None,
+    game_datetime: datetime | None = None,
+) -> bool:
     if date_filter is None:
+        return True
+    if game_datetime is not None:
+        if date_filter.start_datetime is not None and game_datetime <= date_filter.start_datetime:
+            return False
+        if date_filter.end_datetime is not None and game_datetime > date_filter.end_datetime:
+            return False
         return True
     if game_date is None:
         return False
@@ -465,10 +485,51 @@ def infer_year_from_path(path: Path, source_kind: str) -> int | None:
 
 
 def infer_game_date_from_path(path: Path) -> date | None:
+    file_datetime = find_datetime_in_text(path.name)
+    if file_datetime is not None:
+        return file_datetime.date()
     file_date = find_date_in_text(path.name)
     if file_date is not None:
         return file_date
+    path_datetime = find_datetime_in_text("/".join(path.parts))
+    if path_datetime is not None:
+        return path_datetime.date()
     return find_date_in_text("/".join(path.parts))
+
+
+def infer_game_datetime_from_path(path: Path) -> datetime | None:
+    file_datetime = find_datetime_in_text(path.name)
+    if file_datetime is not None:
+        return file_datetime
+    return find_datetime_in_text("/".join(path.parts))
+
+
+def find_datetime_in_text(text: str) -> datetime | None:
+    for match in SEPARATED_DATETIME_RE.finditer(text):
+        parsed = make_datetime_from_parts(
+            match.group(1),
+            match.group(2),
+            match.group(3),
+            match.group(4),
+            match.group(5),
+            match.group(6) or "0",
+        )
+        if parsed is not None:
+            return parsed
+
+    for match in COMPACT_DATETIME_RE.finditer(text):
+        parsed = make_datetime_from_parts(
+            match.group(1),
+            match.group(2),
+            match.group(3),
+            match.group(4),
+            match.group(5),
+            match.group(6),
+        )
+        if parsed is not None:
+            return parsed
+
+    return None
 
 
 def find_date_in_text(text: str) -> date | None:
@@ -483,6 +544,27 @@ def find_date_in_text(text: str) -> date | None:
             return parsed
 
     return None
+
+
+def make_datetime_from_parts(
+    year_text: str,
+    month_text: str,
+    day_text: str,
+    hour_text: str,
+    minute_text: str,
+    second_text: str,
+) -> datetime | None:
+    try:
+        return datetime(
+            int(year_text),
+            int(month_text),
+            int(day_text),
+            int(hour_text),
+            int(minute_text),
+            int(second_text),
+        )
+    except ValueError:
+        return None
 
 
 def make_date_from_parts(year_text: str, month_text: str, day_text: str) -> date | None:
@@ -862,8 +944,9 @@ def should_skip_by_csa_header(
         require_date=date_filter is not None,
     )
     if date_filter is not None:
-        game_date = header.game_date or infer_game_date_from_path(path)
-        if not date_filter_passes(game_date, date_filter):
+        game_datetime = infer_game_datetime_from_path(path)
+        game_date = header.game_date or (game_datetime.date() if game_datetime is not None else infer_game_date_from_path(path))
+        if not date_filter_passes(game_date, date_filter, game_datetime):
             stats.skipped_date += 1
             return True
 
@@ -901,8 +984,9 @@ def collect_high_rating_players_from_headers(
                 print(f"skip rating header: {path}: {exc}", file=sys.stderr)
             continue
 
-        game_date = header.game_date or infer_game_date_from_path(path)
-        if not date_filter_passes(game_date, date_filter):
+        game_datetime = infer_game_datetime_from_path(path)
+        game_date = header.game_date or (game_datetime.date() if game_datetime is not None else infer_game_date_from_path(path))
+        if not date_filter_passes(game_date, date_filter, game_datetime):
             continue
 
         for name, rating in ((header.black, header.black_rating), (header.white, header.white_rating)):
@@ -1323,7 +1407,7 @@ def collect_games_from_roots(
                 stats.skipped_finalist += 1
                 continue
 
-            if not date_filter_passes(game.game_date, date_filter):
+            if not date_filter_passes(game.game_date, date_filter, infer_game_datetime_from_path(game.path)):
                 stats.skipped_date += 1
                 continue
 
