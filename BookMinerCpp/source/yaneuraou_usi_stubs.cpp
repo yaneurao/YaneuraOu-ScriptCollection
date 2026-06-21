@@ -1,8 +1,12 @@
 #include "position.h"
+#include "tt.h"
 #include "types.h"
 #include "usi.h"
+#include "usioption.h"
 
 #include <sstream>
+#include <cstdlib>
+#include <utility>
 
 namespace YaneuraOu {
 
@@ -123,6 +127,68 @@ Move USIEngine::to_move(const Position& pos, std::string str)
     if (move.is_ok() && pos.pseudo_legal_s<true>(move) && pos.legal(move))
         return move;
     return Move::none();
+}
+
+namespace Test {
+
+void UnitTester::test(const std::string&, bool)
+{
+}
+
+} // namespace Test
+
+TTEntry* TranspositionTable::first_entry(const Key&, Color) const
+{
+    return nullptr;
+}
+
+void prefetch(const void*)
+{
+}
+
+std::ostream& operator<<(std::ostream& os, SyncCout)
+{
+    return os;
+}
+
+namespace Tools {
+
+void exit()
+{
+    std::abort();
+}
+
+} // namespace Tools
+
+namespace {
+
+const Option& stub_option()
+{
+    static Option option(int64_t(0), int64_t(0), int64_t(0));
+    return option;
+}
+
+} // namespace
+
+const Option& OptionsMap::operator[](const std::string&) const
+{
+    return stub_option();
+}
+
+Option::Option(int64_t value, int64_t minv, int64_t maxv, OnChange on_change_)
+    : defaultValue(std::to_string(value)),
+      currentValue(std::to_string(value)),
+      type("spin"),
+      min(minv),
+      max(maxv),
+      idx(0),
+      on_change(std::move(on_change_))
+{
+}
+
+Option::operator int64_t() const
+{
+    return 0;
 }
 
 } // namespace YaneuraOu

@@ -52,9 +52,20 @@ constexpr const char* ThinkSfensName = "think_sfens.txt";
 constexpr const char* EngineSettingsPath = "settings/engine_settings.json5";
 constexpr const char* BookMinerSettingsPath = "settings/book_miner_settings.json5";
 constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settings.json5";
-constexpr int PetaShockProgressIntervalSeconds = 10;
 constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
+
+#ifdef _WIN32
+void configure_windows_console()
+{
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+}
+#else
+void configure_windows_console()
+{
+}
+#endif
 
 bool is_yaneuraou_progress_bar_line(const std::string& line)
 {
@@ -1357,6 +1368,8 @@ void set_nonblocking(int fd)
 
 int run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
 {
+    constexpr int PetaShockProgressIntervalSeconds = 10;
+
     int stdin_pipe[2]{};
     int stdout_pipe[2]{};
     if (pipe(stdin_pipe) != 0 || pipe(stdout_pipe) != 0)
@@ -1662,6 +1675,8 @@ bool has_arg(int argc, char* argv[], const std::string& arg)
 
 int main(int argc, char* argv[])
 {
+    configure_windows_console();
+
     const bool from_gui = has_arg(argc, argv, "--from_gui");
     const fs::path app_dir = executable_dir(argv[0]);
     if (!app_dir.empty())
