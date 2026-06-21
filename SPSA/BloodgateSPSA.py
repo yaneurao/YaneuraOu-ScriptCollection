@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Thread
+from typing import Any
 
 COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
@@ -158,6 +159,65 @@ def node_multiplier_sort_key(value:str)->float:
 def scaled_nodes(nodes:int, node_multiplier:float)->int:
     return max(1, int(nodes * node_multiplier + 0.5))
 
+def scheduled_node_multiplier(node_multipliers:list[float], offset:int, pair_index:int)->float:
+    if not node_multipliers:
+        raise ValueError("node_multipliers must not be empty.")
+    return node_multipliers[(offset + pair_index) % len(node_multipliers)]
+
+def expand_engine_setting_threads(engine_setting:list[Any], player_index:int, thread_id_start:int)->tuple[list["EngineSettings"], int]:
+    """
+    multiをエンジン定義ごとの塊ではなくround-robinに展開する。
+    これにより、並列workerのslot順が engine A..., engine B... に偏らない。
+    """
+    threads : list[EngineSettings] = []
+    thread_id = thread_id_start
+    used_counts = [0] * len(engine_setting)
+
+    while True:
+        added = False
+        for engine_index, e in enumerate(engine_setting):
+            multi = int(e["multi"])
+            if multi <= 0:
+                raise ValueError(f"engine multi must be positive, player = {player_index}, engine = {engine_index}")
+            if used_counts[engine_index] >= multi:
+                continue
+
+            t = EngineSettings()
+            t.engine_path  = e["path"]
+            t.engine_name  = e["name"]
+            t.engine_nodes = e["nodes"]
+            t.thread_id = thread_id
+            t.engine_group_index = engine_index
+            t.engine_instance_index = used_counts[engine_index]
+            thread_id += 1
+            used_counts[engine_index] += 1
+            threads.append(t)
+            added = True
+            print_log(
+                f"player {player_index}, engine {len(threads)} : "
+                f"name = {t.engine_name}, path = {t.engine_path} , nodes = {t.engine_nodes}, "
+                f"thread_id = {t.thread_id}, engine_group = {t.engine_group_index}, "
+                f"engine_instance = {t.engine_instance_index}"
+            )
+
+        if not added:
+            break
+
+    return threads, thread_id
+
+def assign_match_slots(threads0:list["EngineSettings"], threads1:list["EngineSettings"], node_multiplier_count:int)->None:
+    if len(threads0) != len(threads1):
+        raise ValueError(f"Number of engines mismatch, {len(threads0)} != {len(threads1)}")
+    if node_multiplier_count <= 0:
+        raise ValueError("node_multiplier_count must be positive.")
+
+    for match_slot_index, (t1, t2) in enumerate(zip(threads0, threads1)):
+        offset = match_slot_index % node_multiplier_count
+        t1.match_slot_index = match_slot_index
+        t2.match_slot_index = match_slot_index
+        t1.node_multiplier_offset = offset
+        t2.node_multiplier_offset = offset
+
 class GameMatcher:
     """
     GameMatchを並列対局数分だけ起動して対局を開始させる。
@@ -168,30 +228,19 @@ class GameMatcher:
         threads_all = []
         thread_id = 0
         for i, engine_setting in enumerate(engine_settings):
-            threads = []
-            for e in engine_setting:
-                # {
-                #     "path":"D:/doc/VSCodeProject/YaneuraOu/ShogiBookMiner2025/engines/suisho10/YO860kai_AVX2.exe",
-                #     "name":"suisho10",
-                #     "nodes":10000,
-                #     "multi":32 // 32個起動する。
-                # },
-                for _ in range(e["multi"]):
-                    t = EngineSettings()
-                    t.engine_path  = e["path"] 
-                    t.engine_name  = e["name"]
-                    t.engine_nodes = e["nodes"]
-                    t.thread_id = thread_id
-                    thread_id += 1
-                    threads.append(t)
-                    print_log(f"player {i}, engine {len(threads)} : name = {t.engine_name}, path = {t.engine_path} , nodes = {t.engine_nodes}, thread_id = {t.thread_id}")
+            # {
+            #     "path":"D:/doc/VSCodeProject/YaneuraOu/ShogiBookMiner2025/engines/suisho10/YO860kai_AVX2.exe",
+            #     "name":"suisho10",
+            #     "nodes":10000,
+            #     "multi":32 // 32個起動する。
+            # },
+            threads, thread_id = expand_engine_setting_threads(engine_setting, i, thread_id)
             threads_all.append(threads)
 
         if len(threads_all) != 2:
             raise ValueError(f"ENGINE_SETTINGS must contain exactly 2 engine setting files, actual = {len(threads_all)}")
 
-        if len(threads_all[0]) != len(threads_all[1]):
-            raise ValueError(f"Number of engines mismatch, {len(threads_all[0])} != {len(threads_all[1])}")
+        assign_match_slots(threads_all[0], threads_all[1], len(shared.node_multipliers))
 
         # 対局情報を格納
         self.shared      = shared
@@ -207,7 +256,10 @@ class GameMatcher:
 
         shogi_matches = []
         for i, (t1, t2) in enumerate(zip(self.threads_all[0], self.threads_all[1])):
-            print(f"game match No. {i}, {t1.engine_path} VS {t2.engine_path} is starting..")
+            print(
+                f"game match No. {i}, {t1.engine_path} VS {t2.engine_path} is starting.. "
+                f"node_multiplier_offset = {t1.node_multiplier_offset}"
+            )
             shogi_match = ShogiMatch(t1,t2,self.shared)
             shogi_matches.append(shogi_match)
 
@@ -240,8 +292,6 @@ class SharedState:
 
         # 対局ごとに掛けるnode倍率。未指定なら従来通り1倍固定。
         self.node_multipliers = self.read_node_multipliers(settings)
-        self.node_multiplier_index = 0
-        self.node_multiplier_lock = Lock()
 
         # パラメーターファイル
         self.parameters : list[Entry] = read_parameters(settings["PARAMETERS_PATH"])
@@ -293,12 +343,6 @@ class SharedState:
                 raise ValueError(f"NODE_MULTIPLIERS contains invalid value: {value}")
             result.append(multiplier)
         return result
-
-    def next_node_multiplier(self)->float:
-        with self.node_multiplier_lock:
-            multiplier = self.node_multipliers[self.node_multiplier_index % len(self.node_multipliers)]
-            self.node_multiplier_index += 1
-            return multiplier
 
     def validate_tunable_options_are_not_fixed(self):
         """
@@ -438,6 +482,18 @@ class EngineSettings:
         # スレッドid
         self.thread_id : int = 0
 
+        # engine_settings内のエンジン種別index
+        self.engine_group_index : int = 0
+
+        # 同じエンジン種別内でのインスタンスindex
+        self.engine_instance_index : int = 0
+
+        # 並列対局workerのslot index
+        self.match_slot_index : int = 0
+
+        # このworkerがNODE_MULTIPLIERSのどこから開始するか
+        self.node_multiplier_offset : int = 0
+
 
 # 対局スレッド
 class ShogiMatch:
@@ -448,6 +504,7 @@ class ShogiMatch:
         engine1 = Engine(t1.engine_path, t1.thread_id)
         engine2 = Engine(t2.engine_path, t2.thread_id)
         self.engines = [engine1, engine2]
+        self.node_multiplier_pair_index = 0
 
         # ゲームが終了したのか？
         self.gameover = False
@@ -483,7 +540,7 @@ class ShogiMatch:
                 p_shift_plus  = self.add_params(params, shift, +SCALE)
                 p_shift_minus = self.add_params(params, shift, -SCALE)
                 root_sfen = self.pick_root_sfen()
-                node_multiplier = self.shared.next_node_multiplier()
+                node_multiplier = self.next_node_multiplier()
 
                 # 変異させたパラメーターを思考エンジンに設定
                 self.set_engine_options(params, p_shift_plus)
@@ -512,9 +569,18 @@ class ShogiMatch:
 
                 # 次の対局の手番を入れ替える。
                 start_player ^= 1
+                self.node_multiplier_pair_index += 1
 
         except Exception as e:
             print_log(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+
+
+    def next_node_multiplier(self)->float:
+        return scheduled_node_multiplier(
+            self.shared.node_multipliers,
+            self.t[0].node_multiplier_offset,
+            self.node_multiplier_pair_index,
+        )
 
 
     def pick_root_sfen(self)->str:
