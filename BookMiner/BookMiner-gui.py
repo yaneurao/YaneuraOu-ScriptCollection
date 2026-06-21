@@ -1133,7 +1133,8 @@ class BookMinerGui(ttk.Frame):
         ):
             return "peta"
         if (
-            "reached max_book_ply" in lower
+            "max_book_ply reached" in lower
+            or "reached max_book_ply" in lower
             or "過去10分" in line
             or "all tasks completed" in lower
             or re.search(r"\[\d+\]\s+.+\s,\s*[0-9.]+", line)
