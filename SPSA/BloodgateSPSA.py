@@ -450,8 +450,10 @@ class SharedState:
         if self.parameters is None:
             return
 
+        path = self.settings["PARAMETERS_PATH"]
         with self.param_lock:
-            write_parameters(self.settings["PARAMETERS_PATH"], self.parameters)
+            write_parameters(path, self.parameters)
+        print_log(f"wrote parameters: {path}")
 
     def print_parameters(self):
         # 現在のパラメーターを出力する。
