@@ -153,6 +153,36 @@ def iter_archive_files(root: Path) -> Iterable[Path]:
             yield path
 
 
+def is_floodgate_daily_folder_name(name: str) -> bool:
+    return bool(re.fullmatch(r"\d{8}", name))
+
+
+def log_kifu_scan_sources(
+    paths_by_root: Sequence[tuple[Path, Sequence[Path]]],
+    *,
+    source_kind: str | None,
+) -> None:
+    for root, paths in paths_by_root:
+        log_progress(f"棋譜走査対象: {root} files={len(paths)}")
+        if source_kind != "floodgate":
+            continue
+
+        daily_counts: dict[str, int] = {}
+        for path in paths:
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            if len(relative.parts) < 2:
+                continue
+            daily_folder = relative.parts[0]
+            if is_floodgate_daily_folder_name(daily_folder):
+                daily_counts[daily_folder] = daily_counts.get(daily_folder, 0) + 1
+
+        for daily_folder, count in sorted(daily_counts.items()):
+            log_progress(f"棋譜走査対象日別フォルダ: {root / daily_folder} files={count}")
+
+
 @contextlib.contextmanager
 def extracted_archive_roots(
     input_dir: Path,
@@ -1333,7 +1363,9 @@ def collect_games_from_roots(
     elif wcsc_finalists_only and source_kind == "denryu":
         finalists_by_event = collect_denryu_finalist_names(input_roots, year_filter, verbose=verbose)
 
-    paths = [path for input_root in input_roots for path in iter_kifu_files(input_root)]
+    paths_by_root = [(input_root, list(iter_kifu_files(input_root))) for input_root in input_roots]
+    log_kifu_scan_sources(paths_by_root, source_kind=source_kind)
+    paths = [path for _input_root, root_paths in paths_by_root for path in root_paths]
     parse_progress = CountProgress("解析中", len(paths))
     effective_min_rating = min_rating if require_rating else None
     rating_thresholds: list[float] = []
