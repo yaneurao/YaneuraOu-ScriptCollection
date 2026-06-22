@@ -27,6 +27,7 @@ GUI_SETTING_DEFAULTS = {
     "eval_limit": "400",
     "auto_enqueue_threshold": "1000",
     "log_view_mode": "2x2",
+    "task_list_mode": "1",
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
@@ -119,6 +120,11 @@ def load_gui_settings() -> dict[str, str]:
     return settings
 
 
+def settings_bool(value: str | None, default: str) -> bool:
+    text = str(value if value is not None else default).strip().lower()
+    return text in {"1", "true", "yes", "on"}
+
+
 class Tooltip:
     def __init__(self, widget: tk.Widget, text: str) -> None:
         self.widget = widget
@@ -167,7 +173,12 @@ class BookMinerGui(ttk.Frame):
         log_view_mode = normalize_log_view_mode(gui_settings.get("log_view_mode"))
         self.log_view_mode = tk.StringVar(value=LOG_VIEW_MODE_LABELS[log_view_mode])
         self.log_view_frames: dict[str, ttk.Frame] = {}
-        self.task_list_mode_enabled = tk.BooleanVar(value=False)
+        self.task_list_mode_enabled = tk.BooleanVar(
+            value=settings_bool(
+                gui_settings.get("task_list_mode"),
+                GUI_SETTING_DEFAULTS["task_list_mode"],
+            )
+        )
         self.task_job_items: dict[int, TaskJobListItem] = {}
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.progress_labels = {
@@ -406,7 +417,7 @@ class BookMinerGui(ttk.Frame):
             header,
             text="タスク一覧",
             variable=self.task_list_mode_enabled,
-            command=self._update_task_view_mode,
+            command=self.on_task_list_mode_toggled,
         )
         check.pack(side="left", padx=(12, 0))
         Tooltip(check, "jobごとの enqueue 進捗一覧に切り替えます。完了した job は一覧から消えます。")
@@ -516,6 +527,10 @@ class BookMinerGui(ttk.Frame):
                 list_frame.grid_remove()
                 text.grid()
                 text.see("end")
+
+    def on_task_list_mode_toggled(self) -> None:
+        self._update_task_view_mode()
+        self.save_gui_settings()
 
     def _refresh_task_job_views(self) -> None:
         for _text, _list_frame, tree in self.task_job_views:
@@ -1174,6 +1189,7 @@ class BookMinerGui(ttk.Frame):
             "eval_limit": self.eval_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
             "log_view_mode": normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get())),
+            "task_list_mode": "1" if self.task_list_mode_enabled.get() else "0",
         }
         try:
             with open(GUI_SETTINGS_PATH, "wb") as f:
