@@ -65,6 +65,7 @@ LOG_PANES = [
     ("search", "探索ログ", "探索", 10),
     ("peta", "petaログ", "peta", 7),
 ]
+LOG_GRID_HEIGHT = 8
 LOG_VIEW_MODES = [
     ("4x1", "4×1"),
     ("1x4", "1×4"),
@@ -488,11 +489,11 @@ class BookMinerGui(ttk.Frame):
 
     def _build_grid_logs(self, parent: ttk.Frame) -> None:
         for row in range(2):
-            parent.rowconfigure(row, weight=1)
+            parent.rowconfigure(row, weight=1, uniform="log-grid-row")
         for col in range(2):
-            parent.columnconfigure(col, weight=1)
+            parent.columnconfigure(col, weight=1, uniform="log-grid-col")
 
-        for index, (key, title, _tab_title, height) in enumerate(LOG_PANES):
+        for index, (key, title, _tab_title, _height) in enumerate(LOG_PANES):
             row = index // 2
             col = index % 2
             frame = ttk.Frame(parent, padding=(0, 0, 6 if col == 0 else 0, 6 if row == 0 else 0))
@@ -500,7 +501,7 @@ class BookMinerGui(ttk.Frame):
             frame.columnconfigure(0, weight=1)
             frame.rowconfigure(1, weight=1)
             self._add_log_header(frame, title, key)
-            self._add_log_content(frame, key, height)
+            self._add_log_content(frame, key, LOG_GRID_HEIGHT)
 
     def _build_tabbed_logs(self, parent: ttk.Frame) -> None:
         notebook = ttk.Notebook(parent)
