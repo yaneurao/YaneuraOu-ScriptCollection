@@ -452,7 +452,7 @@ def make_effective_year_filter(
         date_start_year = date_filter.start_date.year
         start_year = date_start_year if start_year is None else max(start_year, date_start_year)
     if date_filter.end_date is not None:
-        date_end_year = date_filter.end_date.year
+        date_end_year = date_filter.end_datetime.year if date_filter.end_datetime is not None else date_filter.end_date.year
         end_year = date_end_year if end_year is None else min(end_year, date_end_year)
 
     if start_year is not None and end_year is not None and start_year > end_year:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from kif_extractor_common import add_common_arguments, add_date_arguments, print_stats, run_extractor
+from kif_extractor_common import add_common_arguments, add_date_arguments, add_year_arguments, print_stats, run_extractor
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -12,6 +12,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Extract USI position commands from floodgate CSA game records."
     )
     add_common_arguments(parser)
+    add_year_arguments(parser)
     add_date_arguments(parser)
     parser.add_argument(
         "--min-rating",
@@ -40,6 +41,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.either_player_list,
         args.min_rating,
         source_kind="floodgate",
+        start_year=args.start_year,
+        end_year=args.end_year,
         start_date=args.start_date,
         end_date=args.end_date,
         reversal_threshold=args.reversal_threshold,

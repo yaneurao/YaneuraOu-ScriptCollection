@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import pickle
 import queue
 import sys
@@ -20,20 +20,23 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 SETTINGS_PATH = BASE_DIR / "kif-manager-settings.pickle"
 SETTINGS_VERSION = 1
 OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION = 2
-FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION = 1
 EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
 BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "think_sfens.txt").resolve())
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
 WCSC_OLD_DEFAULT_OUTPUT_DIR = "downloaded-kif"
 FLOODGATE_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate"
+FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate-daily"
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from floodgate_kif_downloader_core import (  # noqa: E402
+    FloodgateDailyDownloadJob,
+    FloodgateDailyRangeDownloadStats,
     FloodgateDownloadError,
     FloodgateDownloadJob,
     FloodgateDownloadStats,
+    download_floodgate_daily_kif,
     download_floodgate_kif,
     validate_year,
 )
@@ -128,12 +131,22 @@ class ExtractJob:
 EXTRACTORS = (
     ExtractorKind(
         "floodgate",
+        "floodgate年次",
+        "floodgateの年別棋譜アーカイブから条件に該当する棋譜を抽出します。",
+        "floodgateの年別アーカイブ wdoorYYYY.7z が配置されているフォルダを指定してください。",
+        True,
         "floodgate",
-        "floodgateの棋譜ファイルから条件に該当する棋譜を抽出します。",
-        "floodgateの棋譜ファイルが配置されているフォルダを指定してください。",
+        "downloaded-kif/floodgate",
+        "4000",
+    ),
+    ExtractorKind(
+        "floodgate-daily",
+        "floodgate日別",
+        "floodgateの日別棋譜フォルダから条件に該当する棋譜を抽出します。",
+        "floodgateの日別棋譜フォルダ YYYYMMDD が配置されているフォルダを指定してください。",
         True,
         None,
-        "downloaded-kif/floodgate",
+        "downloaded-kif/floodgate-daily",
         "4000",
     ),
     ExtractorKind(
@@ -162,8 +175,14 @@ EXTRACTORS = (
 DOWNLOADERS = (
     DownloadKind(
         "floodgate",
-        "floodgate",
+        "floodgate年次",
         "floodgateの年別棋譜アーカイブをダウンロードします。",
+        True,
+    ),
+    DownloadKind(
+        "floodgate-daily",
+        "floodgate日別",
+        "floodgateの日別棋譜をダウンロードします。",
         True,
     ),
     DownloadKind(
@@ -186,6 +205,18 @@ SHOGIDB2_DOWNLOADER = DownloadKind(
     "shogidb2の棋戦ページからKIF形式の棋譜をダウンロードします。",
     True,
 )
+
+
+def is_floodgate_extractor_key(key: str) -> bool:
+    return key in {"floodgate", "floodgate-daily"}
+
+
+def extractor_source_kind(key: str) -> str | None:
+    if is_floodgate_extractor_key(key):
+        return "floodgate"
+    if key in {"wcsc", "denryu"}:
+        return key
+    return None
 
 
 class QueueWriter:
@@ -265,8 +296,8 @@ class ExtractorPane(ttk.Frame):
         self.both_player_list = tk.StringVar()
         self.either_player_list = tk.StringVar()
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
-        self.losing_player_min_rating = tk.StringVar(value="4000" if kind.key == "floodgate" else "")
-        self.drawing_player_min_rating = tk.StringVar(value="4000" if kind.key == "floodgate" else "")
+        self.losing_player_min_rating = tk.StringVar(value="4000" if is_floodgate_extractor_key(kind.key) else "")
+        self.drawing_player_min_rating = tk.StringVar(value="4000" if is_floodgate_extractor_key(kind.key) else "")
         self.start_year = tk.StringVar()
         self.end_year = tk.StringVar()
         self.start_date = tk.StringVar()
@@ -297,6 +328,12 @@ class ExtractorPane(ttk.Frame):
             "抽出した棋譜をUSIのpositionコマンド形式で保存するファイルを指定してください。",
         )
         if self.kind.year_source is not None:
+            end_year_help = (
+                "抽出対象にする最後の年を指定してください。\n"
+                "空欄なら上限なしです。"
+            )
+            if self.kind.key == "wcsc":
+                end_year_help += "\nWCSO1はWCSC30扱い、つまり2020年として扱います。"
             row = self._text_row(
                 row,
                 "開始年",
@@ -309,12 +346,10 @@ class ExtractorPane(ttk.Frame):
                 row,
                 "終了年",
                 self.end_year,
-                "抽出対象にする最後の年を指定してください。\n"
-                "空欄なら上限なしです。\n"
-                "WCSO1はWCSC30扱い、つまり2020年として扱います。",
+                end_year_help,
                 width=10,
             )
-        if self.kind.key == "floodgate":
+        if self.kind.key == "floodgate-daily":
             row = self._text_row(
                 row,
                 "開始日",
@@ -385,7 +420,7 @@ class ExtractorPane(ttk.Frame):
                 "ratingが見つからないプレイヤーは、この条件の対象になりません。",
                 width=14,
             )
-        if self.kind.key == "floodgate":
+        if is_floodgate_extractor_key(self.kind.key):
             row = self._losing_player_rating_row(row)
             row = self._drawing_player_rating_row(row)
 
@@ -585,7 +620,7 @@ class ExtractorPane(ttk.Frame):
         return rating
 
     def _parse_losing_player_min_rating(self) -> float | None:
-        if self.kind.key != "floodgate":
+        if not is_floodgate_extractor_key(self.kind.key):
             return None
         value = self.losing_player_min_rating.get().strip()
         if not value:
@@ -599,7 +634,7 @@ class ExtractorPane(ttk.Frame):
         return rating
 
     def _parse_drawing_player_min_rating(self) -> float | None:
-        if self.kind.key != "floodgate":
+        if not is_floodgate_extractor_key(self.kind.key):
             return None
         value = self.drawing_player_min_rating.get().strip()
         if not value:
@@ -630,7 +665,7 @@ class ExtractorPane(ttk.Frame):
         *,
         year_only_month_day: tuple[int, int],
     ) -> date | None:
-        if self.kind.key != "floodgate" or not value:
+        if self.kind.key != "floodgate-daily" or not value:
             return None
         return parse_date_value(value, label, year_only_month_day=year_only_month_day)
 
@@ -662,11 +697,11 @@ class ExtractorPane(ttk.Frame):
         self.both_player_list.set(str(settings.get("both_player_list", settings.get("filtered_player_list", ""))))
         self.either_player_list.set(str(settings.get("either_player_list", "")))
         self.min_rating.set(str(settings.get("min_rating", self.kind.default_min_rating) or self.kind.default_min_rating))
-        default_losing_player_min_rating = "4000" if self.kind.key == "floodgate" else ""
+        default_losing_player_min_rating = "4000" if is_floodgate_extractor_key(self.kind.key) else ""
         self.losing_player_min_rating.set(
             str(settings.get("losing_player_min_rating", default_losing_player_min_rating))
         )
-        default_drawing_player_min_rating = "4000" if self.kind.key == "floodgate" else ""
+        default_drawing_player_min_rating = "4000" if is_floodgate_extractor_key(self.kind.key) else ""
         self.drawing_player_min_rating.set(
             str(settings.get("drawing_player_min_rating", default_drawing_player_min_rating))
         )
@@ -704,10 +739,9 @@ class FloodgateDownloadPane(ttk.Frame):
     def __init__(self, master: tk.Misc, kind: DownloadKind) -> None:
         super().__init__(master, padding=12)
         self.kind = kind
-        self.year = tk.StringVar(value=str(datetime.now().year))
+        self.start_year = tk.StringVar(value=str(datetime.now().year))
+        self.end_year = tk.StringVar(value=str(datetime.now().year))
         self.output_dir = tk.StringVar(value=FLOODGATE_DEFAULT_OUTPUT_DIR)
-        self.download_yesterday = tk.BooleanVar(value=True)
-        self.download_today = tk.BooleanVar(value=True)
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -719,10 +753,19 @@ class FloodgateDownloadPane(ttk.Frame):
         row = 1
         self._text_row(
             row,
-            "対局年",
-            self.year,
+            "開始年",
+            self.start_year,
             "2008以降の年を指定してください。\n"
-            "今年のものは、前日までの棋譜がダウンロードされます。",
+            "この年から年別アーカイブをダウンロードします。",
+            width=10,
+        )
+        row += 1
+        self._text_row(
+            row,
+            "終了年",
+            self.end_year,
+            "2008以降の年を指定してください。\n"
+            "この年まで年別アーカイブをダウンロードします。",
             width=10,
         )
         row += 1
@@ -735,10 +778,6 @@ class FloodgateDownloadPane(ttk.Frame):
             "既存ファイルとサーバー上のサイズが同じならダウンロードを省略します。\n"
             "デフォルトでは downloaded-kif/floodgate に保存します。",
         )
-        row += 1
-        self._download_yesterday_row(row)
-        row += 1
-        self._download_today_row(row)
 
     def _label_with_help(self, row: int, label: str, help_text: str) -> None:
         label_frame = ttk.Frame(self)
@@ -776,25 +815,141 @@ class FloodgateDownloadPane(ttk.Frame):
         )
         return row + 1
 
-    def _download_yesterday_row(self, row: int) -> None:
-        self._label_with_help(
-            row,
-            "前日分もダウンロードする",
-            "年別アーカイブ更新時刻の都合で漏れやすい前日分を、floodgate の日別ページから取得します。\n"
-            "出力フォルダ配下の YYYYMMDD フォルダに .csa ファイルを保存します。\n"
-            "デフォルトはオンです。",
-        )
-        ttk.Checkbutton(self, variable=self.download_yesterday).grid(row=row, column=1, sticky="w", pady=6)
+    def _browse_output_dir(self) -> None:
+        selected = filedialog.askdirectory(initialdir=self._initial_dir(self.output_dir.get()))
+        if selected:
+            self.output_dir.set(selected)
 
-    def _download_today_row(self, row: int) -> None:
-        self._label_with_help(
+    def _initial_dir(self, value: str) -> str:
+        if not value:
+            return str(BASE_DIR)
+        path = Path(value).expanduser()
+        if path.is_dir():
+            return str(path)
+        if path.parent.exists():
+            return str(path.parent)
+        return str(BASE_DIR)
+
+    def _parse_year(self, value: str, label: str) -> int:
+        try:
+            year = int(value)
+        except ValueError as exc:
+            raise ValueError(f"{label}は2008以降の整数で指定してください。") from exc
+        try:
+            return validate_year(year)
+        except FloodgateDownloadError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def build_jobs(self) -> list[FloodgateDownloadJob]:
+        start_year = self._parse_year(self.start_year.get().strip(), "開始年")
+        end_year = self._parse_year(self.end_year.get().strip(), "終了年")
+        if start_year > end_year:
+            raise ValueError("開始年は終了年以下を指定してください。")
+
+        output_dir = self.output_dir.get().strip()
+        if not output_dir:
+            raise ValueError("出力フォルダを指定してください。")
+        output_path = Path(output_dir).expanduser()
+        if output_path.exists() and not output_path.is_dir():
+            raise ValueError(f"出力フォルダがファイルです: {output_path}")
+
+        return [FloodgateDownloadJob(year, output_path) for year in range(start_year, end_year + 1)]
+
+    def settings(self) -> dict[str, object]:
+        return {
+            "start_year": self.start_year.get(),
+            "end_year": self.end_year.get(),
+            "output_dir": self.output_dir.get(),
+        }
+
+    def apply_settings(self, settings: object) -> None:
+        if not isinstance(settings, dict):
+            return
+        default_year = str(datetime.now().year)
+        self.start_year.set(str(settings.get("start_year", settings.get("year", default_year)) or default_year))
+        self.end_year.set(str(settings.get("end_year", settings.get("year", default_year)) or default_year))
+        self.output_dir.set(str(settings.get("output_dir", FLOODGATE_DEFAULT_OUTPUT_DIR) or FLOODGATE_DEFAULT_OUTPUT_DIR))
+
+
+class FloodgateDailyDownloadPane(ttk.Frame):
+    def __init__(self, master: tk.Misc, kind: DownloadKind) -> None:
+        super().__init__(master, padding=12)
+        self.kind = kind
+        today = datetime.now().date()
+        self.start_date = tk.StringVar(value=(today - timedelta(days=1)).isoformat())
+        self.end_date = tk.StringVar(value=today.isoformat())
+        self.output_dir = tk.StringVar(value=FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR)
+
+        self.columnconfigure(1, weight=1)
+        self._build()
+
+    def _build(self) -> None:
+        description = ttk.Label(self, text=self.kind.description, wraplength=680, justify="left")
+        description.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        row = 1
+        self._text_row(
             row,
-            "当日分もダウンロードする",
-            "年別アーカイブにまだ入っていない当日分を floodgate の today ページから取得します。\n"
-            "出力フォルダ配下の YYYYMMDD フォルダに .csa ファイルを保存します。\n"
-            "デフォルトはオンです。",
+            "開始日",
+            self.start_date,
+            "この日から日別ページのCSAファイルをダウンロードします。\n"
+            "YYYY-MM-DD または YYYY/MM/DD で指定してください。",
+            width=14,
         )
-        ttk.Checkbutton(self, variable=self.download_today).grid(row=row, column=1, sticky="w", pady=6)
+        row += 1
+        self._text_row(
+            row,
+            "終了日",
+            self.end_date,
+            "この日まで日別ページのCSAファイルをダウンロードします。\n"
+            "YYYY-MM-DD または YYYY/MM/DD で指定してください。",
+            width=14,
+        )
+        row += 1
+        self._path_row(
+            row,
+            "出力フォルダ",
+            self.output_dir,
+            self._browse_output_dir,
+            "ダウンロードした日別CSAを YYYYMMDD フォルダに保存するフォルダを指定してください。\n"
+            "デフォルトでは downloaded-kif/floodgate-daily に保存します。",
+        )
+
+    def _label_with_help(self, row: int, label: str, help_text: str) -> None:
+        label_frame = ttk.Frame(self)
+        label_frame.grid(row=row, column=0, sticky="w", padx=(0, 8), pady=6)
+        ttk.Label(label_frame, text=label).pack(side="left")
+        help_label = ttk.Label(label_frame, text=" ❓", cursor="question_arrow")
+        help_label.pack(side="left")
+        Tooltip(help_label, help_text)
+
+    def _text_row(
+        self,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        help_text: str,
+        *,
+        width: int,
+    ) -> None:
+        self._label_with_help(row, label, help_text)
+        ttk.Entry(self, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
+
+    def _path_row(
+        self,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        command: Callable[[], None],
+        help_text: str,
+    ) -> int:
+        self._label_with_help(row, label, help_text)
+        ttk.Entry(self, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6)
+        ttk.Button(self, text="参照", command=command).grid(row=row, column=2, sticky="e", padx=(8, 0), pady=6)
+        ttk.Button(self, text="消去", command=lambda: variable.set("")).grid(
+            row=row, column=3, sticky="e", padx=(6, 0), pady=6
+        )
+        return row + 1
 
     def _browse_output_dir(self) -> None:
         selected = filedialog.askdirectory(initialdir=self._initial_dir(self.output_dir.get()))
@@ -811,16 +966,13 @@ class FloodgateDownloadPane(ttk.Frame):
             return str(path.parent)
         return str(BASE_DIR)
 
-    def build_job(self) -> FloodgateDownloadJob:
-        value = self.year.get().strip()
-        try:
-            year = int(value)
-        except ValueError as exc:
-            raise ValueError("対局年は2008以降の整数で指定してください。") from exc
-        try:
-            year = validate_year(year)
-        except FloodgateDownloadError as exc:
-            raise ValueError(str(exc)) from exc
+    def build_job(self) -> FloodgateDailyDownloadJob:
+        start_date = parse_date_value(self.start_date.get().strip(), "開始日", year_only_month_day=(1, 1))
+        end_date = parse_date_value(self.end_date.get().strip(), "終了日", year_only_month_day=(12, 31))
+        if start_date is None or end_date is None:
+            raise ValueError("開始日と終了日を指定してください。")
+        if start_date > end_date:
+            raise ValueError("開始日は終了日以下を指定してください。")
 
         output_dir = self.output_dir.get().strip()
         if not output_dir:
@@ -829,33 +981,24 @@ class FloodgateDownloadPane(ttk.Frame):
         if output_path.exists() and not output_path.is_dir():
             raise ValueError(f"出力フォルダがファイルです: {output_path}")
 
-        return FloodgateDownloadJob(
-            year,
-            output_path,
-            download_yesterday=self.download_yesterday.get(),
-            download_today=self.download_today.get(),
-        )
+        return FloodgateDailyDownloadJob(start_date, end_date, output_path)
 
     def settings(self) -> dict[str, object]:
         return {
-            "year": self.year.get(),
+            "start_date": self.start_date.get(),
+            "end_date": self.end_date.get(),
             "output_dir": self.output_dir.get(),
-            "download_yesterday": self.download_yesterday.get(),
-            "download_today": self.download_today.get(),
-            "daily_download_default_version": FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION,
         }
 
     def apply_settings(self, settings: object) -> None:
         if not isinstance(settings, dict):
             return
-        self.year.set(str(settings.get("year", datetime.now().year) or datetime.now().year))
-        self.output_dir.set(str(settings.get("output_dir", FLOODGATE_DEFAULT_OUTPUT_DIR) or FLOODGATE_DEFAULT_OUTPUT_DIR))
-        if settings.get("daily_download_default_version") != FLOODGATE_DAILY_DOWNLOAD_DEFAULT_VERSION:
-            self.download_yesterday.set(True)
-            self.download_today.set(True)
-        else:
-            self.download_yesterday.set(bool(settings.get("download_yesterday", True)))
-            self.download_today.set(bool(settings.get("download_today", True)))
+        today = datetime.now().date()
+        self.start_date.set(str(settings.get("start_date", (today - timedelta(days=1)).isoformat())))
+        self.end_date.set(str(settings.get("end_date", today.isoformat())))
+        self.output_dir.set(
+            str(settings.get("output_dir", FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR) or FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR)
+        )
 
 
 class WcscDownloadPane(ttk.Frame):
@@ -1640,7 +1783,12 @@ class KifManager(tk.Tk):
         self.bookminer_original_output_paths: dict[str, str] = {}
         self.download_panes: dict[
             str,
-            DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | ShogiDb2DownloadPane,
+            DownloadPlaceholderPane
+            | FloodgateDownloadPane
+            | FloodgateDailyDownloadPane
+            | WcscDownloadPane
+            | DenryuDownloadPane
+            | ShogiDb2DownloadPane,
         ] = {}
         self.download_kinds = (*DOWNLOADERS, SHOGIDB2_DOWNLOADER) if enable_shogidb else DOWNLOADERS
 
@@ -1679,6 +1827,8 @@ class KifManager(tk.Tk):
         for kind in self.download_kinds:
             if kind.key == "floodgate":
                 pane = FloodgateDownloadPane(self.download_notebook, kind)
+            elif kind.key == "floodgate-daily":
+                pane = FloodgateDailyDownloadPane(self.download_notebook, kind)
             elif kind.key == "wcsc":
                 pane = WcscDownloadPane(self.download_notebook, kind)
             elif kind.key == "denryu":
@@ -1772,11 +1922,19 @@ class KifManager(tk.Tk):
             return
         if isinstance(pane, FloodgateDownloadPane):
             try:
+                jobs = pane.build_jobs()
+            except ValueError as exc:
+                messagebox.showerror("入力エラー", str(exc), parent=self)
+                return
+            self._start_floodgate_download(jobs)
+            return
+        if isinstance(pane, FloodgateDailyDownloadPane):
+            try:
                 job = pane.build_job()
             except ValueError as exc:
                 messagebox.showerror("入力エラー", str(exc), parent=self)
                 return
-            self._start_floodgate_download(job)
+            self._start_floodgate_daily_download(job)
             return
         if isinstance(pane, WcscDownloadPane):
             try:
@@ -1841,7 +1999,7 @@ class KifManager(tk.Tk):
         worker = threading.Thread(target=self._worker, args=(jobs,), daemon=True)
         worker.start()
 
-    def _start_floodgate_download(self, job: FloodgateDownloadJob) -> None:
+    def _start_floodgate_download(self, jobs: list[FloodgateDownloadJob]) -> None:
         if self.running:
             messagebox.showinfo("実行中", "現在の処理が終わるまで待ってください。", parent=self)
             return
@@ -1854,7 +2012,23 @@ class KifManager(tk.Tk):
         self._clear_log()
         self.status.set("ダウンロード中")
 
-        worker = threading.Thread(target=self._floodgate_download_worker, args=(job,), daemon=True)
+        worker = threading.Thread(target=self._floodgate_download_worker, args=(jobs,), daemon=True)
+        worker.start()
+
+    def _start_floodgate_daily_download(self, job: FloodgateDailyDownloadJob) -> None:
+        if self.running:
+            messagebox.showinfo("実行中", "現在の処理が終わるまで待ってください。", parent=self)
+            return
+
+        self.running = True
+        self.running_action = "download"
+        self.cancel_event.clear()
+        self._save_settings()
+        self._set_buttons_enabled(False)
+        self._clear_log()
+        self.status.set("ダウンロード中")
+
+        worker = threading.Thread(target=self._floodgate_daily_download_worker, args=(job,), daemon=True)
         worker.start()
 
     def _start_wcsc_download(self, job: WcscDownloadJob) -> None:
@@ -1948,7 +2122,7 @@ class KifManager(tk.Tk):
                         job.both_player_list,
                         job.either_player_list,
                         job.min_rating,
-                        source_kind=job.kind.key if job.kind.key in {"floodgate", "wcsc", "denryu"} else None,
+                        source_kind=extractor_source_kind(job.kind.key),
                         start_year=job.start_year,
                         end_year=job.end_year,
                         start_date=job.start_date,
@@ -1973,30 +2147,64 @@ class KifManager(tk.Tk):
 
         self.log_queue.put(("done", "失敗あり" if failed else "完了"))
 
-    def _floodgate_download_worker(self, job: FloodgateDownloadJob) -> None:
-        self._put_log("[floodgate] start\n")
-        self._put_log(f"[floodgate] year      : {job.year}\n")
-        self._put_log(f"[floodgate] output dir: {job.output_dir}\n")
-        self._put_log(f"[floodgate] yesterday : {job.download_yesterday}\n")
-        self._put_log(f"[floodgate] today     : {job.download_today}\n")
+    def _floodgate_download_worker(self, jobs: list[FloodgateDownloadJob]) -> None:
+        self._put_log("[floodgate年次] start\n")
+        if jobs:
+            self._put_log(f"[floodgate年次] years     : {jobs[0].year}-{jobs[-1].year}\n")
+            self._put_log(f"[floodgate年次] output dir: {jobs[0].output_dir}\n")
+
+        failed = False
+        for job in jobs:
+            if self.cancel_event.is_set():
+                self._put_log("[floodgate年次] stopped\n")
+                self.log_queue.put(("done", "停止"))
+                return
+            self._put_log(f"[floodgate年次] year      : {job.year}\n")
+            try:
+                stats = download_floodgate_kif(
+                    job,
+                    log=lambda text: self._put_log(f"[floodgate年次] {text}"),
+                    should_stop=self.cancel_event.is_set,
+                )
+            except Exception as exc:
+                if self.cancel_event.is_set():
+                    self._put_log("[floodgate年次] stopped\n")
+                    self.log_queue.put(("done", "停止"))
+                    return
+                failed = True
+                self._put_log(f"[floodgate年次] failed: {exc}\n")
+                continue
+
+            self._put_log(f"[floodgate年次] {self._floodgate_download_stats_text(stats)}\n")
+
+        if failed:
+            self._put_log("[floodgate年次] done with failures\n")
+            self.log_queue.put(("done", "失敗あり"))
+            return
+        self._finish_download_worker("floodgate年次")
+
+    def _floodgate_daily_download_worker(self, job: FloodgateDailyDownloadJob) -> None:
+        self._put_log("[floodgate日別] start\n")
+        self._put_log(f"[floodgate日別] dates     : {job.start_date.isoformat()}-{job.end_date.isoformat()}\n")
+        self._put_log(f"[floodgate日別] output dir: {job.output_dir}\n")
 
         try:
-            stats = download_floodgate_kif(
+            stats = download_floodgate_daily_kif(
                 job,
-                log=lambda text: self._put_log(f"[floodgate] {text}"),
+                log=lambda text: self._put_log(f"[floodgate日別] {text}"),
                 should_stop=self.cancel_event.is_set,
             )
         except Exception as exc:
             if self.cancel_event.is_set():
-                self._put_log("[floodgate] stopped\n")
+                self._put_log("[floodgate日別] stopped\n")
                 self.log_queue.put(("done", "停止"))
                 return
-            self._put_log(f"[floodgate] failed: {exc}\n")
+            self._put_log(f"[floodgate日別] failed: {exc}\n")
             self.log_queue.put(("done", "失敗あり"))
             return
 
-        self._put_log(f"[floodgate] {self._floodgate_download_stats_text(stats)}\n")
-        self._finish_download_worker("floodgate")
+        self._put_log(f"[floodgate日別] {self._floodgate_daily_download_stats_text(stats)}\n")
+        self._finish_download_worker("floodgate日別")
 
     def _wcsc_download_worker(self, job: WcscDownloadJob) -> None:
         self._put_log("[WCSC] start\n")
@@ -2106,26 +2314,17 @@ class KifManager(tk.Tk):
         )
 
     def _floodgate_download_stats_text(self, stats: FloodgateDownloadStats) -> str:
-        text = (
+        return (
             f"year={stats.year} skipped={stats.skipped} bytes={stats.bytes_written} "
             f"destination={stats.destination}"
         )
-        if stats.yesterday is not None:
-            text += (
-                f" yesterday_found={stats.yesterday.found} "
-                f"yesterday_downloaded={stats.yesterday.downloaded} "
-                f"yesterday_skipped={stats.yesterday.skipped} "
-                f"yesterday_failed={stats.yesterday.failed} "
-                f"yesterday_bytes={stats.yesterday.bytes_written} "
-                f"yesterday_dir={stats.yesterday.destination_dir}"
-            )
-        if stats.today is not None:
-            text += (
-                f" today_found={stats.today.found} today_downloaded={stats.today.downloaded} "
-                f"today_skipped={stats.today.skipped} today_failed={stats.today.failed} "
-                f"today_bytes={stats.today.bytes_written} today_dir={stats.today.destination_dir}"
-            )
-        return text
+
+    def _floodgate_daily_download_stats_text(self, stats: FloodgateDailyRangeDownloadStats) -> str:
+        return (
+            f"days={len(stats.days)} found={stats.found} downloaded={stats.downloaded} "
+            f"skipped={stats.skipped} failed={stats.failed} bytes={stats.bytes_written} "
+            f"output={stats.output_dir}"
+        )
 
     def _wcsc_download_stats_text(self, stats: WcscDownloadStats) -> str:
         return (

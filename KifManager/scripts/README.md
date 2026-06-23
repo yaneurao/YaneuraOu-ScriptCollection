@@ -102,17 +102,17 @@ dlshogi
 
 ## floodgate-kif-extractor.py
 
-floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、指定期間内に一度でも下限rating以上になったプレイヤー同士の棋譜と、対局日の範囲を指定できます。
+floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、指定期間内に一度でも下限rating以上になったプレイヤー同士の棋譜、年範囲、日付範囲を指定できます。
 
 ```bash
-python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--drawing-player-min-rating X] [--reversal-threshold X] [--verbose]
+python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--drawing-player-min-rating X] [--reversal-threshold X] [--verbose]
 ```
 
 例:
 
 ```bash
 python3 floodgate-kif-extractor.py \
-  /path/to/floodgate-kifu \
+  downloaded-kif/floodgate-daily \
   floodgate-positions.txt \
   --both-player-list strong-engines.txt \
   --either-player-list target-engines.txt \
@@ -120,6 +120,8 @@ python3 floodgate-kif-extractor.py \
   --end-date 2025-05-07 \
   --min-rating 3500
 ```
+
+年別アーカイブを抽出する場合は `downloaded-kif/floodgate` を入力フォルダにして、`--start-year 2025 --end-year 2025` のように指定します。日別棋譜を抽出する場合は `downloaded-kif/floodgate-daily` を入力フォルダにして、`--start-date 2026-06-01 --end-date 2026-06-07` のように指定します。
 
 `--start-date 2026-06-01 --end-date 2026-06-07` を指定した場合、floodgate棋譜のファイル名やパス名に含まれる対局日時から、その期間内の棋譜だけを抽出します。`YYYY/MM/DD` 形式でも指定できます。月日部分は `2026/1/1` や `2026-1-1` のように1桁でも構いません。開始日はその日の `00:00:00` より後、終了日は翌日の `00:00:00` までを対象にします。例えば `--start-date 2025 --end-date 2025` は `2025/01/01 00:00:00 < 対局時刻 <= 2026/01/01 00:00:00` として扱います。
 
@@ -134,22 +136,34 @@ python3 floodgate-kif-extractor.py \
 floodgate の年別棋譜アーカイブをダウンロードします。
 
 ```bash
-python3 floodgate-kif-downloader.py YEAR [--output-dir downloaded-kif/floodgate] [--download-yesterday] [--download-today]
+python3 floodgate-kif-downloader.py START_YEAR [END_YEAR] [--output-dir downloaded-kif/floodgate]
 ```
 
 例:
 
 ```bash
-python3 floodgate-kif-downloader.py 2026
+python3 floodgate-kif-downloader.py 2025 2026
 ```
 
 `2008` 以降の年を指定できます。今年のものは、前日までの棋譜が含まれるアーカイブとして公開されています。
 
 出力ファイルは指定フォルダ直下の `wdoorYYYY.7z` です。今年のアーカイブも日付を付けず、例えば `wdoor2026.7z` に保存します。サーバー上のファイルサイズと既存ファイルのサイズが同じ場合は、ダウンロードを省略します。サイズが異なる場合は `.tmp` にダウンロードしてから `wdoorYYYY.7z` に置き換えます。
 
-`--download-yesterday` を指定した場合は、floodgate の日別ページから前日分の `.csa` を取得し、出力フォルダ配下の `YYYYMMDD/` に保存します。年別アーカイブの更新時刻より前に実行すると、前日5:00以降の棋譜が年別アーカイブにまだ入っていないことがあるため、このオプションで補完できます。
+## floodgate-daily-kif-downloader.py
 
-`--download-today` を指定した場合は、floodgate の today ページから当日分の `.csa` を取得し、出力フォルダ配下の `YYYYMMDD/` に保存します。
+floodgate の日別棋譜をダウンロードします。
+
+```bash
+python3 floodgate-daily-kif-downloader.py START_DATE [END_DATE] [--output-dir downloaded-kif/floodgate-daily]
+```
+
+例:
+
+```bash
+python3 floodgate-daily-kif-downloader.py 2026-06-19 2026-06-23
+```
+
+各日について `https://wdoor.c.u-tokyo.ac.jp/shogi/x/YYYY/MM/DD/` を取得し、指定フォルダ配下の `YYYYMMDD/` に `.csa` を保存します。既存ファイルとサーバー上のサイズが同じ場合は、ダウンロードを省略します。
 
 ## wcsc-kif-extractor.py
 

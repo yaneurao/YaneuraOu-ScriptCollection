@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.parse import unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
@@ -26,8 +26,14 @@ class FloodgateDownloadError(Exception):
 class FloodgateDownloadJob:
     year: int
     output_dir: Path
-    download_today: bool = False
-    download_yesterday: bool = False
+    timeout: float = 60.0
+
+
+@dataclass(frozen=True)
+class FloodgateDailyDownloadJob:
+    start_date: date
+    end_date: date
+    output_dir: Path
     timeout: float = 60.0
 
 
@@ -51,8 +57,34 @@ class FloodgateDownloadStats:
     skipped: bool = False
     remote_bytes: int | None = None
     local_bytes: int | None = None
-    today: DailyDownloadStats | None = None
-    yesterday: DailyDownloadStats | None = None
+
+
+@dataclass(frozen=True)
+class FloodgateDailyRangeDownloadStats:
+    start_date: date
+    end_date: date
+    output_dir: Path
+    days: tuple[DailyDownloadStats, ...]
+
+    @property
+    def found(self) -> int:
+        return sum(day.found for day in self.days)
+
+    @property
+    def downloaded(self) -> int:
+        return sum(day.downloaded for day in self.days)
+
+    @property
+    def skipped(self) -> int:
+        return sum(day.skipped for day in self.days)
+
+    @property
+    def failed(self) -> int:
+        return sum(day.failed for day in self.days)
+
+    @property
+    def bytes_written(self) -> int:
+        return sum(day.bytes_written for day in self.days)
 
 
 TodayDownloadStats = DailyDownloadStats
@@ -338,23 +370,51 @@ def download_today_csa_files(
     )
 
 
-def download_selected_daily_csa_files(
-    job: FloodgateDownloadJob,
+def iter_dates(start_date: date, end_date: date) -> Iterable[date]:
+    current = start_date
+    while current <= end_date:
+        yield current
+        current += timedelta(days=1)
+
+
+def download_floodgate_daily_kif(
+    job: FloodgateDailyDownloadJob,
     *,
-    log: Callable[[str], None] | None,
-    should_stop: Callable[[], bool] | None,
-) -> tuple[DailyDownloadStats | None, DailyDownloadStats | None]:
-    yesterday_stats = (
-        download_yesterday_csa_files(job.output_dir, timeout=job.timeout, log=log, should_stop=should_stop)
-        if job.download_yesterday
-        else None
+    log: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> FloodgateDailyRangeDownloadStats:
+    if job.start_date > job.end_date:
+        raise FloodgateDownloadError("開始日は終了日以下を指定してください。")
+    if job.timeout <= 0:
+        raise FloodgateDownloadError("timeout は 0 より大きい値を指定してください。")
+
+    output_dir = job.output_dir.expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not output_dir.is_dir():
+        raise FloodgateDownloadError(f"出力フォルダがフォルダではありません: {output_dir}")
+
+    days: list[DailyDownloadStats] = []
+    for target_date in iter_dates(job.start_date, job.end_date):
+        if stop_requested(should_stop):
+            raise FloodgateDownloadError("停止要求を受け付けました。")
+        days.append(
+            download_daily_csa_files(
+                output_dir,
+                page_url=floodgate_daily_url(target_date),
+                label=target_date.strftime("%Y%m%d"),
+                fallback_date=target_date,
+                timeout=job.timeout,
+                log=log,
+                should_stop=should_stop,
+            )
+        )
+
+    return FloodgateDailyRangeDownloadStats(
+        start_date=job.start_date,
+        end_date=job.end_date,
+        output_dir=output_dir,
+        days=tuple(days),
     )
-    today_stats = (
-        download_today_csa_files(job.output_dir, timeout=job.timeout, log=log, should_stop=should_stop)
-        if job.download_today
-        else None
-    )
-    return yesterday_stats, today_stats
 
 
 def download_floodgate_kif(
@@ -398,7 +458,6 @@ def download_floodgate_kif(
     if remote_bytes is not None and local_bytes == remote_bytes:
         if log is not None:
             log(f"skip     : existing file has same size ({local_bytes} bytes)\n")
-        yesterday_stats, today_stats = download_selected_daily_csa_files(job, log=log, should_stop=should_stop)
         return FloodgateDownloadStats(
             year=year,
             archive_url=archive_url,
@@ -407,8 +466,6 @@ def download_floodgate_kif(
             skipped=True,
             remote_bytes=remote_bytes,
             local_bytes=local_bytes,
-            yesterday=yesterday_stats,
-            today=today_stats,
         )
 
     temporary = destination.with_name(destination.name + ".tmp")
@@ -424,7 +481,6 @@ def download_floodgate_kif(
             if log is not None:
                 log(f"skip     : downloaded file has same size as existing file ({local_bytes} bytes)\n")
             temporary.unlink(missing_ok=True)
-            yesterday_stats, today_stats = download_selected_daily_csa_files(job, log=log, should_stop=should_stop)
             return FloodgateDownloadStats(
                 year=year,
                 archive_url=archive_url,
@@ -433,8 +489,6 @@ def download_floodgate_kif(
                 skipped=True,
                 remote_bytes=remote_bytes,
                 local_bytes=local_bytes,
-                yesterday=yesterday_stats,
-                today=today_stats,
             )
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -442,7 +496,6 @@ def download_floodgate_kif(
 
     temporary.replace(destination)
 
-    yesterday_stats, today_stats = download_selected_daily_csa_files(job, log=log, should_stop=should_stop)
     return FloodgateDownloadStats(
         year=year,
         archive_url=archive_url,
@@ -451,6 +504,4 @@ def download_floodgate_kif(
         skipped=False,
         remote_bytes=remote_bytes,
         local_bytes=local_bytes,
-        yesterday=yesterday_stats,
-        today=today_stats,
     )
