@@ -1,5 +1,6 @@
 import os
 import math
+import random
 import time
 import json5
 import traceback
@@ -163,6 +164,14 @@ def scheduled_node_multiplier(node_multipliers:list[float], offset:int, pair_ind
     if not node_multipliers:
         raise ValueError("node_multipliers must not be empty.")
     return node_multipliers[(offset + pair_index) % len(node_multipliers)]
+
+def shuffled_node_multipliers(node_multipliers:list[float], seed:Any = None)->list[float]:
+    result = list(node_multipliers)
+    if len(result) <= 1:
+        return result
+    rng = random.Random(seed)
+    rng.shuffle(result)
+    return result
 
 def expand_engine_setting_threads(engine_setting:list[Any], player_index:int, thread_id_start:int)->tuple[list["EngineSettings"], int]:
     """
@@ -342,7 +351,8 @@ class SharedState:
             if not math.isfinite(multiplier) or multiplier <= 0:
                 raise ValueError(f"NODE_MULTIPLIERS contains invalid value: {value}")
             result.append(multiplier)
-        return result
+        seed = settings.get("NODE_MULTIPLIERS_SHUFFLE_SEED", settings.get("node_multipliers_shuffle_seed", None))
+        return shuffled_node_multipliers(result, seed)
 
     def validate_tunable_options_are_not_fixed(self):
         """

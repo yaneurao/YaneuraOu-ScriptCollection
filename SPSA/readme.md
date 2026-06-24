@@ -84,10 +84,18 @@ cp settings/engine_settings2-sample.json5 settings/engine_settings2.json5
     "NODE_MULTIPLIERS": [1, 2, 2.5, 3],
 ```
 
-この場合、SPSAの `+SCALE` / `-SCALE` の2局ペアごとに、`1倍`, `2倍`, `2.5倍`, `3倍`, `1倍` ... の順にnode数が変わる。
-たとえば `engine_settings*.json5` 側の `nodes` が `1000000` なら、実際の探索node数は `1000000`, `2000000`, `2500000`, `3000000` の順になる。
+この場合、起動時に `NODE_MULTIPLIERS` をshuffleしてから、SPSAの `+SCALE` / `-SCALE` の2局ペアごとにnode数が変わる。
+たとえば `engine_settings*.json5` 側の `nodes` が `1000000` なら、実際の探索node数は `1000000`, `2000000`, `2500000`, `3000000` のいずれかになる。
 `+SCALE` と `-SCALE` の2局は中心差分近似の比較条件を揃えるため、同じnode倍率で対局する。
 並列workerごとに `NODE_MULTIPLIERS` の開始位置をずらし、さらに基準エンジンの `multi` 展開をround-robinにするため、`{基準エンジン種, node倍率}` の組み合わせが低倍率側に偏って続きにくい。
+`NODE_MULTIPLIERS_SHUFFLE_SEED` は省略できる。省略した場合は、実行ごとにshuffle順が変わる。
+shuffle順を再現したい場合だけ、整数や文字列でseedを指定する。
+
+```json5
+    "NODE_MULTIPLIERS": [1, 2, 2.5, 3],
+    "NODE_MULTIPLIERS_SHUFFLE_SEED": 20260624,
+```
+
 未指定時は `[1]` と同じで、従来通り固定node数で対局する。
 
 > python BloodgateSPSA.py
