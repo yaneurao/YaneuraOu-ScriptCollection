@@ -1176,6 +1176,7 @@ class BookMinerGui(ttk.Frame):
             or "peta_next" in lower
             or "peta_refutation" in lower
             or "refutation step" in lower
+            or "refutation progress" in lower
             or "root sfen" in lower
             or "think_sfens" in lower
             or "write book path" in lower

@@ -65,6 +65,7 @@ BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
+PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -2373,81 +2374,56 @@ def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, sta
 
     print(
         f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, "
-        f"max_book_ply = {max_book_ply}, start_sfens_path = {start_sfens_path}"
+        f"max_book_ply = {max_book_ply}"
     )
 
     think_sfens : dict[PositionStr,None] = {}
-    current_positions : dict[PositionStr, Sfen] = {}
-    for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
-        current_positions[position_cmd] = sfen_with_ply
+    with peta_book.lock:
+        peta_items = list(peta_book.body.items())
 
-    visited : set[Sfen] = set()
-    step = 1
-    while current_positions:
-        next_positions : dict[PositionStr, Sfen] = {}
+    total = len(peta_items)
+    for processed, (sfen, peta_position) in enumerate(peta_items, start=1):
+        if processed % PETA_REFUTATION_PROGRESS_INTERVAL == 0:
+            print(f"refutation progress nodes = {processed}/{total} , think_sfens = {len(think_sfens)}")
 
-        for position_cmd, sfen_with_ply in current_positions.items():
-            sfen, ply = trim_sfen_ply(sfen_with_ply)
+        if peta_position.ply >= max_book_ply:
+            continue
+        if not peta_position.moveinfos:
+            continue
 
-            if ply >= max_book_ply:
-                continue
+        old_position, old_flipped = find_book_position_with_flip(book, sfen)
+        if old_position is None or not old_position.moveinfos:
+            continue
 
-            sfen_f = flipped_sfen(sfen)
-            if sfen in visited or sfen_f in visited:
-                continue
-            visited.add(sfen)
+        peta_best = peta_position.moveinfos[0]
+        if peta_best.depth != 0:
+            continue
+        if not isinstance(peta_best.eval, int):
+            continue
 
-            peta_position, peta_flipped = find_book_position_with_flip(peta_book, sfen)
-            if peta_position is None or not peta_position.moveinfos:
-                continue
+        peta_best_move = peta_best.move
+        old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
+        old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
 
-            for moveinfo in peta_position.moveinfos:
-                move = moveinfo_move_in_sfen_orientation(moveinfo, peta_flipped)
-                if not move:
-                    continue
-                board2 = cshogi.Board(sfen_with_ply)
-                checked_push_usi(board2, move, context=position_cmd)
-                next_sfen = board2.sfen()
-                _, next_ply2 = trim_sfen_ply(next_sfen)
-                if next_ply2 >= max_book_ply:
-                    continue
-                next_positions[append_position_move(position_cmd, move)] = next_sfen
+        if old_best is None or old_candidate is None:
+            continue
+        if old_best_move == peta_best_move:
+            continue
+        if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
+            continue
+        if old_best.eval - old_candidate.eval < eval_refutation_margin:
+            continue
 
-            old_position, old_flipped = find_book_position_with_flip(book, sfen)
-            if old_position is None or not old_position.moveinfos:
-                continue
+        sfen_with_ply = f"{sfen} {peta_position.ply}"
+        position_cmd = f"sfen {sfen_with_ply}"
+        board = cshogi.Board(sfen_with_ply)
+        checked_push_usi(board, peta_best_move, context=position_cmd)
+        _, next_ply = trim_sfen_ply(board.sfen())
+        if next_ply >= max_book_ply:
+            continue
 
-            peta_best = peta_position.moveinfos[0]
-            if peta_best.depth != 0:
-                continue
-            if not isinstance(peta_best.eval, int):
-                continue
-
-            peta_best_move = moveinfo_move_in_sfen_orientation(peta_best, peta_flipped)
-            old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
-            old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
-
-            if old_best is None or old_candidate is None:
-                continue
-            if old_best_move == peta_best_move:
-                continue
-            if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
-                continue
-            if old_best.eval - old_candidate.eval < eval_refutation_margin:
-                continue
-
-            board = cshogi.Board(sfen_with_ply)
-            checked_push_usi(board, peta_best_move, context=position_cmd)
-            _, next_ply = trim_sfen_ply(board.sfen())
-            if next_ply >= max_book_ply:
-                continue
-
-            refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
-            think_sfens[refutation_position_cmd] = None
-
-        print(f"refutation step = {step} , len(next_positions) = {len(next_positions)}, think_sfens = {len(think_sfens)}")
-        current_positions = next_positions
-        step += 1
+        refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
+        think_sfens[refutation_position_cmd] = None
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     with open(path, 'w') as w:

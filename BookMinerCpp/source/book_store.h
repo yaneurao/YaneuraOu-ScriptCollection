@@ -88,6 +88,7 @@ public:
     void end_search(const SearchLease& lease);
     void merge_position(const std::string& sfen, std::uint16_t ply, const std::vector<MoveInfo>& moves);
     std::size_t count_save_positions(std::optional<int> ply_limit) const;
+    std::vector<BookEntry> snapshot_entries() const;
 
     void load_yaneuraou_book(
         const std::filesystem::path& path,

@@ -896,6 +896,25 @@ std::size_t BookStore::count_save_positions(std::optional<int> ply_limit) const
     return count_save_positions_locked(ply_limit);
 }
 
+std::vector<BookEntry> BookStore::snapshot_entries() const
+{
+    std::scoped_lock lock(mutex_);
+
+    Map latest;
+    latest.reserve(size_);
+    for (const auto& run : runs_)
+        for (const auto& entry : run)
+            latest[entry.key] = entry.position;
+    for (const auto& [key, position] : memtable_)
+        latest[key] = position;
+
+    std::vector<BookEntry> entries;
+    entries.reserve(latest.size());
+    for (const auto& [key, position] : latest)
+        entries.push_back(BookEntry{key, position});
+    return entries;
+}
+
 std::size_t BookStore::save_yaneuraou_book(
     const std::filesystem::path& path,
     std::optional<int> ply_limit,

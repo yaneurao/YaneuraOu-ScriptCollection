@@ -128,7 +128,9 @@ best move ではない
 
 例えば peta shock 前に旧bestが `200`、反駁候補手が `100` だった場合、差は `100` です。`eval_refutation_margin` が `100` 以下なら抽出対象になります。`f` コマンドで値を省略した場合のデフォルトも `100` です。
 
-抽出された行は、その反駁候補手を指した後の `startpos moves ...` / `sfen ... moves ...` です。`enqueue` すると、反駁候補手の先を追加探索できます。
+`peta_refutation` は root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。すべてのnodeに到達可能であるという前提で、各nodeの best の depth だけを直接確認します。
+
+抽出された行は、その反駁候補手を指した後の `sfen ... moves ...` です。`enqueue` すると、反駁候補手の先を追加探索できます。
 
 ## eval_diff と eval_limit
 
