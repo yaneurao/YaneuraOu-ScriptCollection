@@ -200,7 +200,7 @@ std::vector<bookminer::MoveInfo> to_book_moves(const std::vector<bookminer::Engi
         const auto move16 = bookminer::move16_from_usi(move.move);
         if (move16 == 0)
             continue;
-        moves.push_back(bookminer::MoveInfo{move16, static_cast<std::int16_t>(move.eval)});
+        moves.push_back(bookminer::MoveInfo{move16, static_cast<std::int16_t>(move.eval), 0});
     }
     return moves;
 }
@@ -219,6 +219,39 @@ std::optional<std::pair<int, std::uint16_t>> get_best(const bookminer::PositionI
     if (best == nullptr)
         return std::nullopt;
     return std::make_pair(static_cast<int>(best->eval), best->move16);
+}
+
+std::uint16_t move16_in_sfen_orientation(const bookminer::MoveInfo& move, bool flipped)
+{
+    return flipped ? bookminer::flipped_move16(move.move16) : move.move16;
+}
+
+const bookminer::MoveInfo* find_moveinfo_by_oriented_move(
+    const bookminer::PositionInfo& position,
+    std::uint16_t oriented_move16,
+    bool flipped)
+{
+    for (const auto& move : position.moves)
+        if (move16_in_sfen_orientation(move, flipped) == oriented_move16)
+            return &move;
+    return nullptr;
+}
+
+struct BestMoveInfo {
+    const bookminer::MoveInfo* info = nullptr;
+    std::uint16_t oriented_move16 = 0;
+};
+
+BestMoveInfo best_moveinfo_in_sfen_orientation(const bookminer::PositionInfo& position, bool flipped)
+{
+    const bookminer::MoveInfo* best = nullptr;
+    for (const auto& move : position.moves)
+        if (best == nullptr || move.eval > best->eval)
+            best = &move;
+
+    if (best == nullptr)
+        return {};
+    return {best, move16_in_sfen_orientation(*best, flipped)};
 }
 
 std::optional<int> get_move_eval(const bookminer::PositionInfo& position, const std::string& move)
@@ -995,6 +1028,116 @@ void peta_next(
     log_line("[PetaNextDone] path=" + output_path.string() + " count=" + std::to_string(count));
 }
 
+void peta_refutation(
+    const bookminer::BookStore& book,
+    const bookminer::BookStore& peta_book,
+    int eval_refutation_margin,
+    int max_book_ply,
+    const std::filesystem::path& start_sfens_path)
+{
+    log_line(
+        "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin)
+        + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", start_sfens_path = " + start_sfens_path.string());
+
+    std::vector<std::string> think_sfens;
+    std::unordered_set<std::string> think_seen;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+
+    OrderedPetaNextPositions current_positions;
+    for (const auto& [position_command, sfen_with_ply] : load_peta_next_root_positions(start_sfens_path))
+        current_positions.set(position_command, PetaNextNode{sfen_with_ply, 0, 0});
+
+    int step = 1;
+    while (!current_positions.empty())
+    {
+        OrderedPetaNextPositions next_positions;
+
+        for (const auto& position_command : current_positions.order())
+        {
+            const auto& node = current_positions.at(position_command);
+            auto [sfen, ply] = bookminer::trim_sfen_ply(node.sfen_with_ply);
+
+            if (ply >= max_book_ply)
+                continue;
+
+            if (visited_peta_position(visited, sfen))
+                continue;
+            visited.insert(bookminer::PackedSfen::from_sfen(sfen));
+
+            const auto peta_hit = find_peta_position_with_flip(peta_book, sfen);
+            if (peta_hit.position == nullptr || peta_hit.position->moves.empty())
+                continue;
+
+            for (const auto& moveinfo : peta_hit.position->moves)
+            {
+                const std::uint16_t oriented_move16 = move16_in_sfen_orientation(moveinfo, peta_hit.flipped);
+                const std::string move = bookminer::move16_to_usi(oriented_move16);
+                if (move.empty())
+                    continue;
+
+                auto board = bookminer::SfenPosition::from_sfen(node.sfen_with_ply);
+                board.push_usi(move);
+
+                const std::string next_sfen_with_ply = board.sfen_with_ply();
+                const auto next_sfen_ply = bookminer::trim_sfen_ply(next_sfen_with_ply);
+                if (next_sfen_ply.second >= max_book_ply)
+                    continue;
+
+                next_positions.set(append_position_move(position_command, move), PetaNextNode{next_sfen_with_ply, 0, 0});
+            }
+
+            const auto old_hit = find_book_position_with_flip(book, sfen);
+            if (!old_hit.position.has_value() || old_hit.position->moves.empty())
+                continue;
+
+            const auto& peta_best = peta_hit.position->moves.front();
+            if (peta_best.depth != 0)
+                continue;
+
+            const std::uint16_t peta_best_oriented_move16 = move16_in_sfen_orientation(peta_best, peta_hit.flipped);
+            const auto old_best = best_moveinfo_in_sfen_orientation(*old_hit.position, old_hit.flipped);
+            const auto* old_candidate = find_moveinfo_by_oriented_move(
+                *old_hit.position,
+                peta_best_oriented_move16,
+                old_hit.flipped);
+
+            if (old_best.info == nullptr || old_candidate == nullptr)
+                continue;
+            if (old_best.oriented_move16 == peta_best_oriented_move16)
+                continue;
+            if (static_cast<int>(old_best.info->eval) - static_cast<int>(old_candidate->eval) < eval_refutation_margin)
+                continue;
+
+            const std::string peta_best_move = bookminer::move16_to_usi(peta_best_oriented_move16);
+            if (peta_best_move.empty())
+                continue;
+
+            auto board = bookminer::SfenPosition::from_sfen(node.sfen_with_ply);
+            board.push_usi(peta_best_move);
+            const auto next_sfen_ply = bookminer::trim_sfen_ply(board.sfen_with_ply());
+            if (next_sfen_ply.second >= max_book_ply)
+                continue;
+
+            append_unique_position_command(think_sfens, think_seen, append_position_move(position_command, peta_best_move));
+        }
+
+        log_line("refutation step = " + std::to_string(step)
+            + " , len(next_positions) = " + std::to_string(next_positions.order().size())
+            + ", think_sfens = " + std::to_string(think_sfens.size()));
+
+        current_positions = std::move(next_positions);
+        ++step;
+    }
+
+    const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
+    log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
+    write_position_commands_file(output_path, think_sfens);
+
+    log_line("peta_refutation done.");
+    log_line("[PetaRefutationDone] path=" + output_path.string() + " count=" + std::to_string(think_sfens.size()));
+}
+
 fs::path executable_dir(const char* argv0)
 {
 #ifdef _WIN32
@@ -1650,6 +1793,7 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
+    log_line("  F : peta refutation          , f eval_refutation_margin");
     log_line("  H : Help");
 }
 
@@ -1815,6 +1959,23 @@ int main(int argc, char* argv[])
                         peta_book,
                         peta_eval_diff,
                         max_step,
+                        book_miner_settings.max_book_ply,
+                        book_miner_settings.peta_next_start_sfens_path);
+                }
+            }
+            else if (command == "f" || command == "refutation")
+            {
+                if (tokens.size() < 2)
+                {
+                    log_line("Usage : f eval_refutation_margin");
+                }
+                else
+                {
+                    const int eval_refutation_margin = std::stoi(tokens[1]);
+                    peta_refutation(
+                        book,
+                        peta_book,
+                        eval_refutation_margin,
                         book_miner_settings.max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path);
                 }

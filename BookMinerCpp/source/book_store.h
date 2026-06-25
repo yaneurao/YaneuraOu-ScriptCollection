@@ -43,6 +43,7 @@ struct PackedSfenHash {
 struct MoveInfo {
     std::uint16_t move16 = 0;
     std::int16_t eval = 0;
+    std::uint16_t depth = 0;
 };
 
 struct PositionInfo {

@@ -84,10 +84,12 @@ std::string join_tokens(const std::vector<std::string>& tokens)
 struct ParsedMoveLine {
     std::uint16_t move16 = MoveNone;
     std::optional<std::int16_t> eval;
+    std::uint16_t depth = 0;
 };
 
 ParsedMoveLine parse_book_move_line(const std::string& line, bool normalize_eval)
 {
+    ParsedMoveLine parsed;
     std::string move_text;
     std::string eval_text;
 
@@ -106,9 +108,14 @@ ParsedMoveLine parse_book_move_line(const std::string& line, bool normalize_eval
             throw std::runtime_error("invalid move line: " + line);
         move_text = parts[0];
         eval_text = parts[2];
+        if (parts.size() >= 4)
+        {
+            int depth = 0;
+            if (parse_int(parts[3], depth) && depth >= 0)
+                parsed.depth = static_cast<std::uint16_t>(std::min(depth, static_cast<int>(std::numeric_limits<std::uint16_t>::max())));
+        }
     }
 
-    ParsedMoveLine parsed;
     parsed.move16 = move16_from_usi(move_text);
 
     if (eval_text == "None")
@@ -639,7 +646,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
                 move.move16 = read_u16_le(moves_in, path);
                 move.eval = static_cast<std::int16_t>(read_u16_le(moves_in, path));
                 if (header.flags & YaneBinBookFlagMoveDepth)
-                    (void)read_u16_le(moves_in, path);
+                    move.depth = read_u16_le(moves_in, path);
                 if (normalize_eval)
                     move.eval = normalize_book_eval(move.eval);
                 position.moves.push_back(move);
@@ -748,7 +755,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         {
             const auto parsed = parse_book_move_line(line, normalize_eval);
             if (parsed.eval.has_value())
-                current_moves.push_back(MoveInfo{parsed.move16, *parsed.eval});
+                current_moves.push_back(MoveInfo{parsed.move16, *parsed.eval, parsed.depth});
         }
     }
 
@@ -869,7 +876,10 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
         if (it == position->moves.end())
             position->moves.push_back(move);
         else
+        {
             it->eval = move.eval;
+            it->depth = move.depth;
+        }
     }
 
     std::sort(position->moves.begin(), position->moves.end(), [](const MoveInfo& lhs, const MoveInfo& rhs) {
@@ -916,7 +926,7 @@ std::size_t BookStore::save_yaneuraou_book(
             if (!out)
                 throw std::runtime_error("failed to open temp ybb book: " + tmp_path.string());
 
-            write_ybb_header(out, static_cast<std::uint64_t>(position_count), 0, tmp_path);
+            write_ybb_header(out, static_cast<std::uint64_t>(position_count), YaneBinBookFlagMoveDepth, tmp_path);
             const std::uint64_t index_size = YaneBinBookHeaderSize
                 + static_cast<std::uint64_t>(position_count) * YaneBinBookIndexRecordSize;
             std::uint64_t index_offset = YaneBinBookHeaderSize;
@@ -1002,7 +1012,8 @@ std::size_t BookStore::save_yaneuraou_book(
                 {
                     write_u16_le(out, move.move16, tmp_path);
                     write_i16_le(out, move.eval, tmp_path);
-                    moves_offset += YaneBinBookMoveRecordSize;
+                    write_u16_le(out, move.depth, tmp_path);
+                    moves_offset += YaneBinBookMoveDepthRecordSize;
                 }
 
                 out.seekp(static_cast<std::streamoff>(index_offset));
@@ -1084,7 +1095,7 @@ std::size_t BookStore::save_yaneuraou_book(
             sort_and_adjust_moves(moves);
 
             for (const auto& move : moves)
-                out << move16_to_usi(move.move16) << " none " << move.eval << " 0\n";
+                out << move16_to_usi(move.move16) << " none " << move.eval << ' ' << move.depth << '\n';
 
             if (count % BookWriteProgressInterval == 0)
                 report_progress(progress, user, BookProgressKind::Progress, count, positions.size(), path);

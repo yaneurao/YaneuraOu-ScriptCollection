@@ -41,9 +41,9 @@
 
   <path class="line" d="M 710 143 H 728"/>
   <rect class="box tool" x="738" y="95" width="184" height="96"/>
-  <text class="text" x="830" y="124">peta_next</text>
+  <text class="text" x="830" y="124">peta_next (n)</text>
   <text class="text small" x="830" y="148">または</text>
-  <text class="text" x="830" y="172">peta_refutation</text>
+  <text class="text" x="830" y="172">peta_refutation (f)</text>
 
   <path class="line" d="M 932 143 H 940"/>
   <rect class="box file" x="950" y="105" width="110" height="76"/>
