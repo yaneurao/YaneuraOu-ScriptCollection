@@ -187,7 +187,8 @@ peta shock 後、best になっている指し手の depth が 0 の局面を調
 f 100
 ```
 
-引数は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+引数は `eval_refutation_margin` です。省略時は `100` です。
+peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
 
 出力先:
 
@@ -200,7 +201,7 @@ book/think_sfens.txt
 `settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`f` コマンドも `n` コマンドと同じ開始局面集合から辿ります。
 `f` コマンドも、すでにメモリ上に読み込まれている `peta_book` を辿ります。peta shock 化済みDBファイルを読み直すわけではありません。
 
-`refutation 100` というコマンド名でも同じ処理を実行できます。
+`refutation 100` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合も `100` が使われます。
 
 ## `i`
 

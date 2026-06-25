@@ -64,6 +64,7 @@ BOOK_READ_PROGRESS_INTERVAL = 10000
 BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
+DEFAULT_EVAL_REFUTATION_MARGIN = 100
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -2691,7 +2692,7 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
-                print("  F    : peta refutation , f eval_refutation_margin")
+                print("  F    : peta refutation , f (eval_refutation_margin)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -2775,16 +2776,13 @@ def user_input(from_gui:bool = False):
 
             elif i == 'f' or i == 'refutation':
                 # peta_refutation
-                if len(inp) < 2:
-                    print("Usage : f eval_refutation_margin")
-                else:
-                    eval_refutation_margin = int(inp[1])
-                    peta_refutation(
-                        book,
-                        eval_refutation_margin,
-                        book_miner_settings.max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path,
-                    )
+                eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 2 else int(inp[1])
+                peta_refutation(
+                    book,
+                    eval_refutation_margin,
+                    book_miner_settings.max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                )
 
         except Exception as e:
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")

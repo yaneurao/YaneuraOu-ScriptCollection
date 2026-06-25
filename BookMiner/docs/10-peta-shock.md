@@ -126,7 +126,7 @@ best move ではない
 旧best評価値 - 反駁候補手の旧評価値 >= eval_refutation_margin
 ```
 
-例えば peta shock 前に旧bestが `200`、反駁候補手が `100` だった場合、差は `100` です。`eval_refutation_margin` が `100` 以下なら抽出対象になります。
+例えば peta shock 前に旧bestが `200`、反駁候補手が `100` だった場合、差は `100` です。`eval_refutation_margin` が `100` 以下なら抽出対象になります。`f` コマンドで値を省略した場合のデフォルトも `100` です。
 
 抽出された行は、その反駁候補手を指した後の `startpos moves ...` / `sfen ... moves ...` です。`enqueue` すると、反駁候補手の先を追加探索できます。
 

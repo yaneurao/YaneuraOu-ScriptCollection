@@ -54,6 +54,7 @@ constexpr const char* BookMinerSettingsPath = "settings/book_miner_settings.json
 constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settings.json5";
 constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
+constexpr int DefaultEvalRefutationMargin = 100;
 
 #ifdef _WIN32
 void configure_windows_console()
@@ -1793,7 +1794,7 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
-    log_line("  F : peta refutation          , f eval_refutation_margin");
+    log_line("  F : peta refutation          , f (eval_refutation_margin)");
     log_line("  H : Help");
 }
 
@@ -1965,20 +1966,15 @@ int main(int argc, char* argv[])
             }
             else if (command == "f" || command == "refutation")
             {
-                if (tokens.size() < 2)
-                {
-                    log_line("Usage : f eval_refutation_margin");
-                }
-                else
-                {
-                    const int eval_refutation_margin = std::stoi(tokens[1]);
-                    peta_refutation(
-                        book,
-                        peta_book,
-                        eval_refutation_margin,
-                        book_miner_settings.max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path);
-                }
+                const int eval_refutation_margin = tokens.size() < 2
+                    ? DefaultEvalRefutationMargin
+                    : std::stoi(tokens[1]);
+                peta_refutation(
+                    book,
+                    peta_book,
+                    eval_refutation_margin,
+                    book_miner_settings.max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path);
             }
             else if (command == "r")
             {

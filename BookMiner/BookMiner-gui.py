@@ -24,7 +24,7 @@ GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
 GUI_SETTING_DEFAULTS = {
     "eval_diff": "30",
     "max_step": "",
-    "eval_refutation_margin": "",
+    "eval_refutation_margin": "100",
     "eval_limit": "400",
     "auto_enqueue_threshold": "1000",
     "log_view_mode": "2x2",
@@ -116,7 +116,7 @@ def load_gui_settings() -> dict[str, str]:
     for key in GUI_SETTING_DEFAULTS:
         value = data.get(key)
         if isinstance(value, str):
-            settings[key] = value
+            settings[key] = GUI_SETTING_DEFAULTS[key] if key == "eval_refutation_margin" and not value.strip() else value
         elif value is not None:
             settings[key] = str(value)
 
@@ -1326,10 +1326,7 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def send_peta_refutation(self) -> bool:
-        eval_refutation_margin = self.eval_refutation_margin.get().strip()
-        if not eval_refutation_margin:
-            messagebox.showerror("入力エラー", "eval refu. を指定してください。")
-            return False
+        eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
         try:
             int(eval_refutation_margin)
         except ValueError:
