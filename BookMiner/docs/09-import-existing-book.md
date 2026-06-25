@@ -176,16 +176,17 @@ GUI:
 CLI:
 
 ```text
-f 100
+f 100 400
 ```
 
 GUI:
 
 ```text
 手順2. peta refutation  eval refu. 100
+手順3. enqueue          eval_limit 400
 ```
 
-`100` は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+`100` は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。GUIでは enqueue 欄の `eval_limit` も同時に `f` コマンドへ渡し、反駁候補手の旧評価値の絶対値が `eval_limit` を超えるものは事前に除外します。
 
 出力先は `peta_next` と同じです。
 

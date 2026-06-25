@@ -132,7 +132,7 @@ t で book/think_sfens.txt を探索 queue に積む
 
 ```text
 p で peta_book を作って読む
-f 100 で反駁候補を book/think_sfens.txt に書き出す
+f 100 400 で反駁候補を book/think_sfens.txt に書き出す
 t で book/think_sfens.txt を探索 queue に積む
 ```
 
@@ -184,7 +184,7 @@ peta shock 後に、ある局面の best が入れ替わることがあります
 この best が depth 0 の場合、その手はまだ先が十分に読まれていない leaf の評価値を持っているだけです。そこで、通常の `peta_next` とは別に、要注意の反駁候補だけを `book/think_sfens.txt` に書き出す `f` コマンドがあります。
 
 ```text
-f 100
+f 100 400
 ```
 
 `100` は `eval_refutation_margin` です。peta shock 前の局面で、
@@ -195,7 +195,7 @@ f 100
 
 を満たすものだけを抽出します。
 
-GUI では、手順2の `peta refutation` ボタンと `eval refu.` 入力欄がこの機能に対応します。抽出後は通常通り `enqueue` で `book/think_sfens.txt` を探索 queue に積みます。
+GUI では、手順2の `peta refutation` ボタンと `eval refu.` 入力欄がこの機能に対応します。このとき手順3の `eval_limit` も使い、enqueue 時に retire することが確定している候補は `book/think_sfens.txt` へ書き出しません。抽出後は通常通り `enqueue` で `book/think_sfens.txt` を探索 queue に積みます。
 
 ## peta_next の開始局面集合を変える
 

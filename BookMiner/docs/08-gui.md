@@ -81,7 +81,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta_next` は、`n eval_diff [max_step]` を送信します。例えば `eval_diff` に `30` と入力して実行すると、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
 
-`peta refutation` は、`f eval_refutation_margin` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、旧 best との差が `eval_refutation_margin` 以上ある手を抽出します。抽出された局面は `book/think_sfens.txt` に書き出されます。
+`peta refutation` は、`f eval_refutation_margin eval_limit` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、旧 best との差が `eval_refutation_margin` 以上ある手を抽出します。このとき enqueue 欄の `eval_limit` も使い、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超えるものは `book/think_sfens.txt` へ書き出しません。
 
 `enqueue` は、`e eval_limit` を送信してから `t` を送信します。例えば `eval_limit` に `400` と入力して実行すると、`e 400` を送信してから、`book/think_sfens.txt` の局面を探索キューへ積みます。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。

@@ -221,7 +221,7 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 peta shock 後に best になっている depth 0 の指し手のうち、peta shock 前は2番手以下で、旧bestとの差が `eval_refutation_margin` 以上あるものを抽出する処理です。
 
-BookMiner の CLI では `f eval_refutation_margin`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `f eval_refutation_margin [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは enqueue 欄の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
 
 ## KifManager
 

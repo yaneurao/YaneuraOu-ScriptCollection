@@ -2363,7 +2363,7 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
-def peta_refutation(book:Book, eval_refutation_margin:int):
+def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None = None):
     """
     peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
     旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
@@ -2372,18 +2372,23 @@ def peta_refutation(book:Book, eval_refutation_margin:int):
 
     global peta_book
 
+    eval_limit_text = "none" if eval_limit is None else str(eval_limit)
     print(
-        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}"
+        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, eval_limit = {eval_limit_text}"
     )
 
     think_sfens : dict[PositionStr,None] = {}
+    skipped_by_eval_limit = 0
     with peta_book.lock:
         peta_items = list(peta_book.body.items())
 
     total = len(peta_items)
     for processed, (sfen, peta_position) in enumerate(peta_items, start=1):
         if processed % PETA_REFUTATION_PROGRESS_INTERVAL == 0:
-            print(f"refutation progress nodes = {processed}/{total} , think_sfens = {len(think_sfens)}")
+            print(
+                f"refutation progress nodes = {processed}/{total} , "
+                f"think_sfens = {len(think_sfens)} , skipped_by_eval_limit = {skipped_by_eval_limit}"
+            )
 
         if not peta_position.moveinfos:
             continue
@@ -2410,6 +2415,9 @@ def peta_refutation(book:Book, eval_refutation_margin:int):
             continue
         if old_best.eval - old_candidate.eval < eval_refutation_margin:
             continue
+        if eval_limit is not None and abs(old_candidate.eval) > eval_limit:
+            skipped_by_eval_limit += 1
+            continue
 
         sfen_with_ply = f"{sfen} {peta_position.ply}"
         position_cmd = f"sfen {sfen_with_ply}"
@@ -2424,7 +2432,7 @@ def peta_refutation(book:Book, eval_refutation_margin:int):
             w.write(position_cmd + '\n')
 
     print("peta_refutation done.")
-    print(f"[PetaRefutationDone] path={path} count={len(think_sfens)}")
+    print(f"[PetaRefutationDone] path={path} count={len(think_sfens)} skipped_by_eval_limit={skipped_by_eval_limit}")
 
 
 def scheduled_time_text(timestamp:float)->str:
@@ -2660,7 +2668,7 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
-                print("  F    : peta refutation , f (eval_refutation_margin)")
+                print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -2745,9 +2753,11 @@ def user_input(from_gui:bool = False):
             elif i == 'f' or i == 'refutation':
                 # peta_refutation
                 eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 2 else int(inp[1])
+                refutation_eval_limit = None if len(inp) < 3 else int(inp[2])
                 peta_refutation(
                     book,
                     eval_refutation_margin,
+                    refutation_eval_limit,
                 )
 
         except Exception as e:

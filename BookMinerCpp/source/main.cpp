@@ -1033,13 +1033,16 @@ void peta_next(
 void peta_refutation(
     const bookminer::BookStore& book,
     const bookminer::BookStore& peta_book,
-    int eval_refutation_margin)
+    int eval_refutation_margin,
+    std::optional<int> eval_limit)
 {
     log_line(
-        "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin));
+        "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin)
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("none")));
 
     std::vector<std::string> think_sfens;
     std::unordered_set<std::string> think_seen;
+    std::size_t skipped_by_eval_limit = 0;
     const auto peta_entries = peta_book.snapshot_entries();
     const std::size_t total = peta_entries.size();
 
@@ -1049,7 +1052,8 @@ void peta_refutation(
         if (processed % PetaRefutationProgressInterval == 0)
         {
             log_line("refutation progress nodes = " + std::to_string(processed) + "/" + std::to_string(total)
-                + " , think_sfens = " + std::to_string(think_sfens.size()));
+                + " , think_sfens = " + std::to_string(think_sfens.size())
+                + " , skipped_by_eval_limit = " + std::to_string(skipped_by_eval_limit));
         }
 
         const auto& entry = peta_entries[index];
@@ -1079,6 +1083,11 @@ void peta_refutation(
             continue;
         if (static_cast<int>(old_best.info->eval) - static_cast<int>(old_candidate->eval) < eval_refutation_margin)
             continue;
+        if (eval_limit.has_value() && std::abs(static_cast<int>(old_candidate->eval)) > *eval_limit)
+        {
+            ++skipped_by_eval_limit;
+            continue;
+        }
 
         const std::string peta_best_move = bookminer::move16_to_usi(peta_best_oriented_move16);
         if (peta_best_move.empty())
@@ -1093,7 +1102,9 @@ void peta_refutation(
     write_position_commands_file(output_path, think_sfens);
 
     log_line("peta_refutation done.");
-    log_line("[PetaRefutationDone] path=" + output_path.string() + " count=" + std::to_string(think_sfens.size()));
+    log_line("[PetaRefutationDone] path=" + output_path.string()
+        + " count=" + std::to_string(think_sfens.size())
+        + " skipped_by_eval_limit=" + std::to_string(skipped_by_eval_limit));
 }
 
 fs::path executable_dir(const char* argv0)
@@ -1751,7 +1762,7 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
-    log_line("  F : peta refutation          , f (eval_refutation_margin)");
+    log_line("  F : peta refutation          , f (eval_refutation_margin) (eval_limit)");
     log_line("  H : Help");
 }
 
@@ -1926,10 +1937,14 @@ int main(int argc, char* argv[])
                 const int eval_refutation_margin = tokens.size() < 2
                     ? DefaultEvalRefutationMargin
                     : std::stoi(tokens[1]);
+                std::optional<int> refutation_eval_limit;
+                if (tokens.size() >= 3)
+                    refutation_eval_limit = std::stoi(tokens[2]);
                 peta_refutation(
                     book,
                     peta_book,
-                    eval_refutation_margin);
+                    eval_refutation_margin,
+                    refutation_eval_limit);
             }
             else if (command == "r")
             {

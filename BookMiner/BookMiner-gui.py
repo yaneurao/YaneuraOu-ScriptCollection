@@ -286,7 +286,7 @@ class BookMinerGui(ttk.Frame):
         self.refutation_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
-            "`f eval_refutation_margin` を送信します。peta shock 後に depth 0 best へ反駁された要注意局面を抽出します。",
+            "`f eval_refutation_margin eval_limit` を送信します。peta shock 後に depth 0 best へ反駁された要注意局面を抽出し、enqueue の eval_limit で事前除外します。",
         )
         ttk.Label(commands, text="eval refu.").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=3, sticky="w", pady=3)
@@ -1331,14 +1331,23 @@ class BookMinerGui(ttk.Frame):
 
     def send_peta_refutation(self) -> bool:
         eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
+        eval_limit = self.eval_limit.get().strip()
+        if not eval_limit:
+            messagebox.showerror("入力エラー", "eval_limit を指定してください。")
+            return False
         try:
             int(eval_refutation_margin)
         except ValueError:
             messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
             return False
+        try:
+            int(eval_limit)
+        except ValueError:
+            messagebox.showerror("入力エラー", "eval_limit には整数を指定してください。")
+            return False
         if not self._begin_manual_action("manual_peta_refutation"):
             return False
-        if self.send_command(f"f {eval_refutation_margin}", origin="GUI"):
+        if self.send_command(f"f {eval_refutation_margin} {eval_limit}", origin="GUI"):
             return True
         self.busy_action = None
         self._update_buttons()

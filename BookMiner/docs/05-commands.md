@@ -184,11 +184,12 @@ n 30 40
 peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
 
 ```text
-f 100
+f 100 400
 ```
 
 引数は `eval_refutation_margin` です。省略時は `100` です。
 peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
 
 出力先:
 
@@ -202,7 +203,7 @@ book/think_sfens.txt
 `max_book_ply` による除外は行いません。
 10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
 
-`refutation 100` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合も `100` が使われます。
+`refutation 100 400` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合は `eval_refutation_margin=100`、`eval_limit` なしとして扱います。
 
 ## `i`
 

@@ -50,7 +50,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta_shock` | `p` | 現在の通常bookを書き出し、そのファイルを peta shock 化して、生成された `peta_book-....db` を読み込みます。 |
 | `peta_read` | `r` | すでに存在する `peta_book-....db` を読み込みます。peta shock 化自体は行いません。 |
 | `peta_next` | `n eval_diff [max_step]` | 読み込み済みの peta_book を辿り、次に掘る候補を `book/think_sfens.txt` に書き出します。 |
-| `peta refutation` | `f eval_refutation_margin` | 反駁された depth 0 best のうち、旧bestとの差が大きい候補を `book/think_sfens.txt` に書き出します。 |
+| `peta refutation` | `f eval_refutation_margin [eval_limit]` | 反駁された depth 0 best のうち、旧bestとの差が大きい候補を `book/think_sfens.txt` に書き出します。`eval_limit` 指定時は enqueue 前に retire が確定している候補を除外します。 |
 | `enqueue` | `e eval_limit` のあと `t` | `book/think_sfens.txt` を探索 queue に積みます。 |
 
 通常は `peta_shock` → `peta_next` → `enqueue` を繰り返します。反駁された depth 0 best を重点的に延長したい場合は、`peta_next` の代わりに `peta refutation` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` を `book/backup/` に置き、`peta_read` → `peta_next` または `peta refutation` → `enqueue` と進めます。
@@ -128,6 +128,8 @@ best move ではない
 
 例えば peta shock 前に旧bestが `200`、反駁候補手が `100` だった場合、差は `100` です。`eval_refutation_margin` が `100` 以下なら抽出対象になります。`f` コマンドで値を省略した場合のデフォルトも `100` です。
 
+`f 100 400` のように第2引数へ `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `400` を超える候補は書き出しません。これらは `enqueue` しても DB 外へ出る枝として retire するため、最初から `book/think_sfens.txt` に積まないほうが効率的です。GUI の `peta refutation` ボタンは、enqueue 欄に入力されている `eval_limit` を自動で渡します。CLI で `eval_limit` を省略した場合は、この事前除外を行いません。
+
 `peta_refutation` は root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。すべてのnodeに到達可能であるという前提で、各nodeの best の depth だけを直接確認します。`max_book_ply` による除外は行いません。
 
 抽出された行は、その反駁候補手を指した後の `sfen ... moves ...` です。`enqueue` すると、反駁候補手の先を追加探索できます。
@@ -140,7 +142,7 @@ best move ではない
 |---|---|---|
 | `eval_diff` | `peta_next` / `n` | peta_book の中で、root の best move からどれくらい評価値が離れた枝まで辿るか。 |
 | `eval_refutation_margin` | `peta_refutation` / `f` | peta shock 前の旧bestと反駁候補手の評価値差がどれくらい以上なら抽出するか。 |
-| `eval_limit` | `enqueue` / `e` + `t` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
+| `eval_limit` | `enqueue` / `e` + `t`、GUIの `peta refutation` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。GUI の `peta refutation` では、書き出し前の事前除外にも使います。 |
 
 既存定跡から広く掘り始める初回は、`eval_diff 99999` と `eval_limit 99999` のように大きな値を使うと、評価値による枝刈りをほぼ無効化できます。通常運用では、目的に応じてこれらを小さくし、形勢が大きく傾いた枝を広げすぎないようにします。
 
