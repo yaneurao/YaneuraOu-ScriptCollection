@@ -199,6 +199,7 @@ book/think_sfens.txt
 抽出された行は、反駁候補手を指した後の `sfen ... moves ...` 形式です。`enqueue` すると、その先の局面を探索できます。
 
 `f` コマンドは root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。
+`max_book_ply` による除外は行いません。
 10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
 
 `refutation 100` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合も `100` が使われます。

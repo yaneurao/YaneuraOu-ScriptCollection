@@ -2363,7 +2363,7 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
-def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, start_sfens_path:str):
+def peta_refutation(book:Book, eval_refutation_margin:int):
     """
     peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
     旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
@@ -2373,8 +2373,7 @@ def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, sta
     global peta_book
 
     print(
-        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, "
-        f"max_book_ply = {max_book_ply}"
+        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}"
     )
 
     think_sfens : dict[PositionStr,None] = {}
@@ -2386,8 +2385,6 @@ def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, sta
         if processed % PETA_REFUTATION_PROGRESS_INTERVAL == 0:
             print(f"refutation progress nodes = {processed}/{total} , think_sfens = {len(think_sfens)}")
 
-        if peta_position.ply >= max_book_ply:
-            continue
         if not peta_position.moveinfos:
             continue
 
@@ -2416,11 +2413,6 @@ def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, sta
 
         sfen_with_ply = f"{sfen} {peta_position.ply}"
         position_cmd = f"sfen {sfen_with_ply}"
-        board = cshogi.Board(sfen_with_ply)
-        checked_push_usi(board, peta_best_move, context=position_cmd)
-        _, next_ply = trim_sfen_ply(board.sfen())
-        if next_ply >= max_book_ply:
-            continue
 
         refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
         think_sfens[refutation_position_cmd] = None
@@ -2756,8 +2748,6 @@ def user_input(from_gui:bool = False):
                 peta_refutation(
                     book,
                     eval_refutation_margin,
-                    book_miner_settings.max_book_ply,
-                    book_miner_settings.peta_next_start_sfens_path,
                 )
 
         except Exception as e:

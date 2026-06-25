@@ -1033,13 +1033,10 @@ void peta_next(
 void peta_refutation(
     const bookminer::BookStore& book,
     const bookminer::BookStore& peta_book,
-    int eval_refutation_margin,
-    int max_book_ply,
-    const std::filesystem::path& /*start_sfens_path*/)
+    int eval_refutation_margin)
 {
     log_line(
-        "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin)
-        + ", max_book_ply = " + std::to_string(max_book_ply));
+        "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin));
 
     std::vector<std::string> think_sfens;
     std::unordered_set<std::string> think_seen;
@@ -1057,8 +1054,6 @@ void peta_refutation(
 
         const auto& entry = peta_entries[index];
         const auto& peta_position = entry.position;
-        if (peta_position.ply >= max_book_ply)
-            continue;
         if (peta_position.moves.empty())
             continue;
 
@@ -1090,12 +1085,6 @@ void peta_refutation(
             continue;
 
         const std::string sfen_with_ply = sfen + " " + std::to_string(peta_position.ply);
-        auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
-        board.push_usi(peta_best_move);
-        const auto next_sfen_ply = bookminer::trim_sfen_ply(board.sfen_with_ply());
-        if (next_sfen_ply.second >= max_book_ply)
-            continue;
-
         append_unique_position_command(think_sfens, think_seen, "sfen " + sfen_with_ply + " moves " + peta_best_move);
     }
 
@@ -1940,9 +1929,7 @@ int main(int argc, char* argv[])
                 peta_refutation(
                     book,
                     peta_book,
-                    eval_refutation_margin,
-                    book_miner_settings.max_book_ply,
-                    book_miner_settings.peta_next_start_sfens_path);
+                    eval_refutation_margin);
             }
             else if (command == "r")
             {
