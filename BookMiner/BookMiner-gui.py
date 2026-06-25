@@ -46,7 +46,10 @@ PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 PETA_REFUTATION_DONE_RE = re.compile(r"\[PetaRefutationDone\]")
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
 PETA_MAKEBOOK_DONE_RE = re.compile(r"\.\.peta_shock makebook has done|peta_shock makebook failed", re.IGNORECASE)
-PETA_MAKEBOOK_CONTEXT_RE = re.compile(r"^\s*(engine path|source book|peta book|command)\s*=", re.IGNORECASE)
+PETA_MAKEBOOK_CONTEXT_RE = re.compile(
+    r"^\s*(?:\[[^\]]+\]\s*)?(engine path|source book|peta book|command)\s*=",
+    re.IGNORECASE,
+)
 PETA_MAKEBOOK_LINE_RE = re.compile(
     r"retrograde analysis|read a book db|write a book db|makebook peta_shock",
     re.IGNORECASE,
