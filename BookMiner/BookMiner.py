@@ -2664,6 +2664,7 @@ def user_input(from_gui:bool = False):
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
                 print("  E : EvalLimit , e [eval_limit]")
+                print("  L : MaxBookPly , l [max_book_ply]")
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
@@ -2719,6 +2720,17 @@ def user_input(from_gui:bool = False):
                 else:
                     eval_limit = int(inp[1])
                     print(f"eval_limit = {eval_limit}")
+
+            elif i == 'l':
+                if len(inp) < 2:
+                    print(f"max_book_ply = {book_miner_settings.max_book_ply}")
+                else:
+                    max_book_ply = int(inp[1])
+                    if max_book_ply <= 0:
+                        print("Error : max_book_ply must be positive integer.")
+                    else:
+                        book_miner_settings.max_book_ply = max_book_ply
+                        print(f"max_book_ply = {book_miner_settings.max_book_ply}")
 
             elif i == 'm':
                 merge_flipped_positions(book)

@@ -198,6 +198,7 @@ settings/book_miner_settings.json5
 `auto_save_interval_seconds` の `10800` は 3 時間です。
 
 `max_book_ply` が `200` の場合、ply が 200 に到達した局面では思考せず、`n` コマンドでも ply 200 以降の局面を次の掘削対象として書き出しません。
+GUI の `game ply limit` 欄、または CLI の `l` コマンドで実行中に一時的に変更できます。恒久的なデフォルト値は `settings/book_miner_settings.json5` で指定します。
 
 `peta_next_start_sfens_path` は、通常は `book/peta_start_sfens.txt` のままでかまいません。
 このファイルが存在する場合、`n` コマンドはそこに書かれた局面集合から定跡ツリーを辿ります。

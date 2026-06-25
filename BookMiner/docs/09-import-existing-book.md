@@ -129,7 +129,7 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。必要なら `max_book_ply` を調整してください。
+ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは `game ply limit` 欄、CLIでは `l` コマンドで調整してください。
 
 ## 手順3. enqueue する
 

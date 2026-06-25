@@ -548,6 +548,11 @@ public:
         }
     }
 
+    void set_max_book_ply(int max_book_ply)
+    {
+        max_book_ply_.store(max_book_ply);
+    }
+
     int enqueue_position_commands(const std::filesystem::path& path, int eval_limit)
     {
         const auto commands = read_position_commands_file(path);
@@ -617,7 +622,7 @@ private:
 
             try
             {
-                process_position_command(book_, engine, task->position_command, task->eval_limit, max_book_ply_);
+                process_position_command(book_, engine, task->position_command, task->eval_limit, max_book_ply_.load());
             }
             catch (const std::exception& ex)
             {
@@ -713,7 +718,7 @@ private:
 
     bookminer::BookStore& book_;
     std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines_;
-    int max_book_ply_ = 0;
+    std::atomic<int> max_book_ply_{0};
     TaskQueue queue_;
     std::vector<std::thread> threads_;
     std::atomic<int> next_job_id_{1};
@@ -1759,6 +1764,7 @@ void print_help()
     log_line("  W : write book backup        , w (ply_limit)");
     log_line("  T : think positions          , t (think_sfens path)");
     log_line("  E : EvalLimit                , e [eval_limit]");
+    log_line("  L : MaxBookPly               , l [max_book_ply]");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
@@ -1810,6 +1816,7 @@ int main(int argc, char* argv[])
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
     int eval_limit = 400;
+    int max_book_ply = 200;
 
     try
     {
@@ -1821,6 +1828,7 @@ int main(int argc, char* argv[])
             "BookMiner settings : auto_save_interval_seconds = " + std::to_string(book_miner_settings.auto_save_interval_seconds)
             + ", max_book_ply = " + std::to_string(book_miner_settings.max_book_ply)
             + ", peta_next_start_sfens_path = " + book_miner_settings.peta_next_start_sfens_path);
+        max_book_ply = book_miner_settings.max_book_ply;
 
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
         load_latest_book_backup(book);
@@ -1833,7 +1841,7 @@ int main(int argc, char* argv[])
         log_line("[StartupStage] stage=engine_init_done message=エンジン起動完了");
 
         log_line("[StartupStage] stage=task_worker message=探索worker起動中");
-        task_workers = std::make_unique<TaskWorkers>(book, engines, book_miner_settings.max_book_ply);
+        task_workers = std::make_unique<TaskWorkers>(book, engines, max_book_ply);
         task_workers->start();
         log_line("[StartupStage] stage=task_worker_done message=探索worker起動完了");
 
@@ -1902,6 +1910,28 @@ int main(int argc, char* argv[])
                     log_line("eval_limit = " + std::to_string(eval_limit));
                 }
             }
+            else if (command == "l")
+            {
+                if (tokens.size() < 2)
+                {
+                    log_line("max_book_ply = " + std::to_string(max_book_ply));
+                }
+                else
+                {
+                    const int next_max_book_ply = std::stoi(tokens[1]);
+                    if (next_max_book_ply <= 0)
+                    {
+                        log_line("Error : max_book_ply must be positive integer.");
+                    }
+                    else
+                    {
+                        max_book_ply = next_max_book_ply;
+                        if (task_workers)
+                            task_workers->set_max_book_ply(max_book_ply);
+                        log_line("max_book_ply = " + std::to_string(max_book_ply));
+                    }
+                }
+            }
             else if (command == "t")
             {
                 const std::string path = tokens.size() >= 2 ? tokens[1] : fs::path(BookDir).append(ThinkSfensName).string();
@@ -1928,7 +1958,7 @@ int main(int argc, char* argv[])
                         peta_book,
                         peta_eval_diff,
                         max_step,
-                        book_miner_settings.max_book_ply,
+                        max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path);
                 }
             }

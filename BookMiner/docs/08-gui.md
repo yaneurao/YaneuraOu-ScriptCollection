@@ -43,7 +43,7 @@ GUI の `enqueue` は、固定で次のファイルを読みます。
 book/think_sfens.txt
 ```
 
-`enqueue` を押すと、先に `e eval_limit` を送信してから、`t` を BookMiner.py に送信します。
+`enqueue` を押すと、先に `l game_ply_limit` と `e eval_limit` を送信してから、`t` を BookMiner.py に送信します。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -68,7 +68,7 @@ GUI 上でもこの手順が縦に並んでいます。
 手順1. [ peta_shock ] [ peta_read  ]
 手順2. [ peta_next  ] eval_diff  [ X ] max step [ Y ]
         [ peta refutation ] eval refu. [ R ]
-手順3. [ enqueue    ] eval_limit [ Z ]
+手順3. [ enqueue    ] eval_limit [ Z ] game ply limit [ P ]
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順1.～3.を自動実行する
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
@@ -79,12 +79,13 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta_read` は `r` コマンドを送信し、`book/backup/` にある最新の `peta_book-....db` を読み込みます。`peta_read` 自体は peta shock 化を行わないため、別マシンや手動の `makebook peta_shock` で先に `peta_book-....db` を作って、このフォルダに置いておく必要があります。
 
-`peta_next` は、`n eval_diff [max_step]` を送信します。例えば `eval_diff` に `30` と入力して実行すると、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
+`peta_next` は、先に `l game_ply_limit` を送ってから `n eval_diff [max_step]` を送信します。例えば `game ply limit` に `200`、`eval_diff` に `30` と入力して実行すると、`l 200`、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
 
 `peta refutation` は、`f eval_refutation_margin eval_limit` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、旧 best との差が `eval_refutation_margin` 以上ある手を抽出します。このとき enqueue 欄の `eval_limit` も使い、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超えるものは `book/think_sfens.txt` へ書き出しません。
 
-`enqueue` は、`e eval_limit` を送信してから `t` を送信します。例えば `eval_limit` に `400` と入力して実行すると、`e 400` を送信してから、`book/think_sfens.txt` の局面を探索キューへ積みます。
+`enqueue` は、`l game_ply_limit` と `e eval_limit` を送信してから `t` を送信します。例えば `game ply limit` に `200`、`eval_limit` に `400` と入力して実行すると、`l 200`、`e 400` を送信してから、`book/think_sfens.txt` の局面を探索キューへ積みます。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
+`game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
 残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock`、`peta_next`、`enqueue` をこの順番で実行します。
@@ -109,7 +110,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは `eval_diff`、`max step`、`eval_refutation_margin`、`eval_limit`、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは `eval_diff`、`max step`、`eval_refutation_margin`、`eval_limit`、`game ply limit`、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。

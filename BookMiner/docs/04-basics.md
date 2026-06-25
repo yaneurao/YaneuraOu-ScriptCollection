@@ -65,7 +65,7 @@ BookMiner は指し手を順に再生して通過します。
 ただし、次の指し手が定跡木の外へ出る枝で、その指し手の評価値が eval limit を超えている場合、その指し手の先へは進みません。
 つまり、入力棋譜の末尾まで必ず辿るわけではありません。
 
-また、`settings/book_miner_settings.json5` の `max_book_ply` に到達した場合も、その対局の処理はそこで止まります。
+また、`max_book_ply` に到達した場合も、その対局の処理はそこで止まります。GUIでは `game ply limit` 欄で変更できます。
 
 棋譜の末端まで到達できた場合は、そこからエンジンの best line を `THINK_COMMAND_PLY` 手分だけ延長して掘ります。この延長中も、評価値の絶対値が eval limit を超えたら停止します。
 
@@ -169,7 +169,7 @@ book/think_sfens.txt
 
 `book/think_sfens.txt` は、先手用と後手用の「leaf から先へ伸ばす局面」を交互に混ぜたものです。
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。
+`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは `game ply limit` 欄、CLIでは `l` コマンドで変更できます。
 
 `n`コマンドを使ったときに、`think_sfens.txt`に何局面を書き出したのかが表示されます。それを見て、これを掘るかどうかを決めます。
 

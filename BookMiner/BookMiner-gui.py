@@ -26,6 +26,7 @@ GUI_SETTING_DEFAULTS = {
     "max_step": "",
     "eval_refutation_margin": "100",
     "eval_limit": "400",
+    "game_ply_limit": "200",
     "auto_enqueue_threshold": "1000",
     "log_view_mode": "2x2",
     "task_list_mode": "1",
@@ -216,6 +217,9 @@ class BookMinerGui(ttk.Frame):
             value=gui_settings.get("eval_refutation_margin", GUI_SETTING_DEFAULTS["eval_refutation_margin"])
         )
         self.eval_limit = tk.StringVar(value=gui_settings.get("eval_limit", GUI_SETTING_DEFAULTS["eval_limit"]))
+        self.game_ply_limit = tk.StringVar(
+            value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
+        )
 
         self.grid(sticky="nsew")
         self._build()
@@ -299,9 +303,11 @@ class BookMinerGui(ttk.Frame):
             command=self.send_think,
         )
         self.enqueue_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        Tooltip(self.enqueue_button, "`l game_ply_limit` と `e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
         ttk.Label(commands, text="eval_limit").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=4, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
 
         ttk.Label(commands, text="手順4.").grid(row=5, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
@@ -1223,6 +1229,7 @@ class BookMinerGui(ttk.Frame):
             "max_step": self.max_step.get(),
             "eval_refutation_margin": self.eval_refutation_margin.get(),
             "eval_limit": self.eval_limit.get(),
+            "game_ply_limit": self.game_ply_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
             "log_view_mode": normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get())),
             "task_list_mode": "1" if self.task_list_mode_enabled.get() else "0",
@@ -1266,6 +1273,9 @@ class BookMinerGui(ttk.Frame):
 
     def send_think(self, auto: bool = False) -> bool:
         value = self.eval_limit.get().strip()
+        game_ply_limit = self._get_game_ply_limit(auto)
+        if game_ply_limit is None:
+            return False
         if not value:
             if auto:
                 self._append_log("task", "[AUTO] eval_limit is empty.\n")
@@ -1283,7 +1293,11 @@ class BookMinerGui(ttk.Frame):
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
-        if self.send_command(f"e {value}", origin=origin) and self.send_command("t", origin=origin):
+        if (
+            self.send_command(f"l {game_ply_limit}", origin=origin)
+            and self.send_command(f"e {value}", origin=origin)
+            and self.send_command("t", origin=origin)
+        ):
             return True
         if not auto:
             self.busy_action = None
@@ -1291,6 +1305,9 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def send_peta_next(self, auto: bool = False) -> bool:
+        game_ply_limit = self._get_game_ply_limit(auto)
+        if game_ply_limit is None:
+            return False
         eval_diff = self.eval_diff.get().strip()
         if not eval_diff:
             if auto:
@@ -1322,12 +1339,39 @@ class BookMinerGui(ttk.Frame):
                     self._update_buttons()
                 return False
         origin = "AUTO" if auto else "GUI"
-        if self.send_command(f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}", origin=origin):
+        if self.send_command(f"l {game_ply_limit}", origin=origin) and self.send_command(
+            f"n {eval_diff}" if not max_step else f"n {eval_diff} {max_step}",
+            origin=origin,
+        ):
             return True
         if not auto:
             self.busy_action = None
             self._update_buttons()
         return False
+
+    def _get_game_ply_limit(self, auto: bool = False) -> str | None:
+        value = self.game_ply_limit.get().strip()
+        if not value:
+            if auto:
+                self._append_log("task", "[AUTO] game ply limit is empty.\n")
+            else:
+                messagebox.showerror("入力エラー", "game ply limit を指定してください。")
+            return None
+        try:
+            parsed = int(value)
+        except ValueError:
+            if auto:
+                self._append_log("task", "[AUTO] game ply limit must be a positive integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "game ply limit には1以上の整数を指定してください。")
+            return None
+        if parsed <= 0:
+            if auto:
+                self._append_log("task", "[AUTO] game ply limit must be a positive integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "game ply limit には1以上の整数を指定してください。")
+            return None
+        return str(parsed)
 
     def send_peta_refutation(self) -> bool:
         eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
