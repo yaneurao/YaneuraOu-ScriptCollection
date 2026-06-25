@@ -123,6 +123,8 @@ class MoveInfo:
     move : MoveStr
     # 評価値
     eval : Eval
+    # 定跡のdepth。通常探索直後の定跡では0、peta shock後の定跡では伝播depth。
+    depth : int = 0
 
 # 局面情報
 @dataclass
@@ -393,7 +395,7 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
                     position_info = book.body[sfen]
                     ply = position_info.ply
                     moveinfos = [
-                        MoveInfo(move_info.move, move_info.eval)
+                        MoveInfo(move_info.move, move_info.eval, move_info.depth)
                         for move_info in position_info.moveinfos
                     ]
                     if not moveinfos or any(move_info.eval is None for move_info in moveinfos):
@@ -412,7 +414,7 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
                             break
 
                 for move_info in moveinfos:
-                    w.write(f'{move_info.move} none {move_info.eval} 0\n')
+                    w.write(f'{move_info.move} none {move_info.eval} {move_info.depth}\n')
 
                 if count % BOOK_WRITE_PROGRESS_INTERVAL == 0:
                     print_book_write_progress(count, total)
@@ -1580,15 +1582,19 @@ def bfs_for_ply(book:Book):
 def parse_book_move_line(line:str, normalize_eval:bool = True)->MoveInfo:
     if ',' in line:
         move, eval_str, *_ = line.split(',')
+        depth = 0
     else:
-        move, _, eval_str, *_ = line.split()
+        parts = line.split()
+        move = parts[0]
+        eval_str = parts[2]
+        depth = int(parts[3]) if len(parts) >= 4 else 0
 
     if eval_str == 'None':
         eval = None
     else:
         eval_raw = int(eval_str)
         eval = normalize_book_eval(eval_raw) if normalize_eval else eval_raw
-    return MoveInfo(move, eval)
+    return MoveInfo(move, eval, depth)
 
 
 def normalize_book_eval(eval:int)->int:
@@ -1665,7 +1671,7 @@ def read_yaneuraou_book_file(
             return
         if copy_moveinfos:
             considered_moveinfos = [
-                MoveInfo(moveinfo.move, moveinfo.eval)
+                MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth)
                 for moveinfo in moveinfos
                 if moveinfo.eval is not None
             ]
@@ -1721,9 +1727,10 @@ def merge_moveinfos(position_info:PositionInfo, moveinfos:list[MoveInfo]):
             if move_info.move == moveinfo_new.move:
                 if moveinfo_new.eval is not None:
                     move_info.eval = moveinfo_new.eval
+                    move_info.depth = moveinfo_new.depth
                 break
         else:
-            position_info.moveinfos.append(MoveInfo(moveinfo_new.move, moveinfo_new.eval))
+            position_info.moveinfos.append(MoveInfo(moveinfo_new.move, moveinfo_new.eval, moveinfo_new.depth))
 
 
 def read_yaneuraou_book(book:Book, path:str):
@@ -1740,11 +1747,11 @@ def read_yaneuraou_book(book:Book, path:str):
             # flipped sfenのほうも調べる。
             sfen_f = flipped_sfen(sfen)
             if sfen_f in book.body:
-                moveinfos_f = [MoveInfo(flipped_move(moveinfo.move), moveinfo.eval) for moveinfo in moveinfos]
+                moveinfos_f = [MoveInfo(flipped_move(moveinfo.move), moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos]
                 merge_moveinfos(book.body[sfen_f], moveinfos_f)
             else:
                 # 定跡本体に見つからなかったので、新規局面として登録する。
-                book.body[sfen] = PositionInfo([MoveInfo(moveinfo.move, moveinfo.eval) for moveinfo in moveinfos], ply)
+                book.body[sfen] = PositionInfo([MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos], ply)
 
     with book.lock:
         read_yaneuraou_book_file(path, append_position)
@@ -2302,6 +2309,155 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
     print(f"[PetaNextDone] path={bw_path} count={bw_count}")
 
 
+def find_book_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
+    if sfen in book.body:
+        return book.body[sfen], False
+
+    sfen_f = flipped_sfen(sfen)
+    if sfen_f in book.body:
+        return book.body[sfen_f], True
+
+    return None, False
+
+
+def moveinfo_move_in_sfen_orientation(moveinfo:MoveInfo, flipped_bookhit:bool)->MoveStr:
+    return flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
+
+
+def find_moveinfo_by_sfen_move(position_info:PositionInfo, move:MoveStr, flipped_bookhit:bool)->MoveInfo|None:
+    for moveinfo in position_info.moveinfos:
+        if moveinfo_move_in_sfen_orientation(moveinfo, flipped_bookhit) == move:
+            return moveinfo
+    return None
+
+
+def best_moveinfo_in_sfen_orientation(position_info:PositionInfo, flipped_bookhit:bool)->tuple[MoveInfo|None, MoveStr]:
+    best_info : MoveInfo|None = None
+    best_eval = VALUE_MIN
+    for moveinfo in position_info.moveinfos:
+        if isinstance(moveinfo.eval, int) and best_eval < moveinfo.eval:
+            best_eval = moveinfo.eval
+            best_info = moveinfo
+
+    if best_info is None:
+        return None, "none"
+    return best_info, moveinfo_move_in_sfen_orientation(best_info, flipped_bookhit)
+
+
+def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen]]:
+    root_positions : list[tuple[PositionStr, Sfen]] = []
+    if os.path.exists(start_sfens_path):
+        print(f"read start sfens , path = {start_sfens_path}")
+        for line in open(start_sfens_path, 'r'):
+            position_cmd = line.strip()
+            if not position_cmd or position_cmd.startswith('#'):
+                continue
+            sfen_with_ply = decode_position_string(position_cmd)
+            print(f"start sfen = {sfen_with_ply}")
+            root_positions.append((position_cmd, sfen_with_ply))
+    else:
+        root_positions.append(('startpos', SFEN_START_PLY1))
+
+    return root_positions
+
+
+def peta_refutation(book:Book, eval_refutation_margin:int, max_book_ply:int, start_sfens_path:str):
+    """
+    peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
+    旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
+    抽出結果は、その手を指した後の局面として book/think_sfens.txt に書き出す。
+    """
+
+    global peta_book
+
+    print(
+        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, "
+        f"max_book_ply = {max_book_ply}, start_sfens_path = {start_sfens_path}"
+    )
+
+    think_sfens : dict[PositionStr,None] = {}
+    current_positions : dict[PositionStr, Sfen] = {}
+    for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
+        current_positions[position_cmd] = sfen_with_ply
+
+    visited : set[Sfen] = set()
+    step = 1
+    while current_positions:
+        next_positions : dict[PositionStr, Sfen] = {}
+
+        for position_cmd, sfen_with_ply in current_positions.items():
+            sfen, ply = trim_sfen_ply(sfen_with_ply)
+
+            if ply >= max_book_ply:
+                continue
+
+            sfen_f = flipped_sfen(sfen)
+            if sfen in visited or sfen_f in visited:
+                continue
+            visited.add(sfen)
+
+            peta_position, peta_flipped = find_book_position_with_flip(peta_book, sfen)
+            if peta_position is None or not peta_position.moveinfos:
+                continue
+
+            for moveinfo in peta_position.moveinfos:
+                move = moveinfo_move_in_sfen_orientation(moveinfo, peta_flipped)
+                if not move:
+                    continue
+                board2 = cshogi.Board(sfen_with_ply)
+                checked_push_usi(board2, move, context=position_cmd)
+                next_sfen = board2.sfen()
+                _, next_ply2 = trim_sfen_ply(next_sfen)
+                if next_ply2 >= max_book_ply:
+                    continue
+                next_positions[append_position_move(position_cmd, move)] = next_sfen
+
+            old_position, old_flipped = find_book_position_with_flip(book, sfen)
+            if old_position is None or not old_position.moveinfos:
+                continue
+
+            peta_best = peta_position.moveinfos[0]
+            if peta_best.depth != 0:
+                continue
+            if not isinstance(peta_best.eval, int):
+                continue
+
+            peta_best_move = moveinfo_move_in_sfen_orientation(peta_best, peta_flipped)
+            old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
+            old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
+
+            if old_best is None or old_candidate is None:
+                continue
+            if old_best_move == peta_best_move:
+                continue
+            if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
+                continue
+            if old_best.eval - old_candidate.eval < eval_refutation_margin:
+                continue
+
+            board = cshogi.Board(sfen_with_ply)
+            checked_push_usi(board, peta_best_move, context=position_cmd)
+            _, next_ply = trim_sfen_ply(board.sfen())
+            if next_ply >= max_book_ply:
+                continue
+
+            refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
+            think_sfens[refutation_position_cmd] = None
+
+        print(f"refutation step = {step} , len(next_positions) = {len(next_positions)}, think_sfens = {len(think_sfens)}")
+        current_positions = next_positions
+        step += 1
+
+    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+    with open(path, 'w') as w:
+        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+        for position_cmd in think_sfens:
+            w.write(position_cmd + '\n')
+
+    print("peta_refutation done.")
+    print(f"[PetaRefutationDone] path={path} count={len(think_sfens)}")
+
+
 def scheduled_time_text(timestamp:float)->str:
     return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
 
@@ -2535,6 +2691,7 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
+                print("  F    : peta refutation , f eval_refutation_margin")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -2612,6 +2769,19 @@ def user_input(from_gui:bool = False):
                     peta_next(
                         peta_eval_diff,
                         max_step,
+                        book_miner_settings.max_book_ply,
+                        book_miner_settings.peta_next_start_sfens_path,
+                    )
+
+            elif i == 'f' or i == 'refutation':
+                # peta_refutation
+                if len(inp) < 2:
+                    print("Usage : f eval_refutation_margin")
+                else:
+                    eval_refutation_margin = int(inp[1])
+                    peta_refutation(
+                        book,
+                        eval_refutation_margin,
                         book_miner_settings.max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
                     )
