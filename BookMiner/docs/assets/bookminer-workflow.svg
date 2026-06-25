@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1060" height="560" viewBox="0 0 1060 560" role="img" aria-labelledby="title desc">
   <title id="title">BookMiner GUI の基本手順</title>
-  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でthink_sfens.txtを作り、手順3でenqueueし、手順1へ戻る流れ</desc>
+  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でpeta_nextまたはpeta_refutationによりthink_sfens.txtを作り、手順3でenqueueし、手順1へ戻る流れ</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -34,10 +34,10 @@
   <text class="text" x="404" y="129">peta_shock / peta_read</text>
   <text class="text small" x="404" y="151">p:作成+読込 / r:読込</text>
 
-  <rect class="box" x="315" y="205" width="178" height="82"/>
+  <rect class="box" x="302" y="205" width="204" height="82"/>
   <text class="text step" x="404" y="230">手順2</text>
-  <text class="text" x="404" y="254">peta_next</text>
-  <text class="text small" x="404" y="276">次を探す</text>
+  <text class="text" x="404" y="252">peta_next</text>
+  <text class="text small" x="404" y="274">または peta_refutation</text>
 
   <rect class="box file" x="575" y="150" width="200" height="82"/>
   <text class="text" x="675" y="181">think_sfens.txt</text>
@@ -61,7 +61,7 @@
   <text class="text note" x="147" y="216">初回や棋譜から掘るとき</text>
 
   <path class="line" d="M 404 162 V 195"/>
-  <path class="line" d="M 493 246 H 565 V 191 H 575"/>
+  <path class="line" d="M 506 246 H 565 V 191 H 575"/>
   <path class="line" d="M 675 232 V 305"/>
   <path class="line" d="M 775 358 H 815"/>
 
@@ -79,6 +79,6 @@
   <rect x="58" y="355" width="320" height="94" rx="12" fill="#ffffff" stroke="#56707d" stroke-width="2" stroke-dasharray="8 6"/>
   <text class="text step" x="218" y="384">手順4 自動enqueue</text>
   <text class="text small" x="218" y="411">queueが少なくなったら</text>
-  <text class="text small" x="218" y="433">手順1→2→3をGUIが自動実行</text>
+  <text class="text small" x="218" y="433">手順1→2(peta_next)→3をGUIが自動実行</text>
   <path class="loop" d="M 378 402 H 514 V 358 H 565"/>
 </svg>

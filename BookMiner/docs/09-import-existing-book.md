@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta_next](assets/peta-shock-next.svg)
+![peta_shock と peta_next / peta_refutation](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta_next で leaf から先の局面を列挙する
+## 手順2. peta_next または peta_refutation で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -133,7 +133,7 @@ book/think_sfens.txt
 
 ## 手順3. enqueue する
 
-`peta_next` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta_next` または `peta_refutation` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -167,6 +167,39 @@ GUI:
 
 `enqueue` は `book/think_sfens.txt` に書かれた各行を読み、まだ掘っていない局面を探索キューへ積みます。探索キューに積まれた局面は、探索 worker によって順に処理されます。
 
+## 必要なら peta_refutation で反駁候補を延長する
+
+既存定跡を peta shock 化すると、もともと2番手以下だった指し手が best に入れ替わることがあります。これを BookMiner では「反駁」と呼びます。
+
+反駁された指し手が depth 0 のままだと、その評価値は十分に延長されていない可能性があります。通常の leaf 延長に加えて、このような候補だけを重点的に掘りたい場合は `peta_refutation` を使います。
+
+CLI:
+
+```text
+f 100
+```
+
+GUI:
+
+```text
+手順2. peta refutation  eval refu. 100
+```
+
+`100` は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+
+出力先は `peta_next` と同じです。
+
+```text
+book/think_sfens.txt
+```
+
+抽出後は、通常通り `enqueue` します。
+
+```text
+e 99999
+t
+```
+
 ## 探索後にもう一度 peta_shock 化する
 
 enqueue したタスクが処理されたら、もう一度 peta shock 化します。
@@ -191,6 +224,7 @@ GUI:
 ```text
 手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
+        または peta refutation eval refu. 100
 手順3. enqueue    eval_limit 99999
 ```
 

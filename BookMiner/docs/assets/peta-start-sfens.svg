@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1040" height="470" viewBox="0 0 1040 470" role="img" aria-labelledby="title desc">
-  <title id="title">n コマンドと peta_start_sfens.txt</title>
-  <desc id="desc">nコマンドはメモリ上のpeta_bookを辿り、peta_start_sfens.txtがある場合は開始局面集合として使う</desc>
+  <title id="title">n / f コマンドと peta_start_sfens.txt</title>
+  <desc id="desc">n/fコマンドはメモリ上のpeta_bookを辿り、peta_start_sfens.txtがある場合は開始局面集合として使う</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -21,7 +21,7 @@
     </style>
   </defs>
   <rect class="bg" x="0" y="0" width="1040" height="470"/>
-  <text class="text" x="520" y="38" style="font-size:23px">n コマンドはメモリ上の peta_book を辿る。DBファイルは読み直さない。</text>
+  <text class="text" x="520" y="38" style="font-size:23px">n / f コマンドはメモリ上の peta_book を辿る。DBファイルは読み直さない。</text>
 
   <rect class="box file" x="45" y="95" width="285" height="170" rx="14"/>
   <text class="text" x="187" y="127">book/peta_start_sfens.txt</text>
@@ -30,13 +30,13 @@
   <text class="mono" x="187" y="222" text-anchor="middle">startpos moves C...</text>
   <text class="text small" x="187" y="248">任意: 開始局面集合</text>
 
-  <path class="line" d="M 340 180 H 415"/>
-  <rect class="box tool" x="425" y="115" width="195" height="130" rx="14"/>
-  <text class="text" x="522" y="148">n コマンド</text>
-  <text class="text small" x="522" y="174">peta_next</text>
-  <text class="text small" x="522" y="198">メモリ上の</text>
-  <text class="text small" x="522" y="217">peta_bookを辿る</text>
-  <text class="text small" x="522" y="236">DBファイルは読まない</text>
+  <path class="line" d="M 340 180 H 405"/>
+  <rect class="box tool" x="415" y="110" width="215" height="140" rx="14"/>
+  <text class="text" x="522" y="141">n / f コマンド</text>
+  <text class="text small" x="522" y="166">peta_next</text>
+  <text class="text small" x="522" y="188">または peta_refutation</text>
+  <text class="text small" x="522" y="212">peta_bookを辿る</text>
+  <text class="text small" x="522" y="234">DBファイルは読まない</text>
 
   <path class="line" d="M 630 180 H 700"/>
   <rect class="box out" x="710" y="95" width="285" height="170" rx="14"/>

@@ -179,6 +179,29 @@ n 30 40
 `n` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`n` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
 
+## peta_refutation
+
+peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
+
+```text
+f 100
+```
+
+引数は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+
+出力先:
+
+```text
+book/think_sfens.txt
+```
+
+抽出された行は、反駁候補手を指した後の `startpos moves ...` / `sfen ... moves ...` 形式です。`enqueue` すると、その先の局面を探索できます。
+
+`settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`f` コマンドも `n` コマンドと同じ開始局面集合から辿ります。
+`f` コマンドも、すでにメモリ上に読み込まれている `peta_book` を辿ります。peta shock 化済みDBファイルを読み直すわけではありません。
+
+`refutation 100` というコマンド名でも同じ処理を実行できます。
+
 ## `i`
 
 局面を問い合わせます。

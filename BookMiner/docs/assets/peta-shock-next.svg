@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="430" viewBox="0 0 1080 430" role="img" aria-labelledby="title desc">
-  <title id="title">peta_shock / peta_read と peta_next</title>
-  <desc id="desc">peta_shockは通常定跡DBからpeta_bookを作って読み込み、peta_readは外部で作ったpeta_bookを読み込み、peta_nextで次に掘る局面ファイルを作る流れ</desc>
+  <title id="title">peta_shock / peta_read と peta_next / peta_refutation</title>
+  <desc id="desc">peta_shockは通常定跡DBからpeta_bookを作って読み込み、peta_readは外部で作ったpeta_bookを読み込み、peta_nextまたはpeta_refutationで次に掘る局面ファイルを作る流れ</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -20,7 +20,7 @@
     </style>
   </defs>
   <rect class="bg" x="0" y="0" width="1080" height="430"/>
-  <text class="text" x="540" y="38" style="font-size:23px">peta_book を読み込み、peta_next で次に伸ばす局面を探す。</text>
+  <text class="text" x="540" y="38" style="font-size:23px">peta_book を読み込み、peta_next または peta_refutation で次に掘る局面を探す。</text>
 
   <rect class="box db" x="40" y="95" width="170" height="96"/>
   <text class="text" x="125" y="129">通常定跡DB</text>
@@ -39,12 +39,13 @@
   <text class="mono" x="615" y="158" text-anchor="middle">peta_book-...</text>
   <text class="text small" x="615" y="181">メモリ上で辿る</text>
 
-  <path class="line" d="M 710 143 H 745"/>
-  <rect class="box tool" x="755" y="105" width="150" height="76"/>
-  <text class="text" x="830" y="134">peta_next</text>
-  <text class="text small" x="830" y="158">leafの先を探す</text>
+  <path class="line" d="M 710 143 H 728"/>
+  <rect class="box tool" x="738" y="95" width="184" height="96"/>
+  <text class="text" x="830" y="124">peta_next</text>
+  <text class="text small" x="830" y="148">または</text>
+  <text class="text" x="830" y="172">peta_refutation</text>
 
-  <path class="line" d="M 915 143 H 940"/>
+  <path class="line" d="M 932 143 H 940"/>
   <rect class="box file" x="950" y="105" width="110" height="76"/>
   <text class="mono" x="1005" y="136" text-anchor="middle">think</text>
   <text class="mono" x="1005" y="157" text-anchor="middle">sfens.txt</text>
