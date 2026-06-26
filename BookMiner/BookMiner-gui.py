@@ -210,6 +210,7 @@ class BookMinerGui(ttk.Frame):
         )
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.busy_action: str | None = None
+        self.enqueue_pending = False
         self.peta_makebook_active = False
         self.task_queue_remaining: int | None = None
 
@@ -894,6 +895,11 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
             return
 
+        if self.enqueue_pending and phase == "Start":
+            self.enqueue_pending = False
+            self._update_buttons()
+            return
+
         if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and phase == "Start":
             self._append_log("task", "[GUI] auto enqueue sequence completed.\n")
             self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
@@ -1158,6 +1164,13 @@ class BookMinerGui(ttk.Frame):
         if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             messagebox.showinfo("実行中", "自動enqueueの処理中です。完了してから操作してください。")
             return False
+        if action == "manual_enqueue" and self.busy_action in {"manual_peta_shock", "manual_peta_read"}:
+            if self.enqueue_pending:
+                messagebox.showinfo("実行中", "enqueueコマンドは送信済みです。処理開始まで待ってください。")
+                return False
+            self.enqueue_pending = True
+            self._update_buttons()
+            return True
         if self.busy_action is not None:
             messagebox.showinfo("実行中", "BookMinerコマンドの実行中です。完了してから操作してください。")
             return False
@@ -1331,7 +1344,10 @@ class BookMinerGui(ttk.Frame):
         ):
             return True
         if not auto:
-            self.busy_action = None
+            if self.enqueue_pending:
+                self.enqueue_pending = False
+            else:
+                self.busy_action = None
             self._update_buttons()
         return False
 
@@ -1475,14 +1491,14 @@ class BookMinerGui(ttk.Frame):
     def _update_buttons(self) -> None:
         running = self.is_running()
         command_state = "normal" if running and self.command_ready else "disabled"
-        for button in self.command_buttons:
-            button.configure(state=command_state)
 
         if not hasattr(self, "next_button"):
             return
 
+        command_enabled = command_state == "normal"
         peta_book_busy = (
             self.peta_makebook_active
+            or self.enqueue_pending
             or self.busy_action in {
                 "manual_peta_shock",
                 "manual_peta_read",
@@ -1492,18 +1508,31 @@ class BookMinerGui(ttk.Frame):
                 "auto_enqueue",
             }
         )
-        if command_state == "disabled" or peta_book_busy:
-            self.next_button.configure(state="disabled")
-            if hasattr(self, "refutation_button"):
-                self.refutation_button.configure(state="disabled")
-            if hasattr(self, "depth_gap_button"):
-                self.depth_gap_button.configure(state="disabled")
-        else:
-            self.next_button.configure(state="normal")
-            if hasattr(self, "refutation_button"):
-                self.refutation_button.configure(state="normal")
-            if hasattr(self, "depth_gap_button"):
-                self.depth_gap_button.configure(state="normal")
+        any_busy = (
+            self.busy_action is not None
+            or self.enqueue_pending
+            or self.peta_makebook_active
+            or self.auto_enqueue_state != AUTO_ENQUEUE_IDLE
+        )
+        enqueue_allowed_during_peta = self.busy_action in {"manual_peta_shock", "manual_peta_read"}
+
+        self.peta_button.configure(state="normal" if command_enabled and not any_busy else "disabled")
+        self.peta_read_button.configure(state="normal" if command_enabled and not any_busy else "disabled")
+        self.next_button.configure(state="normal" if command_enabled and not peta_book_busy else "disabled")
+        self.refutation_button.configure(state="normal" if command_enabled and not peta_book_busy else "disabled")
+        self.depth_gap_button.configure(state="normal" if command_enabled and not peta_book_busy else "disabled")
+        self.enqueue_button.configure(
+            state=(
+                "normal"
+                if command_enabled
+                and not self.enqueue_pending
+                and (self.busy_action is None or enqueue_allowed_during_peta)
+                and self.auto_enqueue_state == AUTO_ENQUEUE_IDLE
+                else "disabled"
+            )
+        )
+        self.auto_check.configure(state="normal" if command_enabled and not any_busy else "disabled")
+        self.write_button.configure(state="normal" if command_enabled and not any_busy else "disabled")
 
 
 def main() -> int:
