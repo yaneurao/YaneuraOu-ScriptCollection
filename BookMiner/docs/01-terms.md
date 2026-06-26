@@ -193,6 +193,7 @@ BookMiner が `eval limit` で延長するかどうかを決めるのは、leaf 
 PV line(Principal Variation line)とは、エンジンが最善だと判断した指し手(最善手)を辿った読み筋(最善手順)のことです。
 
 BookMiner は、棋譜の指し手を eval limit で止まらずに末端まで辿れた場合、PV line に沿って追加で数手分掘ることがあります。
+`peta_depth_gap` では、条件を満たした候補手を指したあと、peta_book 上の best PV を leaf まで辿った局面を書き出します。
 
 ## root
 
@@ -222,6 +223,12 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 peta shock 後に best になっている depth 0 の指し手のうち、peta shock 前は2番手以下で、旧bestとの差が `eval_refutation_margin` 以上あるものを抽出する処理です。
 
 BookMiner の CLI では `f eval_refutation_margin [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは enqueue 欄の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
+
+## peta_depth_gap
+
+peta shock 後に、best より浅い候補手のうち、depth差ぶん延長すると best を逆転しうるものを抽出する処理です。
+
+BookMiner の CLI では `d eval_per_ply`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
 ## KifManager
 

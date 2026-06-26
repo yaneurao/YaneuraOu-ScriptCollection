@@ -65,7 +65,9 @@ BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
+DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 1
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
+PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -2435,6 +2437,134 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
     print(f"[PetaRefutationDone] path={path} count={len(think_sfens)} skipped_by_eval_limit={skipped_by_eval_limit}")
 
 
+def peta_pv_leaf_position_cmd(
+    position_cmd:PositionStr,
+    sfen_with_ply:Sfen,
+    first_move:MoveStr,
+    max_book_ply:int,
+)->PositionStr|None:
+    """
+    first_moveを指した後、peta_book上のbest PVをdepth 0またはDB外まで辿り、
+    そのleaf局面のpositionコマンドを返す。
+    """
+
+    global peta_book
+
+    board = cshogi.Board(sfen_with_ply)
+    checked_push_usi(board, first_move, context=position_cmd)
+    next_sfen_with_ply = board.sfen()
+    _, next_ply = trim_sfen_ply(next_sfen_with_ply)
+    if next_ply >= max_book_ply:
+        return None
+
+    leaf_position_cmd = append_position_move(position_cmd, first_move)
+    visited : set[Sfen] = set()
+
+    while True:
+        current_sfen, current_ply = trim_sfen_ply(next_sfen_with_ply)
+        if current_ply >= max_book_ply:
+            return None
+
+        current_sfen_f = flipped_sfen(current_sfen)
+        if current_sfen in visited or current_sfen_f in visited:
+            return None
+        visited.add(current_sfen)
+
+        position_info, flipped_bookhit = find_book_position_with_flip(peta_book, current_sfen)
+        if position_info is None or not position_info.moveinfos:
+            return leaf_position_cmd
+
+        best = position_info.moveinfos[0]
+        if best.depth <= 0:
+            return leaf_position_cmd
+
+        move = moveinfo_move_in_sfen_orientation(best, flipped_bookhit)
+        board = cshogi.Board(next_sfen_with_ply)
+        checked_push_usi(board, move, context=leaf_position_cmd)
+        next_sfen_with_ply = board.sfen()
+        _, next_ply = trim_sfen_ply(next_sfen_with_ply)
+        if next_ply >= max_book_ply:
+            return None
+
+        leaf_position_cmd = append_position_move(leaf_position_cmd, move)
+
+
+def peta_depth_gap(eval_per_ply:int, max_book_ply:int):
+    """
+    peta shock後の各局面で、bestより浅い候補手について、
+    depth差ぶん延長すればbestを逆転しうる候補を抽出する。
+
+      candidate.eval + (best.depth - candidate.depth) * eval_per_ply >= best.eval
+
+    抽出結果は候補手のPV leafとして book/think_sfens.txt に書き出す。
+    """
+
+    global peta_book
+
+    print(f"peta_depth_gap, eval_per_ply = {eval_per_ply}, max_book_ply = {max_book_ply}")
+
+    think_sfens : dict[PositionStr,None] = {}
+    candidates = 0
+    skipped_by_ply = 0
+    with peta_book.lock:
+        peta_items = list(peta_book.body.items())
+
+    total = len(peta_items)
+    for processed, (sfen, peta_position) in enumerate(peta_items, start=1):
+        if processed % PETA_DEPTH_GAP_PROGRESS_INTERVAL == 0:
+            print(
+                f"depth_gap progress nodes = {processed}/{total} , "
+                f"candidates = {candidates} , think_sfens = {len(think_sfens)}"
+            )
+
+        if len(peta_position.moveinfos) < 2:
+            continue
+
+        best = peta_position.moveinfos[0]
+        if not isinstance(best.eval, int):
+            continue
+
+        sfen_with_ply = f"{sfen} {peta_position.ply}"
+        _, ply = trim_sfen_ply(sfen_with_ply)
+        if ply >= max_book_ply:
+            continue
+
+        position_cmd = f"sfen {sfen_with_ply}"
+
+        for candidate in peta_position.moveinfos[1:]:
+            if not isinstance(candidate.eval, int):
+                continue
+            depth_gap = best.depth - candidate.depth
+            if depth_gap <= 0:
+                continue
+            if candidate.eval + depth_gap * eval_per_ply < best.eval:
+                continue
+
+            candidates += 1
+            leaf_position_cmd = peta_pv_leaf_position_cmd(
+                position_cmd,
+                sfen_with_ply,
+                candidate.move,
+                max_book_ply,
+            )
+            if leaf_position_cmd is None:
+                skipped_by_ply += 1
+                continue
+            think_sfens[leaf_position_cmd] = None
+
+    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+    with open(path, 'w') as w:
+        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+        for position_cmd in think_sfens:
+            w.write(position_cmd + '\n')
+
+    print("peta_depth_gap done.")
+    print(
+        f"[PetaDepthGapDone] path={path} count={len(think_sfens)} "
+        f"candidates={candidates} skipped_by_ply={skipped_by_ply}"
+    )
+
+
 def scheduled_time_text(timestamp:float)->str:
     return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
 
@@ -2670,6 +2800,7 @@ def user_input(from_gui:bool = False):
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step)")
                 print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit)")
+                print("  D    : peta depth gap , d (eval_per_ply)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -2771,6 +2902,17 @@ def user_input(from_gui:bool = False):
                     eval_refutation_margin,
                     refutation_eval_limit,
                 )
+
+            elif i == 'd' or i == 'depth_gap':
+                # peta_depth_gap
+                eval_per_ply = DEFAULT_DEPTH_GAP_EVAL_PER_PLY if len(inp) < 2 else int(inp[1])
+                if eval_per_ply < 0:
+                    print("Error : eval_per_ply must be non-negative integer.")
+                else:
+                    peta_depth_gap(
+                        eval_per_ply,
+                        book_miner_settings.max_book_ply,
+                    )
 
         except Exception as e:
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")

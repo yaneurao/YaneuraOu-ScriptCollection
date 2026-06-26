@@ -215,6 +215,31 @@ book/think_sfens.txt
 
 `refutation 100 400` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合は `eval_refutation_margin=100`、`eval_limit` なしとして扱います。
 
+## peta_depth_gap
+
+peta shock 後、best より浅い候補手のうち、depth差ぶん追加で掘ると best を逆転しうるものを抽出します。
+
+```text
+d 1
+```
+
+引数は `eval_per_ply` です。省略時は `1` です。0以上の整数を指定します。
+判定式は次の通りです。
+
+```text
+候補手評価値 + (best.depth - 候補手.depth) * eval_per_ply >= best評価値
+```
+
+例えば best が `eval=100 depth=10`、候補手が `eval=95 depth=1`、`eval_per_ply=1` の場合、`95 + (10 - 1) * 1 = 104` なので抽出対象です。
+
+出力先:
+
+```text
+book/think_sfens.txt
+```
+
+抽出された行は、候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿った leaf 局面です。`depth_gap 1` というコマンド名でも同じ処理を実行できます。
+
 ## `i`
 
 局面を問い合わせます。

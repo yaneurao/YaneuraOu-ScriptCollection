@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta_next / peta_refutation](assets/peta-shock-next.svg)
+![peta_shock と peta_next / peta_refutation / peta_depth_gap](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta_next または peta_refutation で局面を列挙する
+## 手順2. peta_next / peta_refutation / peta_depth_gap で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -133,7 +133,7 @@ book/think_sfens.txt
 
 ## 手順3. enqueue する
 
-`peta_next` または `peta_refutation` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta_next`、`peta_refutation`、`peta_depth_gap` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -226,6 +226,7 @@ GUI:
 手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
         または peta refutation eval refu. 100
+        または peta depth_gap eval/ply 1
 手順3. enqueue    eval_limit 99999
 ```
 

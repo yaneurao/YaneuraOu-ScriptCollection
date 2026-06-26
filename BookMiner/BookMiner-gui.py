@@ -25,6 +25,7 @@ GUI_SETTING_DEFAULTS = {
     "eval_diff": "30",
     "max_step": "",
     "eval_refutation_margin": "100",
+    "depth_gap_eval_per_ply": "1",
     "eval_limit": "400",
     "game_ply_limit": "200",
     "auto_enqueue_threshold": "1000",
@@ -45,6 +46,7 @@ PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
 PETA_READ_DONE_RE = re.compile(r"\[PetaReadDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 PETA_REFUTATION_DONE_RE = re.compile(r"\[PetaRefutationDone\]")
+PETA_DEPTH_GAP_DONE_RE = re.compile(r"\[PetaDepthGapDone\]")
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
 PETA_MAKEBOOK_DONE_RE = re.compile(r"\.\.peta_shock makebook has done|peta_shock makebook failed", re.IGNORECASE)
 PETA_MAKEBOOK_CONTEXT_RE = re.compile(
@@ -216,6 +218,9 @@ class BookMinerGui(ttk.Frame):
         self.eval_refutation_margin = tk.StringVar(
             value=gui_settings.get("eval_refutation_margin", GUI_SETTING_DEFAULTS["eval_refutation_margin"])
         )
+        self.depth_gap_eval_per_ply = tk.StringVar(
+            value=gui_settings.get("depth_gap_eval_per_ply", GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"])
+        )
         self.eval_limit = tk.StringVar(value=gui_settings.get("eval_limit", GUI_SETTING_DEFAULTS["eval_limit"]))
         self.game_ply_limit = tk.StringVar(
             value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
@@ -295,33 +300,48 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval refu.").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=3, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順3.").grid(row=4, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
+        self.depth_gap_button = ttk.Button(
+            commands,
+            text="peta depth_gap",
+            width=16,
+            command=self.send_peta_depth_gap,
+        )
+        self.depth_gap_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(
+            self.depth_gap_button,
+            "`d eval_per_ply` を送信します。bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。",
+        )
+        ttk.Label(commands, text="eval/ply").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=4, column=3, sticky="w", pady=3)
+
+        ttk.Label(commands, text="手順3.").grid(row=5, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
             command=self.send_think,
         )
-        self.enqueue_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.enqueue_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.enqueue_button, "`l game_ply_limit` と `e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
-        ttk.Label(commands, text="eval_limit").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=4, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=5, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=5, column=5, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順4.").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順4.").grid(row=6, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
             commands,
             text="自動enqueue",
             variable=self.auto_enqueue_enabled,
             command=self.on_auto_enqueue_toggled,
         )
-        self.auto_check.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.auto_check.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
-        ttk.Label(commands, text="queueの残りが").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=5, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="queueの残りが").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=6, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
-            row=5,
+            row=6,
             column=4,
             columnspan=4,
             sticky="w",
@@ -329,17 +349,17 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        ttk.Label(commands, text="手順5.").grid(row=6, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順5.").grid(row=7, column=0, sticky="w", pady=3)
         self.write_button = ttk.Button(
             commands,
             text="DB手動保存",
             width=STEP_BUTTON_WIDTH,
             command=self.send_backup,
         )
-        self.write_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.write_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
         ttk.Label(commands, textvariable=self.backup_status).grid(
-            row=6,
+            row=7,
             column=2,
             columnspan=6,
             sticky="w",
@@ -351,6 +371,7 @@ class BookMinerGui(ttk.Frame):
             self.peta_read_button,
             self.next_button,
             self.refutation_button,
+            self.depth_gap_button,
             self.enqueue_button,
             self.auto_check,
             self.write_button,
@@ -1067,6 +1088,12 @@ class BookMinerGui(ttk.Frame):
                 self._update_buttons()
                 return
 
+        if PETA_DEPTH_GAP_DONE_RE.search(line):
+            if self.busy_action == "manual_peta_depth_gap":
+                self.busy_action = None
+                self._update_buttons()
+                return
+
     def on_auto_enqueue_toggled(self) -> None:
         if self.auto_enqueue_enabled.get():
             if self._get_auto_enqueue_threshold() is None:
@@ -1176,13 +1203,16 @@ class BookMinerGui(ttk.Frame):
             or "[petareaddone]" in lower
             or "[petanextdone]" in lower
             or "[petarefutationdone]" in lower
+            or "[petadepthgapdone]" in lower
             or PETA_MAKEBOOK_CONTEXT_RE.search(line)
             or PETA_MAKEBOOK_LINE_RE.search(line)
             or "peta shocked book" in lower
             or "peta_next" in lower
             or "peta_refutation" in lower
+            or "peta_depth_gap" in lower
             or "refutation step" in lower
             or "refutation progress" in lower
+            or "depth_gap progress" in lower
             or "root sfen" in lower
             or "think_sfens" in lower
             or "write book path" in lower
@@ -1228,6 +1258,7 @@ class BookMinerGui(ttk.Frame):
             "eval_diff": self.eval_diff.get(),
             "max_step": self.max_step.get(),
             "eval_refutation_margin": self.eval_refutation_margin.get(),
+            "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
@@ -1397,6 +1428,27 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
         return False
 
+    def send_peta_depth_gap(self) -> bool:
+        game_ply_limit = self._get_game_ply_limit(False)
+        if game_ply_limit is None:
+            return False
+        eval_per_ply = self.depth_gap_eval_per_ply.get().strip() or GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"]
+        try:
+            parsed = int(eval_per_ply)
+        except ValueError:
+            messagebox.showerror("入力エラー", "eval/ply には0以上の整数を指定してください。")
+            return False
+        if parsed < 0:
+            messagebox.showerror("入力エラー", "eval/ply には0以上の整数を指定してください。")
+            return False
+        if not self._begin_manual_action("manual_peta_depth_gap"):
+            return False
+        if self.send_command(f"l {game_ply_limit}", origin="GUI") and self.send_command(f"d {parsed}", origin="GUI"):
+            return True
+        self.busy_action = None
+        self._update_buttons()
+        return False
+
     def _append_log(self, key: str, text: str) -> None:
         logs = self.log_widgets.get(key) or self.log_widgets.get("other", [])
         for log in logs:
@@ -1433,6 +1485,7 @@ class BookMinerGui(ttk.Frame):
                 "manual_peta_read",
                 "manual_peta_next",
                 "manual_peta_refutation",
+                "manual_peta_depth_gap",
                 "auto_enqueue",
             }
         )
@@ -1440,10 +1493,14 @@ class BookMinerGui(ttk.Frame):
             self.next_button.configure(state="disabled")
             if hasattr(self, "refutation_button"):
                 self.refutation_button.configure(state="disabled")
+            if hasattr(self, "depth_gap_button"):
+                self.depth_gap_button.configure(state="disabled")
         else:
             self.next_button.configure(state="normal")
             if hasattr(self, "refutation_button"):
                 self.refutation_button.configure(state="normal")
+            if hasattr(self, "depth_gap_button"):
+                self.depth_gap_button.configure(state="normal")
 
 
 def main() -> int:
