@@ -295,7 +295,7 @@ class BookMinerGui(ttk.Frame):
         self.refutation_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
-            "`f eval_refutation_margin eval_limit` を送信します。peta shock 後に depth 0 best へ反駁された要注意局面を抽出し、enqueue の eval_limit で事前除外します。",
+            "`l game_ply_limit` のあと `f eval_refutation_margin eval_limit` を送信します。反駁候補を抽出し、eval_limit と game ply limit で事前除外します。",
         )
         ttk.Label(commands, text="eval refu.").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=3, sticky="w", pady=3)
@@ -1405,6 +1405,9 @@ class BookMinerGui(ttk.Frame):
         return str(parsed)
 
     def send_peta_refutation(self) -> bool:
+        game_ply_limit = self._get_game_ply_limit(False)
+        if game_ply_limit is None:
+            return False
         eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
         eval_limit = self.eval_limit.get().strip()
         if not eval_limit:
@@ -1422,7 +1425,7 @@ class BookMinerGui(ttk.Frame):
             return False
         if not self._begin_manual_action("manual_peta_refutation"):
             return False
-        if self.send_command(f"f {eval_refutation_margin} {eval_limit}", origin="GUI"):
+        if self.send_command(f"l {game_ply_limit}", origin="GUI") and self.send_command(f"f {eval_refutation_margin} {eval_limit}", origin="GUI"):
             return True
         self.busy_action = None
         self._update_buttons()

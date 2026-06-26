@@ -82,7 +82,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta_next` は、先に `l game_ply_limit` を送ってから `n eval_diff [max_step]` を送信します。例えば `game ply limit` に `200`、`eval_diff` に `30` と入力して実行すると、`l 200`、`n 30` を送信します。`max step` を入力した場合は、`n 30 40` のように第 2 引数も送信します。
 
-`peta refutation` は、`f eval_refutation_margin eval_limit` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、旧 best との差が `eval_refutation_margin` 以上ある手を抽出します。このとき enqueue 欄の `eval_limit` も使い、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超えるものは `book/think_sfens.txt` へ書き出しません。
+`peta refutation` は、先に `l game_ply_limit` を送ってから `f eval_refutation_margin eval_limit` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、旧 best との差が `eval_refutation_margin` 以上ある手を抽出します。このとき enqueue 欄の `eval_limit` も使い、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超えるもの、または反駁候補手を指した後の局面が `game ply limit` に到達するものは `book/think_sfens.txt` へ書き出しません。
 
 `peta depth_gap` は、先に `l game_ply_limit` を送ってから `d eval_per_ply` を送信します。best より浅い候補手について、depth差ぶん延長すれば best を逆転しうるものを探し、その候補手のPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
 

@@ -133,7 +133,7 @@ best move ではない
 
 `f 100 400` のように第2引数へ `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `400` を超える候補は書き出しません。これらは `enqueue` しても DB 外へ出る枝として retire するため、最初から `book/think_sfens.txt` に積まないほうが効率的です。GUI の `peta refutation` ボタンは、enqueue 欄に入力されている `eval_limit` を自動で渡します。CLI で `eval_limit` を省略した場合は、この事前除外を行いません。
 
-`peta_refutation` は root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。すべてのnodeに到達可能であるという前提で、各nodeの best の depth だけを直接確認します。`max_book_ply` による除外は行いません。
+`peta_refutation` は root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。すべてのnodeに到達可能であるという前提で、各nodeの best の depth だけを直接確認します。反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。
 
 抽出された行は、その反駁候補手を指した後の `sfen ... moves ...` です。`enqueue` すると、反駁候補手の先を追加探索できます。
 

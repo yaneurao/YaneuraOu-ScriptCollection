@@ -1169,15 +1169,18 @@ void peta_refutation(
     const bookminer::BookStore& book,
     const bookminer::BookStore& peta_book,
     int eval_refutation_margin,
-    std::optional<int> eval_limit)
+    std::optional<int> eval_limit,
+    int max_book_ply)
 {
     log_line(
         "peta_refutation, eval_refutation_margin = " + std::to_string(eval_refutation_margin)
-        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("none")));
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("none"))
+        + ", max_book_ply = " + std::to_string(max_book_ply));
 
     std::vector<std::string> think_sfens;
     std::unordered_set<std::string> think_seen;
     std::size_t skipped_by_eval_limit = 0;
+    std::size_t skipped_by_ply = 0;
     const auto peta_entries = peta_book.snapshot_entries();
     const std::size_t total = peta_entries.size();
 
@@ -1188,7 +1191,8 @@ void peta_refutation(
         {
             log_line("refutation progress nodes = " + std::to_string(processed) + "/" + std::to_string(total)
                 + " , think_sfens = " + std::to_string(think_sfens.size())
-                + " , skipped_by_eval_limit = " + std::to_string(skipped_by_eval_limit));
+                + " , skipped_by_eval_limit = " + std::to_string(skipped_by_eval_limit)
+                + " , skipped_by_ply = " + std::to_string(skipped_by_ply));
         }
 
         const auto& entry = peta_entries[index];
@@ -1223,6 +1227,11 @@ void peta_refutation(
             ++skipped_by_eval_limit;
             continue;
         }
+        if (static_cast<int>(peta_position.ply) + 1 >= max_book_ply)
+        {
+            ++skipped_by_ply;
+            continue;
+        }
 
         const std::string peta_best_move = bookminer::move16_to_usi(peta_best_oriented_move16);
         if (peta_best_move.empty())
@@ -1239,7 +1248,8 @@ void peta_refutation(
     log_line("peta_refutation done.");
     log_line("[PetaRefutationDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
-        + " skipped_by_eval_limit=" + std::to_string(skipped_by_eval_limit));
+        + " skipped_by_eval_limit=" + std::to_string(skipped_by_eval_limit)
+        + " skipped_by_ply=" + std::to_string(skipped_by_ply));
 }
 
 fs::path executable_dir(const char* argv0)
@@ -2139,7 +2149,8 @@ int main(int argc, char* argv[])
                     book,
                     peta_book,
                     eval_refutation_margin,
-                    refutation_eval_limit);
+                    refutation_eval_limit,
+                    max_book_ply);
             }
             else if (command == "d" || command == "depth_gap")
             {

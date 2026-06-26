@@ -2409,7 +2409,7 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
-def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None = None):
+def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None = None, max_book_ply:int = MAX_BOOK_PLY):
     """
     peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
     旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
@@ -2418,13 +2418,14 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
 
     global peta_book
 
-    eval_limit_text = "none" if eval_limit is None else str(eval_limit)
     print(
-        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, eval_limit = {eval_limit_text}"
+        f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, "
+        f"eval_limit = {'none' if eval_limit is None else eval_limit}, max_book_ply = {max_book_ply}"
     )
 
     think_sfens : dict[PositionStr,None] = {}
     skipped_by_eval_limit = 0
+    skipped_by_ply = 0
     with peta_book.lock:
         peta_items = list(peta_book.body.items())
 
@@ -2464,6 +2465,9 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
         if eval_limit is not None and abs(old_candidate.eval) > eval_limit:
             skipped_by_eval_limit += 1
             continue
+        if peta_position.ply + 1 >= max_book_ply:
+            skipped_by_ply += 1
+            continue
 
         sfen_with_ply = f"{sfen} {peta_position.ply}"
         position_cmd = f"sfen {sfen_with_ply}"
@@ -2478,7 +2482,10 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
             w.write(position_cmd + '\n')
 
     print("peta_refutation done.")
-    print(f"[PetaRefutationDone] path={path} count={len(think_sfens)} skipped_by_eval_limit={skipped_by_eval_limit}")
+    print(
+        f"[PetaRefutationDone] path={path} count={len(think_sfens)} "
+        f"skipped_by_eval_limit={skipped_by_eval_limit} skipped_by_ply={skipped_by_ply}"
+    )
 
 
 def peta_pv_leaf_position_cmd(
@@ -2948,6 +2955,7 @@ def user_input(from_gui:bool = False):
                     book,
                     eval_refutation_margin,
                     refutation_eval_limit,
+                    book_miner_settings.max_book_ply,
                 )
 
             elif i == 'd' or i == 'depth_gap':
