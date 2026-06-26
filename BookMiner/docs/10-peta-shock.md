@@ -51,7 +51,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta_read` | `r` | すでに存在する `peta_book-....db` を読み込みます。peta shock 化自体は行いません。 |
 | `peta_next` | `n eval_diff [max_step]` | 読み込み済みの peta_book を辿り、次に掘る候補を `book/think_sfens.txt` に書き出します。 |
 | `peta refutation` | `f eval_refutation_margin [eval_limit]` | 反駁された depth 0 best のうち、旧bestとの差が大きい候補を `book/think_sfens.txt` に書き出します。`eval_limit` 指定時は enqueue 前に retire が確定している候補を除外します。 |
-| `peta depth_gap` | `d eval_per_ply` | best より浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを `book/think_sfens.txt` に書き出します。 |
+| `peta depth_gap` | `d eval_per_ply` | best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `enqueue` | `e eval_limit` のあと `t` | `book/think_sfens.txt` を探索 queue に積みます。 |
 
 通常は `peta_shock` → `peta_next` → `enqueue` を繰り返します。反駁された depth 0 best を重点的に延長したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth_gap` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` を `book/backup/` に置き、`peta_read` → `peta_next` / `peta refutation` / `peta depth_gap` → `enqueue` と進めます。
@@ -139,7 +139,7 @@ best move ではない
 
 ## peta_depth_gap
 
-`peta_depth_gap` は、best より浅い候補手のうち、depth差ぶん延長すれば best を逆転しうるものを抽出します。
+`peta_depth_gap` は、best以外の登録済み指し手について、その手が best より浅く、depth差ぶん延長すれば best を逆転しうる場合に抽出します。
 
 判定式は次の通りです。
 
@@ -147,7 +147,9 @@ best move ではない
 候補手評価値 + (best.depth - 候補手.depth) * eval_per_ply >= best評価値
 ```
 
-例えば peta shock 後に best が `eval=100 depth=10`、候補手が `eval=95 depth=1` だった場合、depth差は `9` です。`eval_per_ply=1` なら `95 + 9 = 104` となるため、候補手をさらに掘る価値があるものとして抽出します。`eval_per_ply` には `0.5` のような小数も指定できます。
+例えば peta shock 後に best が `eval=100 depth=10`、候補手が `eval=95 depth=1` だった場合、depth差は `9` です。`eval_per_ply=1` なら `95 + 9 = 104` となるため、その候補手をさらに掘る価値があるものとして抽出します。`eval_per_ply` には `0.5` のような小数も指定できます。
+
+ただし、best の `depth` が `1000` 以上の局面は対象外です。peta shock 後の番兵値や過大な depth を、実際に読んだ手数として扱って大量抽出することを避けるためです。
 
 `peta_depth_gap` は条件を満たした候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿り、そのPV leafを `book/think_sfens.txt` に書き出します。GUI の `peta depth_gap` ボタンは `d eval_per_ply` に対応します。
 

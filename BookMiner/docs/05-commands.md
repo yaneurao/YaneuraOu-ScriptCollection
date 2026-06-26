@@ -219,7 +219,7 @@ book/think_sfens.txt
 
 ## peta_depth_gap
 
-peta shock 後、best より浅い候補手のうち、depth差ぶん追加で掘ると best を逆転しうるものを抽出します。
+peta shock 後、best以外の登録済み指し手について、その手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
 d 1
@@ -233,6 +233,8 @@ d 1
 ```
 
 例えば best が `eval=100 depth=10`、候補手が `eval=95 depth=1`、`eval_per_ply=1` の場合、`95 + (10 - 1) * 1 = 104` なので抽出対象です。
+
+ただし、best の `depth` が `1000` 以上の局面は対象外です。peta shock 後の番兵値や過大な depth を、実際に読んだ手数として扱って大量抽出することを避けるためです。
 
 出力先:
 

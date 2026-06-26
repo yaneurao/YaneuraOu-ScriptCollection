@@ -66,6 +66,7 @@ TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
 DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 0.1
+PETA_DEPTH_GAP_MAX_BEST_DEPTH = 1000
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 
@@ -2557,6 +2558,7 @@ def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
     think_sfens : dict[PositionStr,None] = {}
     candidates = 0
     skipped_by_ply = 0
+    skipped_by_best_depth = 0
     with peta_book.lock:
         peta_items = list(peta_book.body.items())
 
@@ -2573,6 +2575,9 @@ def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
 
         best = peta_position.moveinfos[0]
         if not isinstance(best.eval, int):
+            continue
+        if best.depth >= PETA_DEPTH_GAP_MAX_BEST_DEPTH:
+            skipped_by_best_depth += 1
             continue
 
         sfen_with_ply = f"{sfen} {peta_position.ply}"
@@ -2612,7 +2617,8 @@ def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
     print("peta_depth_gap done.")
     print(
         f"[PetaDepthGapDone] path={path} count={len(think_sfens)} "
-        f"candidates={candidates} skipped_by_ply={skipped_by_ply}"
+        f"candidates={candidates} skipped_by_ply={skipped_by_ply} "
+        f"skipped_by_best_depth={skipped_by_best_depth}"
     )
 
 

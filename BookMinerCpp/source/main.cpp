@@ -56,6 +56,7 @@ constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
 constexpr double DefaultDepthGapEvalPerPly = 0.1;
+constexpr int PetaDepthGapMaxBestDepth = 1000;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaDepthGapProgressInterval = 100000;
 
@@ -1104,6 +1105,7 @@ void peta_depth_gap(
     std::unordered_set<std::string> think_seen;
     std::size_t candidates = 0;
     std::size_t skipped_by_ply = 0;
+    std::size_t skipped_by_best_depth = 0;
     const auto peta_entries = peta_book.snapshot_entries();
     const std::size_t total = peta_entries.size();
 
@@ -1123,6 +1125,11 @@ void peta_depth_gap(
             continue;
 
         const auto& best = peta_position.moves.front();
+        if (best.depth >= PetaDepthGapMaxBestDepth)
+        {
+            ++skipped_by_best_depth;
+            continue;
+        }
         const std::string sfen = bookminer::trim_sfen(bookminer::unpack_sfen_bytes(entry.key.bytes));
         const std::string sfen_with_ply = sfen + " " + std::to_string(peta_position.ply);
         if (bookminer::trim_sfen_ply(sfen_with_ply).second >= max_book_ply)
@@ -1162,7 +1169,8 @@ void peta_depth_gap(
     log_line("[PetaDepthGapDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
         + " candidates=" + std::to_string(candidates)
-        + " skipped_by_ply=" + std::to_string(skipped_by_ply));
+        + " skipped_by_ply=" + std::to_string(skipped_by_ply)
+        + " skipped_by_best_depth=" + std::to_string(skipped_by_best_depth));
 }
 
 void peta_refutation(

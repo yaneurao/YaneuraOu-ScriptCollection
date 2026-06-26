@@ -226,7 +226,7 @@ BookMiner の CLI では `f eval_refutation_margin [eval_limit]`、GUI では `p
 
 ## peta_depth_gap
 
-peta shock 後に、best より浅い候補手のうち、depth差ぶん延長すると best を逆転しうるものを抽出する処理です。
+peta shock 後に、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
 BookMiner の CLI では `d eval_per_ply`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
