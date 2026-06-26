@@ -1434,16 +1434,16 @@ class BookMinerGui(ttk.Frame):
             return False
         eval_per_ply = self.depth_gap_eval_per_ply.get().strip() or GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"]
         try:
-            parsed = int(eval_per_ply)
+            parsed = float(eval_per_ply)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval/ply には0以上の整数を指定してください。")
+            messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
             return False
         if parsed < 0:
-            messagebox.showerror("入力エラー", "eval/ply には0以上の整数を指定してください。")
+            messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
             return False
         if not self._begin_manual_action("manual_peta_depth_gap"):
             return False
-        if self.send_command(f"l {game_ply_limit}", origin="GUI") and self.send_command(f"d {parsed}", origin="GUI"):
+        if self.send_command(f"l {game_ply_limit}", origin="GUI") and self.send_command(f"d {eval_per_ply}", origin="GUI"):
             return True
         self.busy_action = None
         self._update_buttons()

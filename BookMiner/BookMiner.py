@@ -65,7 +65,7 @@ BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
-DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 1
+DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 1.0
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 
@@ -2489,7 +2489,7 @@ def peta_pv_leaf_position_cmd(
         leaf_position_cmd = append_position_move(leaf_position_cmd, move)
 
 
-def peta_depth_gap(eval_per_ply:int, max_book_ply:int):
+def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
     """
     peta shock後の各局面で、bestより浅い候補手について、
     depth差ぶん延長すればbestを逆転しうる候補を抽出する。
@@ -2905,9 +2905,9 @@ def user_input(from_gui:bool = False):
 
             elif i == 'd' or i == 'depth_gap':
                 # peta_depth_gap
-                eval_per_ply = DEFAULT_DEPTH_GAP_EVAL_PER_PLY if len(inp) < 2 else int(inp[1])
+                eval_per_ply = DEFAULT_DEPTH_GAP_EVAL_PER_PLY if len(inp) < 2 else float(inp[1])
                 if eval_per_ply < 0:
-                    print("Error : eval_per_ply must be non-negative integer.")
+                    print("Error : eval_per_ply must be non-negative number.")
                 else:
                     peta_depth_gap(
                         eval_per_ply,

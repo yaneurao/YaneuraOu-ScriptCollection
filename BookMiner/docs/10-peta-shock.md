@@ -145,7 +145,7 @@ best move ではない
 候補手評価値 + (best.depth - 候補手.depth) * eval_per_ply >= best評価値
 ```
 
-例えば peta shock 後に best が `eval=100 depth=10`、候補手が `eval=95 depth=1` だった場合、depth差は `9` です。`eval_per_ply=1` なら `95 + 9 = 104` となるため、候補手をさらに掘る価値があるものとして抽出します。
+例えば peta shock 後に best が `eval=100 depth=10`、候補手が `eval=95 depth=1` だった場合、depth差は `9` です。`eval_per_ply=1` なら `95 + 9 = 104` となるため、候補手をさらに掘る価値があるものとして抽出します。`eval_per_ply` には `0.5` のような小数も指定できます。
 
 `peta_depth_gap` は条件を満たした候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿り、そのPV leafを `book/think_sfens.txt` に書き出します。GUI の `peta depth_gap` ボタンは `d eval_per_ply` に対応します。
 

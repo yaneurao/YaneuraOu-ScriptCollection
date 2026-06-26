@@ -55,7 +55,7 @@ constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settin
 constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
-constexpr int DefaultDepthGapEvalPerPly = 1;
+constexpr double DefaultDepthGapEvalPerPly = 1.0;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaDepthGapProgressInterval = 100000;
 
@@ -1092,10 +1092,12 @@ std::optional<std::string> peta_pv_leaf_position_command(
 
 void peta_depth_gap(
     const bookminer::BookStore& peta_book,
-    int eval_per_ply,
+    double eval_per_ply,
     int max_book_ply)
 {
-    log_line("peta_depth_gap, eval_per_ply = " + std::to_string(eval_per_ply)
+    std::ostringstream eval_per_ply_stream;
+    eval_per_ply_stream << eval_per_ply;
+    log_line("peta_depth_gap, eval_per_ply = " + eval_per_ply_stream.str()
         + ", max_book_ply = " + std::to_string(max_book_ply));
 
     std::vector<std::string> think_sfens;
@@ -1133,7 +1135,7 @@ void peta_depth_gap(
             const int depth_gap = best.depth - candidate.depth;
             if (depth_gap <= 0)
                 continue;
-            if (static_cast<int>(candidate.eval) + depth_gap * eval_per_ply < static_cast<int>(best.eval))
+            if (static_cast<double>(candidate.eval) + depth_gap * eval_per_ply < static_cast<double>(best.eval))
                 continue;
 
             ++candidates;
@@ -2107,12 +2109,12 @@ int main(int argc, char* argv[])
             }
             else if (command == "d" || command == "depth_gap")
             {
-                const int eval_per_ply = tokens.size() < 2
+                const double eval_per_ply = tokens.size() < 2
                     ? DefaultDepthGapEvalPerPly
-                    : std::stoi(tokens[1]);
+                    : std::stod(tokens[1]);
                 if (eval_per_ply < 0)
                 {
-                    log_line("Error : eval_per_ply must be non-negative integer.");
+                    log_line("Error : eval_per_ply must be non-negative number.");
                     continue;
                 }
                 peta_depth_gap(
