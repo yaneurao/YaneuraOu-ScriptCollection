@@ -65,7 +65,7 @@ BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
-DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 1.0
+DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 0.1
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 
@@ -153,6 +153,23 @@ class Book:
 
         # このメンバーを操作するときのlock object
         self.lock : Lock = Lock()
+
+        # 最後に読み込み/保存した通常book。bookが変更されていなければpeta_shock入力に再利用する。
+        self.clean_source_path : str | None = None
+        self.clean_revision : int = 0
+        self.revision : int = 0
+
+    def mark_modified(self):
+        self.revision += 1
+
+    def mark_clean(self, path:str, revision:int|None = None):
+        self.clean_source_path = path
+        self.clean_revision = self.revision if revision is None else revision
+
+    def clean_source(self)->str|None:
+        if self.clean_source_path is not None and self.clean_revision == self.revision:
+            return self.clean_source_path
+        return None
 
 
 @dataclass
@@ -449,6 +466,8 @@ def save_book(book:Book, filepath:str):
 
 
 def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None)->str:
+    with book.lock:
+        saved_revision = book.revision
     sfens = collect_yaneuraou_book_sfens(book, ply_limit)
     ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
     path = os.path.join(
@@ -458,6 +477,10 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None)->str:
     print(f"start save_book_backup , path = {path}")
     write_yaneuraou_book_records(book, path, ply_limit, sfens)
     print(f"..save_book_backup has done, {len(sfens)} positions.")
+    if ply_limit is None:
+        with book.lock:
+            if book.revision == saved_revision:
+                book.mark_clean(path, saved_revision)
     return path
 
 
@@ -471,11 +494,17 @@ def load_book(book:Book, filepath:str, *, fast:bool = False):
 
     with book.lock:
         book.body.clear()
+        book.revision = 0
+        book.clean_revision = 0
+        book.clean_source_path = None
 
     if fast:
         read_bookminer_backup(book, filepath)
     else:
         read_yaneuraou_book(book, filepath)
+    with book.lock:
+        book.revision = 0
+        book.mark_clean(filepath, 0)
     print(f"done..{len(book.body)} positions.")
     return book
 
@@ -1092,23 +1121,31 @@ class EngineManager:
                 book_position_count = None
 
                 with book.lock:
+                    changed = False
                     if position_info:
                         # 新規局面ではないので、マージ。
                         for moveinfo_new in position_info_new:
                             for moveinfo in position_info.moveinfos:
                                 if moveinfo_new.move == moveinfo.move:
-                                    moveinfo.eval = moveinfo_new.eval
+                                    if moveinfo.eval != moveinfo_new.eval or moveinfo.depth != moveinfo_new.depth:
+                                        moveinfo.eval = moveinfo_new.eval
+                                        moveinfo.depth = moveinfo_new.depth
+                                        changed = True
                                     break
                             else:
                                 position_info.moveinfos.append(moveinfo_new)
+                                changed = True
                     else:
                         # 新規局面なので定跡にそのまま追加
                         position_info = PositionInfo(position_info_new, ply)
                         book.body[current_sfen] = position_info
+                        changed = True
 
                     # できればbestな順で掘りたいので、evalで降順に並び替える。
                     # valueがないところは、VALUE_MIN扱い。
                     position_info.moveinfos.sort(key=lambda x: x.eval if x.eval is not None else VALUE_MIN, reverse=True)
+                    if changed:
+                        book.mark_modified()
                     book_position_count = len(book.body)
 
                     if not self.global_settings.from_gui:
@@ -2106,7 +2143,14 @@ def write_and_read_peta_book(book:Book):
     周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
     """
     print("start p command : write backup, peta_shock, and read peta book.")
-    source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
+    with book.lock:
+        clean_source_path = book.clean_source()
+
+    if clean_source_path is not None and os.path.isfile(clean_source_path):
+        source_book_path = clean_source_path
+        print(f"p command source book reused = {source_book_path}")
+    else:
+        source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
     print(f"p command source book = {source_book_path}")
     make_and_read_peta_book(source_book_path)
     print("..p command has done.")
@@ -2655,6 +2699,9 @@ def merge_flipped_positions(book:Book):
                             position.moveinfos.append(MoveInfo(move, eval))
 
                     c += 1
+
+            if c:
+                book.mark_modified()
 
         print(f"merge flipped positions done, merged {c} positions")
 

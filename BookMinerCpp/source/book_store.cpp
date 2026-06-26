@@ -359,6 +359,12 @@ std::size_t BookStore::size() const
     return size_;
 }
 
+std::uint64_t BookStore::revision() const
+{
+    std::scoped_lock lock(mutex_);
+    return revision_;
+}
+
 bool BookStore::empty() const
 {
     std::scoped_lock lock(mutex_);
@@ -369,6 +375,7 @@ void BookStore::clear()
 {
     std::scoped_lock lock(mutex_);
     size_ = 0;
+    revision_ = 0;
     memtable_.clear();
     runs_.clear();
     searching_.clear();
@@ -661,6 +668,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         {
             std::scoped_lock lock(mutex_);
             size_ = run.size();
+            revision_ = 0;
             memtable_.clear();
             runs_.clear();
             if (!run.empty())
@@ -764,6 +772,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
     {
         std::scoped_lock lock(mutex_);
         size_ = run.size();
+        revision_ = 0;
         memtable_.clear();
         runs_.clear();
         if (!run.empty())
@@ -860,13 +869,18 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
     const PackedSfen key = PackedSfen::from_sfen(sfen);
     std::scoped_lock lock(mutex_);
     PositionInfo* position = find_position_locked(key);
+    bool changed = false;
     if (position == nullptr)
     {
         position = &memtable_[key];
         ++size_;
+        changed = true;
     }
     if (position->moves.empty())
+    {
         position->ply = ply;
+        changed = true;
+    }
 
     for (const auto& move : moves)
     {
@@ -874,11 +888,18 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
             return existing.move16 == move.move16;
         });
         if (it == position->moves.end())
+        {
             position->moves.push_back(move);
+            changed = true;
+        }
         else
         {
-            it->eval = move.eval;
-            it->depth = move.depth;
+            if (it->eval != move.eval || it->depth != move.depth)
+            {
+                it->eval = move.eval;
+                it->depth = move.depth;
+                changed = true;
+            }
         }
     }
 
@@ -888,6 +909,9 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
 
     if (memtable_.size() >= LsmMemtableFlushThreshold)
         flush_memtable_locked();
+
+    if (changed)
+        ++revision_;
 }
 
 std::size_t BookStore::count_save_positions(std::optional<int> ply_limit) const

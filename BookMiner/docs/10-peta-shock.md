@@ -47,7 +47,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 
 | GUI | CLI | 内容 |
 |---|---|---|
-| `peta_shock` | `p` | 現在の通常bookを書き出し、そのファイルを peta shock 化して、生成された `peta_book-....db` を読み込みます。 |
+| `peta_shock` | `p` | 現在の通常bookを peta shock 化して、生成された `peta_book-....db` を読み込みます。通常bookが未変更なら既存DBを再利用し、変更済みなら書き出してから変換します。 |
 | `peta_read` | `r` | すでに存在する `peta_book-....db` を読み込みます。peta shock 化自体は行いません。 |
 | `peta_next` | `n eval_diff [max_step]` | 読み込み済みの peta_book を辿り、次に掘る候補を `book/think_sfens.txt` に書き出します。 |
 | `peta refutation` | `f eval_refutation_margin [eval_limit]` | 反駁された depth 0 best のうち、旧bestとの差が大きい候補を `book/think_sfens.txt` に書き出します。`eval_limit` 指定時は enqueue 前に retire が確定している候補を除外します。 |
@@ -55,6 +55,8 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `enqueue` | `e eval_limit` のあと `t` | `book/think_sfens.txt` を探索 queue に積みます。 |
 
 通常は `peta_shock` → `peta_next` → `enqueue` を繰り返します。反駁された depth 0 best を重点的に延長したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth_gap` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` を `book/backup/` に置き、`peta_read` → `peta_next` / `peta refutation` / `peta depth_gap` → `enqueue` と進めます。
+
+`peta_shock` は、起動時に読み込んだ通常DB、または最後に `w` / 自動保存で書き出した通常DBからメモリ内容が変わっていなければ、その既存DBを変換元として再利用します。追加で掘っていないのに同じ内容の `book_miner-....db` を増やさないためです。
 
 ![peta_shock と peta_next / peta_refutation / peta_depth_gap](assets/peta-shock-next.svg)
 

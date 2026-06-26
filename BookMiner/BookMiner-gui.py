@@ -25,7 +25,7 @@ GUI_SETTING_DEFAULTS = {
     "eval_diff": "30",
     "max_step": "",
     "eval_refutation_margin": "100",
-    "depth_gap_eval_per_ply": "1",
+    "depth_gap_eval_per_ply": "0.1",
     "eval_limit": "400",
     "game_ply_limit": "200",
     "auto_enqueue_threshold": "1000",
@@ -261,7 +261,7 @@ class BookMinerGui(ttk.Frame):
             command=self.send_peta_shock,
         )
         self.peta_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.peta_button, "`p` を送信します。定跡DBを書き出し、そのファイルを peta shock 化して読み込みます。")
+        Tooltip(self.peta_button, "`p` を送信します。未変更なら読み込み済みDBを再利用し、変更済みなら定跡DBを書き出して peta shock 化します。")
         self.peta_read_button = ttk.Button(
             commands,
             text="peta_read",

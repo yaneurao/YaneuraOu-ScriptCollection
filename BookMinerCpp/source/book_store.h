@@ -76,6 +76,7 @@ public:
     using Map = std::unordered_map<PackedSfen, PositionInfo, PackedSfenHash>;
 
     std::size_t size() const;
+    std::uint64_t revision() const;
     bool empty() const;
     void clear();
 
@@ -115,6 +116,7 @@ private:
 
     mutable std::mutex mutex_;
     std::size_t size_ = 0;
+    std::uint64_t revision_ = 0;
     Map memtable_;
     std::vector<Run> runs_;
     std::unordered_set<PackedSfen, PackedSfenHash> searching_;

@@ -55,7 +55,7 @@ constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settin
 constexpr int ThinkCommandPly = 6;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
-constexpr double DefaultDepthGapEvalPerPly = 1.0;
+constexpr double DefaultDepthGapEvalPerPly = 0.1;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaDepthGapProgressInterval = 100000;
 
@@ -1843,18 +1843,19 @@ private:
     bool started_ = false;
 };
 
-void load_latest_book_backup(bookminer::BookStore& book)
+std::optional<fs::path> load_latest_book_backup(bookminer::BookStore& book)
 {
     auto path = get_latest_book_backup_or_none();
     if (!path.has_value())
     {
         log_line("book backup file not found. start with empty book. dir = " + std::string(BookBackupDir));
-        return;
+        return std::nullopt;
     }
 
     log_line("start load_book , path = " + path->string() + ", fast = True");
     book.load_yaneuraou_book(*path, false, book_read_progress, nullptr);
     log_line("done.." + std::to_string(book.size()) + " positions.");
+    return path;
 }
 
 void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::string>& peta_book_path)
@@ -1876,10 +1877,9 @@ void make_and_read_peta_book(
     read_peta_book(peta_book, std::optional<std::string>{peta_path.string()});
 }
 
-void write_and_read_peta_book(const fs::path& app_dir, const bookminer::BookStore& book, bookminer::BookStore& peta_book)
+void write_and_read_peta_book(const fs::path& app_dir, bookminer::BookStore& peta_book, const fs::path& source_book_path)
 {
     log_line("start p command : write backup, peta_shock, and read peta book.");
-    const auto source_book_path = save_book_backup(book, std::nullopt);
     log_line("p command source book = " + source_book_path.string());
     make_and_read_peta_book(app_dir, peta_book, std::optional<std::string>{source_book_path.string()});
     log_line("..p command has done.");
@@ -1948,6 +1948,8 @@ int main(int argc, char* argv[])
     std::unique_ptr<AutoSaveService> auto_save_service;
     int eval_limit = 400;
     int max_book_ply = 200;
+    std::optional<fs::path> clean_source_path;
+    std::uint64_t clean_source_revision = 0;
 
     try
     {
@@ -1962,7 +1964,8 @@ int main(int argc, char* argv[])
         max_book_ply = book_miner_settings.max_book_ply;
 
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
-        load_latest_book_backup(book);
+        clean_source_path = load_latest_book_backup(book);
+        clean_source_revision = book.revision();
         log_line("[StartupStage] stage=book_read_done message=定跡DB読み込み完了");
 
         log_line("[StartupStage] stage=engine_init message=エンジン起動中");
@@ -2006,7 +2009,13 @@ int main(int argc, char* argv[])
             else if (command == "q")
             {
                 log_line("quit");
-                save_book_backup(book, std::nullopt);
+                const auto before_revision = book.revision();
+                const auto path = save_book_backup(book, std::nullopt);
+                if (book.revision() == before_revision)
+                {
+                    clean_source_path = path;
+                    clean_source_revision = before_revision;
+                }
                 if (auto_save_service)
                     auto_save_service->stop();
                 if (task_workers)
@@ -2027,7 +2036,13 @@ int main(int argc, char* argv[])
                 std::optional<int> ply_limit;
                 if (tokens.size() >= 2)
                     ply_limit = std::stoi(tokens[1]);
+                const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, ply_limit);
+                if (!ply_limit.has_value() && book.revision() == before_revision)
+                {
+                    clean_source_path = path;
+                    clean_source_revision = before_revision;
+                }
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
             }
@@ -2073,7 +2088,26 @@ int main(int argc, char* argv[])
             }
             else if (command == "p")
             {
-                write_and_read_peta_book(app_dir, book, peta_book);
+                fs::path source_book_path;
+                const auto current_revision = book.revision();
+                if (clean_source_path.has_value()
+                    && fs::is_regular_file(*clean_source_path)
+                    && clean_source_revision == current_revision)
+                {
+                    source_book_path = *clean_source_path;
+                    log_line("p command source book reused = " + source_book_path.string());
+                }
+                else
+                {
+                    const auto before_revision = book.revision();
+                    source_book_path = save_book_backup(book, std::nullopt);
+                    if (book.revision() == before_revision)
+                    {
+                        clean_source_path = source_book_path;
+                        clean_source_revision = before_revision;
+                    }
+                }
+                write_and_read_peta_book(app_dir, peta_book, source_book_path);
             }
             else if (command == "n")
             {
