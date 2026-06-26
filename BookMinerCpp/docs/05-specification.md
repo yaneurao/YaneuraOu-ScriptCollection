@@ -83,7 +83,7 @@ book_miner-....ybb.tmp
 book/backup/peta_book-YYYYMMDDHHMMSS_N.ybb
 ```
 
-BookMinerCpp は `p` コマンドでの peta shock 化を自前実装せず、`YO-MATERIAL.exe` に次のようなコマンドを送ります。
+BookMinerCpp は `p` コマンドでの peta shock 化を自前実装せず、`YO-MATERIAL.exe` に次のようなコマンドを送ります。メモリ上の通常DBが最後に読み込み/保存した通常DBから変わっていない場合は、その既存ファイルを変換元として再利用します。
 
 ```text
 setoption name BookDir value book

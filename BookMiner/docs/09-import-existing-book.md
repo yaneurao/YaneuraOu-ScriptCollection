@@ -226,7 +226,7 @@ GUI:
 手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
         または peta refutation eval refu. 100
-        または peta depth_gap eval/ply 1
+        または peta depth_gap eval/ply 0.1
 手順3. enqueue    eval_limit 99999
 ```
 

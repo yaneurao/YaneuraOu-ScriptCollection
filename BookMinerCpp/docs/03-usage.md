@@ -98,7 +98,7 @@ book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 
 ## peta shock 化
 
-`p` コマンドは、BookMinerCpp の `.ybb` バックアップを `YO-MATERIAL.exe` に渡します。
+`p` コマンドは、BookMinerCpp の `.ybb` バックアップを `YO-MATERIAL.exe` に渡します。起動時に読み込んだ通常DB、または最後に `w` で書き出した通常DBからメモリ内容が変わっていなければ、通常DBを再書き出しせず、その既存ファイルを再利用します。
 
 ```text
 makebook peta_shock backup/book_miner-....ybb backup/peta_book-....ybb.tmp
