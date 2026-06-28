@@ -16,6 +16,17 @@ FLOODGATE_DAILY_BASE_URL = "https://wdoor.c.u-tokyo.ac.jp/shogi/x/"
 FLOODGATE_TODAY_URL = "https://wdoor.c.u-tokyo.ac.jp/shogi/x/today/"
 USER_AGENT = "YaneuraOu-KifManager-Floodgate-Kif-Downloader/1.0"
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+CSA_TERMINAL_MARKERS = {
+    "%TORYO",
+    "%CHUDAN",
+    "%SENNICHITE",
+    "%JISHOGI",
+    "%KACHI",
+    "%HIKIWAKE",
+    "%MATTA",
+    "%ILLEGAL_MOVE",
+    "%TIME_UP",
+}
 
 
 class FloodgateDownloadError(Exception):
@@ -162,11 +173,14 @@ def download_changed_file(
     if destination.exists() and not destination.is_file():
         raise FloodgateDownloadError(f"出力先が通常ファイルではありません: {destination}")
 
+    local_bytes = destination.stat().st_size if destination.exists() else None
+    if destination.exists() and is_complete_csa_file(destination):
+        return 0, True, None, local_bytes
+
     try:
         remote_bytes = fetch_content_length(url, timeout)
     except OSError:
         remote_bytes = None
-    local_bytes = destination.stat().st_size if destination.exists() else None
     if remote_bytes is not None and local_bytes == remote_bytes:
         return 0, True, remote_bytes, local_bytes
 
@@ -186,6 +200,22 @@ def download_changed_file(
 
     temporary.replace(destination)
     return bytes_written, False, remote_bytes, local_bytes
+
+
+def is_complete_csa_file(path: Path) -> bool:
+    if path.suffix.lower() != ".csa" or not path.is_file():
+        return False
+    try:
+        text = decode_text(path.read_bytes())
+    except OSError:
+        return False
+    for line in reversed(text.splitlines()):
+        marker = line.strip().split(",", 1)[0]
+        if not marker:
+            continue
+        if marker in CSA_TERMINAL_MARKERS:
+            return True
+    return False
 
 
 def decode_text(data: bytes) -> str:
