@@ -295,10 +295,10 @@ class BookMinerGui(ttk.Frame):
         Tooltip(self.next_button, "`n eval_diff max_step game_ply_limit` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。")
         ttk.Label(commands, text="eval_diff").grid(row=2, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=2, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=2, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=2, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=2, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_next_ply_limit, width=8).grid(row=2, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=2, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_ply_limit, width=8).grid(row=2, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=2, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=2, column=7, sticky="w", pady=3)
 
         ttk.Label(commands, text="").grid(row=3, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
