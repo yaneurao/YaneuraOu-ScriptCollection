@@ -316,33 +316,35 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval/ply").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=4, column=3, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順3.").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="共通").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=5, column=1, sticky="w", padx=(8, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=5, column=2, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=5, column=3, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=5, column=4, sticky="w", pady=3)
+
+        ttk.Label(commands, text="手順3.").grid(row=6, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
             command=self.send_think,
         )
-        self.enqueue_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.enqueue_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.enqueue_button, "`l game_ply_limit` と `e eval_limit` を送信してから `t` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
-        ttk.Label(commands, text="eval_limit").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=5, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=5, column=5, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順4.").grid(row=6, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順4.").grid(row=7, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
             commands,
             text="自動enqueue",
             variable=self.auto_enqueue_enabled,
             command=self.on_auto_enqueue_toggled,
         )
-        self.auto_check.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.auto_check.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
-        ttk.Label(commands, text="queueの残りが").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=6, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="queueの残りが").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=7, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
-            row=6,
+            row=7,
             column=4,
             columnspan=4,
             sticky="w",
@@ -350,17 +352,17 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        ttk.Label(commands, text="手順5.").grid(row=7, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順5.").grid(row=8, column=0, sticky="w", pady=3)
         self.write_button = ttk.Button(
             commands,
             text="DB手動保存",
             width=STEP_BUTTON_WIDTH,
             command=self.send_backup,
         )
-        self.write_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.write_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
         ttk.Label(commands, textvariable=self.backup_status).grid(
-            row=7,
+            row=8,
             column=2,
             columnspan=6,
             sticky="w",
