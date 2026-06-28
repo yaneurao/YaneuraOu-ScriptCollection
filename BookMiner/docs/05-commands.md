@@ -48,23 +48,25 @@ t book/positions-2026.txt
 
 `t` は、入力ファイルの各行を辿り、まだ掘っていない局面をバックグラウンドの思考タスクとして投入します。この投入操作を GUI では `enqueue` と呼びます。
 
+最大手数は第2引数で指定できます。path を省略して最大手数だけ指定する場合は、次のように書けます。
+
+```text
+t 200
+```
+
+別ファイルと最大手数を同時に指定する場合は、次のように書きます。
+
+```text
+t book/positions-2026.txt 200
+```
+
 queue は、これから探索する局面を一時的に積んでおく待ち行列です。`enqueue` は、その queue に局面を追加する操作です。queue に積まれた局面は、探索スレッドによって順に処理されます。
 
 進捗は画面と `log/` のログで確認してください。
 
 GUI の `enqueue進捗` は、worker が受け取ったタスク数をもとに表示されます。探索が完全に終わった数ではありませんが、BookMiner 起動後に enqueue した累計タスクに対して、どこまで worker に渡ったかを確認できます。複数回 enqueue した場合、分母は追加分だけ増えます。
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達した局面は思考しません。実行中に変更する場合は `l` コマンドを使います。
-
-## `l`
-
-探索と `peta_next` で使う最大手数を変更します。
-
-```text
-l 200
-```
-
-引数なしの `l` は現在値を表示します。GUI の `game ply limit` 欄はこのコマンドに対応します。
+`settings/book_miner_settings.json5` の `max_book_ply` に到達した局面は思考しません。`t` の末尾に最大手数を指定した場合は、その job だけ指定値を使います。
 
 ## `w`
 
@@ -185,7 +187,13 @@ book/think_sfens.txt
 n 30 40
 ```
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。
+第 3 引数で最大手数を指定できます。
+
+```text
+n 30 40 200
+```
+
+`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。第 3 引数を指定した場合は、その値を使います。
 
 `settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`n` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
 `n` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`n` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
@@ -202,6 +210,7 @@ f 100 400
 引数は `eval_refutation_margin` です。省略時は `100` です。
 peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
 第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
+第3引数に `max_book_ply` を指定できます。
 
 出力先:
 
@@ -212,7 +221,7 @@ book/think_sfens.txt
 抽出された行は、反駁候補手を指した後の `sfen ... moves ...` 形式です。`enqueue` すると、その先の局面を探索できます。
 
 `f` コマンドは root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。
-反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。実行中に `max_book_ply` を変える場合は、先に `l` コマンドを使います。
+反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。第3引数を指定した場合は、その値を使います。
 10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
 
 `refutation 100 400` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合は `eval_refutation_margin=100`、`eval_limit` なしとして扱います。
@@ -226,6 +235,7 @@ d 1
 ```
 
 引数は `eval_per_ply` です。省略時は `0.1` です。0以上の数値を指定します。`0.5` のような小数も指定できます。
+第2引数に `max_book_ply` を指定できます。
 判定式は次の通りです。
 
 ```text

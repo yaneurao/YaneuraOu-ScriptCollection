@@ -129,7 +129,7 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは `game ply limit` 欄、CLIでは `l` コマンドで調整してください。
+ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `n`/`f`/`d` コマンドの末尾引数で調整してください。
 
 ## 手順3. enqueue する
 

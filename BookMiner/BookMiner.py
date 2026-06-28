@@ -193,6 +193,9 @@ class Task:
     # 他workerが同じ局面を探索中だったためにqueue末尾へ戻した回数。
     defer_count : int = 0
 
+    # このtaskで掘る最大手数。
+    max_book_ply : int = MAX_BOOK_PLY
+
 
 @dataclass
 class TaskQueueJobProgress:
@@ -1055,13 +1058,15 @@ class EngineManager:
 
         self.engines = engines
 
-    def reached_max_book_ply(self, ply:int)->bool:
-        return ply >= self.book_miner_settings.max_book_ply
+    def reached_max_book_ply(self, ply:int, max_book_ply:int|None = None)->bool:
+        limit = self.book_miner_settings.max_book_ply if max_book_ply is None else max_book_ply
+        return ply >= limit
 
-    def print_reached_max_book_ply(self, sfen:Sfen, ply:int):
+    def print_reached_max_book_ply(self, sfen:Sfen, ply:int, max_book_ply:int|None = None):
+        limit = self.book_miner_settings.max_book_ply if max_book_ply is None else max_book_ply
         print(
             "max_book_ply reached. "
-            f"ply = {ply}, max_book_ply = {self.book_miner_settings.max_book_ply}, "
+            f"ply = {ply}, max_book_ply = {limit}, "
             f"sfen = {sfen}"
         )
 
@@ -1076,7 +1081,7 @@ class EngineManager:
         dump_position(SFEN_START, position_info)
 
 
-    def think_sfen_once(self, book:Book, engine:Engine, sfen:Sfen, ply:int, last_thinking_ply:int, visited:set[Sfen]):
+    def think_sfen_once(self, book:Book, engine:Engine, sfen:Sfen, ply:int, last_thinking_ply:int, visited:set[Sfen], max_book_ply:int|None = None):
         """
         1局面について、未思考なら思考してbookにマージする。
         """
@@ -1084,9 +1089,10 @@ class EngineManager:
 
         current_sfen = sfen
         current_sfen_f = flipped_sfen(current_sfen)
+        limit = self.book_miner_settings.max_book_ply if max_book_ply is None else max_book_ply
 
-        if self.reached_max_book_ply(ply):
-            self.print_reached_max_book_ply(current_sfen, ply)
+        if self.reached_max_book_ply(ply, limit):
+            self.print_reached_max_book_ply(current_sfen, ply, limit)
             return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE
 
         with book.lock:
@@ -1206,6 +1212,7 @@ class EngineManager:
         sfen        = task.sfen
         ply         = task.ply
         eval_limit  = task.eval_limit
+        max_book_ply = task.max_book_ply
 
         engine.send_newgame()
 
@@ -1227,7 +1234,7 @@ class EngineManager:
                 break
 
             # 現局面を必要なら思考する。
-            position_info, current_sfen, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+            position_info, current_sfen, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
             if status == TASK_RESULT_DEFERRED:
                 return TASK_RESULT_DEFERRED
             if position_info is None:
@@ -1279,6 +1286,7 @@ class EngineManager:
             return TASK_RESULT_DONE
 
         eval_limit = task.eval_limit
+        max_book_ply = task.max_book_ply
         sfen, moves = parse_position_string(task.position_cmd)
         board = cshogi.Board(sfen) # type:ignore
 
@@ -1290,14 +1298,14 @@ class EngineManager:
         for move in moves:
             current_sfen, ply = trim_sfen_ply(board.sfen())
 
-            if self.reached_max_book_ply(ply):
-                self.print_reached_max_book_ply(current_sfen, ply)
+            if self.reached_max_book_ply(ply, max_book_ply):
+                self.print_reached_max_book_ply(current_sfen, ply, max_book_ply)
                 return TASK_RESULT_DONE
 
             # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
             position_info, _ = self.get_book_position_info(book, current_sfen)
             if position_info is None or not has_considered(position_info):
-                position_info, _, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited)
+                position_info, _, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
                 if status == TASK_RESULT_DEFERRED:
                     return TASK_RESULT_DEFERRED
                 if position_info is None:
@@ -1318,7 +1326,7 @@ class EngineManager:
             checked_push_usi(board, move, context=task.position_cmd)
 
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
-        return self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit))
+        return self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit, max_book_ply=max_book_ply))
 
     """
     def parallel_think(self, book:Book, think_sfens:list[Sfen]):
@@ -2428,53 +2436,54 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
     skipped_by_eval_limit = 0
     skipped_by_ply = 0
     with peta_book.lock:
-        peta_items = list(peta_book.body.items())
+        total = len(peta_book.body)
+        for processed, (sfen, peta_position) in enumerate(peta_book.body.items(), start=1):
+            if processed % PETA_REFUTATION_PROGRESS_INTERVAL == 0:
+                print(
+                    f"refutation progress nodes = {processed}/{total} , "
+                    f"think_sfens = {len(think_sfens)} , "
+                    f"skipped_by_eval_limit = {skipped_by_eval_limit} , "
+                    f"skipped_by_ply = {skipped_by_ply}"
+                )
 
-    total = len(peta_items)
-    for processed, (sfen, peta_position) in enumerate(peta_items, start=1):
-        if processed % PETA_REFUTATION_PROGRESS_INTERVAL == 0:
-            print(
-                f"refutation progress nodes = {processed}/{total} , "
-                f"think_sfens = {len(think_sfens)} , skipped_by_eval_limit = {skipped_by_eval_limit}"
-            )
+            if not peta_position.moveinfos:
+                continue
 
-        if not peta_position.moveinfos:
-            continue
+            if peta_position.ply + 1 >= max_book_ply:
+                skipped_by_ply += 1
+                continue
 
-        old_position, old_flipped = find_book_position_with_flip(book, sfen)
-        if old_position is None or not old_position.moveinfos:
-            continue
+            peta_best = peta_position.moveinfos[0]
+            if peta_best.depth != 0:
+                continue
+            if not isinstance(peta_best.eval, int):
+                continue
 
-        peta_best = peta_position.moveinfos[0]
-        if peta_best.depth != 0:
-            continue
-        if not isinstance(peta_best.eval, int):
-            continue
+            old_position, old_flipped = find_book_position_with_flip(book, sfen)
+            if old_position is None or not old_position.moveinfos:
+                continue
 
-        peta_best_move = peta_best.move
-        old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
-        old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
+            peta_best_move = peta_best.move
+            old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
+            old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
 
-        if old_best is None or old_candidate is None:
-            continue
-        if old_best_move == peta_best_move:
-            continue
-        if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
-            continue
-        if old_best.eval - old_candidate.eval < eval_refutation_margin:
-            continue
-        if eval_limit is not None and abs(old_candidate.eval) > eval_limit:
-            skipped_by_eval_limit += 1
-            continue
-        if peta_position.ply + 1 >= max_book_ply:
-            skipped_by_ply += 1
-            continue
+            if old_best is None or old_candidate is None:
+                continue
+            if old_best_move == peta_best_move:
+                continue
+            if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
+                continue
+            if old_best.eval - old_candidate.eval < eval_refutation_margin:
+                continue
+            if eval_limit is not None and abs(old_candidate.eval) > eval_limit:
+                skipped_by_eval_limit += 1
+                continue
 
-        sfen_with_ply = f"{sfen} {peta_position.ply}"
-        position_cmd = f"sfen {sfen_with_ply}"
+            sfen_with_ply = f"{sfen} {peta_position.ply}"
+            position_cmd = f"sfen {sfen_with_ply}"
 
-        refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
-        think_sfens[refutation_position_cmd] = None
+            refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
+            think_sfens[refutation_position_cmd] = None
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     with open(path, 'w') as w:
@@ -2626,10 +2635,10 @@ def scheduled_time_text(timestamp:float)->str:
     return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
 
 
-def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int):
+def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int, max_book_ply:int):
     job_counter_local = get_job_counter()
 
-    print(f"({job_counter_local}) put position commands , path = {path} , eval_limit = {eval_limit}")
+    print(f"({job_counter_local}) put position commands , path = {path} , eval_limit = {eval_limit}, max_book_ply = {max_book_ply}")
     if not os.path.exists(path):
         print(f"({job_counter_local}) put position commands Error : file not found, path = {path}")
         return
@@ -2659,7 +2668,7 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
     engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
 
     for line in lines:
-        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local))
+        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local, max_book_ply=max_book_ply))
 
     print(f"({job_counter_local}) put position commands , done.")
 
@@ -2850,17 +2859,16 @@ def user_input(from_gui:bool = False):
                 print("  Q : quit")
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
-                print("  T : think positions          , t (think_sfens path)")
+                print("  T : think positions          , t (think_sfens path) (max_book_ply)")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
                 print("  E : EvalLimit , e [eval_limit]")
-                print("  L : MaxBookPly , l [max_book_ply]")
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
-                print("  N    : peta_shock next , n peta_eval_diff (max_step)")
-                print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit)")
-                print("  D    : peta depth gap , d (eval_per_ply)")
+                print("  N    : peta_shock next , n peta_eval_diff (max_step) (max_book_ply)")
+                print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit) (max_book_ply)")
+                print("  D    : peta depth gap , d (eval_per_ply) (max_book_ply)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -2889,12 +2897,24 @@ def user_input(from_gui:bool = False):
                 write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
 
             elif i == 't':
+                max_book_ply = book_miner_settings.max_book_ply
                 if len(inp) < 2:
                     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+                elif len(inp) == 2 and inp[1].isdigit():
+                    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+                    max_book_ply = int(inp[1])
                 else:
                     path = inp[1]
+                    if len(inp) >= 3:
+                        max_book_ply = int(inp[2])
 
-                Thread(target=lambda: put_position_commands(book, path, engine_manager, eval_limit), daemon=True).start()
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                else:
+                    Thread(
+                        target=lambda: put_position_commands(book, path, engine_manager, eval_limit, max_book_ply),
+                        daemon=True,
+                    ).start()
 
             elif i == 'i':
                 if len(inp) < 2:
@@ -2911,17 +2931,6 @@ def user_input(from_gui:bool = False):
                 else:
                     eval_limit = int(inp[1])
                     print(f"eval_limit = {eval_limit}")
-
-            elif i == 'l':
-                if len(inp) < 2:
-                    print(f"max_book_ply = {book_miner_settings.max_book_ply}")
-                else:
-                    max_book_ply = int(inp[1])
-                    if max_book_ply <= 0:
-                        print("Error : max_book_ply must be positive integer.")
-                    else:
-                        book_miner_settings.max_book_ply = max_book_ply
-                        print(f"max_book_ply = {book_miner_settings.max_book_ply}")
 
             elif i == 'm':
                 merge_flipped_positions(book)
@@ -2942,14 +2951,18 @@ def user_input(from_gui:bool = False):
             elif i == 'n':
                 # peta_next
                 if len(inp) < 2:
-                    print("Usage : n peta_eval_diff (max_step)")
+                    print("Usage : n peta_eval_diff (max_step) (max_book_ply)")
                 else:
                     peta_eval_diff = int(inp[1])
                     max_step = 9999 if len(inp) < 3 else int(inp[2])
+                    max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
+                    if max_book_ply <= 0:
+                        print("Error : max_book_ply must be positive integer.")
+                        continue
                     peta_next(
                         peta_eval_diff,
                         max_step,
-                        book_miner_settings.max_book_ply,
+                        max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
                     )
 
@@ -2957,22 +2970,29 @@ def user_input(from_gui:bool = False):
                 # peta_refutation
                 eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 2 else int(inp[1])
                 refutation_eval_limit = None if len(inp) < 3 else int(inp[2])
+                max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                    continue
                 peta_refutation(
                     book,
                     eval_refutation_margin,
                     refutation_eval_limit,
-                    book_miner_settings.max_book_ply,
+                    max_book_ply,
                 )
 
             elif i == 'd' or i == 'depth_gap':
                 # peta_depth_gap
                 eval_per_ply = DEFAULT_DEPTH_GAP_EVAL_PER_PLY if len(inp) < 2 else float(inp[1])
+                max_book_ply = book_miner_settings.max_book_ply if len(inp) < 3 else int(inp[2])
                 if eval_per_ply < 0:
                     print("Error : eval_per_ply must be non-negative number.")
+                elif max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
                 else:
                     peta_depth_gap(
                         eval_per_ply,
-                        book_miner_settings.max_book_ply,
+                        max_book_ply,
                     )
 
         except Exception as e:

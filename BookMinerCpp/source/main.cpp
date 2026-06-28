@@ -472,6 +472,7 @@ std::vector<std::string> read_position_commands_file(const std::filesystem::path
 struct Task {
     std::string position_command;
     int eval_limit = 0;
+    int max_book_ply = 0;
     int job_id = 0;
 };
 
@@ -529,10 +530,9 @@ public:
     TaskWorkers(
         bookminer::BookStore& book,
         std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines,
-        int max_book_ply)
+        int)
         : book_(book)
         , engines_(engines)
-        , max_book_ply_(max_book_ply)
     {
     }
 
@@ -551,12 +551,7 @@ public:
         }
     }
 
-    void set_max_book_ply(int max_book_ply)
-    {
-        max_book_ply_.store(max_book_ply);
-    }
-
-    int enqueue_position_commands(const std::filesystem::path& path, int eval_limit)
+    int enqueue_position_commands(const std::filesystem::path& path, int eval_limit, int max_book_ply)
     {
         const auto commands = read_position_commands_file(path);
         const int job_id = next_job_id_.fetch_add(1);
@@ -573,7 +568,8 @@ public:
         }
 
         log_line("(" + std::to_string(job_id) + ") put position commands , path = " + path.string()
-            + " , eval_limit = " + std::to_string(eval_limit));
+            + " , eval_limit = " + std::to_string(eval_limit)
+            + ", max_book_ply = " + std::to_string(max_book_ply));
         log_line("(" + std::to_string(job_id) + ") read " + std::to_string(added) + " position commands.");
         log_line("[TaskQueueStart] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
@@ -585,7 +581,7 @@ public:
             + " eval_limit=" + std::to_string(eval_limit));
 
         for (const auto& command : commands)
-            queue_.push(Task{command, eval_limit, job_id});
+            queue_.push(Task{command, eval_limit, max_book_ply, job_id});
 
         if (commands.empty())
             report_task_queue_done(job_id);
@@ -625,7 +621,7 @@ private:
 
             try
             {
-                process_position_command(book_, engine, task->position_command, task->eval_limit, max_book_ply_.load());
+                process_position_command(book_, engine, task->position_command, task->eval_limit, task->max_book_ply);
             }
             catch (const std::exception& ex)
             {
@@ -721,7 +717,6 @@ private:
 
     bookminer::BookStore& book_;
     std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines_;
-    std::atomic<int> max_book_ply_{0};
     TaskQueue queue_;
     std::vector<std::thread> threads_;
     std::atomic<int> next_job_id_{1};
@@ -1208,13 +1203,19 @@ void peta_refutation(
         if (peta_position.moves.empty())
             continue;
 
-        const std::string sfen = bookminer::trim_sfen(bookminer::unpack_sfen_bytes(entry.key.bytes));
-        const auto old_hit = find_book_position_with_flip(book, sfen);
-        if (!old_hit.position.has_value() || old_hit.position->moves.empty())
+        if (static_cast<int>(peta_position.ply) + 1 >= max_book_ply)
+        {
+            ++skipped_by_ply;
             continue;
+        }
 
         const auto& peta_best = peta_position.moves.front();
         if (peta_best.depth != 0)
+            continue;
+
+        const std::string sfen = bookminer::trim_sfen(bookminer::unpack_sfen_bytes(entry.key.bytes));
+        const auto old_hit = find_book_position_with_flip(book, sfen);
+        if (!old_hit.position.has_value() || old_hit.position->moves.empty())
             continue;
 
         const std::uint16_t peta_best_oriented_move16 = peta_best.move16;
@@ -1233,11 +1234,6 @@ void peta_refutation(
         if (eval_limit.has_value() && std::abs(static_cast<int>(old_candidate->eval)) > *eval_limit)
         {
             ++skipped_by_eval_limit;
-            continue;
-        }
-        if (static_cast<int>(peta_position.ply) + 1 >= max_book_ply)
-        {
-            ++skipped_by_ply;
             continue;
         }
 
@@ -1910,14 +1906,13 @@ void print_help()
     log_line("  Q : quit");
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
-    log_line("  T : think positions          , t (think_sfens path)");
+    log_line("  T : think positions          , t (think_sfens path) (max_book_ply)");
     log_line("  E : EvalLimit                , e [eval_limit]");
-    log_line("  L : MaxBookPly               , l [max_book_ply]");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
-    log_line("  N : peta_shock next          , n peta_eval_diff (max_step)");
-    log_line("  F : peta refutation          , f (eval_refutation_margin) (eval_limit)");
-    log_line("  D : peta depth gap           , d (eval_per_ply)");
+    log_line("  N : peta_shock next          , n peta_eval_diff (max_step) (max_book_ply)");
+    log_line("  F : peta refutation          , f (eval_refutation_margin) (eval_limit) (max_book_ply)");
+    log_line("  D : peta depth gap           , d (eval_per_ply) (max_book_ply)");
     log_line("  H : Help");
 }
 
@@ -2074,35 +2069,26 @@ int main(int argc, char* argv[])
                     log_line("eval_limit = " + std::to_string(eval_limit));
                 }
             }
-            else if (command == "l")
-            {
-                if (tokens.size() < 2)
-                {
-                    log_line("max_book_ply = " + std::to_string(max_book_ply));
-                }
-                else
-                {
-                    const int next_max_book_ply = std::stoi(tokens[1]);
-                    if (next_max_book_ply <= 0)
-                    {
-                        log_line("Error : max_book_ply must be positive integer.");
-                    }
-                    else
-                    {
-                        max_book_ply = next_max_book_ply;
-                        if (task_workers)
-                            task_workers->set_max_book_ply(max_book_ply);
-                        log_line("max_book_ply = " + std::to_string(max_book_ply));
-                    }
-                }
-            }
             else if (command == "t")
             {
-                const std::string path = tokens.size() >= 2 ? tokens[1] : fs::path(BookDir).append(ThinkSfensName).string();
+                int task_max_book_ply = max_book_ply;
+                std::string path = fs::path(BookDir).append(ThinkSfensName).string();
+                if (tokens.size() == 2 && std::all_of(tokens[1].begin(), tokens[1].end(), ::isdigit))
+                {
+                    task_max_book_ply = std::stoi(tokens[1]);
+                }
+                else if (tokens.size() >= 2)
+                {
+                    path = tokens[1];
+                    if (tokens.size() >= 3)
+                        task_max_book_ply = std::stoi(tokens[2]);
+                }
                 if (!task_workers)
                     log_line("Error : task workers are not running.");
+                else if (task_max_book_ply <= 0)
+                    log_line("Error : max_book_ply must be positive integer.");
                 else
-                    task_workers->enqueue_position_commands(path, eval_limit);
+                    task_workers->enqueue_position_commands(path, eval_limit, task_max_book_ply);
             }
             else if (command == "p")
             {
@@ -2131,17 +2117,23 @@ int main(int argc, char* argv[])
             {
                 if (tokens.size() < 2)
                 {
-                    log_line("Usage : n peta_eval_diff (max_step)");
+                    log_line("Usage : n peta_eval_diff (max_step) (max_book_ply)");
                 }
                 else
                 {
                     const int peta_eval_diff = std::stoi(tokens[1]);
                     const int max_step = tokens.size() >= 3 ? std::stoi(tokens[2]) : 9999;
+                    const int command_max_book_ply = tokens.size() >= 4 ? std::stoi(tokens[3]) : max_book_ply;
+                    if (command_max_book_ply <= 0)
+                    {
+                        log_line("Error : max_book_ply must be positive integer.");
+                        continue;
+                    }
                     peta_next(
                         peta_book,
                         peta_eval_diff,
                         max_step,
-                        max_book_ply,
+                        command_max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path);
                 }
             }
@@ -2153,27 +2145,39 @@ int main(int argc, char* argv[])
                 std::optional<int> refutation_eval_limit;
                 if (tokens.size() >= 3)
                     refutation_eval_limit = std::stoi(tokens[2]);
+                const int command_max_book_ply = tokens.size() >= 4 ? std::stoi(tokens[3]) : max_book_ply;
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
                 peta_refutation(
                     book,
                     peta_book,
                     eval_refutation_margin,
                     refutation_eval_limit,
-                    max_book_ply);
+                    command_max_book_ply);
             }
             else if (command == "d" || command == "depth_gap")
             {
                 const double eval_per_ply = tokens.size() < 2
                     ? DefaultDepthGapEvalPerPly
                     : std::stod(tokens[1]);
+                const int command_max_book_ply = tokens.size() >= 3 ? std::stoi(tokens[2]) : max_book_ply;
                 if (eval_per_ply < 0)
                 {
                     log_line("Error : eval_per_ply must be non-negative number.");
                     continue;
                 }
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
                 peta_depth_gap(
                     peta_book,
                     eval_per_ply,
-                    max_book_ply);
+                    command_max_book_ply);
             }
             else if (command == "r")
             {
