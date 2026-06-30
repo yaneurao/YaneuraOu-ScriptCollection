@@ -29,6 +29,7 @@ GUI_SETTING_DEFAULTS = {
     "eval_limit": "400",
     "game_ply_limit": "200",
     "peta_next_ply_limit": "200",
+    "peta_next_refutation_ply_limit": "200",
     "peta_refutation_ply_limit": "200",
     "peta_depth_gap_ply_limit": "200",
     "auto_enqueue_threshold": "1000",
@@ -48,6 +49,7 @@ COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
 PETA_READ_DONE_RE = re.compile(r"\[PetaReadDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
+PETA_NEXT_REFUTATION_DONE_RE = re.compile(r"\[PetaNextRefutationDone\]")
 PETA_REFUTATION_DONE_RE = re.compile(r"\[PetaRefutationDone\]")
 PETA_DEPTH_GAP_DONE_RE = re.compile(r"\[PetaDepthGapDone\]")
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
@@ -232,6 +234,12 @@ class BookMinerGui(ttk.Frame):
         self.peta_next_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_next_ply_limit", gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_next_ply_limit"]))
         )
+        self.peta_next_refutation_ply_limit = tk.StringVar(
+            value=gui_settings.get(
+                "peta_next_refutation_ply_limit",
+                gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_next_refutation_ply_limit"]),
+            )
+        )
         self.peta_refutation_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_refutation_ply_limit", gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_refutation_ply_limit"]))
         )
@@ -301,66 +309,85 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=2, column=7, sticky="w", pady=3)
 
         ttk.Label(commands, text="").grid(row=3, column=0, sticky="w", pady=3)
+        self.next_refutation_button = ttk.Button(
+            commands,
+            text="peta next refu.",
+            width=16,
+            command=self.send_peta_next_refutation,
+        )
+        self.next_refutation_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
+        Tooltip(
+            self.next_refutation_button,
+            "`nf eval_diff max_step game_ply_limit eval_refutation_margin` を送信します。peta_nextのleafのうち、元DBでbestでなかった反駁leafだけを抽出します。",
+        )
+        ttk.Label(commands, text="eval_diff").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_diff, width=8).grid(row=3, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_refutation_ply_limit, width=8).grid(row=3, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="eval refu.").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=7, sticky="w", pady=3)
+
+        ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
             commands,
             text="peta refutation",
             width=16,
             command=self.send_peta_refutation,
         )
-        self.refutation_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.refutation_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
             "`f eval_refutation_margin eval_limit game_ply_limit` を送信します。反駁候補を抽出し、eval_limit と game ply limit で事前除外します。",
         )
-        ttk.Label(commands, text="eval refu.").grid(row=3, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=3, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="eval refu.").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=4, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
 
-        ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
         self.depth_gap_button = ttk.Button(
             commands,
             text="peta depth_gap",
             width=16,
             command=self.send_peta_depth_gap,
         )
-        self.depth_gap_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.depth_gap_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.depth_gap_button,
             "`d eval_per_ply game_ply_limit` を送信します。bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。",
         )
-        ttk.Label(commands, text="eval/ply").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=4, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="eval/ply").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=5, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_depth_gap_ply_limit, width=8).grid(row=5, column=5, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順3.").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順3.").grid(row=6, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
             command=self.send_think,
         )
-        self.enqueue_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.enqueue_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.enqueue_button, "`e eval_limit` のあと `t book/think_sfens.txt game_ply_limit` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
-        ttk.Label(commands, text="eval_limit").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=5, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=5, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=6, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=6, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=6, column=5, sticky="w", pady=3)
 
-        ttk.Label(commands, text="手順4.").grid(row=6, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順4.").grid(row=7, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
             commands,
             text="自動enqueue",
             variable=self.auto_enqueue_enabled,
             command=self.on_auto_enqueue_toggled,
         )
-        self.auto_check.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.auto_check.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
-        ttk.Label(commands, text="queueの残りが").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=6, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="queueの残りが").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=7, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
-            row=6,
+            row=7,
             column=4,
             columnspan=4,
             sticky="w",
@@ -368,17 +395,17 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        ttk.Label(commands, text="手順5.").grid(row=7, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順5.").grid(row=8, column=0, sticky="w", pady=3)
         self.write_button = ttk.Button(
             commands,
             text="DB手動保存",
             width=STEP_BUTTON_WIDTH,
             command=self.send_backup,
         )
-        self.write_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.write_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
         ttk.Label(commands, textvariable=self.backup_status).grid(
-            row=7,
+            row=8,
             column=2,
             columnspan=6,
             sticky="w",
@@ -389,6 +416,7 @@ class BookMinerGui(ttk.Frame):
             self.peta_button,
             self.peta_read_button,
             self.next_button,
+            self.next_refutation_button,
             self.refutation_button,
             self.depth_gap_button,
             self.enqueue_button,
@@ -1106,6 +1134,12 @@ class BookMinerGui(ttk.Frame):
                     self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
                 return
 
+        if PETA_NEXT_REFUTATION_DONE_RE.search(line):
+            if self.busy_action == "manual_peta_next_refutation":
+                self.busy_action = None
+                self._update_buttons()
+                return
+
         if PETA_REFUTATION_DONE_RE.search(line):
             if self.busy_action == "manual_peta_refutation":
                 self.busy_action = None
@@ -1233,12 +1267,14 @@ class BookMinerGui(ttk.Frame):
             or "[petacommanddone]" in lower
             or "[petareaddone]" in lower
             or "[petanextdone]" in lower
+            or "[petanextrefutationdone]" in lower
             or "[petarefutationdone]" in lower
             or "[petadepthgapdone]" in lower
             or PETA_MAKEBOOK_CONTEXT_RE.search(line)
             or PETA_MAKEBOOK_LINE_RE.search(line)
             or "peta shocked book" in lower
             or "peta_next" in lower
+            or "peta_next_refutation" in lower
             or "peta_refutation" in lower
             or "peta_depth_gap" in lower
             or "refutation step" in lower
@@ -1293,6 +1329,7 @@ class BookMinerGui(ttk.Frame):
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
             "peta_next_ply_limit": self.peta_next_ply_limit.get(),
+            "peta_next_refutation_ply_limit": self.peta_next_refutation_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
             "peta_depth_gap_ply_limit": self.peta_depth_gap_ply_limit.get(),
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
@@ -1416,6 +1453,37 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
         return False
 
+    def send_peta_next_refutation(self) -> bool:
+        game_ply_limit = self._get_positive_int(
+            self.peta_next_refutation_ply_limit,
+            "peta next refu. game ply limit",
+            False,
+        )
+        if game_ply_limit is None:
+            return False
+        eval_diff = self.eval_diff.get().strip()
+        if not eval_diff:
+            messagebox.showerror("入力エラー", "eval diff を指定してください。")
+            return False
+        eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
+        try:
+            int(eval_diff)
+        except ValueError:
+            messagebox.showerror("入力エラー", "eval diff には整数を指定してください。")
+            return False
+        try:
+            int(eval_refutation_margin)
+        except ValueError:
+            messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
+            return False
+        if not self._begin_manual_action("manual_peta_next_refutation"):
+            return False
+        if self.send_command(f"nf {eval_diff} 9999 {game_ply_limit} {eval_refutation_margin}", origin="GUI"):
+            return True
+        self.busy_action = None
+        self._update_buttons()
+        return False
+
     def _get_game_ply_limit(self, auto: bool = False) -> str | None:
         return self._get_positive_int(self.game_ply_limit, "game ply limit", auto)
 
@@ -1528,6 +1596,7 @@ class BookMinerGui(ttk.Frame):
                 "manual_peta_shock",
                 "manual_peta_read",
                 "manual_peta_next",
+                "manual_peta_next_refutation",
                 "manual_peta_refutation",
                 "manual_peta_depth_gap",
                 "auto_enqueue",
@@ -1549,6 +1618,7 @@ class BookMinerGui(ttk.Frame):
         configure_state("peta_button", "normal" if command_enabled and not any_busy else "disabled")
         configure_state("peta_read_button", "normal" if command_enabled and not any_busy else "disabled")
         configure_state("next_button", "normal" if command_enabled and not peta_book_busy else "disabled")
+        configure_state("next_refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("depth_gap_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state(

@@ -199,6 +199,24 @@ n 30 40 200
 `n` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`n` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
 
+## peta_next_refutation
+
+`peta_next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
+
+```text
+nf 30 9999 200 100
+```
+
+引数は順に `eval_diff`、`max_step`、`max_book_ply`、`eval_refutation_margin` です。`max_step` の省略時は `9999`、`eval_refutation_margin` の省略時は `100` です。
+
+leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の best であり、peta shock 前の通常bookでは best ではなく、次の条件を満たすものだけを `book/think_sfens.txt` へ書き出します。
+
+```text
+peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >= eval_refutation_margin
+```
+
+通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。`next_refutation` というコマンド名でも同じ処理を実行できます。
+
 ## peta_refutation
 
 peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
@@ -208,7 +226,7 @@ f 100 400
 ```
 
 引数は `eval_refutation_margin` です。省略時は `100` です。
-peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。
+peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。
 第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
 第3引数に `max_book_ply` を指定できます。
 

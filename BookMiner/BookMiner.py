@@ -2166,7 +2166,41 @@ def write_and_read_peta_book(book:Book):
     print("[PetaCommandDone]")
 
 
-def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_path:str):
+def is_refuted_move_by_peta_impact(
+    source_book:Book,
+    peta_position:PositionInfo,
+    peta_flipped:bool,
+    sfen:Sfen,
+    move:MoveStr,
+    peta_move_eval:int,
+    eval_refutation_margin:int,
+)->bool:
+    old_position, old_flipped = find_book_position_with_flip(source_book, sfen)
+    if old_position is None or not old_position.moveinfos:
+        return False
+
+    old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
+    old_candidate = find_moveinfo_by_sfen_move(old_position, move, old_flipped)
+    peta_old_best = find_moveinfo_by_sfen_move(peta_position, old_best_move, peta_flipped)
+
+    if old_best is None or old_candidate is None or peta_old_best is None:
+        return False
+    if old_best_move == move:
+        return False
+    if not isinstance(peta_old_best.eval, int):
+        return False
+
+    return peta_move_eval - peta_old_best.eval >= eval_refutation_margin
+
+
+def peta_next(
+    peta_eval_diff:int,
+    max_step:int,
+    max_book_ply:int,
+    start_sfens_path:str,
+    refutation_book:Book|None = None,
+    eval_refutation_margin:int|None = None,
+):
     """
     r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
     読み込み、掘れていない局面を`book/think_sfens.txt`に書き出します。
@@ -2185,10 +2219,16 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
 
     global peta_book
 
+    next_name = "peta_next_refutation" if refutation_book is not None else "peta_next"
     print(
-        f"peta_next, peta_eval_diff = {peta_eval_diff}, "
+        f"{next_name}, peta_eval_diff = {peta_eval_diff}, "
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
         f"start_sfens_path = {start_sfens_path}"
+        + (
+            ""
+            if refutation_book is None
+            else f", eval_refutation_margin = {eval_refutation_margin}"
+        )
     )
 
     # 先手の定跡を考えるのか？
@@ -2200,7 +2240,7 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
         # 手番文字列
         turn_str = ['white','black'][turn]
 
-        print(f"--- peta_next {turn_str} ---")
+        print(f"--- {next_name} {turn_str} ---")
 
         # 訪問済み局面
         visited : set[Sfen] = set()
@@ -2289,7 +2329,8 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
                 else:
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
-                    think_sfens[position_cmd] = None
+                    if refutation_book is None:
+                        think_sfens[position_cmd] = None
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -2306,7 +2347,7 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
                 # さもなくば(非手番側)、root_best_eval - peta_eval_diff2 の指し手までなら辿る。
                 eval_low = besteval if ply % 2 == turn else root_best_eval - peta_eval_diff0
 
-                for moveinfo in moveinfos:
+                for move_index, moveinfo in enumerate(moveinfos):
                     # 評価値を持っている枝でなければskip
                     # peta shock化したので、すべての枝は評価値を持っているはずなのだが。
                     if not isinstance(moveinfo.eval, int):
@@ -2322,11 +2363,32 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
                         move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
                         checked_push_usi(board, move, context=position_cmd)
                         next_sfen = board.sfen()
-                        _, next_ply = trim_sfen_ply(next_sfen)
+                        next_sfen_trimmed, next_ply = trim_sfen_ply(next_sfen)
                         if next_ply >= max_book_ply:
                             continue
 
                         next_position_cmd = append_position_move(position_cmd, move)
+
+                        if refutation_book is not None:
+                            next_position_info, _ = find_book_position_with_flip(peta_book, next_sfen_trimmed)
+                            if next_position_info is None:
+                                if (
+                                    move_index == 0
+                                    and moveinfo.depth == 0
+                                    and eval_refutation_margin is not None
+                                    and isinstance(moveinfo.eval, int)
+                                    and is_refuted_move_by_peta_impact(
+                                        refutation_book,
+                                        position_info,
+                                        flipped_bookhit,
+                                        sfen,
+                                        move,
+                                        moveinfo.eval,
+                                        eval_refutation_margin,
+                                    )
+                                ):
+                                    think_sfens[next_position_cmd] = None
+                                continue
 
                         # 次の局面では、root_best_evalは反転する。(手番側から見たevalで管理しているため)
                         next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0)
@@ -2362,8 +2424,9 @@ def peta_next(peta_eval_diff:int, max_step:int, max_book_ply:int, start_sfens_pa
                 fbw.write(line_b)
                 bw_count += 1
 
-    print("peta_next done.")
-    print(f"[PetaNextDone] path={bw_path} count={bw_count}")
+    print(f"{next_name} done.")
+    done_tag = "PetaNextRefutationDone" if refutation_book is not None else "PetaNextDone"
+    print(f"[{done_tag}] path={bw_path} count={bw_count}")
 
 
 def find_book_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
@@ -2421,7 +2484,7 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
 def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None = None, max_book_ply:int = MAX_BOOK_PLY):
     """
     peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
-    旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
+    peta shock後の旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
     抽出結果は、その手を指した後の局面として book/think_sfens.txt に書き出す。
     """
 
@@ -2466,14 +2529,15 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
             peta_best_move = peta_best.move
             old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
             old_candidate = find_moveinfo_by_sfen_move(old_position, peta_best_move, old_flipped)
+            peta_old_best = find_moveinfo_by_sfen_move(peta_position, old_best_move, False)
 
-            if old_best is None or old_candidate is None:
+            if old_best is None or old_candidate is None or peta_old_best is None:
                 continue
             if old_best_move == peta_best_move:
                 continue
-            if not isinstance(old_best.eval, int) or not isinstance(old_candidate.eval, int):
+            if not isinstance(old_candidate.eval, int) or not isinstance(peta_old_best.eval, int):
                 continue
-            if old_best.eval - old_candidate.eval < eval_refutation_margin:
+            if peta_best.eval - peta_old_best.eval < eval_refutation_margin:
                 continue
             if eval_limit is not None and abs(old_candidate.eval) > eval_limit:
                 skipped_by_eval_limit += 1
@@ -2867,6 +2931,7 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  N    : peta_shock next , n peta_eval_diff (max_step) (max_book_ply)")
+                print("  NF   : peta next refutation , nf peta_eval_diff (max_step) (max_book_ply) (eval_refutation_margin)")
                 print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit) (max_book_ply)")
                 print("  D    : peta depth gap , d (eval_per_ply) (max_book_ply)")
                 print("  H : Help")
@@ -2964,6 +3029,27 @@ def user_input(from_gui:bool = False):
                         max_step,
                         max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
+                    )
+
+            elif i == 'nf' or i == 'next_refutation':
+                # peta_next_refutation
+                if len(inp) < 2:
+                    print("Usage : nf peta_eval_diff (max_step) (max_book_ply) (eval_refutation_margin)")
+                else:
+                    peta_eval_diff = int(inp[1])
+                    max_step = 9999 if len(inp) < 3 else int(inp[2])
+                    max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
+                    eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 5 else int(inp[4])
+                    if max_book_ply <= 0:
+                        print("Error : max_book_ply must be positive integer.")
+                        continue
+                    peta_next(
+                        peta_eval_diff,
+                        max_step,
+                        max_book_ply,
+                        book_miner_settings.peta_next_start_sfens_path,
+                        book,
+                        eval_refutation_margin,
                     )
 
             elif i == 'f' or i == 'refutation':

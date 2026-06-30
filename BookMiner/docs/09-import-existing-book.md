@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta_next / peta_refutation / peta_depth_gap](assets/peta-shock-next.svg)
+![peta_shock と peta_next / peta_next_refutation / peta_refutation / peta_depth_gap](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta_next / peta_refutation / peta_depth_gap で局面を列挙する
+## 手順2. peta_next / peta_next_refutation / peta_refutation / peta_depth_gap で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -129,11 +129,11 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `n`/`f`/`d` コマンドの末尾引数で調整してください。
+ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `n`/`nf`/`f`/`d` コマンドの末尾側の引数で調整してください。
 
 ## 手順3. enqueue する
 
-`peta_next`、`peta_refutation`、`peta_depth_gap` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -186,13 +186,31 @@ GUI:
 手順3. enqueue          eval_limit 400
 ```
 
-`100` は `eval_refutation_margin` です。peta shock 前の `旧best評価値 - 反駁候補手の旧評価値` がこの値以上のものだけを抽出します。GUIでは enqueue 欄の `eval_limit` も同時に `f` コマンドへ渡し、反駁候補手の旧評価値の絶対値が `eval_limit` を超えるものは事前に除外します。
+`100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。GUIでは enqueue 欄の `eval_limit` も同時に `f` コマンドへ渡し、反駁候補手の旧評価値の絶対値が `eval_limit` を超えるものは事前に除外します。
 
 出力先は `peta_next` と同じです。
 
 ```text
 book/think_sfens.txt
 ```
+
+## peta_next の leaf から反駁されたものだけを掘る
+
+通常の `peta_next` では候補が多すぎる場合、`peta next refu.` を使うと、`peta_next` の leaf のうち、定跡から抜ける最後の1手が反駁された手だったものだけを書き出せます。
+
+CLI:
+
+```text
+nf 99999 9999 200 100
+```
+
+GUI:
+
+```text
+手順2. peta next refu.  eval_diff 99999  game ply limit 200  eval refu. 100
+```
+
+`100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
 
 抽出後は、通常通り `enqueue` します。
 
@@ -225,6 +243,7 @@ GUI:
 ```text
 手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
+        または peta next refu. eval_diff 99999 eval refu. 100
         または peta refutation eval refu. 100
         または peta depth_gap eval/ply 0.1
 手順3. enqueue    eval_limit 99999
