@@ -25,7 +25,8 @@ GUI_SETTING_DEFAULTS = {
     "peta_next_eval_diff": "30",
     "peta_next_refutation_eval_diff": "30",
     "max_step": "",
-    "eval_refutation_margin": "100",
+    "peta_next_refutation_eval_refu": "100",
+    "peta_refutation_eval_refu": "100",
     "depth_gap_eval_per_ply": "0.1",
     "eval_limit": "400",
     "game_ply_limit": "200",
@@ -128,9 +129,19 @@ def load_gui_settings() -> dict[str, str]:
     for key in GUI_SETTING_DEFAULTS:
         value = data.get(key)
         if isinstance(value, str):
-            settings[key] = GUI_SETTING_DEFAULTS[key] if key == "eval_refutation_margin" and not value.strip() else value
+            settings[key] = value
         elif value is not None:
             settings[key] = str(value)
+
+    legacy_eval_diff = data.get("eval_diff")
+    if isinstance(legacy_eval_diff, str) and legacy_eval_diff.strip():
+        settings.setdefault("peta_next_eval_diff", legacy_eval_diff)
+        settings.setdefault("peta_next_refutation_eval_diff", legacy_eval_diff)
+
+    legacy_eval_refu = data.get("eval_refutation_margin")
+    if isinstance(legacy_eval_refu, str) and legacy_eval_refu.strip():
+        settings.setdefault("peta_next_refutation_eval_refu", legacy_eval_refu)
+        settings.setdefault("peta_refutation_eval_refu", legacy_eval_refu)
 
     return settings
 
@@ -233,8 +244,17 @@ class BookMinerGui(ttk.Frame):
             )
         )
         self.max_step = tk.StringVar(value=gui_settings.get("max_step", GUI_SETTING_DEFAULTS["max_step"]))
-        self.eval_refutation_margin = tk.StringVar(
-            value=gui_settings.get("eval_refutation_margin", GUI_SETTING_DEFAULTS["eval_refutation_margin"])
+        self.peta_next_refutation_eval_refu = tk.StringVar(
+            value=gui_settings.get(
+                "peta_next_refutation_eval_refu",
+                GUI_SETTING_DEFAULTS["peta_next_refutation_eval_refu"],
+            )
+        )
+        self.peta_refutation_eval_refu = tk.StringVar(
+            value=gui_settings.get(
+                "peta_refutation_eval_refu",
+                GUI_SETTING_DEFAULTS["peta_refutation_eval_refu"],
+            )
         )
         self.depth_gap_eval_per_ply = tk.StringVar(
             value=gui_settings.get("depth_gap_eval_per_ply", GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"])
@@ -337,7 +357,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="game ply limit").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_refutation_ply_limit, width=8).grid(row=3, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="eval refu.").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=3, column=7, sticky="w", pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_refutation_eval_refu, width=8).grid(row=3, column=7, sticky="w", pady=3)
 
         ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
@@ -352,7 +372,7 @@ class BookMinerGui(ttk.Frame):
             "`f eval_refutation_margin eval_limit game_ply_limit` を送信します。反駁候補を抽出し、eval_limit と game ply limit で事前除外します。",
         )
         ttk.Label(commands, text="eval refu.").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.eval_refutation_margin, width=8).grid(row=4, column=3, sticky="w", pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=4, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
 
@@ -1337,7 +1357,8 @@ class BookMinerGui(ttk.Frame):
             "peta_next_eval_diff": self.peta_next_eval_diff.get(),
             "peta_next_refutation_eval_diff": self.peta_next_refutation_eval_diff.get(),
             "max_step": self.max_step.get(),
-            "eval_refutation_margin": self.eval_refutation_margin.get(),
+            "peta_next_refutation_eval_refu": self.peta_next_refutation_eval_refu.get(),
+            "peta_refutation_eval_refu": self.peta_refutation_eval_refu.get(),
             "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
@@ -1478,7 +1499,10 @@ class BookMinerGui(ttk.Frame):
         if not eval_diff:
             messagebox.showerror("入力エラー", "eval diff を指定してください。")
             return False
-        eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
+        eval_refutation_margin = (
+            self.peta_next_refutation_eval_refu.get().strip()
+            or GUI_SETTING_DEFAULTS["peta_next_refutation_eval_refu"]
+        )
         try:
             int(eval_diff)
         except ValueError:
@@ -1528,7 +1552,10 @@ class BookMinerGui(ttk.Frame):
         game_ply_limit = self._get_positive_int(self.peta_refutation_ply_limit, "peta refutation game ply limit", False)
         if game_ply_limit is None:
             return False
-        eval_refutation_margin = self.eval_refutation_margin.get().strip() or GUI_SETTING_DEFAULTS["eval_refutation_margin"]
+        eval_refutation_margin = (
+            self.peta_refutation_eval_refu.get().strip()
+            or GUI_SETTING_DEFAULTS["peta_refutation_eval_refu"]
+        )
         eval_limit = self.eval_limit.get().strip()
         if not eval_limit:
             messagebox.showerror("入力エラー", "eval_limit を指定してください。")
