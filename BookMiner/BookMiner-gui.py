@@ -21,6 +21,10 @@ BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 BOOK_MINER_CPP_EXE = BASE_DIR.parent / "BookMinerCpp" / "BookMinerCpp.exe"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
+THINK_SFENS_COMMAND_PATH = "book/think_sfens.txt"
+AUTO_THINK_SFENS_COMMAND_PATH = "book/think_sfens-tmp.txt"
+THINK_SFENS_PATH = BASE_DIR / THINK_SFENS_COMMAND_PATH
+AUTO_THINK_SFENS_PATH = BASE_DIR / AUTO_THINK_SFENS_COMMAND_PATH
 GUI_SETTING_DEFAULTS = {
     "peta_next_eval_diff": "30",
     "peta_next_refutation_eval_diff": "30",
@@ -34,6 +38,10 @@ GUI_SETTING_DEFAULTS = {
     "peta_next_refutation_ply_limit": "200",
     "peta_refutation_ply_limit": "200",
     "peta_depth_gap_ply_limit": "200",
+    "auto_step2_peta_next": "1",
+    "auto_step2_peta_next_refutation": "0",
+    "auto_step2_peta_refutation": "0",
+    "auto_step2_peta_depth_gap": "0",
     "auto_enqueue_threshold": "1000",
     "log_view_mode": "2x2",
     "task_list_mode": "1",
@@ -74,6 +82,16 @@ AUTO_ENQUEUE_IDLE = "idle"
 AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
+AUTO_STEP2_PETA_NEXT = "peta_next"
+AUTO_STEP2_PETA_NEXT_REFUTATION = "peta_next_refutation"
+AUTO_STEP2_PETA_REFUTATION = "peta_refutation"
+AUTO_STEP2_PETA_DEPTH_GAP = "peta_depth_gap"
+AUTO_STEP2_ORDER = [
+    AUTO_STEP2_PETA_NEXT,
+    AUTO_STEP2_PETA_NEXT_REFUTATION,
+    AUTO_STEP2_PETA_REFUTATION,
+    AUTO_STEP2_PETA_DEPTH_GAP,
+]
 LOG_PANES = [
     ("other", "コマンドログ", "コマンド", 8),
     ("task", "タスク状況ログ", "タスク状況", 7),
@@ -226,6 +244,9 @@ class BookMinerGui(ttk.Frame):
             value=gui_settings.get("auto_enqueue_threshold", GUI_SETTING_DEFAULTS["auto_enqueue_threshold"])
         )
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.auto_step2_queue: list[str] = []
+        self.auto_current_step2: str | None = None
+        self.auto_tmp_seen: set[str] = set()
         self.busy_action: str | None = None
         self.enqueue_pending = False
         self.peta_makebook_active = False
@@ -277,6 +298,27 @@ class BookMinerGui(ttk.Frame):
         )
         self.peta_depth_gap_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_depth_gap_ply_limit", gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_depth_gap_ply_limit"]))
+        )
+        self.auto_step2_peta_next_enabled = tk.BooleanVar(
+            value=settings_bool(gui_settings.get("auto_step2_peta_next"), GUI_SETTING_DEFAULTS["auto_step2_peta_next"])
+        )
+        self.auto_step2_peta_next_refutation_enabled = tk.BooleanVar(
+            value=settings_bool(
+                gui_settings.get("auto_step2_peta_next_refutation"),
+                GUI_SETTING_DEFAULTS["auto_step2_peta_next_refutation"],
+            )
+        )
+        self.auto_step2_peta_refutation_enabled = tk.BooleanVar(
+            value=settings_bool(
+                gui_settings.get("auto_step2_peta_refutation"),
+                GUI_SETTING_DEFAULTS["auto_step2_peta_refutation"],
+            )
+        )
+        self.auto_step2_peta_depth_gap_enabled = tk.BooleanVar(
+            value=settings_bool(
+                gui_settings.get("auto_step2_peta_depth_gap"),
+                GUI_SETTING_DEFAULTS["auto_step2_peta_depth_gap"],
+            )
         )
 
         self.grid(sticky="nsew")
@@ -339,6 +381,9 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.peta_next_ply_limit, width=8).grid(row=2, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=2, column=6, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=2, column=7, sticky="w", pady=3)
+        ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_next_enabled).grid(
+            row=2, column=8, sticky="w", padx=(12, 0), pady=3
+        )
 
         ttk.Label(commands, text="").grid(row=3, column=0, sticky="w", pady=3)
         self.next_refutation_button = ttk.Button(
@@ -358,6 +403,9 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.peta_next_refutation_ply_limit, width=8).grid(row=3, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="eval refu.").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_refutation_eval_refu, width=8).grid(row=3, column=7, sticky="w", pady=3)
+        ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_next_refutation_enabled).grid(
+            row=3, column=8, sticky="w", padx=(12, 0), pady=3
+        )
 
         ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
@@ -375,6 +423,9 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=4, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=4, column=5, sticky="w", pady=3)
+        ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_refutation_enabled).grid(
+            row=4, column=8, sticky="w", padx=(12, 0), pady=3
+        )
 
         ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
         self.depth_gap_button = ttk.Button(
@@ -392,6 +443,9 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=5, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_depth_gap_ply_limit, width=8).grid(row=5, column=5, sticky="w", pady=3)
+        ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_depth_gap_enabled).grid(
+            row=5, column=8, sticky="w", padx=(12, 0), pady=3
+        )
 
         ttk.Label(commands, text="手順3.").grid(row=6, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
@@ -415,10 +469,10 @@ class BookMinerGui(ttk.Frame):
             command=self.on_auto_enqueue_toggled,
         )
         self.auto_check.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock、peta_next、enqueueを自動実行します。")
+        Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock後に手順2で自動チェックされた抽出を順に実行し、結果をまとめてenqueueします。")
         ttk.Label(commands, text="queueの残りが").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=7, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="より少なくなったら、手順1.～3.を自動実行する").grid(
+        ttk.Label(commands, text="より少なくなったら、自動チェックされた手順2をまとめてenqueue").grid(
             row=7,
             column=4,
             columnspan=4,
@@ -790,6 +844,9 @@ class BookMinerGui(ttk.Frame):
             self._append_log("other", f"\n[GUI] {self.bookminer_name} exited. return code = {return_code}\n")
         self.process = None
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.auto_step2_queue = []
+        self.auto_current_step2 = None
+        self.auto_tmp_seen = set()
         self.busy_action = None
         self.command_ready = False
         self.startup_status.set("状態: 停止中")
@@ -1141,8 +1198,7 @@ class BookMinerGui(ttk.Frame):
                     self._abort_auto_enqueue("auto enqueue stopped: disabled after peta_shock.")
                     return
                 self.auto_enqueue_state = AUTO_ENQUEUE_NEXT
-                if not self.send_peta_next(auto=True):
-                    self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_next.")
+                self._start_next_auto_step2()
                 return
 
         if PETA_READ_DONE_RE.search(line):
@@ -1158,12 +1214,7 @@ class BookMinerGui(ttk.Frame):
                 return
 
             if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
-                if not self.auto_enqueue_enabled.get():
-                    self._abort_auto_enqueue("auto enqueue stopped: disabled after peta_next.")
-                    return
-                self.auto_enqueue_state = AUTO_ENQUEUE_ENQUEUE
-                if not self.send_think(auto=True):
-                    self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
+                self._complete_auto_step2(AUTO_STEP2_PETA_NEXT)
                 return
 
         if PETA_NEXT_REFUTATION_DONE_RE.search(line):
@@ -1171,11 +1222,17 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
                 return
+            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
+                self._complete_auto_step2(AUTO_STEP2_PETA_NEXT_REFUTATION)
+                return
 
         if PETA_REFUTATION_DONE_RE.search(line):
             if self.busy_action == "manual_peta_refutation":
                 self.busy_action = None
                 self._update_buttons()
+                return
+            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
+                self._complete_auto_step2(AUTO_STEP2_PETA_REFUTATION)
                 return
 
         if PETA_DEPTH_GAP_DONE_RE.search(line):
@@ -1183,10 +1240,17 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
                 return
+            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
+                self._complete_auto_step2(AUTO_STEP2_PETA_DEPTH_GAP)
+                return
 
     def on_auto_enqueue_toggled(self) -> None:
         if self.auto_enqueue_enabled.get():
             if self._get_auto_enqueue_threshold() is None:
+                self.auto_enqueue_enabled.set(False)
+                return
+            if not self._selected_auto_step2_methods():
+                messagebox.showerror("入力エラー", "自動enqueueで実行する手順2を1つ以上チェックしてください。")
                 self.auto_enqueue_enabled.set(False)
                 return
             self._maybe_start_auto_enqueue()
@@ -1226,12 +1290,26 @@ class BookMinerGui(ttk.Frame):
         if self.task_queue_remaining >= threshold:
             return
 
+        selected_methods = self._selected_auto_step2_methods()
+        if not selected_methods:
+            self.auto_enqueue_enabled.set(False)
+            self._append_log("task", "[GUI] auto enqueue disabled: no step 2 method is selected.\n")
+            return
+
+        if not self._reset_auto_think_sfens_tmp():
+            self.auto_enqueue_enabled.set(False)
+            return
+
+        self.auto_step2_queue = selected_methods
+        self.auto_current_step2 = None
+        self.auto_tmp_seen = set()
         self.auto_enqueue_state = AUTO_ENQUEUE_PETA
         self.busy_action = "auto_enqueue"
         self._update_buttons()
         self._append_log(
             "task",
-            f"[GUI] auto enqueue started. remaining={self.task_queue_remaining}, threshold={threshold}\n",
+            f"[GUI] auto enqueue started. remaining={self.task_queue_remaining}, "
+            f"threshold={threshold}, step2={','.join(selected_methods)}\n",
         )
         if not self.send_command("p", origin="AUTO"):
             self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_shock.")
@@ -1239,10 +1317,105 @@ class BookMinerGui(ttk.Frame):
     def _abort_auto_enqueue(self, message: str) -> None:
         self._append_log("task", f"[GUI] {message}\n")
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.auto_step2_queue = []
+        self.auto_current_step2 = None
+        self.auto_tmp_seen = set()
         if self.busy_action == "auto_enqueue":
             self.busy_action = None
         self.auto_enqueue_enabled.set(False)
         self._update_buttons()
+
+    def _selected_auto_step2_methods(self) -> list[str]:
+        methods: list[str] = []
+        if self.auto_step2_peta_next_enabled.get():
+            methods.append(AUTO_STEP2_PETA_NEXT)
+        if self.auto_step2_peta_next_refutation_enabled.get():
+            methods.append(AUTO_STEP2_PETA_NEXT_REFUTATION)
+        if self.auto_step2_peta_refutation_enabled.get():
+            methods.append(AUTO_STEP2_PETA_REFUTATION)
+        if self.auto_step2_peta_depth_gap_enabled.get():
+            methods.append(AUTO_STEP2_PETA_DEPTH_GAP)
+        return methods
+
+    def _reset_auto_think_sfens_tmp(self) -> bool:
+        try:
+            AUTO_THINK_SFENS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if AUTO_THINK_SFENS_PATH.exists():
+                AUTO_THINK_SFENS_PATH.unlink()
+        except OSError as exc:
+            self._append_log("task", f"[GUI] auto enqueue stopped: failed to reset {AUTO_THINK_SFENS_COMMAND_PATH}: {exc}\n")
+            return False
+        return True
+
+    def _append_auto_think_sfens_tmp(self, source_name: str) -> bool:
+        if not THINK_SFENS_PATH.exists():
+            self._append_log("task", f"[GUI] auto enqueue stopped: {THINK_SFENS_COMMAND_PATH} was not written by {source_name}.\n")
+            return False
+
+        added = 0
+        skipped = 0
+        try:
+            AUTO_THINK_SFENS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(THINK_SFENS_PATH, "r", encoding="utf-8") as src, open(
+                AUTO_THINK_SFENS_PATH,
+                "a",
+                encoding="utf-8",
+            ) as dst:
+                for raw_line in src:
+                    line = raw_line.rstrip("\r\n")
+                    if not line:
+                        continue
+                    if line in self.auto_tmp_seen:
+                        skipped += 1
+                        continue
+                    self.auto_tmp_seen.add(line)
+                    dst.write(line + "\n")
+                    added += 1
+        except OSError as exc:
+            self._append_log("task", f"[GUI] auto enqueue stopped: failed to append {source_name}: {exc}\n")
+            return False
+
+        self._append_log(
+            "task",
+            f"[GUI] auto enqueue appended {source_name}: added={added}, duplicates={skipped}, total={len(self.auto_tmp_seen)}\n",
+        )
+        return True
+
+    def _start_next_auto_step2(self) -> None:
+        if not self.auto_enqueue_enabled.get():
+            self._abort_auto_enqueue("auto enqueue stopped: disabled before step 2.")
+            return
+
+        if not self.auto_step2_queue:
+            self.auto_current_step2 = None
+            self.auto_enqueue_state = AUTO_ENQUEUE_ENQUEUE
+            if not self.send_think(auto=True, think_sfens_path=AUTO_THINK_SFENS_COMMAND_PATH):
+                self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
+            return
+
+        method = self.auto_step2_queue.pop(0)
+        self.auto_current_step2 = method
+        senders = {
+            AUTO_STEP2_PETA_NEXT: self.send_peta_next,
+            AUTO_STEP2_PETA_NEXT_REFUTATION: self.send_peta_next_refutation,
+            AUTO_STEP2_PETA_REFUTATION: self.send_peta_refutation,
+            AUTO_STEP2_PETA_DEPTH_GAP: self.send_peta_depth_gap,
+        }
+        sender = senders[method]
+        if not sender(auto=True):
+            self._abort_auto_enqueue(f"auto enqueue stopped: failed to send {method}.")
+
+    def _complete_auto_step2(self, method: str) -> None:
+        if self.auto_current_step2 != method:
+            return
+        if not self.auto_enqueue_enabled.get():
+            self._abort_auto_enqueue(f"auto enqueue stopped: disabled after {method}.")
+            return
+        if not self._append_auto_think_sfens_tmp(method):
+            self._abort_auto_enqueue(f"auto enqueue stopped: failed to append {method}.")
+            return
+        self.auto_current_step2 = None
+        self._start_next_auto_step2()
 
     def _begin_manual_action(self, action: str) -> bool:
         if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
@@ -1366,6 +1539,10 @@ class BookMinerGui(ttk.Frame):
             "peta_next_refutation_ply_limit": self.peta_next_refutation_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
             "peta_depth_gap_ply_limit": self.peta_depth_gap_ply_limit.get(),
+            "auto_step2_peta_next": "1" if self.auto_step2_peta_next_enabled.get() else "0",
+            "auto_step2_peta_next_refutation": "1" if self.auto_step2_peta_next_refutation_enabled.get() else "0",
+            "auto_step2_peta_refutation": "1" if self.auto_step2_peta_refutation_enabled.get() else "0",
+            "auto_step2_peta_depth_gap": "1" if self.auto_step2_peta_depth_gap_enabled.get() else "0",
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
             "log_view_mode": normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get())),
             "task_list_mode": "1" if self.task_list_mode_enabled.get() else "0",
@@ -1407,7 +1584,7 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
         return False
 
-    def send_think(self, auto: bool = False) -> bool:
+    def send_think(self, auto: bool = False, think_sfens_path: str = THINK_SFENS_COMMAND_PATH) -> bool:
         value = self.eval_limit.get().strip()
         game_ply_limit = self._get_game_ply_limit(auto)
         if game_ply_limit is None:
@@ -1431,7 +1608,7 @@ class BookMinerGui(ttk.Frame):
         origin = "AUTO" if auto else "GUI"
         if (
             self.send_command(f"e {value}", origin=origin)
-            and self.send_command(f"t book/think_sfens.txt {game_ply_limit}", origin=origin)
+            and self.send_command(f"t {think_sfens_path} {game_ply_limit}", origin=origin)
         ):
             return True
         if not auto:
@@ -1487,17 +1664,20 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
         return False
 
-    def send_peta_next_refutation(self) -> bool:
+    def send_peta_next_refutation(self, auto: bool = False) -> bool:
         game_ply_limit = self._get_positive_int(
             self.peta_next_refutation_ply_limit,
             "peta next refu. game ply limit",
-            False,
+            auto,
         )
         if game_ply_limit is None:
             return False
         eval_diff = self.peta_next_refutation_eval_diff.get().strip()
         if not eval_diff:
-            messagebox.showerror("入力エラー", "eval diff を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta next refu. eval_diff is empty.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval diff を指定してください。")
             return False
         eval_refutation_margin = (
             self.peta_next_refutation_eval_refu.get().strip()
@@ -1506,19 +1686,27 @@ class BookMinerGui(ttk.Frame):
         try:
             int(eval_diff)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval diff には整数を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta next refu. eval_diff must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval diff には整数を指定してください。")
             return False
         try:
             int(eval_refutation_margin)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta next refu. eval refu. must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
             return False
-        if not self._begin_manual_action("manual_peta_next_refutation"):
+        if not auto and not self._begin_manual_action("manual_peta_next_refutation"):
             return False
-        if self.send_command(f"nf {eval_diff} 9999 {game_ply_limit} {eval_refutation_margin}", origin="GUI"):
+        origin = "AUTO" if auto else "GUI"
+        if self.send_command(f"nf {eval_diff} 9999 {game_ply_limit} {eval_refutation_margin}", origin=origin):
             return True
-        self.busy_action = None
-        self._update_buttons()
+        if not auto:
+            self.busy_action = None
+            self._update_buttons()
         return False
 
     def _get_game_ply_limit(self, auto: bool = False) -> str | None:
@@ -1548,8 +1736,8 @@ class BookMinerGui(ttk.Frame):
             return None
         return str(parsed)
 
-    def send_peta_refutation(self) -> bool:
-        game_ply_limit = self._get_positive_int(self.peta_refutation_ply_limit, "peta refutation game ply limit", False)
+    def send_peta_refutation(self, auto: bool = False) -> bool:
+        game_ply_limit = self._get_positive_int(self.peta_refutation_ply_limit, "peta refutation game ply limit", auto)
         if game_ply_limit is None:
             return False
         eval_refutation_margin = (
@@ -1558,45 +1746,64 @@ class BookMinerGui(ttk.Frame):
         )
         eval_limit = self.eval_limit.get().strip()
         if not eval_limit:
-            messagebox.showerror("入力エラー", "eval_limit を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] eval_limit is empty.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval_limit を指定してください。")
             return False
         try:
             int(eval_refutation_margin)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta refutation eval refu. must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
             return False
         try:
             int(eval_limit)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval_limit には整数を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] eval_limit must be an integer.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval_limit には整数を指定してください。")
             return False
-        if not self._begin_manual_action("manual_peta_refutation"):
+        if not auto and not self._begin_manual_action("manual_peta_refutation"):
             return False
-        if self.send_command(f"f {eval_refutation_margin} {eval_limit} {game_ply_limit}", origin="GUI"):
+        origin = "AUTO" if auto else "GUI"
+        if self.send_command(f"f {eval_refutation_margin} {eval_limit} {game_ply_limit}", origin=origin):
             return True
-        self.busy_action = None
-        self._update_buttons()
+        if not auto:
+            self.busy_action = None
+            self._update_buttons()
         return False
 
-    def send_peta_depth_gap(self) -> bool:
-        game_ply_limit = self._get_positive_int(self.peta_depth_gap_ply_limit, "peta depth_gap game ply limit", False)
+    def send_peta_depth_gap(self, auto: bool = False) -> bool:
+        game_ply_limit = self._get_positive_int(self.peta_depth_gap_ply_limit, "peta depth_gap game ply limit", auto)
         if game_ply_limit is None:
             return False
         eval_per_ply = self.depth_gap_eval_per_ply.get().strip() or GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"]
         try:
             parsed = float(eval_per_ply)
         except ValueError:
-            messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta depth_gap eval/ply must be a non-negative number.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
             return False
         if parsed < 0:
-            messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
+            if auto:
+                self._append_log("task", "[AUTO] peta depth_gap eval/ply must be a non-negative number.\n")
+            else:
+                messagebox.showerror("入力エラー", "eval/ply には0以上の数値を指定してください。")
             return False
-        if not self._begin_manual_action("manual_peta_depth_gap"):
+        if not auto and not self._begin_manual_action("manual_peta_depth_gap"):
             return False
-        if self.send_command(f"d {eval_per_ply} {game_ply_limit}", origin="GUI"):
+        origin = "AUTO" if auto else "GUI"
+        if self.send_command(f"d {eval_per_ply} {game_ply_limit}", origin=origin):
             return True
-        self.busy_action = None
-        self._update_buttons()
+        if not auto:
+            self.busy_action = None
+            self._update_buttons()
         return False
 
     def _append_log(self, key: str, text: str) -> None:

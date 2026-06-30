@@ -66,12 +66,12 @@ GUI 上でもこの手順が縦に並んでいます。
 ```text
 手順0. [ 棋譜抽出   ]  ← 手順1.～2.の代わりに think_sfens.txt を用意する
 手順1. [ peta_shock ] [ peta_read  ]
-手順2. [ peta_next       ] eval_diff [ X ] game ply limit [ P ] max step [ Y ]
-        [ peta next refu. ] eval_diff [ X ] game ply limit [ P ] eval refu. [ R ]
-        [ peta refutation ] eval refu. [ R ] game ply limit [ P ]
-        [ peta depth_gap  ] eval/ply  [ G ] game ply limit [ P ]
+手順2. [ peta_next       ] eval_diff [ X ] game ply limit [ P ] max step [ Y ] 自動 [✓]
+        [ peta next refu. ] eval_diff [ X ] game ply limit [ P ] eval refu. [ R ] 自動 [ ]
+        [ peta refutation ] eval refu. [ R ] game ply limit [ P ] 自動 [ ]
+        [ peta depth_gap  ] eval/ply  [ G ] game ply limit [ P ] 自動 [ ]
 手順3. [ enqueue    ] eval_limit [ Z ] game ply limit [ P ]
-手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順1.～3.を自動実行する
+手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順2の自動チェック分をまとめてenqueue
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
 
@@ -94,7 +94,9 @@ GUI 上でもこの手順が縦に並んでいます。
 `game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
-残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock`、`peta_next`、`enqueue` をこの順番で実行します。
+残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。
+各抽出が `book/think_sfens.txt` に書き出した内容は、GUI が `book/think_sfens-tmp.txt` に追記します。重複行はこの追記時に除外します。
+チェックされた手順2をすべて実行したら、GUI は `book/think_sfens-tmp.txt` を `enqueue` します。
 自動実行中に同じ処理が二重に走らないよう、次の段階へ進むのは BookMiner.py の完了タグを受け取ってからです。
 
 自動enqueueは、探索workerがまだ処理していないqueue残数を目安にします。
@@ -109,7 +111,7 @@ GUI 上でもこの手順が縦に並んでいます。
 - `peta next refu.`: `peta_next` の leaf のうち、反駁された leaf だけを `book/think_sfens.txt` に書き出します。
 - `peta refutation`: peta shock 後に best になった depth 0 の反駁候補を `book/think_sfens.txt` に書き出します。
 - `enqueue`: eval limit を設定してから、`book/think_sfens.txt` の棋譜上の局面を探索キューへ積みます。
-- `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、`peta_next`、`enqueue` を自動実行します。
+- `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。
 - `DB手動保存`: 現在の定跡 DB を `book/backup/` に書き出します。
 
 ボタンにマウスを乗せると、簡単な説明が表示されます。
@@ -117,7 +119,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは各 `eval_diff`、各 `eval refu.`、`max step`、`eval/ply`、`eval_limit`、各 `game ply limit`、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは各 `eval_diff`、各 `eval refu.`、`max step`、`eval/ply`、`eval_limit`、各 `game ply limit`、手順2の `自動` チェック状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
@@ -224,6 +226,9 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 自動enqueueは、この `remaining` が指定値より少なくなったときに発火します。
 手動で `peta_shock`、`peta_read`、`peta_next`、`peta next refu.`、`enqueue`、`DB手動保存` を実行している間は、自動enqueueは開始しません。
 自動enqueue後も `remaining` がまだ指定値より少ない場合は、足りるまで続けて自動enqueueします。
+
+自動enqueueで手順2を複数チェックしている場合、抽出ごとの `book/think_sfens.txt` は直接 enqueue されません。
+GUI がそれぞれの結果を `book/think_sfens-tmp.txt` へ集約し、最後にこの一時ファイルを enqueue します。
 
 ## 注意点
 
