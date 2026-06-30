@@ -117,7 +117,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは `eval_diff`、`max step`、`eval_refutation_margin`、`eval/ply`、`eval_limit`、各 `game ply limit`、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは各 `eval_diff`、`max step`、`eval_refutation_margin`、`eval/ply`、`eval_limit`、各 `game ply limit`、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
