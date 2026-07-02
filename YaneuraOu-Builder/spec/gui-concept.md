@@ -87,7 +87,7 @@ UI:
 - 保存済み preset / recipe は固定Edition一覧を増減させず、各行のON/OFF状態だけを復元する
 - 重複行は警告表示
 - build target は `tournament` 固定で、GUI 上では選択させない
-- Windows platform では、生成した script を MSYS2 の platform 別環境で実行する button を用意する。Windows x64 は `MSYSTEM=MINGW64`、Windows x86 は `MSYSTEM=MINGW32` を設定し、MSYS2 の login bash 経由で実行する。Windows arm は x64 Windows host からの cross build として扱い、`MSYSTEM=MINGW64` で `/opt/aarch64-w64-mingw32/bin/aarch64-w64-mingw32-clang++` を使う。
+- Windows platform では、生成した script を MSYS2 の環境で実行する button を用意する。Windows x64 は `MSYSTEM=MINGW64` の `clang++`、Windows x86 は `MSYSTEM=MINGW64` から `clang++ --target=i686-w64-windows-gnu`、Windows arm は `/opt/aarch64-w64-mingw32/bin/aarch64-w64-mingw32-clang++` を使う。
 - macOS platform では、生成した script を GUI から直接 subprocess として実行する button を用意する。実行中は script 実行 button を無効化し、stdout / stderr を Logs に流す。
 - macOS platform の既定パスは、Windows側でビルド済みのフォルダを `/winbuild` に見せる前提にする。source folder は `/winbuild/source`、SPSA 関連ファイルは `/winbuild/tune.py`、`/winbuild/ParamLib.py`、`/winbuild/YaneuraOuV950.tune`、`/winbuild/YaneuraOuV950.params` を使う。
 - Windows arm の GUI 対応範囲は、現時点では x64 Windows + MSYS2 `MINGW64` からの cross build に限定する。CPU target は `ARMV8` と `ARMV8_DOTPROD` で、script 生成時に pthread include path、lld 前提のcross compiler、MSYS2 cross CRT の不足回避 stub を自動で組み込む。詳細は [current-build-flow.md](current-build-flow.md) の Windows ARM 調査メモを参照する。
