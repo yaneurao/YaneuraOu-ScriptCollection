@@ -153,6 +153,25 @@ GUIで次のように設定します。
 設定後、`Run with MSYS2` を押します。YaneuraOu-Builderは `mingw64.exe` 相当の環境、
 つまり `MSYSTEM=MINGW64` で生成scriptを実行し、`clang++ --target=i686-w64-windows-gnu` でx86版を作ります。
 
+### Windows x86版のメモリ上限
+
+Windows x86版は32bitプロセスなので、仮想アドレス空間の上限に注意が必要です。
+特にNNUE/SFNN系のAVX2版では、探索worker、history、TT、NNUE評価関数で多くのメモリを使います。
+16スレッド程度でも、`USI_Hash` の値によっては通常の32bitプロセス上限に近づきます。
+
+やねうら王のMakefileは、32bit Windows版のビルド時に `large address aware` を付けるようになっています。
+これにより、32bit実行ファイルでも64bit Windows上ではより広い仮想アドレス空間を使えます。
+`bench 16 16` のようにスレッド数を増やす検証を行う場合、このフラグが付いていることが重要です。
+64bit Windows版ではこのフラグは不要なので、古いMSYS2/GCCのGNU ld対策として付けません。
+
+確認する場合はMSYS2で次のように見ます。
+
+```bash
+objdump -x YaneuraOu-by-gcc.exe | grep -i "large address"
+```
+
+`large address aware` と表示されれば有効です。
+
 ## 8. 出力を確認する
 
 run directoryは次のような名前で作られます。
@@ -217,6 +236,14 @@ pacman -S --needed mingw-w64-x86_64-lld
 ```bash
 pacman -S --needed p7zip
 ```
+
+Windows x86版で `bench 16 16` や高スレッド設定時に落ちる場合は、まず次を確認します。
+
+- 実行ファイルに `large address aware` が付いているか
+- `USI_Hash` を大きくしすぎていないか
+- 32bit版ではなく、可能ならWindows x64版を使えないか
+
+`large address aware` が付いていない古い実行ファイルでは、worker確保中に仮想アドレス空間不足で落ちることがあります。
 
 GUIから `Run with MSYS2` を押したときに意図しない環境で動いているように見える場合は、
 Logsに出る `MSYSTEM=...` を確認してください。

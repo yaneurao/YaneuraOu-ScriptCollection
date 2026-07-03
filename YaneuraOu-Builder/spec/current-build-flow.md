@@ -30,6 +30,26 @@ cp YaneuraOu-by-gcc[.exe] <artifact>
 
 Windows では MSYS2 上で実行する前提になっている。Windows x64 は `MINGW64` の `clang++` を使う。Windows x86 は `MINGW32` の `g++` ではなく、x64 Windows + MSYS2 `MINGW64` から `clang++ --target=i686-w64-windows-gnu` を使う cross build として扱う。Windows arm も x64 Windows + MSYS2 `MINGW64` からの cross build として扱い、ARM native MSYS2 実行は現時点では対象外とする。
 
+### Windows x86 / 32bit AVX2 メモリメモ
+
+Windows x86版は32bit PEであり、NNUE/SFNN系のAVX2 buildではworker 1個あたりのhistory等が大きい。
+実測では `SFNN_halfka2_1024_7_64_k3k3` のAVX2版で `YaneuraOuWorker` が約65MiBあり、
+`bench 16 16` ではworkerだけで約1GiBを使う。ここにTT、NNUE、共有history、thread stackが加わる。
+
+このため、Windows x86版には `large address aware` が必要である。やねうら王本体のMakefileでは、
+32bit Windows toolchainと判定できる場合だけlink時に `-Wl,--large-address-aware` を付ける。
+これはPE header flagであり、64bit版の探索コードや実行時性能には影響しない。
+64bit Windows buildでは不要であり、古いMSYS2/GCCのGNU ldではこのoptionが未対応なため付けない。
+確認は次のように行う。
+
+```bash
+objdump -x YaneuraOu-by-gcc.exe | grep -i "large address"
+```
+
+また、GCC/clangの32bit x86 targetでは `_mm_extract_epi64` が未定義になるため、
+`bitboard.h` と `extra/key128.h` の該当箇所は `USE_SSE41 && IS_64BIT` のときだけ
+`_mm_extract_epi64` を使い、32bitでは配列アクセス側に落とす。64bit版では従来通り同命令を使う。
+
 ## Windows ARM / MSYS2 CLANGARM64 調査メモ
 
 調査日: 2026-06-16
