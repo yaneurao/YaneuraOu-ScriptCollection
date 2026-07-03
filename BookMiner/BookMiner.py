@@ -196,6 +196,9 @@ class Task:
     # このtaskで掘る最大手数。
     max_book_ply : int = MAX_BOOK_PLY
 
+    # 棋譜末端からbest lineを垂直に掘る固定手数。
+    think_command_ply : int = THINK_COMMAND_PLY
+
 
 @dataclass
 class TaskQueueJobProgress:
@@ -1220,7 +1223,7 @@ class EngineManager:
         last_thinking_ply = PLY_MIN
 
         # `t`コマンドで垂直に掘る時の残り手数
-        rest_ply = THINK_COMMAND_PLY
+        rest_ply = task.think_command_ply
 
         # 現在探索中の局面
         current_sfen = sfen
@@ -1280,7 +1283,7 @@ class EngineManager:
         """
         `startpos moves ...` 形式の1行を、棋譜の指し手通りに辿って掘る。
         DB上の定跡木から外へ出る枝ではeval_limitを見て、条件を満たす場合だけ先へ進む。
-        棋譜末端まで到達できたら、そこからTHINK_COMMAND_PLYだけbest lineを掘る。
+        棋譜末端まで到達できたら、そこからtask.think_command_plyだけbest lineを掘る。
         """
         if task.position_cmd is None:
             return TASK_RESULT_DONE
@@ -1326,7 +1329,17 @@ class EngineManager:
             checked_push_usi(board, move, context=task.position_cmd)
 
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
-        return self.start_thinking(book, engine, Task(leaf_sfen, leaf_ply, eval_limit, max_book_ply=max_book_ply))
+        return self.start_thinking(
+            book,
+            engine,
+            Task(
+                leaf_sfen,
+                leaf_ply,
+                eval_limit,
+                max_book_ply=max_book_ply,
+                think_command_ply=task.think_command_ply,
+            ),
+        )
 
     """
     def parallel_think(self, book:Book, think_sfens:list[Sfen]):
@@ -2699,10 +2712,14 @@ def scheduled_time_text(timestamp:float)->str:
     return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
 
 
-def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int, max_book_ply:int):
+def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int, max_book_ply:int, think_command_ply:int):
     job_counter_local = get_job_counter()
 
-    print(f"({job_counter_local}) put position commands , path = {path} , eval_limit = {eval_limit}, max_book_ply = {max_book_ply}")
+    print(
+        f"({job_counter_local}) put position commands , path = {path} , "
+        f"eval_limit = {eval_limit}, max_book_ply = {max_book_ply}, "
+        f"think_command_ply = {think_command_ply}"
+    )
     if not os.path.exists(path):
         print(f"({job_counter_local}) put position commands Error : file not found, path = {path}")
         return
@@ -2732,7 +2749,17 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
     engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
 
     for line in lines:
-        engine_manager.put_task(Task(SFEN_START, 1, eval_limit, line, job_counter_local, max_book_ply=max_book_ply))
+        engine_manager.put_task(
+            Task(
+                SFEN_START,
+                1,
+                eval_limit,
+                line,
+                job_counter_local,
+                max_book_ply=max_book_ply,
+                think_command_ply=think_command_ply,
+            )
+        )
 
     print(f"({job_counter_local}) put position commands , done.")
 
@@ -2923,7 +2950,7 @@ def user_input(from_gui:bool = False):
                 print("  Q : quit")
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
-                print("  T : think positions          , t (think_sfens path) (max_book_ply)")
+                print("  T : think positions          , t (think_sfens path) (max_book_ply) (think_command_ply)")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
                 print("  E : EvalLimit , e [eval_limit]")
@@ -2963,6 +2990,7 @@ def user_input(from_gui:bool = False):
 
             elif i == 't':
                 max_book_ply = book_miner_settings.max_book_ply
+                think_command_ply = THINK_COMMAND_PLY
                 if len(inp) < 2:
                     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
                 elif len(inp) == 2 and inp[1].isdigit():
@@ -2972,12 +3000,23 @@ def user_input(from_gui:bool = False):
                     path = inp[1]
                     if len(inp) >= 3:
                         max_book_ply = int(inp[2])
+                    if len(inp) >= 4:
+                        think_command_ply = int(inp[3])
 
                 if max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
+                elif think_command_ply <= 0:
+                    print("Error : think_command_ply must be positive integer.")
                 else:
                     Thread(
-                        target=lambda: put_position_commands(book, path, engine_manager, eval_limit, max_book_ply),
+                        target=lambda: put_position_commands(
+                            book,
+                            path,
+                            engine_manager,
+                            eval_limit,
+                            max_book_ply,
+                            think_command_ply,
+                        ),
                         daemon=True,
                     ).start()
 

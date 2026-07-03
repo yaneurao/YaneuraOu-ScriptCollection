@@ -64,6 +64,8 @@ nf 100 9999 200 100
                   peta_next の leaf のうち、反駁された leaf だけを作る
 e 400             eval_limit を 400 にする
 t                 book/think_sfens.txt を探索キューへ積む
+t book/think_sfens.txt 200 6
+                  max_book_ply=200, think_command_ply=6 で探索キューへ積む
 w                 現在DBを手動保存する
 q                 保存して終了する
 !                 保存せず終了する

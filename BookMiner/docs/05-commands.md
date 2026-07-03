@@ -60,13 +60,19 @@ t 200
 t book/positions-2026.txt 200
 ```
 
+棋譜末端から best line を何手分延長するかは、第3引数で指定できます。省略時は `6` です。
+
+```text
+t book/positions-2026.txt 200 8
+```
+
 queue は、これから探索する局面を一時的に積んでおく待ち行列です。`enqueue` は、その queue に局面を追加する操作です。queue に積まれた局面は、探索スレッドによって順に処理されます。
 
 進捗は画面と `log/` のログで確認してください。
 
 GUI の `enqueue進捗` は、worker が受け取ったタスク数をもとに表示されます。探索が完全に終わった数ではありませんが、BookMiner 起動後に enqueue した累計タスクに対して、どこまで worker に渡ったかを確認できます。複数回 enqueue した場合、分母は追加分だけ増えます。
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達した局面は思考しません。`t` の末尾に最大手数を指定した場合は、その job だけ指定値を使います。
+`settings/book_miner_settings.json5` の `max_book_ply` に到達した局面は思考しません。`t` の末尾に最大手数を指定した場合は、その job だけ指定値を使います。さらに `think_ply` を指定した場合は、その job だけ棋譜末端からの best line 延長手数を変更します。
 
 ## `w`
 

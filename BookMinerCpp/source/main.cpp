@@ -395,11 +395,12 @@ void start_thinking_best_line(
     const std::string& leaf_sfen,
     int leaf_ply,
     int eval_limit,
-    int max_book_ply)
+    int max_book_ply,
+    int think_command_ply)
 {
     std::string current_sfen = leaf_sfen;
     int current_ply = leaf_ply;
-    int rest_ply = ThinkCommandPly;
+    int rest_ply = think_command_ply;
     int last_thinking_ply = PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
 
@@ -439,7 +440,8 @@ void process_position_command(
     bookminer::UsiEngine& engine,
     const std::string& position_command,
     int eval_limit,
-    int max_book_ply)
+    int max_book_ply,
+    int think_command_ply)
 {
     const auto parsed = bookminer::parse_position_command(position_command);
     auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
@@ -481,7 +483,7 @@ void process_position_command(
         board.push_usi(move);
     }
 
-    start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply);
+    start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply, think_command_ply);
 }
 
 std::vector<std::string> read_position_commands_file(const std::filesystem::path& path)
@@ -507,6 +509,7 @@ struct Task {
     std::string position_command;
     int eval_limit = 0;
     int max_book_ply = 0;
+    int think_command_ply = ThinkCommandPly;
     int job_id = 0;
 };
 
@@ -585,7 +588,7 @@ public:
         }
     }
 
-    int enqueue_position_commands(const std::filesystem::path& path, int eval_limit, int max_book_ply)
+    int enqueue_position_commands(const std::filesystem::path& path, int eval_limit, int max_book_ply, int think_command_ply)
     {
         const auto commands = read_position_commands_file(path);
         const int job_id = next_job_id_.fetch_add(1);
@@ -603,7 +606,8 @@ public:
 
         log_line("(" + std::to_string(job_id) + ") put position commands , path = " + path.string()
             + " , eval_limit = " + std::to_string(eval_limit)
-            + ", max_book_ply = " + std::to_string(max_book_ply));
+            + ", max_book_ply = " + std::to_string(max_book_ply)
+            + ", think_command_ply = " + std::to_string(think_command_ply));
         log_line("(" + std::to_string(job_id) + ") read " + std::to_string(added) + " position commands.");
         log_line("[TaskQueueStart] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
@@ -615,7 +619,7 @@ public:
             + " eval_limit=" + std::to_string(eval_limit));
 
         for (const auto& command : commands)
-            queue_.push(Task{command, eval_limit, max_book_ply, job_id});
+            queue_.push(Task{command, eval_limit, max_book_ply, think_command_ply, job_id});
 
         if (commands.empty())
             report_task_queue_done(job_id);
@@ -655,7 +659,13 @@ private:
 
             try
             {
-                process_position_command(book_, engine, task->position_command, task->eval_limit, task->max_book_ply);
+                process_position_command(
+                    book_,
+                    engine,
+                    task->position_command,
+                    task->eval_limit,
+                    task->max_book_ply,
+                    task->think_command_ply);
             }
             catch (const std::exception& ex)
             {
@@ -1982,7 +1992,7 @@ void print_help()
     log_line("  Q : quit");
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
-    log_line("  T : think positions          , t (think_sfens path) (max_book_ply)");
+    log_line("  T : think positions          , t (think_sfens path) (max_book_ply) (think_command_ply)");
     log_line("  E : EvalLimit                , e [eval_limit]");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
@@ -2149,6 +2159,7 @@ int main(int argc, char* argv[])
             else if (command == "t")
             {
                 int task_max_book_ply = max_book_ply;
+                int task_think_command_ply = ThinkCommandPly;
                 std::string path = fs::path(BookDir).append(ThinkSfensName).string();
                 if (tokens.size() == 2 && std::all_of(tokens[1].begin(), tokens[1].end(), ::isdigit))
                 {
@@ -2159,13 +2170,17 @@ int main(int argc, char* argv[])
                     path = tokens[1];
                     if (tokens.size() >= 3)
                         task_max_book_ply = std::stoi(tokens[2]);
+                    if (tokens.size() >= 4)
+                        task_think_command_ply = std::stoi(tokens[3]);
                 }
                 if (!task_workers)
                     log_line("Error : task workers are not running.");
                 else if (task_max_book_ply <= 0)
                     log_line("Error : max_book_ply must be positive integer.");
+                else if (task_think_command_ply <= 0)
+                    log_line("Error : think_command_ply must be positive integer.");
                 else
-                    task_workers->enqueue_position_commands(path, eval_limit, task_max_book_ply);
+                    task_workers->enqueue_position_commands(path, eval_limit, task_max_book_ply, task_think_command_ply);
             }
             else if (command == "p")
             {

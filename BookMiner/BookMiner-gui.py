@@ -35,6 +35,7 @@ GUI_SETTING_DEFAULTS = {
     "depth_gap_eval_per_ply": "0.1",
     "eval_limit": "400",
     "game_ply_limit": "200",
+    "think_command_ply": "6",
     "peta_next_ply_limit": "200",
     "peta_next_refutation_ply_limit": "200",
     "peta_refutation_ply_limit": "200",
@@ -296,6 +297,9 @@ class BookMinerGui(ttk.Frame):
         self.game_ply_limit = tk.StringVar(
             value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
         )
+        self.think_command_ply = tk.StringVar(
+            value=gui_settings.get("think_command_ply", GUI_SETTING_DEFAULTS["think_command_ply"])
+        )
         self.peta_next_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_next_ply_limit", gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_next_ply_limit"]))
         )
@@ -469,11 +473,13 @@ class BookMinerGui(ttk.Frame):
             command=self.send_think,
         )
         self.enqueue_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`e eval_limit` のあと `t book/think_sfens.txt game_ply_limit` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        Tooltip(self.enqueue_button, "`e eval_limit` のあと `t book/think_sfens.txt game_ply_limit think_ply` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
         ttk.Label(commands, text="eval_limit").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=6, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=6, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=6, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="think ply").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.think_command_ply, width=8).grid(row=6, column=7, sticky="w", pady=3)
 
         ttk.Label(commands, text="手順4.").grid(row=7, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
@@ -1550,6 +1556,7 @@ class BookMinerGui(ttk.Frame):
             "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
+            "think_command_ply": self.think_command_ply.get(),
             "peta_next_ply_limit": self.peta_next_ply_limit.get(),
             "peta_next_refutation_ply_limit": self.peta_next_refutation_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
@@ -1604,6 +1611,9 @@ class BookMinerGui(ttk.Frame):
         game_ply_limit = self._get_game_ply_limit(auto)
         if game_ply_limit is None:
             return False
+        think_command_ply = self._get_positive_int(self.think_command_ply, "think ply", auto)
+        if think_command_ply is None:
+            return False
         if not value:
             if auto:
                 self._append_log("task", "[AUTO] eval_limit is empty.\n")
@@ -1623,7 +1633,7 @@ class BookMinerGui(ttk.Frame):
         origin = "AUTO" if auto else "GUI"
         if (
             self.send_command(f"e {value}", origin=origin)
-            and self.send_command(f"t {think_sfens_path} {game_ply_limit}", origin=origin)
+            and self.send_command(f"t {think_sfens_path} {game_ply_limit} {think_command_ply}", origin=origin)
         ):
             return True
         if not auto:
