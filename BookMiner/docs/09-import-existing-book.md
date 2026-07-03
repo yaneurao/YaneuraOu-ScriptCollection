@@ -207,7 +207,7 @@ nf 99999 9999 200 100
 GUI:
 
 ```text
-手順2. peta next refu.  eval_diff 99999  game ply limit 200  eval refu. 100
+手順2. peta next refu.  eval_diff 99999  game ply limit 200  max step 9999  eval refu. 100
 ```
 
 `100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。

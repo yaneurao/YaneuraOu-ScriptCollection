@@ -148,6 +148,8 @@ GUIでは `peta next refu.`、CLIでは `nf` コマンドです。
 nf 30 9999 200 100
 ```
 
+引数は `eval_diff max_step game_ply_limit eval_refutation_margin` の順です。GUIでは `peta_next` と `peta next refu.` で `max step` を別々に指定できます。空欄なら `9999` が使われます。
+
 判定式は `peta_refutation` と同じです。
 
 ```text

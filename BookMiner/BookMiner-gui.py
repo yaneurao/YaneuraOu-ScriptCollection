@@ -28,7 +28,8 @@ AUTO_THINK_SFENS_PATH = BASE_DIR / AUTO_THINK_SFENS_COMMAND_PATH
 GUI_SETTING_DEFAULTS = {
     "peta_next_eval_diff": "30",
     "peta_next_refutation_eval_diff": "30",
-    "max_step": "",
+    "peta_next_max_step": "",
+    "peta_next_refutation_max_step": "",
     "peta_next_refutation_eval_refu": "100",
     "peta_refutation_eval_refu": "100",
     "depth_gap_eval_per_ply": "0.1",
@@ -264,7 +265,18 @@ class BookMinerGui(ttk.Frame):
                 gui_settings.get("eval_diff", GUI_SETTING_DEFAULTS["peta_next_refutation_eval_diff"]),
             )
         )
-        self.max_step = tk.StringVar(value=gui_settings.get("max_step", GUI_SETTING_DEFAULTS["max_step"]))
+        self.peta_next_max_step = tk.StringVar(
+            value=gui_settings.get(
+                "peta_next_max_step",
+                gui_settings.get("max_step", GUI_SETTING_DEFAULTS["peta_next_max_step"]),
+            )
+        )
+        self.peta_next_refutation_max_step = tk.StringVar(
+            value=gui_settings.get(
+                "peta_next_refutation_max_step",
+                GUI_SETTING_DEFAULTS["peta_next_refutation_max_step"],
+            )
+        )
         self.peta_next_refutation_eval_refu = tk.StringVar(
             value=gui_settings.get(
                 "peta_next_refutation_eval_refu",
@@ -380,9 +392,9 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="game ply limit").grid(row=2, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_ply_limit, width=8).grid(row=2, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=2, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.max_step, width=8).grid(row=2, column=7, sticky="w", pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_max_step, width=8).grid(row=2, column=7, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_next_enabled).grid(
-            row=2, column=8, sticky="w", padx=(12, 0), pady=3
+            row=2, column=10, sticky="w", padx=(12, 0), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=3, column=0, sticky="w", pady=3)
@@ -401,10 +413,12 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.peta_next_refutation_eval_diff, width=8).grid(row=3, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_refutation_ply_limit, width=8).grid(row=3, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="eval refu.").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_next_refutation_eval_refu, width=8).grid(row=3, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_refutation_max_step, width=8).grid(row=3, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="eval refu.").grid(row=3, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_next_refutation_eval_refu, width=8).grid(row=3, column=9, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_next_refutation_enabled).grid(
-            row=3, column=8, sticky="w", padx=(12, 0), pady=3
+            row=3, column=10, sticky="w", padx=(12, 0), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
@@ -1529,7 +1543,8 @@ class BookMinerGui(ttk.Frame):
         data = {
             "peta_next_eval_diff": self.peta_next_eval_diff.get(),
             "peta_next_refutation_eval_diff": self.peta_next_refutation_eval_diff.get(),
-            "max_step": self.max_step.get(),
+            "peta_next_max_step": self.peta_next_max_step.get(),
+            "peta_next_refutation_max_step": self.peta_next_refutation_max_step.get(),
             "peta_next_refutation_eval_refu": self.peta_next_refutation_eval_refu.get(),
             "peta_refutation_eval_refu": self.peta_refutation_eval_refu.get(),
             "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
@@ -1640,7 +1655,7 @@ class BookMinerGui(ttk.Frame):
             return False
         if not auto and not self._begin_manual_action("manual_peta_next"):
             return False
-        max_step = self.max_step.get().strip()
+        max_step = self.peta_next_max_step.get().strip()
         if max_step:
             try:
                 int(max_step)
@@ -1699,10 +1714,23 @@ class BookMinerGui(ttk.Frame):
             else:
                 messagebox.showerror("入力エラー", "eval refu. には整数を指定してください。")
             return False
+        max_step = self.peta_next_refutation_max_step.get().strip()
+        if max_step:
+            try:
+                int(max_step)
+            except ValueError:
+                if auto:
+                    self._append_log("task", "[AUTO] peta next refu. max step must be an integer.\n")
+                else:
+                    messagebox.showerror("入力エラー", "max step には整数を指定してください。")
+                if not auto:
+                    self.busy_action = None
+                    self._update_buttons()
+                return False
         if not auto and not self._begin_manual_action("manual_peta_next_refutation"):
             return False
         origin = "AUTO" if auto else "GUI"
-        if self.send_command(f"nf {eval_diff} 9999 {game_ply_limit} {eval_refutation_margin}", origin=origin):
+        if self.send_command(f"nf {eval_diff} {max_step or 9999} {game_ply_limit} {eval_refutation_margin}", origin=origin):
             return True
         if not auto:
             self.busy_action = None

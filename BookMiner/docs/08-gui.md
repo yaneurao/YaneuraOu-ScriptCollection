@@ -67,7 +67,7 @@ GUI 上でもこの手順が縦に並んでいます。
 手順0. [ 棋譜抽出   ]  ← 手順1.～2.の代わりに think_sfens.txt を用意する
 手順1. [ peta_shock ] [ peta_read  ]
 手順2. [ peta_next       ] eval_diff [ X ] game ply limit [ P ] max step [ Y ] 自動 [✓]
-        [ peta next refu. ] eval_diff [ X ] game ply limit [ P ] eval refu. [ R ] 自動 [ ]
+        [ peta next refu. ] eval_diff [ X ] game ply limit [ P ] max step [ Y ] eval refu. [ R ] 自動 [ ]
         [ peta refutation ] eval refu. [ R ] game ply limit [ P ] 自動 [ ]
         [ peta depth_gap  ] eval/ply  [ G ] game ply limit [ P ] 自動 [ ]
 手順3. [ enqueue    ] eval_limit [ Z ] game ply limit [ P ]
@@ -83,7 +83,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta_next` は `n eval_diff max_step game_ply_limit` を送信します。例えば `game ply limit` に `200`、`eval_diff` に `30` と入力して実行すると、`n 30 9999 200` を送信します。`max step` を入力した場合は、`n 30 40 200` のように第 2 引数も送信します。
 
-`peta next refu.` は `nf eval_diff max_step game_ply_limit eval_refutation_margin` を送信します。通常の `peta_next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。
+`peta next refu.` は `nf eval_diff max_step game_ply_limit eval_refutation_margin` を送信します。通常の `peta_next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta_next` とは別に指定できます。空欄なら `9999` を送信します。
 
 `peta refutation` は `f eval_refutation_margin eval_limit game_ply_limit` を送信します。`eval refu.` のデフォルト値は `100` です。peta shock 後に best になった depth 0 の指し手のうち、peta shock 前は 2番手以下で、peta shock後の旧 best 手との差が `eval_refutation_margin` 以上ある手を抽出します。このとき enqueue 欄の `eval_limit` も使い、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超えるもの、または反駁候補手を指した後の局面が `game ply limit` に到達するものは `book/think_sfens.txt` へ書き出しません。
 
