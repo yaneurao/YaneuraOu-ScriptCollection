@@ -902,7 +902,8 @@ class FloodgateDailyDownloadPane(ttk.Frame):
             "終了日",
             self.end_date,
             "この日まで日別ページのCSAファイルをダウンロードします。\n"
-            "YYYY-MM-DD または YYYY/MM/DD で指定してください。",
+            "YYYY-MM-DD または YYYY/MM/DD で指定してください。\n"
+            "省略した場合は今日の日付として扱います。",
             width=14,
         )
         row += 1
@@ -968,9 +969,16 @@ class FloodgateDailyDownloadPane(ttk.Frame):
 
     def build_job(self) -> FloodgateDailyDownloadJob:
         start_date = parse_date_value(self.start_date.get().strip(), "開始日", year_only_month_day=(1, 1))
-        end_date = parse_date_value(self.end_date.get().strip(), "終了日", year_only_month_day=(12, 31))
-        if start_date is None or end_date is None:
-            raise ValueError("開始日と終了日を指定してください。")
+        end_date_text = self.end_date.get().strip()
+        if end_date_text:
+            end_date = parse_date_value(end_date_text, "終了日", year_only_month_day=(12, 31))
+        else:
+            end_date = datetime.now().date()
+            self.end_date.set(end_date.isoformat())
+        if start_date is None:
+            raise ValueError("開始日を指定してください。")
+        if end_date is None:
+            raise ValueError("終了日を指定してください。")
         if start_date > end_date:
             raise ValueError("開始日は終了日以下を指定してください。")
 
@@ -1934,6 +1942,16 @@ class KifManager(tk.Tk):
             except ValueError as exc:
                 messagebox.showerror("入力エラー", str(exc), parent=self)
                 return
+            if (job.end_date - job.start_date).days >= 30:
+                confirmed = messagebox.askokcancel(
+                    "確認",
+                    "大量の棋譜をダウンロードする可能性があります。\n"
+                    f"対象期間: {job.start_date.isoformat()} ～ {job.end_date.isoformat()}\n"
+                    "続行しますか？",
+                    parent=self,
+                )
+                if not confirmed:
+                    return
             self._start_floodgate_daily_download(job)
             return
         if isinstance(pane, WcscDownloadPane):
@@ -1971,7 +1989,15 @@ class KifManager(tk.Tk):
 
     def _current_download_pane(
         self,
-    ) -> DownloadPlaceholderPane | FloodgateDownloadPane | WcscDownloadPane | DenryuDownloadPane | ShogiDb2DownloadPane | None:
+    ) -> (
+        DownloadPlaceholderPane
+        | FloodgateDownloadPane
+        | FloodgateDailyDownloadPane
+        | WcscDownloadPane
+        | DenryuDownloadPane
+        | ShogiDb2DownloadPane
+        | None
+    ):
         selected = self.download_notebook.select()
         if not selected:
             return None
