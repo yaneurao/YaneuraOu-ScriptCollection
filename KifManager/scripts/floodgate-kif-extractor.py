@@ -32,6 +32,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="also extract drawn games by a player who reached this floodgate rating during the selected period",
     )
+    parser.add_argument(
+        "--use-floodgate14-rating",
+        action="store_true",
+        help="also use players-floodgate14-YYYYMMDD.html ratings; past pages are cached under downloaded-kif/floodgate14-rating",
+    )
     args = parser.parse_args(argv)
 
     stats = run_extractor(
@@ -49,6 +54,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_rating=args.min_rating is not None,
         losing_player_min_rating=args.losing_player_min_rating,
         drawing_player_min_rating=args.drawing_player_min_rating,
+        use_floodgate14_rating=args.use_floodgate14_rating,
         verbose=args.verbose,
     )
     print_stats(stats)

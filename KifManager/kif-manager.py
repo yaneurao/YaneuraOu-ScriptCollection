@@ -124,6 +124,7 @@ class ExtractJob:
     wcsc_finalists_only: bool
     exclude_handicap: bool
     require_rating: bool
+    use_floodgate14_rating: bool
     log_target_files: bool
     verbose: bool
 
@@ -298,6 +299,7 @@ class ExtractorPane(ttk.Frame):
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
         self.losing_player_min_rating = tk.StringVar(value="4000" if is_floodgate_extractor_key(kind.key) else "")
         self.drawing_player_min_rating = tk.StringVar(value="4000" if is_floodgate_extractor_key(kind.key) else "")
+        self.use_floodgate14_rating = tk.BooleanVar(value=is_floodgate_extractor_key(kind.key))
         self.start_year = tk.StringVar()
         self.end_year = tk.StringVar()
         self.start_date = tk.StringVar()
@@ -423,6 +425,7 @@ class ExtractorPane(ttk.Frame):
         if is_floodgate_extractor_key(self.kind.key):
             row = self._losing_player_rating_row(row)
             row = self._drawing_player_rating_row(row)
+            row = self._floodgate14_rating_row(row)
 
         if self.kind.key == "other":
             row = self._exclude_handicap_row(row)
@@ -491,6 +494,18 @@ class ExtractorPane(ttk.Frame):
         frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=6)
         ttk.Entry(frame, textvariable=self.drawing_player_min_rating, width=8).pack(side="left")
         ttk.Label(frame, text="以上のプレイヤーが引き分けた棋譜も追加する").pack(side="left", padx=(4, 0))
+        return row + 1
+
+    def _floodgate14_rating_row(self, row: int) -> int:
+        self._label_with_help(
+            row,
+            "2週間レーティングを併用",
+            "floodgateの players-floodgate14-YYYYMMDD.html を取得し、\n"
+            "棋譜内ratingと2週間推定ratingの高い方でrating条件を判定します。\n"
+            "過去日のページは downloaded-kif/floodgate14-rating/ にキャッシュします。\n"
+            "今日の日付のページは更新される可能性があるため、キャッシュとして使いません。",
+        )
+        ttk.Checkbutton(self, variable=self.use_floodgate14_rating).grid(row=row, column=1, sticky="w", pady=6)
         return row + 1
 
     def _exclude_handicap_row(self, row: int) -> int:
@@ -593,6 +608,7 @@ class ExtractorPane(ttk.Frame):
             self.wcsc_finalists_only.get(),
             self.kind.key == "other" and self.exclude_handicap.get(),
             self.kind.has_rating and min_rating is not None,
+            is_floodgate_extractor_key(self.kind.key) and self.use_floodgate14_rating.get(),
             log_target_files,
             verbose,
         )
@@ -684,6 +700,7 @@ class ExtractorPane(ttk.Frame):
             "end_date": self.end_date.get(),
             "wcsc_finalists_only": self.wcsc_finalists_only.get(),
             "exclude_handicap": self.exclude_handicap.get(),
+            "use_floodgate14_rating": self.use_floodgate14_rating.get(),
             "exclude_handicap_default_version": OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
             if self.kind.key == "other"
             else None,
@@ -710,6 +727,9 @@ class ExtractorPane(ttk.Frame):
         self.start_date.set(str(settings.get("start_date", "")))
         self.end_date.set(str(settings.get("end_date", "")))
         self.wcsc_finalists_only.set(bool(settings.get("wcsc_finalists_only", False)))
+        self.use_floodgate14_rating.set(
+            bool(settings.get("use_floodgate14_rating", is_floodgate_extractor_key(self.kind.key)))
+        )
         default_exclude_handicap = self.kind.key == "other"
         if (
             self.kind.key == "other"
@@ -2121,6 +2141,8 @@ class KifManager(tk.Tk):
                 self._put_log(f"[{job.kind.title}] losing-player rating : {job.losing_player_min_rating}\n")
             if job.drawing_player_min_rating is not None:
                 self._put_log(f"[{job.kind.title}] drawing-player rating: {job.drawing_player_min_rating}\n")
+            if job.use_floodgate14_rating:
+                self._put_log(f"[{job.kind.title}] floodgate14 rating: True\n")
             if job.start_year is not None or job.end_year is not None:
                 self._put_log(
                     f"[{job.kind.title}] years  : "
@@ -2160,6 +2182,7 @@ class KifManager(tk.Tk):
                         require_rating=job.require_rating,
                         losing_player_min_rating=job.losing_player_min_rating,
                         drawing_player_min_rating=job.drawing_player_min_rating,
+                        use_floodgate14_rating=job.use_floodgate14_rating,
                         log_target_files=job.log_target_files,
                         verbose=job.verbose,
                     )

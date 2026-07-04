@@ -105,7 +105,7 @@ dlshogi
 floodgate の棋譜を抽出します。プレイヤー名フィルタに加えて、指定期間内に一度でも下限rating以上になったプレイヤー同士の棋譜、年範囲、日付範囲を指定できます。
 
 ```bash
-python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--drawing-player-min-rating X] [--reversal-threshold X] [--verbose]
+python3 floodgate-kif-extractor.py INPUT_DIR OUTPUT_TXT [--start-year YYYY] [--end-year YYYY] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--both-player-list both.txt] [--either-player-list either.txt] [--min-rating X] [--losing-player-min-rating X] [--drawing-player-min-rating X] [--use-floodgate14-rating] [--reversal-threshold X] [--verbose]
 ```
 
 例:
@@ -130,6 +130,8 @@ python3 floodgate-kif-extractor.py \
 `--losing-player-min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤーが負けた棋譜も追加します。相手の rating は問いません。
 
 `--drawing-player-min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤーが引き分けた棋譜も追加します。相手の rating は問いません。
+
+`--use-floodgate14-rating` を指定すると、対局日の `players-floodgate14-YYYYMMDD.html` を参照し、棋譜内 rating と2週間推定 rating の高い方をそのプレイヤーの rating として扱います。過去日のページは `downloaded-kif/floodgate14-rating/` にキャッシュします。今日の日付のページは更新される可能性があるため、キャッシュとしては使わず毎回取得します。
 
 ## floodgate-kif-downloader.py
 

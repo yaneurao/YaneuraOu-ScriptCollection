@@ -4,11 +4,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import gc
+import html
 import os
 import re
 import shutil
 import sys
 import time
+import urllib.error
+import urllib.request
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -38,6 +41,12 @@ INPUT_DATE_RE = re.compile(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$")
 INPUT_YEAR_RE = re.compile(r"^(\d{4})$")
 PROGRESS_INTERVAL = 1000
 WHITE_TO_MOVE_STARTING_SFEN = cshogi.STARTING_SFEN.replace(" b ", " w ", 1)
+FLOODGATE14_RATING_URL_FORMAT = "https://wdoor.c.u-tokyo.ac.jp/shogi/x/rating/players-floodgate14-{date}.html"
+FLOODGATE14_RATING_CACHE_DIR = Path("downloaded-kif/floodgate14-rating")
+FLOODGATE14_RATING_USER_AGENT = "YaneuraOu-KifManager-Floodgate14-Rating/1.0"
+FLOODGATE14_RATING_LINE_RE = re.compile(
+    r"^(?P<name>\S+)\s+(?P<rating>\d+(?:\.\d+)?)\s+\d+\s+\d+\s+\d+(?:\.\d+)?(?:\s|$)"
+)
 
 
 class ParseError(Exception):
@@ -139,6 +148,81 @@ def read_text(path: Path) -> str:
         except UnicodeDecodeError:
             pass
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def decode_http_body(data: bytes, content_type: str | None = None) -> str:
+    encoding = "utf-8"
+    if content_type:
+        match = re.search(r"charset=([^\s;]+)", content_type, re.IGNORECASE)
+        if match:
+            encoding = match.group(1).strip("\"'")
+    try:
+        return data.decode(encoding)
+    except (LookupError, UnicodeDecodeError):
+        return data.decode("utf-8", errors="replace")
+
+
+def floodgate14_rating_url(rating_date: date) -> str:
+    return FLOODGATE14_RATING_URL_FORMAT.format(date=rating_date.strftime("%Y%m%d"))
+
+
+def floodgate14_rating_cache_path(cache_dir: Path, rating_date: date) -> Path:
+    return cache_dir / f"players-floodgate14-{rating_date.strftime('%Y%m%d')}.html"
+
+
+def parse_floodgate14_rating_text(text: str) -> dict[str, float]:
+    ratings: dict[str, float] = {}
+    for raw_line in text.splitlines():
+        line = html.unescape(re.sub(r"<[^>]+>", " ", raw_line)).strip()
+        if not line or line.startswith("#") or line.lower().startswith("name "):
+            continue
+        match = FLOODGATE14_RATING_LINE_RE.match(line)
+        if not match:
+            continue
+        ratings[normalize_player_name(match.group("name"))] = float(match.group("rating"))
+    return ratings
+
+
+def fetch_floodgate14_rating_page(rating_date: date, *, timeout: float = 10.0) -> str:
+    request = urllib.request.Request(
+        floodgate14_rating_url(rating_date),
+        headers={"User-Agent": FLOODGATE14_RATING_USER_AGENT},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return decode_http_body(response.read(), response.headers.get("Content-Type"))
+
+
+def load_floodgate14_ratings(
+    rating_date: date,
+    *,
+    cache_dir: Path = FLOODGATE14_RATING_CACHE_DIR,
+    today: date | None = None,
+    verbose: bool = False,
+) -> dict[str, float]:
+    today = today or date.today()
+    cacheable = rating_date < today
+    cache_path = floodgate14_rating_cache_path(cache_dir, rating_date)
+
+    if cacheable and cache_path.is_file():
+        if verbose:
+            log_progress(f"floodgate14 rating cache: {cache_path}")
+        return parse_floodgate14_rating_text(read_text(cache_path))
+
+    try:
+        text = fetch_floodgate14_rating_page(rating_date)
+    except (OSError, urllib.error.URLError) as exc:
+        log_progress(f"floodgate14 rating取得失敗: {rating_date.isoformat()} {exc}")
+        return {}
+
+    if cacheable:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(text, encoding="utf-8", newline="\n")
+        if verbose:
+            log_progress(f"floodgate14 rating saved: {cache_path}")
+    elif verbose:
+        log_progress(f"floodgate14 rating no-cache: {rating_date.isoformat()}")
+
+    return parse_floodgate14_rating_text(text)
 
 
 def iter_kifu_files(root: Path) -> Iterable[Path]:
@@ -994,11 +1078,14 @@ def collect_high_rating_players_from_headers(
     year_filter: YearFilter | None,
     date_filter: DateFilter | None,
     verbose: bool,
+    use_floodgate14_rating: bool = False,
+    floodgate14_rating_cache_dir: Path = FLOODGATE14_RATING_CACHE_DIR,
 ) -> dict[float, set[str]]:
     players_by_threshold = {threshold: set() for threshold in thresholds}
     if not thresholds:
         return players_by_threshold
 
+    floodgate14_rating_dates: set[date] = set()
     progress = CountProgress("rating集計中", len(paths))
     for index, path in enumerate(paths, start=1):
         progress.update(index)
@@ -1018,6 +1105,8 @@ def collect_high_rating_players_from_headers(
         game_date = header.game_date or (game_datetime.date() if game_datetime is not None else infer_game_date_from_path(path))
         if not date_filter_passes(game_date, date_filter, game_datetime):
             continue
+        if game_date is not None:
+            floodgate14_rating_dates.add(game_date)
 
         for name, rating in ((header.black, header.black_rating), (header.white, header.white_rating)):
             if not name or rating is None:
@@ -1028,6 +1117,31 @@ def collect_high_rating_players_from_headers(
                     players_by_threshold[threshold].add(normalized_name)
 
     progress.update(len(paths), force=True)
+
+    if use_floodgate14_rating and floodgate14_rating_dates:
+        rating_dates = sorted(floodgate14_rating_dates)
+        rating_progress = CountProgress("floodgate14 rating取得中", len(rating_dates), interval=1)
+        added_by_threshold = {threshold: 0 for threshold in thresholds}
+        seen_players_by_threshold = {threshold: set(players) for threshold, players in players_by_threshold.items()}
+        for index, rating_date in enumerate(rating_dates, start=1):
+            rating_progress.update(index)
+            ratings = load_floodgate14_ratings(
+                rating_date,
+                cache_dir=floodgate14_rating_cache_dir,
+                verbose=verbose,
+            )
+            for player, rating in ratings.items():
+                for threshold in thresholds:
+                    if rating < threshold or player in seen_players_by_threshold[threshold]:
+                        continue
+                    players_by_threshold[threshold].add(player)
+                    seen_players_by_threshold[threshold].add(player)
+                    added_by_threshold[threshold] += 1
+        rating_progress.update(len(rating_dates), force=True)
+        for threshold, count in added_by_threshold.items():
+            if count:
+                log_progress(f"floodgate14 rating追加: threshold={threshold:g} players={count}")
+
     return players_by_threshold
 
 
@@ -1351,6 +1465,7 @@ def collect_games_from_roots(
     require_rating: bool,
     losing_player_min_rating: float | None,
     drawing_player_min_rating: float | None,
+    use_floodgate14_rating: bool,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1382,6 +1497,7 @@ def collect_games_from_roots(
         thresholds=rating_thresholds,
         year_filter=year_filter,
         date_filter=date_filter,
+        use_floodgate14_rating=source_kind == "floodgate" and use_floodgate14_rating,
         verbose=verbose,
     )
     min_rating_players = (
@@ -1494,6 +1610,7 @@ def collect_games(
     require_rating: bool,
     losing_player_min_rating: float | None,
     drawing_player_min_rating: float | None,
+    use_floodgate14_rating: bool,
     log_target_files: bool,
     verbose: bool,
 ) -> tuple[list[GameRecord], Stats]:
@@ -1512,6 +1629,7 @@ def collect_games(
             require_rating=require_rating,
             losing_player_min_rating=losing_player_min_rating,
             drawing_player_min_rating=drawing_player_min_rating,
+            use_floodgate14_rating=use_floodgate14_rating,
             log_target_files=log_target_files,
             verbose=verbose,
         )
@@ -1566,6 +1684,7 @@ def run_extractor(
     require_rating: bool = False,
     losing_player_min_rating: float | None = None,
     drawing_player_min_rating: float | None = None,
+    use_floodgate14_rating: bool = False,
     log_target_files: bool = False,
     verbose: bool = False,
 ) -> Stats:
@@ -1589,6 +1708,7 @@ def run_extractor(
         require_rating=require_rating,
         losing_player_min_rating=losing_player_min_rating,
         drawing_player_min_rating=drawing_player_min_rating,
+        use_floodgate14_rating=use_floodgate14_rating,
         log_target_files=log_target_files,
         verbose=verbose,
     )
