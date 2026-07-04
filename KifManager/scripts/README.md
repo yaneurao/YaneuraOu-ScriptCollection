@@ -131,7 +131,7 @@ python3 floodgate-kif-extractor.py \
 
 `--drawing-player-min-rating 3500` を指定した場合、指定期間内に一度でも rating 3500 以上になったプレイヤーが引き分けた棋譜も追加します。相手の rating は問いません。
 
-`--use-floodgate14-rating` を指定すると、対局日の `players-floodgate14-YYYYMMDD.html` を参照し、棋譜内 rating と2週間推定 rating の高い方をそのプレイヤーの rating として扱います。過去日のページは `downloaded-kif/floodgate14-rating/` にキャッシュします。今日の日付のページは更新される可能性があるため、キャッシュとしては使わず毎回取得します。
+`--use-floodgate14-rating` を指定すると、実行日の `players-floodgate14-YYYYMMDD.html` を参照し、棋譜内 rating と2週間推定 rating の高い方をそのプレイヤーの rating として扱います。今日の日付のページは更新される可能性があるため、キャッシュとしては使わず毎回取得します。キャッシュフォルダは、将来の過去日参照と区別できるように `downloaded-kif/floodgate14-rating/` としています。
 
 ## floodgate-kif-downloader.py
 

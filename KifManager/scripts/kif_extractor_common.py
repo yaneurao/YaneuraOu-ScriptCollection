@@ -1085,7 +1085,6 @@ def collect_high_rating_players_from_headers(
     if not thresholds:
         return players_by_threshold
 
-    floodgate14_rating_dates: set[date] = set()
     progress = CountProgress("rating集計中", len(paths))
     for index, path in enumerate(paths, start=1):
         progress.update(index)
@@ -1105,8 +1104,6 @@ def collect_high_rating_players_from_headers(
         game_date = header.game_date or (game_datetime.date() if game_datetime is not None else infer_game_date_from_path(path))
         if not date_filter_passes(game_date, date_filter, game_datetime):
             continue
-        if game_date is not None:
-            floodgate14_rating_dates.add(game_date)
 
         for name, rating in ((header.black, header.black_rating), (header.white, header.white_rating)):
             if not name or rating is None:
@@ -1118,26 +1115,24 @@ def collect_high_rating_players_from_headers(
 
     progress.update(len(paths), force=True)
 
-    if use_floodgate14_rating and floodgate14_rating_dates:
-        rating_dates = sorted(floodgate14_rating_dates)
-        rating_progress = CountProgress("floodgate14 rating取得中", len(rating_dates), interval=1)
+    if use_floodgate14_rating:
+        rating_date = date.today()
+        log_progress(f"floodgate14 rating取得中: {rating_date.isoformat()}")
         added_by_threshold = {threshold: 0 for threshold in thresholds}
         seen_players_by_threshold = {threshold: set(players) for threshold, players in players_by_threshold.items()}
-        for index, rating_date in enumerate(rating_dates, start=1):
-            rating_progress.update(index)
-            ratings = load_floodgate14_ratings(
-                rating_date,
-                cache_dir=floodgate14_rating_cache_dir,
-                verbose=verbose,
-            )
-            for player, rating in ratings.items():
-                for threshold in thresholds:
-                    if rating < threshold or player in seen_players_by_threshold[threshold]:
-                        continue
-                    players_by_threshold[threshold].add(player)
-                    seen_players_by_threshold[threshold].add(player)
-                    added_by_threshold[threshold] += 1
-        rating_progress.update(len(rating_dates), force=True)
+        ratings = load_floodgate14_ratings(
+            rating_date,
+            cache_dir=floodgate14_rating_cache_dir,
+            today=rating_date,
+            verbose=verbose,
+        )
+        for player, rating in ratings.items():
+            for threshold in thresholds:
+                if rating < threshold or player in seen_players_by_threshold[threshold]:
+                    continue
+                players_by_threshold[threshold].add(player)
+                seen_players_by_threshold[threshold].add(player)
+                added_by_threshold[threshold] += 1
         for threshold, count in added_by_threshold.items():
             if count:
                 log_progress(f"floodgate14 rating追加: threshold={threshold:g} players={count}")

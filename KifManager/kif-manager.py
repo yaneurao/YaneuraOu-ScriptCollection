@@ -500,10 +500,10 @@ class ExtractorPane(ttk.Frame):
         self._label_with_help(
             row,
             "2週間レーティングを併用",
-            "floodgateの players-floodgate14-YYYYMMDD.html を取得し、\n"
+            "実行日の floodgate players-floodgate14-YYYYMMDD.html を取得し、\n"
             "棋譜内ratingと2週間推定ratingの高い方でrating条件を判定します。\n"
-            "過去日のページは downloaded-kif/floodgate14-rating/ にキャッシュします。\n"
-            "今日の日付のページは更新される可能性があるため、キャッシュとして使いません。",
+            "今日の日付のページは更新される可能性があるため、キャッシュとして使いません。\n"
+            "キャッシュフォルダ名は downloaded-kif/floodgate14-rating/ です。",
         )
         ttk.Checkbutton(self, variable=self.use_floodgate14_rating).grid(row=row, column=1, sticky="w", pady=6)
         return row + 1
@@ -897,7 +897,7 @@ class FloodgateDailyDownloadPane(ttk.Frame):
         self.kind = kind
         today = datetime.now().date()
         self.start_date = tk.StringVar(value=(today - timedelta(days=1)).isoformat())
-        self.end_date = tk.StringVar(value=today.isoformat())
+        self.end_date = tk.StringVar(value="")
         self.output_dir = tk.StringVar(value=FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR)
 
         self.columnconfigure(1, weight=1)
@@ -994,7 +994,6 @@ class FloodgateDailyDownloadPane(ttk.Frame):
             end_date = parse_date_value(end_date_text, "終了日", year_only_month_day=(12, 31))
         else:
             end_date = datetime.now().date()
-            self.end_date.set(end_date.isoformat())
         if start_date is None:
             raise ValueError("開始日を指定してください。")
         if end_date is None:
@@ -1023,7 +1022,7 @@ class FloodgateDailyDownloadPane(ttk.Frame):
             return
         today = datetime.now().date()
         self.start_date.set(str(settings.get("start_date", (today - timedelta(days=1)).isoformat())))
-        self.end_date.set(str(settings.get("end_date", today.isoformat())))
+        self.end_date.set(str(settings.get("end_date", "")))
         self.output_dir.set(
             str(settings.get("output_dir", FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR) or FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR)
         )
