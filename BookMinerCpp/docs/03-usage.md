@@ -76,6 +76,8 @@ q                 保存して終了する
 !                 保存せず終了する
 ```
 
+`po` が参照する `book/book_opponent/` の相手定跡は、`.db` と `.ybb` のどちらでも扱えます。C++版では相手定跡を全読み込みせず、必要な局面だけを on-the-fly probe します。
+
 ## 起動時に読む定跡DB
 
 BookMinerCpp は起動時に `book/backup/` から通常DBを読みます。

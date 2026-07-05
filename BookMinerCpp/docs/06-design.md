@@ -154,7 +154,7 @@ flip hitした場合の指し手は、やねうら王の `flip_move(Move16)` で
 
 `pu [eval_diff] [max_book_ply] [max_step]` は、`book/think_unsolved_sfens.txt` の棋譜prefix局面から peta_book 上の best PV leaf を書き出します。`None` を指定した引数は Python版と同じデフォルト値として扱います。
 
-`po [eval_diff] [max_book_ply] [max_step] [book_extend_ply]` は、`book/book_opponent/` の相手定跡と現行 peta_book を仮想対局させ、どちらかの定跡が切れた地点から現行 peta_book のPV leafまで辿った局面を書き出します。C++版は相手定跡として `.db` と `.ybb` の両方を読みます。`book_extend_ply` を指定した場合、出力行に `book_extend_ply=...` を付けます。
+`po [eval_diff] [max_book_ply] [max_step] [book_extend_ply]` は、`book/book_opponent/` の相手定跡と現行 peta_book を仮想対局させ、どちらかの定跡が切れた地点から現行 peta_book のPV leafまで辿った局面を書き出します。C++版は相手定跡として `.db` と `.ybb` の両方を扱い、相手定跡は全読み込みせず on-the-fly probe します。`book_extend_ply` を指定した場合、出力行に `book_extend_ply=...` を付けます。
 
 ## やねうら王 core library
 

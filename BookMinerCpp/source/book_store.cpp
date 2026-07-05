@@ -782,6 +782,244 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
     report_progress(progress, user, BookProgressKind::Done, sfen_line_count, total, path);
 }
 
+class YbbBookProbe final : public BookProbe {
+public:
+    explicit YbbBookProbe(const std::filesystem::path& path, bool normalize_eval)
+        : path_(path),
+          normalize_eval_(normalize_eval),
+          file_(path, std::ios::binary)
+    {
+        if (!file_)
+            throw std::runtime_error("failed to open ybb book: " + path.string());
+
+        const auto header = read_ybb_header(file_, path_);
+        record_count_ = header.record_count;
+        flags_ = header.flags;
+        move_record_size_ = (flags_ & YaneBinBookFlagMoveDepth)
+            ? YaneBinBookMoveDepthRecordSize
+            : YaneBinBookMoveRecordSize;
+        moves_base_ = YaneBinBookHeaderSize + record_count_ * YaneBinBookIndexRecordSize;
+        const std::uint64_t file_size = file_size_u64(path_);
+        if (file_size < moves_base_)
+            throw std::runtime_error("invalid ybb file size: " + path.string());
+        moves_size_ = file_size - moves_base_;
+    }
+
+    std::optional<PositionInfo> find_position_copy(const std::string& sfen) override
+    {
+        const PackedSfen target = PackedSfen::from_sfen(sfen);
+        std::uint64_t lo = 0;
+        std::uint64_t hi = record_count_;
+        while (lo < hi)
+        {
+            const std::uint64_t mid = lo + (hi - lo) / 2;
+            const auto entry = read_index_entry_at(mid);
+            if (packed_sfen_less(entry.key, target))
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        if (lo >= record_count_)
+            return std::nullopt;
+
+        const auto entry = read_index_entry_at(lo);
+        if (!packed_sfen_equal(entry.key, target))
+            return std::nullopt;
+
+        const std::uint64_t move_bytes = static_cast<std::uint64_t>(entry.move_count) * move_record_size_;
+        if (entry.moves_offset > moves_size_ || move_bytes > moves_size_ - entry.moves_offset)
+            throw std::runtime_error("ybb moves offset is out of range: " + path_.string());
+
+        file_.seekg(static_cast<std::streamoff>(moves_base_ + entry.moves_offset));
+        if (!file_)
+            throw std::runtime_error("failed to seek ybb book: " + path_.string());
+
+        PositionInfo position;
+        position.ply = entry.ply;
+        position.moves.reserve(entry.move_count);
+        for (std::uint16_t i = 0; i < entry.move_count; ++i)
+        {
+            MoveInfo move;
+            move.move16 = read_u16_le(file_, path_);
+            move.eval = static_cast<std::int16_t>(read_u16_le(file_, path_));
+            if (flags_ & YaneBinBookFlagMoveDepth)
+                move.depth = read_u16_le(file_, path_);
+            if (normalize_eval_)
+                move.eval = normalize_book_eval(move.eval);
+            position.moves.push_back(move);
+        }
+        return position;
+    }
+
+private:
+    YaneBinBookIndexEntry read_index_entry_at(std::uint64_t index)
+    {
+        file_.seekg(static_cast<std::streamoff>(YaneBinBookHeaderSize + index * YaneBinBookIndexRecordSize));
+        if (!file_)
+            throw std::runtime_error("failed to seek ybb index: " + path_.string());
+        return read_ybb_index_entry(file_, path_);
+    }
+
+    std::filesystem::path path_;
+    bool normalize_eval_ = false;
+    std::ifstream file_;
+    std::uint64_t record_count_ = 0;
+    std::uint64_t flags_ = 0;
+    std::uint64_t move_record_size_ = 0;
+    std::uint64_t moves_base_ = 0;
+    std::uint64_t moves_size_ = 0;
+};
+
+class DbBookProbe final : public BookProbe {
+public:
+    explicit DbBookProbe(const std::filesystem::path& path, bool normalize_eval)
+        : path_(path),
+          normalize_eval_(normalize_eval),
+          file_(path, std::ios::binary),
+          size_(file_size_u64(path))
+    {
+        if (!file_)
+            throw std::runtime_error("failed to open book: " + path.string());
+    }
+
+    std::optional<PositionInfo> find_position_copy(const std::string& sfen) override
+    {
+        const std::string target = trim_sfen(sfen);
+        std::uint64_t lo = 0;
+        std::uint64_t hi = size_;
+        while (lo < hi)
+        {
+            const std::uint64_t mid = lo + (hi - lo) / 2;
+            const auto entry = sfen_line_at_or_after(mid);
+            if (!entry.has_value())
+            {
+                hi = mid;
+                continue;
+            }
+
+            if (entry->key < target)
+                lo = std::max(entry->next_pos, mid + 1);
+            else
+                hi = entry->pos < hi ? entry->pos : mid;
+        }
+
+        const auto entry = sfen_line_at_or_after(lo);
+        if (!entry.has_value() || entry->key != target)
+            return std::nullopt;
+
+        PositionInfo position;
+        position.ply = static_cast<std::uint16_t>(std::max(0, entry->ply));
+        position.moves = read_moves_after(entry->next_pos);
+        return position;
+    }
+
+private:
+    struct SfenLine {
+        std::uint64_t pos = 0;
+        std::uint64_t next_pos = 0;
+        std::string key;
+        int ply = 0;
+    };
+
+    static void strip_line_suffix(std::string& line)
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (line.size() >= 3
+            && static_cast<unsigned char>(line[0]) == 0xef
+            && static_cast<unsigned char>(line[1]) == 0xbb
+            && static_cast<unsigned char>(line[2]) == 0xbf)
+        {
+            line.erase(0, 3);
+        }
+    }
+
+    void seek_to_line_start(std::uint64_t offset)
+    {
+        offset = std::min(offset, size_);
+        if (offset == 0)
+        {
+            file_.clear();
+            file_.seekg(0);
+            return;
+        }
+
+        file_.clear();
+        file_.seekg(static_cast<std::streamoff>(offset - 1));
+        char previous = '\0';
+        file_.get(previous);
+        if (previous != '\n')
+        {
+            std::string ignored;
+            std::getline(file_, ignored);
+        }
+    }
+
+    std::optional<SfenLine> sfen_line_at_or_after(std::uint64_t offset)
+    {
+        seek_to_line_start(offset);
+        while (true)
+        {
+            const auto pos_stream = file_.tellg();
+            if (pos_stream == std::streampos(-1))
+                return std::nullopt;
+
+            std::string line;
+            if (!std::getline(file_, line))
+                return std::nullopt;
+
+            const auto next_stream = file_.tellg();
+            const std::uint64_t pos = static_cast<std::uint64_t>(static_cast<std::streamoff>(pos_stream));
+            const std::uint64_t next_pos = next_stream == std::streampos(-1)
+                ? size_
+                : static_cast<std::uint64_t>(static_cast<std::streamoff>(next_stream));
+
+            strip_line_suffix(line);
+            if (!starts_with(line, "sfen "))
+                continue;
+
+            auto [key, ply] = trim_sfen_ply(line);
+            return SfenLine{pos, next_pos, std::move(key), ply};
+        }
+    }
+
+    std::vector<MoveInfo> read_moves_after(std::uint64_t offset)
+    {
+        file_.clear();
+        file_.seekg(static_cast<std::streamoff>(std::min(offset, size_)));
+        std::vector<MoveInfo> moves;
+        std::string line;
+        while (std::getline(file_, line))
+        {
+            strip_line_suffix(line);
+            if (line.empty())
+                continue;
+            if (starts_with(line, "sfen "))
+                break;
+            if (starts_with(line, "#") || starts_with(line, "//"))
+                continue;
+
+            const auto parsed = parse_book_move_line(line, normalize_eval_);
+            if (parsed.eval.has_value())
+                moves.push_back(MoveInfo{parsed.move16, *parsed.eval, parsed.depth});
+        }
+        return moves;
+    }
+
+    std::filesystem::path path_;
+    bool normalize_eval_ = false;
+    std::ifstream file_;
+    std::uint64_t size_ = 0;
+};
+
+std::unique_ptr<BookProbe> open_book_probe(const std::filesystem::path& path, bool normalize_eval)
+{
+    if (is_yane_bin_book_path(path))
+        return std::make_unique<YbbBookProbe>(path, normalize_eval);
+    return std::make_unique<DbBookProbe>(path, normalize_eval);
+}
+
 PositionInfo* BookStore::find_position(const std::string& sfen)
 {
     const PackedSfen key = PackedSfen::from_sfen(sfen);
