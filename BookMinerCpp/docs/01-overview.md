@@ -26,7 +26,7 @@ python3 BookMiner-gui.py --cpp
 ```
 
 GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに起動される子プロセスです。
-そのため、GUI のボタン、ログ欄、progress bar、`peta_shock`、`peta_read`、`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`enqueue` の考え方は Python 版と同じです。
+そのため、GUI のボタン、ログ欄、progress bar、`peta_shock`、`peta_read`、`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent`、`enqueue` の考え方は Python 版と同じです。
 
 ## C++版で変わること
 
@@ -44,10 +44,10 @@ GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに
 
 次は Python 版と同じです。
 
-- `think_sfens.txt` は `startpos moves ...` 形式です。
+- `think_sfens.txt` は `startpos moves ...` 形式です。行末に `book_extend_ply=...` メタ情報が付く場合があります。
 - `p` は「DB保存、peta shock 化、peta book 読み込み」をまとめて行います。
 - `pn` は peta book から次に掘る局面を `book/think_sfens.txt` に書き出します。
-- `pnf` / `pf` / `pd` / `pu` は条件を変えて次に掘る局面を `book/think_sfens.txt` に書き出します。
+- `pnf` / `pf` / `pd` / `pu` / `po` は条件を変えて次に掘る局面を `book/think_sfens.txt` に書き出します。
 - `t` は `book/think_sfens.txt` を読み、探索キューへ積みます。
 - `eval_limit`、`eval_diff`、`max_book_ply` の意味は Python 版と同じです。
 - KifManager は Python 版を使います。

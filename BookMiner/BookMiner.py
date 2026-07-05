@@ -24,6 +24,7 @@ except ImportError as exc:
 COMMON_LIB_DIR = Path(__file__).resolve().parent.parent / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
 
+import YaneuraOuBookLib as BookLib
 from YaneShogiLib import trim_sfen, make_time_stamp, flipped_sfen, flipped_move , trim_sfen_ply, PositionStr, enable_print_log, print_log
 
 print = print_log
@@ -39,6 +40,7 @@ BOOK_BACKUP_DIR= os.path.join(BOOK_DIR, "backup")
              
 # このスクリプトの管理定跡ファイル名
 BOOK_DB_NAME   = "book_miner"
+BOOK_BACKUP_EXTENSION = ".ybb"
 
 # エンジン設定が書いてあるjson5ファイルのpath
 ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json5"
@@ -73,10 +75,13 @@ PETA_DEPTH_GAP_MAX_BEST_DEPTH = 1000
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
+PETA_OPPONENT_PROGRESS_INTERVAL = 100000
+PETA_OPPONENT_DEFAULT_EVAL_DIFF = 0
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
 THINK_UNSOLVED_SFENS_NAME = "think_unsolved_sfens.txt"
+BOOK_OPPONENT_DIR = os.path.join(BOOK_DIR, "book_opponent")
 
 # 自動保存の間隔 [s]。settings/book_miner_settings.json5 で上書きされる。
 AUTO_SAVE_INTERVAL = 3 * 60 * 60 # 3時間おき
@@ -215,6 +220,12 @@ class TaskQueueJobProgress:
 
     # このjobの完了ログを出力済みか。
     done_reported : bool = False
+
+
+@dataclass
+class PositionCommandEntry:
+    position_cmd : PositionStr
+    book_extend_ply : int | None = None
 
 
 @dataclass
@@ -386,7 +397,7 @@ def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
 def temp_book_path(path:str)->str:
     directory, filename = os.path.split(path)
     stem, extension = os.path.splitext(filename)
-    if extension.lower() == ".db":
+    if extension.lower() in (".db", ".ybb"):
         temp_name = f"tmp-{stem}{extension}"
         return os.path.join(directory, temp_name) if directory else temp_name
     return f"{path}.tmp"
@@ -408,7 +419,71 @@ def print_book_write_done(path:str, count:int, total:int):
     print(f"[BookWriteDone] {count}/{total} path={path}")
 
 
+def snapshot_book_position_for_write(book:Book, sfen:Sfen)->tuple[str, list[MoveInfo]]:
+    with book.lock:
+        position_info = book.body[sfen]
+        ply = position_info.ply
+        moveinfos = [
+            MoveInfo(move_info.move, move_info.eval, move_info.depth)
+            for move_info in position_info.moveinfos
+        ]
+        if not moveinfos or any(move_info.eval is None for move_info in moveinfos):
+            raise Exception(f"unconsidered position in book: {sfen}")
+
+    moveinfos.sort(key=lambda x: x.eval, reverse=True) # type:ignore
+
+    if len(moveinfos) >= 2 and moveinfos[0].eval == moveinfos[1].eval:
+        besteval = moveinfos[0].eval
+        for i in range(1, len(moveinfos)):
+            if besteval == moveinfos[i].eval:
+                moveinfos[i].eval -= 1 # type:ignore
+            else:
+                break
+
+    return f"{sfen} {ply}", moveinfos
+
+
+def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None)->int:
+    if sfens is None:
+        sfens = collect_yaneuraou_book_sfens(book, ply_limit)
+
+    dirpath = os.path.dirname(path)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
+
+    temp_path = temp_book_path(path)
+    total = len(sfens)
+    print_book_write_start(path, total)
+    try:
+        book_for_write : dict[str, list[BookLib.BookMove]] = {}
+        for count, sfen in enumerate(sfens, 1):
+            sfen_with_ply, moveinfos = snapshot_book_position_for_write(book, sfen)
+            book_for_write[sfen_with_ply] = [
+                BookLib.BookMove(move_info.move, "none", move_info.eval, move_info.depth, 1) # type:ignore[arg-type]
+                for move_info in moveinfos
+            ]
+
+            if count % BOOK_WRITE_PROGRESS_INTERVAL == 0:
+                print_book_write_progress(count, total)
+
+        BookLib.write_yaneuraou_book(book_for_write, temp_path)
+        os.replace(temp_path, path)
+        print_book_write_done(path, total, total)
+    except Exception:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        raise
+
+    return len(sfens)
+
+
 def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None)->int:
+    if BookLib.is_ybb_path(path):
+        return write_ybb_book_records(book, path, ply_limit, sfens)
+
     if sfens is None:
         sfens = collect_yaneuraou_book_sfens(book, ply_limit)
 
@@ -424,27 +499,9 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
             w.write(YANEURAOU_BOOK_HEADER_V1 + '\n')
             w.write(f"# NOE:{total}\n")
             for count, sfen in enumerate(sfens, 1):
-                with book.lock:
-                    position_info = book.body[sfen]
-                    ply = position_info.ply
-                    moveinfos = [
-                        MoveInfo(move_info.move, move_info.eval, move_info.depth)
-                        for move_info in position_info.moveinfos
-                    ]
-                    if not moveinfos or any(move_info.eval is None for move_info in moveinfos):
-                        raise Exception(f"unconsidered position in book: {sfen}")
+                sfen_with_ply, moveinfos = snapshot_book_position_for_write(book, sfen)
 
-                w.write(f'sfen {sfen} {ply}\n')
-
-                moveinfos.sort(key=lambda x: x.eval, reverse=True) # type:ignore
-
-                if len(moveinfos) >= 2 and moveinfos[0].eval == moveinfos[1].eval:
-                    besteval = moveinfos[0].eval
-                    for i in range(1, len(moveinfos)):
-                        if besteval == moveinfos[i].eval:
-                            moveinfos[i].eval -= 1 # type:ignore
-                        else:
-                            break
+                w.write(f'sfen {sfen_with_ply}\n')
 
                 for move_info in moveinfos:
                     w.write(f'{move_info.move} none {move_info.eval} {move_info.depth}\n')
@@ -484,7 +541,7 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None)->str:
     ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
     path = os.path.join(
         save_dir,
-        f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}.db"
+        f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
     )
     print(f"start save_book_backup , path = {path}")
     write_yaneuraou_book_records(book, path, ply_limit, sfens)
@@ -740,6 +797,65 @@ def parse_float_argument(args:list[str], index:int, default:float)->float:
     if len(args) <= index or is_none_argument(args[index]):
         return default
     return float(args[index])
+
+
+def parse_position_command_entry(line:PositionStr)->PositionCommandEntry:
+    """
+    think_sfens.txt の1行を、局面コマンド本体とメタ情報に分解する。
+
+    例:
+      startpos moves 7g7f
+      startpos moves 7g7f, book_extend_ply=20
+
+    book_extend_ply が無い、または None の場合は enqueue 側の think ply を使う。
+    """
+    parts = line.split(',')
+    position_cmd = parts[0].strip()
+    book_extend_ply : int | None = None
+
+    for raw_meta in parts[1:]:
+        meta = raw_meta.strip()
+        if not meta:
+            continue
+        if '=' not in meta:
+            raise ValueError(f"invalid metadata: {meta}")
+        key, value = [x.strip() for x in meta.split('=', 1)]
+        if key == "book_extend_ply":
+            if is_none_argument(value):
+                book_extend_ply = None
+            else:
+                book_extend_ply = int(value)
+                if book_extend_ply < 0:
+                    raise ValueError("book_extend_ply must be non-negative integer or None")
+
+    return PositionCommandEntry(position_cmd, book_extend_ply)
+
+
+def format_position_command_entry(position_cmd:PositionStr, book_extend_ply:int|None = None)->str:
+    if book_extend_ply is None:
+        return position_cmd
+    return f"{position_cmd}, book_extend_ply={book_extend_ply}"
+
+
+def book_extend_ply_rank(book_extend_ply:int|None)->int:
+    return -1 if book_extend_ply is None else book_extend_ply
+
+
+def add_position_command_entry(
+    entries:dict[PositionStr, int|None],
+    position_cmd:PositionStr,
+    book_extend_ply:int|None = None,
+):
+    old = entries.get(position_cmd)
+    if position_cmd not in entries or book_extend_ply_rank(book_extend_ply) > book_extend_ply_rank(old):
+        entries[position_cmd] = book_extend_ply
+
+
+def write_position_command_entries(path:str, entries:dict[PositionStr, int|None]):
+    with open(path, 'w') as w:
+        for position_cmd, book_extend_ply in entries.items():
+            w.write(format_position_command_entry(position_cmd, book_extend_ply) + '\n')
+
 
 def clamp_eval(x:int)->int:
     return min(VALUE_EVAL_CLAMP, max(-VALUE_EVAL_CLAMP, x))
@@ -1744,10 +1860,10 @@ def parse_noe_line(line:str)->int|None:
 
 
 def estimate_book_position_count_from_name(path:str)->int|None:
-    """BookMiner backup / peta book のファイル名末尾の _N.db から局面数を読む。"""
+    """BookMiner backup / peta book のファイル名末尾の _N.db / _N.ybb から局面数を読む。"""
     filename = os.path.basename(path)
     for prefix in (BOOK_DB_NAME, PETA_BOOK_DB_NAME):
-        pattern = rf"^{re.escape(prefix)}-\d{{14}}_(\d+)\.db$"
+        pattern = rf"^{re.escape(prefix)}-\d{{14}}_(\d+)(?:\.db|\.ybb)$"
         match = re.fullmatch(pattern, filename)
         if match is not None:
             return int(match.group(1))
@@ -1776,6 +1892,14 @@ def read_yaneuraou_book_file(
     """
     やねうら王定跡フォーマットを読み込み、1局面ごとに on_position() を呼ぶ。
     """
+    if BookLib.is_ybb_path(path):
+        return read_ybb_book_file(
+            path,
+            on_position,
+            normalize_eval=normalize_eval,
+            copy_moveinfos=copy_moveinfos,
+        )
+
     sfen : Sfen|None = None
     moveinfos : list[MoveInfo] = []
     ply = 0
@@ -1836,6 +1960,50 @@ def read_yaneuraou_book_file(
             moveinfos.append(parse_book_move_line(line, normalize_eval))
 
     append_to_book()
+    print_book_read_done(path, count, total_positions)
+    return count
+
+
+def read_ybb_book_file(
+    path:str,
+    on_position:Callable[[Sfen, int, list[MoveInfo]], None],
+    *,
+    normalize_eval:bool = True,
+    copy_moveinfos:bool = True,
+)->int:
+    """
+    CommonLib の .ybb reader から BookMiner 内部形式へ変換して読み込む。
+    .db は旧フォーマット互換のため BookMiner 側の既存パーサを使う。
+    """
+    total_positions, _flags = BookLib.read_ybb_header(Path(path))
+    count = 0
+    print_book_read_start(path, total_positions)
+
+    for sfen_with_ply, book_moves in BookLib.read_yaneuraou_book_blocks(path):
+        count += 1
+        if count % BOOK_READ_PROGRESS_INTERVAL == 0:
+            print_book_read_progress(count, total_positions)
+
+        sfen, ply = trim_sfen_ply(sfen_with_ply)
+        moveinfos = [
+            MoveInfo(
+                book_move.move,
+                normalize_book_eval(book_move.value) if normalize_eval else book_move.value,
+                book_move.depth,
+            )
+            for book_move in book_moves
+        ]
+        if not moveinfos:
+            continue
+        on_position(
+            sfen,
+            ply,
+            [
+                MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth)
+                for moveinfo in moveinfos
+            ] if copy_moveinfos else moveinfos,
+        )
+
     print_book_read_done(path, count, total_positions)
     return count
 
@@ -1919,7 +2087,7 @@ def collect_book_backup_paths()->list[str]:
     for filename in os.listdir(BOOK_BACKUP_DIR):
         if not filename.startswith(f"{BOOK_DB_NAME}-"):
             continue
-        if not filename.endswith(".db"):
+        if not is_supported_peta_book_path(filename):
             continue
         if "_ply" in filename:
             continue
@@ -1938,7 +2106,7 @@ def legacy_book_backup_path()->str:
 def get_latest_book_backup_or_none()->str|None:
     """
     book/backup/ にある最新の通常バックアップを返す。
-    ply制限つきの `*_plyN.db` は、部分書き出しなので自動選択から除外する。
+    ply制限つきの `*_plyN` は、部分書き出しなので自動選択から除外する。
     `book/backup/book_miner.db` は、通常バックアップが1つも無いときだけ読む。
     """
     paths = collect_book_backup_paths()
@@ -1955,7 +2123,7 @@ def get_latest_book_backup_or_none()->str|None:
 def get_latest_book_backup()->str:
     path = get_latest_book_backup_or_none()
     if path is None:
-        raise Exception(f"book backup file not found : {BOOK_BACKUP_DIR}/{BOOK_DB_NAME}-*.db")
+        raise Exception(f"book backup file not found : {BOOK_BACKUP_DIR}/{BOOK_DB_NAME}-*.db or *.ybb")
     return path
 
 
@@ -1967,7 +2135,7 @@ def collect_peta_book_paths()->list[str]:
     for filename in os.listdir(BOOK_BACKUP_DIR):
         if not filename.startswith(f"{PETA_BOOK_DB_NAME}-"):
             continue
-        if not filename.endswith(".db"):
+        if not is_supported_peta_book_path(filename):
             continue
         path = os.path.join(BOOK_BACKUP_DIR, filename)
         if os.path.isfile(path):
@@ -1980,17 +2148,17 @@ def collect_peta_book_paths()->list[str]:
 def get_latest_peta_book()->str:
     paths = collect_peta_book_paths()
     if not paths:
-        raise Exception(f"peta book file not found : {BOOK_BACKUP_DIR}/{PETA_BOOK_DB_NAME}-*.db")
+        raise Exception(f"peta book file not found : {BOOK_BACKUP_DIR}/{PETA_BOOK_DB_NAME}-*.db or *.ybb")
     return paths[-1]
 
 
 def is_supported_peta_book_path(path:str)->bool:
-    return os.path.splitext(path)[1].lower() == ".db"
+    return os.path.splitext(path)[1].lower() in (".db", ".ybb")
 
 
 def ensure_supported_peta_book_path(path:str, label:str):
     if not is_supported_peta_book_path(path):
-        raise Exception(f"{label} must be .db : {path}")
+        raise Exception(f"{label} must be .db or .ybb : {path}")
 
 
 def load_latest_book_backup(book:Book):
@@ -2050,11 +2218,11 @@ def resolve_peta_book_path(path:str|None)->str:
 
 def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
     """
-    book_miner-YYYYMMDDHHMMSS_N.db から timestamp と局面数を取り出す。
+    book_miner-YYYYMMDDHHMMSS_N.db / .ybb から timestamp と局面数を取り出す。
     peta book はこの2つを引き継いだ名前にする。
     """
     filename = os.path.basename(path)
-    pattern = rf"^{re.escape(BOOK_DB_NAME)}-(\d{{14}})_(\d+)\.db$"
+    pattern = rf"^{re.escape(BOOK_DB_NAME)}-(\d{{14}})_(\d+)(?:\.db|\.ybb)$"
     match = re.fullmatch(pattern, filename)
     if match is None:
         return None
@@ -2064,10 +2232,10 @@ def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
 def peta_book_backup_path_from_source(source_book_path:str)->str:
     parsed = parse_regular_book_backup_name(source_book_path)
     if parsed is None:
-        return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{make_time_stamp()}.db")
+        return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{make_time_stamp()}.ybb")
 
     timestamp, position_count = parsed
-    return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{timestamp}_{position_count}.db")
+    return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{timestamp}_{position_count}.ybb")
 
 
 def to_book_dir_relative_path(path:str)->str:
@@ -2095,7 +2263,7 @@ def is_yaneuraou_progress_bar_line(line:str)->bool:
 def run_peta_shock_makebook(source_book_path:str)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
-    makebook peta_shock で source_book_path を book/backup/peta_book-*.db に変換する。
+    makebook peta_shock で source_book_path を book/backup/peta_book-*.ybb に変換する。
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     engine_path = os.path.join(script_dir, PETA_SHOCK_ENGINE_NAME)
@@ -2267,6 +2435,7 @@ def peta_next(
     max_step:int,
     max_book_ply:int,
     start_sfens_path:str,
+    book_extend_ply:int|None = None,
     refutation_book:Book|None = None,
     eval_refutation_margin:int|None = None,
 ):
@@ -2292,6 +2461,7 @@ def peta_next(
     print(
         f"{next_name}, peta_eval_diff = {peta_eval_diff}, "
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
+        f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"start_sfens_path = {start_sfens_path}"
         + (
             ""
@@ -2304,7 +2474,7 @@ def peta_next(
     # turn == 1 なら 先手、0なら後手
     for turn in [1, 0]:
 
-        think_sfens : dict[PositionStr,None] = {}
+        think_sfens : dict[PositionStr, int|None] = {}
 
         # 手番文字列
         turn_str = ['white','black'][turn]
@@ -2348,13 +2518,13 @@ def peta_next(
             elif sfen_f in peta_book.body:
                 position_info = peta_book.body[sfen_f]
             else:
-                think_sfens[position_cmd] = None
+                add_position_command_entry(think_sfens, position_cmd, book_extend_ply)
                 continue
 
             # root_bestは手番側から見たスコアなのでflip hitでも気にしなくて良い。
             root_best, _ = get_best(position_info)
             if root_best is None:
-                think_sfens[position_cmd] = None
+                add_position_command_entry(think_sfens, position_cmd, book_extend_ply)
                 continue
 
             current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff)
@@ -2399,7 +2569,7 @@ def peta_next(
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
-                        think_sfens[position_cmd] = None
+                        add_position_command_entry(think_sfens, position_cmd, book_extend_ply)
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -2456,7 +2626,7 @@ def peta_next(
                                         eval_refutation_margin,
                                     )
                                 ):
-                                    think_sfens[next_position_cmd] = None
+                                    add_position_command_entry(think_sfens, next_position_cmd, book_extend_ply)
                                 continue
 
                         # 次の局面では、root_best_evalは反転する。(手番側から見たevalで管理しているため)
@@ -2469,10 +2639,8 @@ def peta_next(
 
 
         path = os.path.join(BOOK_DIR, f"think_sfens-{turn_str}.txt")
-        with open(path, 'w') as w:
-            print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-            for position_cmd in think_sfens:
-                w.write(position_cmd + '\n')
+        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+        write_position_command_entries(path, think_sfens)
 
 
     # 先後のthink_sfensを合体させたファイル。
@@ -2564,7 +2732,13 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
-def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None = None, max_book_ply:int = MAX_BOOK_PLY):
+def peta_refutation(
+    book:Book,
+    eval_refutation_margin:int,
+    eval_limit:int|None = None,
+    max_book_ply:int = MAX_BOOK_PLY,
+    book_extend_ply:int|None = None,
+):
     """
     peta shock後にbestになったdepth 0の手のうち、peta shock前は2番手以下で、
     peta shock後の旧bestとの差が eval_refutation_margin 以上ある手を抽出する。
@@ -2575,10 +2749,12 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
 
     print(
         f"peta_refutation, eval_refutation_margin = {eval_refutation_margin}, "
-        f"eval_limit = {'none' if eval_limit is None else eval_limit}, max_book_ply = {max_book_ply}"
+        f"eval_limit = {'none' if eval_limit is None else eval_limit}, "
+        f"max_book_ply = {max_book_ply}, "
+        f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}"
     )
 
-    think_sfens : dict[PositionStr,None] = {}
+    think_sfens : dict[PositionStr, int|None] = {}
     skipped_by_eval_limit = 0
     skipped_by_ply = 0
     with peta_book.lock:
@@ -2630,13 +2806,11 @@ def peta_refutation(book:Book, eval_refutation_margin:int, eval_limit:int|None =
             position_cmd = f"sfen {sfen_with_ply}"
 
             refutation_position_cmd = append_position_move(position_cmd, peta_best_move)
-            think_sfens[refutation_position_cmd] = None
+            add_position_command_entry(think_sfens, refutation_position_cmd, book_extend_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-    with open(path, 'w') as w:
-        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-        for position_cmd in think_sfens:
-            w.write(position_cmd + '\n')
+    print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+    write_position_command_entries(path, think_sfens)
 
     print("peta_refutation done.")
     print(
@@ -2709,6 +2883,7 @@ def peta_unsolved(
     eval_diff:int = PETA_DEFAULT_INF_EVAL_DIFF,
     max_book_ply:int = MAX_BOOK_PLY,
     max_step:int = PETA_DEFAULT_MAX_STEP,
+    book_extend_ply:int|None = None,
     unsolved_sfens_path:str|None = None,
 ):
     """
@@ -2724,13 +2899,14 @@ def peta_unsolved(
     print(
         f"peta_unsolved, eval_diff = {eval_diff}, "
         f"max_book_ply = {max_book_ply}, max_step = {max_step}, "
+        f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"unsolved_sfens_path = {unsolved_sfens_path}"
     )
 
     if not os.path.exists(unsolved_sfens_path):
         raise Exception(f"think_unsolved_sfens file not found : {unsolved_sfens_path}")
 
-    think_sfens : dict[PositionStr,None] = {}
+    think_sfens : dict[PositionStr, int|None] = {}
     processed_prefixes = 0
     input_games = 0
     candidates = 0
@@ -2798,13 +2974,11 @@ def peta_unsolved(
                     skipped_no_leaf += 1
                     continue
 
-                think_sfens[leaf_position_cmd] = None
+                add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-    with open(path, 'w') as w:
-        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-        for position_cmd in think_sfens:
-            w.write(position_cmd + '\n')
+    print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+    write_position_command_entries(path, think_sfens)
 
     print("peta_unsolved done.")
     print(
@@ -2816,7 +2990,7 @@ def peta_unsolved(
     )
 
 
-def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
+def peta_depth_gap(eval_per_ply:float, max_book_ply:int, book_extend_ply:int|None = None):
     """
     peta shock後の各局面で、bestより浅い候補手について、
     depth差ぶん延長すればbestを逆転しうる候補を抽出する。
@@ -2828,9 +3002,12 @@ def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
 
     global peta_book
 
-    print(f"peta_depth_gap, eval_per_ply = {eval_per_ply}, max_book_ply = {max_book_ply}")
+    print(
+        f"peta_depth_gap, eval_per_ply = {eval_per_ply}, max_book_ply = {max_book_ply}, "
+        f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}"
+    )
 
-    think_sfens : dict[PositionStr,None] = {}
+    think_sfens : dict[PositionStr, int|None] = {}
     candidates = 0
     skipped_by_ply = 0
     skipped_by_best_depth = 0
@@ -2881,19 +3058,209 @@ def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
             if leaf_position_cmd is None:
                 skipped_by_ply += 1
                 continue
-            think_sfens[leaf_position_cmd] = None
+            add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-    with open(path, 'w') as w:
-        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-        for position_cmd in think_sfens:
-            w.write(position_cmd + '\n')
+    print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+    write_position_command_entries(path, think_sfens)
 
     print("peta_depth_gap done.")
     print(
         f"[PetaDepthGapDone] path={path} count={len(think_sfens)} "
         f"candidates={candidates} skipped_by_ply={skipped_by_ply} "
         f"skipped_by_best_depth={skipped_by_best_depth}"
+    )
+
+
+def collect_opponent_book_paths()->list[str]:
+    if not os.path.isdir(BOOK_OPPONENT_DIR):
+        return []
+
+    paths : list[str] = []
+    for filename in os.listdir(BOOK_OPPONENT_DIR):
+        path = os.path.join(BOOK_OPPONENT_DIR, filename)
+        if os.path.isfile(path) and is_supported_peta_book_path(path):
+            paths.append(path)
+    paths.sort(key=lambda path: os.path.basename(path))
+    return paths
+
+
+def load_opponent_book(path:str)->Book:
+    opponent_book = Book()
+    read_regular_book_fast(opponent_book, path, "opponent peta book")
+    return opponent_book
+
+
+def candidate_best_moves_for_sfen(book:Book, sfen:Sfen, eval_diff:int)->list[tuple[MoveStr, int]]:
+    position_info, flipped_bookhit = find_book_position_with_flip(book, sfen)
+    if position_info is None or not position_info.moveinfos:
+        return []
+
+    best_eval : int | None = None
+    for moveinfo in position_info.moveinfos:
+        if isinstance(moveinfo.eval, int) and (best_eval is None or moveinfo.eval > best_eval):
+            best_eval = moveinfo.eval
+    if best_eval is None:
+        return []
+
+    moves : list[tuple[MoveStr, int]] = []
+    eval_low = best_eval - eval_diff
+    for moveinfo in position_info.moveinfos:
+        if not isinstance(moveinfo.eval, int):
+            continue
+        if moveinfo.eval < eval_low:
+            continue
+        move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
+        moves.append((move, moveinfo.eval))
+    return moves
+
+
+def peta_pv_leaf_position_cmds_from_position(
+    position_cmd:PositionStr,
+    sfen_with_ply:Sfen,
+    max_book_ply:int,
+    max_step:int,
+)->list[PositionStr]:
+    if max_step <= 0:
+        return []
+
+    results : dict[PositionStr, int|None] = {}
+    current_positions : dict[PositionStr, Sfen] = {position_cmd: sfen_with_ply}
+    visited : set[Sfen] = set()
+    step = 0
+
+    while current_positions:
+        if step >= max_step:
+            break
+
+        next_positions : dict[PositionStr, Sfen] = {}
+        for current_cmd, current_sfen_with_ply in current_positions.items():
+            current_sfen, current_ply = trim_sfen_ply(current_sfen_with_ply)
+            if current_ply >= max_book_ply:
+                continue
+            current_sfen_f = flipped_sfen(current_sfen)
+            if current_sfen in visited or current_sfen_f in visited:
+                continue
+            visited.add(current_sfen)
+
+            moves = candidate_best_moves_for_sfen(peta_book, current_sfen, PETA_OPPONENT_DEFAULT_EVAL_DIFF)
+            if not moves:
+                add_position_command_entry(results, current_cmd)
+                continue
+
+            for move, _eval in moves:
+                board = cshogi.Board(current_sfen_with_ply)
+                checked_push_usi(board, move, context=current_cmd)
+                next_sfen_with_ply = board.sfen()
+                _next_sfen, next_ply = trim_sfen_ply(next_sfen_with_ply)
+                if next_ply >= max_book_ply:
+                    continue
+                next_positions[append_position_move(current_cmd, move)] = next_sfen_with_ply
+
+        current_positions = next_positions
+        step += 1
+
+    return list(results.keys())
+
+
+def peta_opponent(
+    eval_diff:int = PETA_OPPONENT_DEFAULT_EVAL_DIFF,
+    max_book_ply:int = MAX_BOOK_PLY,
+    max_step:int = PETA_DEFAULT_MAX_STEP,
+    book_extend_ply:int|None = None,
+):
+    """
+    book/book_opponent/ に置いた過去配布bookと、現在読み込んでいるpeta_bookを仮想対局させる。
+    双方が自分の手番でbest候補を指し、どちらかのbookが切れた地点から現在peta_bookのPV leafまで辿って
+    book/think_sfens.txt に書き出す。
+    """
+
+    print(
+        f"peta_opponent, eval_diff = {eval_diff}, max_book_ply = {max_book_ply}, "
+        f"max_step = {max_step}, book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
+        f"opponent_dir = {BOOK_OPPONENT_DIR}"
+    )
+
+    opponent_paths = collect_opponent_book_paths()
+    if not opponent_paths:
+        raise Exception(f"opponent peta book file not found : {BOOK_OPPONENT_DIR}/*.db or *.ybb")
+
+    think_sfens : dict[PositionStr, int|None] = {}
+    processed_nodes = 0
+    cut_nodes = 0
+    leaf_nodes = 0
+    skipped_by_ply = 0
+
+    for opponent_path in opponent_paths:
+        print(f"peta_opponent read opponent book : {opponent_path}")
+        opponent_book = load_opponent_book(opponent_path)
+
+        # current_side: 1なら現行bookが先手、0なら現行bookが後手。
+        for current_side in [1, 0]:
+            side_name = "black" if current_side == 1 else "white"
+            print(f"--- peta_opponent {os.path.basename(opponent_path)} current={side_name} ---")
+            current_positions : dict[PositionStr, Sfen] = {"startpos": SFEN_START_PLY1}
+            visited : set[Sfen] = set()
+            step = 0
+
+            while current_positions and step < max_step:
+                next_positions : dict[PositionStr, Sfen] = {}
+                for position_cmd, sfen_with_ply in current_positions.items():
+                    processed_nodes += 1
+                    if processed_nodes % PETA_OPPONENT_PROGRESS_INTERVAL == 0:
+                        print(
+                            f"opponent progress nodes = {processed_nodes} , "
+                            f"cuts = {cut_nodes} , think_sfens = {len(think_sfens)}"
+                        )
+
+                    sfen, ply = trim_sfen_ply(sfen_with_ply)
+                    if ply >= max_book_ply:
+                        skipped_by_ply += 1
+                        continue
+                    sfen_f = flipped_sfen(sfen)
+                    visited_key = f"{current_side}:{sfen}"
+                    visited_key_f = f"{current_side}:{sfen_f}"
+                    if visited_key in visited or visited_key_f in visited:
+                        continue
+                    visited.add(visited_key)
+
+                    side_book = peta_book if ply % 2 == current_side else opponent_book
+                    moves = candidate_best_moves_for_sfen(side_book, sfen, eval_diff)
+                    if not moves:
+                        cut_nodes += 1
+                        leaves = peta_pv_leaf_position_cmds_from_position(
+                            position_cmd,
+                            sfen_with_ply,
+                            max_book_ply,
+                            max_step,
+                        )
+                        for leaf_position_cmd in leaves:
+                            add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply)
+                            leaf_nodes += 1
+                        continue
+
+                    for move, _eval in moves:
+                        board = cshogi.Board(sfen_with_ply)
+                        checked_push_usi(board, move, context=position_cmd)
+                        next_sfen_with_ply = board.sfen()
+                        _next_sfen, next_ply = trim_sfen_ply(next_sfen_with_ply)
+                        if next_ply >= max_book_ply:
+                            skipped_by_ply += 1
+                            continue
+                        next_positions[append_position_move(position_cmd, move)] = next_sfen_with_ply
+
+                current_positions = next_positions
+                step += 1
+
+    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+    print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+    write_position_command_entries(path, think_sfens)
+
+    print("peta_opponent done.")
+    print(
+        f"[PetaOpponentDone] path={path} count={len(think_sfens)} "
+        f"opponent_books={len(opponent_paths)} processed_nodes={processed_nodes} "
+        f"cut_nodes={cut_nodes} leaf_nodes={leaf_nodes} skipped_by_ply={skipped_by_ply}"
     )
 
 
@@ -2920,33 +3287,35 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
             if line.strip() and not line.lstrip().startswith('#')
         ]
 
-    lines : list[PositionStr] = []
+    entries : dict[PositionStr, int|None] = {}
     skipped = 0
     for line_number, line in raw_lines:
         try:
-            decode_position_string(line)
+            entry = parse_position_command_entry(line)
+            decode_position_string(entry.position_cmd)
         except Exception as exc:
             skipped += 1
             print(f"({job_counter_local}) skip illegal position command line {line_number}: {line} : {exc}")
             continue
-        lines.append(line)
+        add_position_command_entry(entries, entry.position_cmd, entry.book_extend_ply)
 
-    total = len(lines)
+    total = len(entries)
     print(f'({job_counter_local}) read {total} position commands.')
     if skipped:
         print(f'({job_counter_local}) skipped {skipped} illegal position commands.')
     engine_manager.start_task_queue_progress(job_counter_local, total, path, eval_limit)
 
-    for line in lines:
+    for position_cmd, book_extend_ply in entries.items():
+        task_think_command_ply = think_command_ply if book_extend_ply is None else book_extend_ply
         engine_manager.put_task(
             Task(
                 SFEN_START,
                 1,
                 eval_limit,
-                line,
+                position_cmd,
                 job_counter_local,
                 max_book_ply=max_book_ply,
-                think_command_ply=think_command_ply,
+                think_command_ply=task_think_command_ply,
             )
         )
 
@@ -3142,11 +3511,12 @@ def user_input(from_gui:bool = False):
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
-                print("  PN   : peta_shock next , pn peta_eval_diff (max_book_ply) (max_step)")
-                print("  PNF  : peta next refutation , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)")
-                print("  PF   : peta refutation , pf (eval_refutation_margin) (eval_limit) (max_book_ply)")
-                print("  PD   : peta depth gap , pd (eval_per_ply) (max_book_ply)")
-                print("  PU   : peta unsolved , pu (eval_diff) (max_book_ply) (max_step)")
+                print("  PN   : peta_shock next , pn peta_eval_diff (max_step) (max_book_ply) (book_extend_ply)")
+                print("  PNF  : peta next refutation , pnf peta_eval_diff (eval_refutation_margin) (max_step) (max_book_ply) (book_extend_ply)")
+                print("  PF   : peta refutation , pf (eval_refutation_margin) (eval_limit) (max_book_ply) (book_extend_ply)")
+                print("  PD   : peta depth gap , pd (eval_per_ply) (max_book_ply) (book_extend_ply)")
+                print("  PU   : peta unsolved , pu (eval_diff) (max_step) (max_book_ply) (book_extend_ply)")
+                print("  PO   : peta opponent , po (eval_diff) (max_step) (max_book_ply) (book_extend_ply)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -3226,44 +3596,57 @@ def user_input(from_gui:bool = False):
             elif i == 'pn':
                 # peta_next
                 if len(inp) < 2:
-                    print("Usage : pn peta_eval_diff (max_book_ply) (max_step)")
+                    print("Usage : pn peta_eval_diff (max_step) (max_book_ply) (book_extend_ply)")
                 else:
                     peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                    max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
-                    max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
+                    max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
+                    max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
+                    book_extend_ply = parse_optional_int_argument(inp, 4)
                     if max_book_ply <= 0:
                         print("Error : max_book_ply must be positive integer.")
                         continue
                     if max_step <= 0:
                         print("Error : max_step must be positive integer.")
                         continue
+                    if book_extend_ply is not None and book_extend_ply < 0:
+                        print("Error : book_extend_ply must be non-negative integer or None.")
+                        continue
                     peta_next(
                         peta_eval_diff,
                         max_step,
                         max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
+                        book_extend_ply,
                     )
 
             elif i == 'pnf':
                 # peta_next_refutation
                 if len(inp) < 2:
-                    print("Usage : pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)")
+                    print("Usage : pnf peta_eval_diff (eval_refutation_margin) (max_step) (max_book_ply) (book_extend_ply)")
                 else:
                     peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                    max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                    eval_refutation_margin = parse_int_argument(inp, 2, DEFAULT_EVAL_REFUTATION_MARGIN)
                     max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
-                    eval_refutation_margin = parse_int_argument(inp, 4, DEFAULT_EVAL_REFUTATION_MARGIN)
+                    max_book_ply = parse_int_argument(inp, 4, book_miner_settings.max_book_ply)
+                    book_extend_ply = parse_optional_int_argument(inp, 5)
                     if max_book_ply <= 0:
                         print("Error : max_book_ply must be positive integer.")
                         continue
                     if max_step <= 0:
                         print("Error : max_step must be positive integer.")
                         continue
+                    if eval_refutation_margin < 0:
+                        print("Error : eval_refutation_margin must be non-negative integer.")
+                        continue
+                    if book_extend_ply is not None and book_extend_ply < 0:
+                        print("Error : book_extend_ply must be non-negative integer or None.")
+                        continue
                     peta_next(
                         peta_eval_diff,
                         max_step,
                         max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
+                        book_extend_ply,
                         book,
                         eval_refutation_margin,
                     )
@@ -3273,44 +3656,87 @@ def user_input(from_gui:bool = False):
                 eval_refutation_margin = parse_int_argument(inp, 1, DEFAULT_EVAL_REFUTATION_MARGIN)
                 refutation_eval_limit = parse_optional_int_argument(inp, 2)
                 max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
+                book_extend_ply = parse_optional_int_argument(inp, 4)
                 if max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
+                    continue
+                if eval_refutation_margin < 0:
+                    print("Error : eval_refutation_margin must be non-negative integer.")
+                    continue
+                if refutation_eval_limit is not None and refutation_eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer or None.")
+                    continue
+                if book_extend_ply is not None and book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer or None.")
                     continue
                 peta_refutation(
                     book,
                     eval_refutation_margin,
                     refutation_eval_limit,
                     max_book_ply,
+                    book_extend_ply,
                 )
 
             elif i == 'pd':
                 # peta_depth_gap
                 eval_per_ply = parse_float_argument(inp, 1, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
                 max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                book_extend_ply = parse_optional_int_argument(inp, 3)
                 if eval_per_ply < 0:
                     print("Error : eval_per_ply must be non-negative number.")
                 elif max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
+                elif book_extend_ply is not None and book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer or None.")
                 else:
                     peta_depth_gap(
                         eval_per_ply,
                         max_book_ply,
+                        book_extend_ply,
                     )
 
             elif i == 'pu':
                 # peta_unsolved
                 eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
-                max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
-                if max_book_ply <= 0:
+                max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
+                max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
+                book_extend_ply = parse_optional_int_argument(inp, 4)
+                if eval_diff < 0:
+                    print("Error : eval_diff must be non-negative integer.")
+                elif max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                 elif max_step <= 0:
                     print("Error : max_step must be positive integer.")
+                elif book_extend_ply is not None and book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer or None.")
                 else:
                     peta_unsolved(
                         eval_diff,
                         max_book_ply,
                         max_step,
+                        book_extend_ply,
+                    )
+
+            elif i == 'po':
+                # peta_opponent
+                eval_diff = parse_int_argument(inp, 1, PETA_OPPONENT_DEFAULT_EVAL_DIFF)
+                max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
+                max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
+                book_extend_ply = parse_optional_int_argument(inp, 4)
+                if eval_diff < 0:
+                    print("Error : eval_diff must be non-negative integer.")
+                elif max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                elif max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                elif book_extend_ply is not None and book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer or None.")
+                else:
+                    peta_opponent(
+                        eval_diff,
+                        max_book_ply,
+                        max_step,
+                        book_extend_ply,
                     )
 
         except Exception as e:

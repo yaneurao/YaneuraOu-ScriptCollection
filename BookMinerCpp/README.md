@@ -2,7 +2,7 @@
 
 BookMinerCpp は、Python 版 [BookMiner](../BookMiner/README.md) の C++ 実装です。
 
-基本的な考え方、`peta_shock`、`peta_read`、`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`enqueue`、`eval_limit`、GUI の操作手順は Python 版 BookMiner と同じです。
+基本的な考え方、`peta_shock`、`peta_read`、`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent`、`enqueue`、`eval_limit`、GUI の操作手順は Python 版 BookMiner と同じです。
 まず BookMiner のチュートリアルを読んでください。
 
 - [BookMiner チュートリアル](../BookMiner/README.md)

@@ -64,6 +64,9 @@ constexpr int PetaDepthGapMaxBestDepth = 1000;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaDepthGapProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
+constexpr std::size_t PetaOpponentProgressInterval = 100000;
+constexpr int PetaOpponentDefaultEvalDiff = 0;
+constexpr const char* BookOpponentDir = "book/book_opponent";
 
 #ifdef _WIN32
 void configure_windows_console()
@@ -521,13 +524,100 @@ void process_position_command(
     start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply, think_command_ply);
 }
 
-std::vector<std::string> read_position_commands_file(const std::filesystem::path& path)
+struct PositionCommandEntry {
+    std::string position_command;
+    std::optional<int> book_extend_ply;
+};
+
+int book_extend_ply_rank(const std::optional<int>& book_extend_ply)
+{
+    return book_extend_ply.value_or(-1);
+}
+
+std::string trim_metadata_copy(std::string text)
+{
+    text.erase(text.begin(), std::find_if(text.begin(), text.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.pop_back();
+    return text;
+}
+
+PositionCommandEntry parse_position_command_entry(const std::string& line)
+{
+    std::vector<std::string> parts;
+    std::string part;
+    std::istringstream stream(line);
+    while (std::getline(stream, part, ','))
+        parts.push_back(trim_metadata_copy(part));
+
+    if (parts.empty() || parts[0].empty())
+        throw std::runtime_error("empty position command");
+
+    PositionCommandEntry entry{parts[0], std::nullopt};
+    for (std::size_t i = 1; i < parts.size(); ++i)
+    {
+        const auto& meta = parts[i];
+        if (meta.empty())
+            continue;
+        const auto equal_pos = meta.find('=');
+        if (equal_pos == std::string::npos)
+            throw std::runtime_error("invalid metadata: " + meta);
+        const std::string key = trim_metadata_copy(meta.substr(0, equal_pos));
+        const std::string value = trim_metadata_copy(meta.substr(equal_pos + 1));
+        if (key == "book_extend_ply")
+        {
+            if (is_none_argument(value))
+            {
+                entry.book_extend_ply = std::nullopt;
+            }
+            else
+            {
+                const int parsed = std::stoi(value);
+                if (parsed < 0)
+                    throw std::runtime_error("book_extend_ply must be non-negative integer or None");
+                entry.book_extend_ply = parsed;
+            }
+        }
+    }
+    return entry;
+}
+
+std::string format_position_command_entry(const std::string& position_command, std::optional<int> book_extend_ply)
+{
+    if (!book_extend_ply.has_value())
+        return position_command;
+    return position_command + ", book_extend_ply=" + std::to_string(*book_extend_ply);
+}
+
+void add_position_command_entry(
+    std::vector<PositionCommandEntry>& out,
+    std::unordered_map<std::string, std::size_t>& indexes,
+    const std::string& position_command,
+    std::optional<int> book_extend_ply = std::nullopt)
+{
+    auto it = indexes.find(position_command);
+    if (it == indexes.end())
+    {
+        indexes[position_command] = out.size();
+        out.push_back(PositionCommandEntry{position_command, book_extend_ply});
+        return;
+    }
+
+    auto& old = out[it->second].book_extend_ply;
+    if (book_extend_ply_rank(book_extend_ply) > book_extend_ply_rank(old))
+        old = book_extend_ply;
+}
+
+std::vector<PositionCommandEntry> read_position_commands_file(const std::filesystem::path& path)
 {
     std::ifstream in(path);
     if (!in)
         throw std::runtime_error("failed to open think_sfens file: " + path.string());
 
-    std::vector<std::string> commands;
+    std::vector<PositionCommandEntry> commands;
+    std::unordered_map<std::string, std::size_t> indexes;
     std::string line;
     while (std::getline(in, line))
     {
@@ -535,7 +625,8 @@ std::vector<std::string> read_position_commands_file(const std::filesystem::path
             line.pop_back();
         if (line.empty() || line[0] == '#')
             continue;
-        commands.push_back(line);
+        auto entry = parse_position_command_entry(line);
+        add_position_command_entry(commands, indexes, entry.position_command, entry.book_extend_ply);
     }
     return commands;
 }
@@ -654,7 +745,10 @@ public:
             + " eval_limit=" + std::to_string(eval_limit));
 
         for (const auto& command : commands)
-            queue_.push(Task{command, eval_limit, max_book_ply, think_command_ply, job_id});
+        {
+            const int task_think_command_ply = command.book_extend_ply.value_or(think_command_ply);
+            queue_.push(Task{command.position_command, eval_limit, max_book_ply, task_think_command_ply, job_id});
+        }
 
         if (commands.empty())
             report_task_queue_done(job_id);
@@ -1122,6 +1216,21 @@ std::size_t write_position_commands_file(const std::filesystem::path& path, cons
     return position_commands.size();
 }
 
+std::size_t write_position_command_entries_file(const std::filesystem::path& path, const std::vector<PositionCommandEntry>& position_commands)
+{
+    if (path.has_parent_path())
+        fs::create_directories(path.parent_path());
+
+    std::ofstream out(path);
+    if (!out)
+        throw std::runtime_error("failed to open output file: " + path.string());
+
+    for (const auto& position_command : position_commands)
+        out << format_position_command_entry(position_command.position_command, position_command.book_extend_ply) << '\n';
+
+    return position_commands.size();
+}
+
 std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_path, const std::filesystem::path& white_path, const std::filesystem::path& output_path)
 {
     std::ifstream black(black_path);
@@ -1545,6 +1654,248 @@ void peta_refutation(
     log_line("[PetaRefutationDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
         + " skipped_by_eval_limit=" + std::to_string(skipped_by_eval_limit)
+        + " skipped_by_ply=" + std::to_string(skipped_by_ply));
+}
+
+bool is_supported_opponent_book_path(const fs::path& path)
+{
+    return path.extension() == ".db" || bookminer::is_yane_bin_book_path(path);
+}
+
+std::vector<fs::path> collect_opponent_book_paths()
+{
+    std::vector<fs::path> paths;
+    const fs::path dir = BookOpponentDir;
+    if (!fs::is_directory(dir))
+        return paths;
+
+    for (const auto& entry : fs::directory_iterator(dir))
+        if (entry.is_regular_file() && is_supported_opponent_book_path(entry.path()))
+            paths.push_back(entry.path());
+
+    std::sort(paths.begin(), paths.end(), [](const fs::path& lhs, const fs::path& rhs) {
+        return lhs.filename().string() < rhs.filename().string();
+    });
+    return paths;
+}
+
+struct CandidateBookMove {
+    std::string move;
+    int eval = 0;
+};
+
+std::vector<CandidateBookMove> candidate_best_moves_for_sfen(
+    const bookminer::BookStore& book,
+    const std::string& sfen,
+    int eval_diff)
+{
+    const auto hit = find_peta_position_with_flip(book, sfen);
+    if (hit.position == nullptr || hit.position->moves.empty())
+        return {};
+
+    int best_eval = std::numeric_limits<int>::min();
+    bool has_best = false;
+    for (const auto& moveinfo : hit.position->moves)
+    {
+        best_eval = std::max(best_eval, static_cast<int>(moveinfo.eval));
+        has_best = true;
+    }
+    if (!has_best)
+        return {};
+
+    std::vector<CandidateBookMove> moves;
+    const int eval_low = best_eval - eval_diff;
+    for (const auto& moveinfo : hit.position->moves)
+    {
+        const int eval = static_cast<int>(moveinfo.eval);
+        if (eval < eval_low)
+            continue;
+        const std::uint16_t move16 = hit.flipped ? bookminer::flipped_move16(moveinfo.move16) : moveinfo.move16;
+        const std::string move = bookminer::move16_to_usi(move16);
+        if (!move.empty())
+            moves.push_back(CandidateBookMove{move, eval});
+    }
+    return moves;
+}
+
+std::vector<std::string> peta_pv_leaf_position_commands_from_position(
+    const bookminer::BookStore& peta_book,
+    const std::string& position_command,
+    const std::string& sfen_with_ply,
+    int max_book_ply,
+    int max_step)
+{
+    std::vector<PositionCommandEntry> results;
+    std::unordered_map<std::string, std::size_t> result_indexes;
+    std::vector<std::pair<std::string, std::string>> current_positions = {{position_command, sfen_with_ply}};
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+
+    int step = 0;
+    while (!current_positions.empty() && step < max_step)
+    {
+        std::vector<std::pair<std::string, std::string>> next_positions;
+        std::unordered_set<std::string> next_seen;
+
+        for (const auto& [current_command, current_sfen_with_ply] : current_positions)
+        {
+            const auto [current_sfen, current_ply] = bookminer::trim_sfen_ply(current_sfen_with_ply);
+            if (current_ply >= max_book_ply)
+                continue;
+            if (visited_peta_position(visited, current_sfen))
+                continue;
+            visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
+
+            const auto moves = candidate_best_moves_for_sfen(peta_book, current_sfen, PetaOpponentDefaultEvalDiff);
+            if (moves.empty())
+            {
+                add_position_command_entry(results, result_indexes, current_command);
+                continue;
+            }
+
+            for (const auto& move : moves)
+            {
+                auto board = bookminer::SfenPosition::from_sfen(current_sfen_with_ply);
+                board.push_usi(move.move);
+                const std::string next_sfen_with_ply = board.sfen_with_ply();
+                if (bookminer::trim_sfen_ply(next_sfen_with_ply).second >= max_book_ply)
+                    continue;
+
+                const std::string next_command = append_position_move(current_command, move.move);
+                if (next_seen.insert(next_command).second)
+                    next_positions.emplace_back(next_command, next_sfen_with_ply);
+            }
+        }
+
+        current_positions = std::move(next_positions);
+        ++step;
+    }
+
+    std::vector<std::string> out;
+    out.reserve(results.size());
+    for (const auto& result : results)
+        out.push_back(result.position_command);
+    return out;
+}
+
+void peta_opponent(
+    const bookminer::BookStore& peta_book,
+    int eval_diff,
+    int max_book_ply,
+    int max_step,
+    std::optional<int> book_extend_ply)
+{
+    log_line("peta_opponent, eval_diff = " + std::to_string(eval_diff)
+        + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", max_step = " + std::to_string(max_step)
+        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", opponent_dir = " + std::string(BookOpponentDir));
+
+    const auto opponent_paths = collect_opponent_book_paths();
+    if (opponent_paths.empty())
+        throw std::runtime_error(std::string("opponent peta book file not found : ") + BookOpponentDir + "/*.db or *.ybb");
+
+    std::vector<PositionCommandEntry> think_sfens;
+    std::unordered_map<std::string, std::size_t> think_indexes;
+    std::size_t processed_nodes = 0;
+    std::size_t cut_nodes = 0;
+    std::size_t leaf_nodes = 0;
+    std::size_t skipped_by_ply = 0;
+
+    for (const auto& opponent_path : opponent_paths)
+    {
+        log_line("peta_opponent read opponent book : " + opponent_path.string());
+        bookminer::BookStore opponent_book;
+        opponent_book.load_yaneuraou_book(opponent_path, false, nullptr, nullptr);
+
+        for (const int current_side : {1, 0})
+        {
+            const std::string side_name = current_side == 1 ? "black" : "white";
+            log_line("--- peta_opponent " + opponent_path.filename().string() + " current=" + side_name + " ---");
+
+            std::vector<std::pair<std::string, std::string>> current_positions = {{"startpos", bookminer::StartSfenPly1}};
+            std::unordered_set<std::string> visited;
+            int step = 0;
+            while (!current_positions.empty() && step < max_step)
+            {
+                std::vector<std::pair<std::string, std::string>> next_positions;
+                std::unordered_set<std::string> next_seen;
+
+                for (const auto& [position_command, sfen_with_ply] : current_positions)
+                {
+                    ++processed_nodes;
+                    if (processed_nodes % PetaOpponentProgressInterval == 0)
+                    {
+                        log_line("opponent progress nodes = " + std::to_string(processed_nodes)
+                            + " , cuts = " + std::to_string(cut_nodes)
+                            + " , think_sfens = " + std::to_string(think_sfens.size()));
+                    }
+
+                    const auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
+                    if (ply >= max_book_ply)
+                    {
+                        ++skipped_by_ply;
+                        continue;
+                    }
+
+                    const std::string visited_key = std::to_string(current_side) + ":" + sfen;
+                    const std::string visited_key_flipped = std::to_string(current_side) + ":" + bookminer::flipped_sfen(sfen);
+                    if (visited.find(visited_key) != visited.end() || visited.find(visited_key_flipped) != visited.end())
+                        continue;
+                    visited.insert(visited_key);
+
+                    const bookminer::BookStore& side_book = (ply % 2 == current_side) ? peta_book : opponent_book;
+                    const auto moves = candidate_best_moves_for_sfen(side_book, sfen, eval_diff);
+                    if (moves.empty())
+                    {
+                        ++cut_nodes;
+                        const auto leaves = peta_pv_leaf_position_commands_from_position(
+                            peta_book,
+                            position_command,
+                            sfen_with_ply,
+                            max_book_ply,
+                            max_step);
+                        for (const auto& leaf : leaves)
+                        {
+                            add_position_command_entry(think_sfens, think_indexes, leaf, book_extend_ply);
+                            ++leaf_nodes;
+                        }
+                        continue;
+                    }
+
+                    for (const auto& move : moves)
+                    {
+                        auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
+                        board.push_usi(move.move);
+                        const std::string next_sfen_with_ply = board.sfen_with_ply();
+                        if (bookminer::trim_sfen_ply(next_sfen_with_ply).second >= max_book_ply)
+                        {
+                            ++skipped_by_ply;
+                            continue;
+                        }
+
+                        const std::string next_command = append_position_move(position_command, move.move);
+                        if (next_seen.insert(next_command).second)
+                            next_positions.emplace_back(next_command, next_sfen_with_ply);
+                    }
+                }
+
+                current_positions = std::move(next_positions);
+                ++step;
+            }
+        }
+    }
+
+    const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
+    log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
+    write_position_command_entries_file(output_path, think_sfens);
+
+    log_line("peta_opponent done.");
+    log_line("[PetaOpponentDone] path=" + output_path.string()
+        + " count=" + std::to_string(think_sfens.size())
+        + " opponent_books=" + std::to_string(opponent_paths.size())
+        + " processed_nodes=" + std::to_string(processed_nodes)
+        + " cut_nodes=" + std::to_string(cut_nodes)
+        + " leaf_nodes=" + std::to_string(leaf_nodes)
         + " skipped_by_ply=" + std::to_string(skipped_by_ply));
 }
 
@@ -2206,6 +2557,7 @@ void print_help()
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PD : peta depth gap          , pd (eval_per_ply) (max_book_ply)");
     log_line("  PU : peta unsolved           , pu (eval_diff) (max_book_ply) (max_step)");
+    log_line("  PO : peta opponent           , po (eval_diff) (max_book_ply) (max_step) (book_extend_ply)");
     log_line("  H : Help");
 }
 
@@ -2510,6 +2862,39 @@ int main(int argc, char* argv[])
                     eval_diff,
                     command_max_book_ply,
                     max_step);
+            }
+            else if (command == "po")
+            {
+                const int eval_diff = parse_int_argument(tokens, 1, PetaOpponentDefaultEvalDiff);
+                const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
+                const int max_step = parse_int_argument(tokens, 3, PetaDefaultMaxStep);
+                const std::optional<int> book_extend_ply = parse_optional_int_argument(tokens, 4);
+                if (eval_diff < 0)
+                {
+                    log_line("Error : eval_diff must be non-negative integer.");
+                    continue;
+                }
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
+                if (max_step <= 0)
+                {
+                    log_line("Error : max_step must be positive integer.");
+                    continue;
+                }
+                if (book_extend_ply.has_value() && *book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer or None.");
+                    continue;
+                }
+                peta_opponent(
+                    peta_book,
+                    eval_diff,
+                    command_max_book_ply,
+                    max_step,
+                    book_extend_ply);
             }
             else if (command == "r")
             {

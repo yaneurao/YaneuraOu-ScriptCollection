@@ -23,7 +23,7 @@
   <rect class="box" x="45" y="110" width="235" height="135" rx="14"/>
   <text class="text" x="162" y="143">BookMiner</text>
   <rect class="file" x="72" y="166" width="180" height="50" rx="8"/>
-  <text class="mono" x="162" y="196" text-anchor="middle">peta_book-....db</text>
+  <text class="mono" x="162" y="196" text-anchor="middle">peta_book-....ybb</text>
 
   <path class="line" d="M 290 178 H 390"/>
   <text class="text small" x="340" y="162">コピー</text>

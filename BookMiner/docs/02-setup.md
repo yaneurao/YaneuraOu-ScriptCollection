@@ -338,7 +338,7 @@ python3 BookMiner.py
 
 ## 主な入出力
 
-- `book/think_sfens.txt` : 掘る棋譜。1 行が 1 対局です。
-- `book/backup/` : BookMiner の通常定跡 DB。`q`、`w`、自動バックアップで `book_miner-タイムスタンプ_局面数.db` が作られます。
-- `book/backup/peta_book-....db` : peta shock 化された定跡 DB。詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
+- `book/think_sfens.txt` : 掘る棋譜。1 行が 1 対局です。行末に `, book_extend_ply=20` のようなメタ情報が付く場合があります。
+- `book/backup/` : BookMiner の通常定跡 DB。`q`、`w`、自動バックアップで `book_miner-タイムスタンプ_局面数.ybb` が作られます。既存の `.db` も読み込めます。
+- `book/backup/peta_book-....ybb` : peta shock 化された定跡 DB。peta shock の出力拡張子は `.ybb` 固定です。詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
 - `log/` : 実行ログ。

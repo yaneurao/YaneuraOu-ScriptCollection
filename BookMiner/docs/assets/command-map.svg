@@ -39,8 +39,8 @@
   <text class="text small" x="585" y="169">書き出し</text>
   <text class="text small" x="585" y="191">+ peta_shock</text>
   <rect class="make" x="430" y="220" width="86" height="58" rx="10"/>
-  <text class="code" x="473" y="256">pn</text>
-  <text class="text small" x="585" y="244">leafの先を探す</text>
+  <text class="code" x="473" y="256">p*</text>
+  <text class="text small" x="585" y="244">pn/pnf/pf/pd/pu/po</text>
   <text class="text small" x="585" y="266">think_sfens.txt作成</text>
   <path class="line" d="M 473 203 V 210"/>
 
@@ -81,5 +81,5 @@
 
   <path class="line" d="M 335 252 H 380"/>
   <path class="line" d="M 670 252 H 715"/>
-  <text class="text small" x="530" y="575">よく使う流れ: t → p → pn → t → p → pn ...</text>
+  <text class="text small" x="530" y="575">よく使う流れ: t → p → pnなど → t → p → pnなど ...</text>
 </svg>

@@ -71,8 +71,8 @@ BookMiner は、この定跡データを増やしていきます。
 
 BookMiner では主に次のファイルが出てきます。
 
-- `book/backup/book_miner-....db` : BookMiner が読み書きする通常定跡 DB。
-- `book/backup/peta_book-....db` : peta shock 化の結果として作られる定跡 DB。
+- `book/backup/book_miner-....ybb` : BookMiner が読み書きする通常定跡 DB。既存の `.db` 形式も読み込めます。
+- `book/backup/peta_book-....ybb` : peta shock 化の結果として作られる定跡 DB。peta shock の出力拡張子は `.ybb` 固定です。
 
 ## 通常定跡 DB
 
@@ -81,26 +81,22 @@ BookMiner では主に次のファイルが出てきます。
 ファイル名は次のようになります。
 
 ```text
-book/backup/book_miner-20260607071000_12345.db
+book/backup/book_miner-20260607071000_12345.ybb
 ```
 
 `20260607071000` の部分は書き出した時刻、`_12345` の部分は書き出された局面数です。
 
 
-## やねうら王の標準定跡フォーマット
+## やねうら王の定跡フォーマット
 
-やねうら王が読み込めるテキスト形式の定跡ファイル形式です。
+やねうら王が読み込める定跡ファイル形式です。BookMiner が新しく書き出す通常定跡と peta book は `.ybb` 形式です。既存の `.db` テキスト形式も読み込めます。
 
 - [将棋ソフト用の標準定跡ファイルフォーマットの提案](https://yaneuraou.yaneu.com/2016/02/05/standard-shogi-book-format/)
 - [定跡の作成 - やねうら王Wiki](https://github.com/yaneurao/YaneuraOu/wiki/%E5%AE%9A%E8%B7%A1%E3%81%AE%E4%BD%9C%E6%88%90)
 
-BookMiner の `book/backup/book_miner-....db` と `book/backup/peta_book-....db` は、この形式で保存されます。
+既存の `.db` 形式は、拡張子が `.db` であっても、実体はテキストファイルです。先頭にはフォーマット識別用のヘッダーがあり、そのあと `sfen ...` で始まる局面ブロックが並びます。各局面ブロックには、その局面で選べる指し手、相手の応手、評価値などが書かれます。
 
-この形式は、拡張子が `.db` であっても、実体はテキストファイルです。
-先頭にはフォーマット識別用のヘッダーがあり、そのあと `sfen ...` で始まる局面ブロックが並びます。
-各局面ブロックには、その局面で選べる指し手、相手の応手、評価値などが書かれます。
-
-BookMiner が書き出す通常定跡 DB には、次のような特徴があります。
+既存または外部作成の `.db` テキスト形式には、次のような特徴があります。
 
 - 先頭に `#YANEURAOU-DB2016 1.00` を書きます。
 - 2行目に `# NOE:<局面数>` を書きます。NOE は Num Of Entries、つまりDB上の局面数です。
@@ -110,7 +106,7 @@ BookMiner が書き出す通常定跡 DB には、次のような特徴があり
 - 相手応手は `none` として書き出します。
 
 通常の BookMiner 運用では、これらをユーザーが手で調整する必要はありません。
-ただし、外部の定跡 DB を BookMiner に持ち込む場合は、やねうら王標準定跡フォーマットとして読めること、また `makebook peta_shock` に渡せるよう `sfen` 順に sort されていることを確認してください。
+ただし、外部の定跡 DB を BookMiner に持ち込む場合は、やねうら王が読める形式であること、また `makebook peta_shock` に渡せるよう `sfen` 順に sort されていることを確認してください。
 
 ## 評価関数
 
@@ -124,7 +120,7 @@ BookMiner が書き出す通常定跡 DB には、次のような特徴があり
 peta shock 化は、やねうら王の `makebook peta_shock` コマンドです。
 
 通常定跡 DB を後ろから解析し、leaf 側の評価値を min-max で root 側へ伝播させた peta_book を作ります。
-BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、反駁候補を探す `peta_refutation`、負け棋譜周辺を掘る `peta_unsolved`、対局用定跡の作成に使います。
+BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、反駁候補を探す `peta_refutation`、depth差で延長候補を探す `peta_depth_gap`、負け棋譜周辺を掘る `peta_unsolved`、過去配布定跡への対策候補を掘る `peta_opponent`、対局用定跡の作成に使います。
 
 詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
 
@@ -216,7 +212,7 @@ peta shock 化した定跡 DB から、leaf の先へ定跡ツリーを伸ばす
 
 `peta_next` の leaf のうち、定跡から抜ける最後の1手が peta shock 前の通常bookでは best ではなかったものだけを抽出する処理です。
 
-BookMiner の CLI では `pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]`、GUI では `peta next refu.` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pnf eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta next refu.` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
 
 ## 反駁
 
@@ -228,19 +224,25 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 peta shock 後に best になっている depth 0 の指し手のうち、peta shock 前は2番手以下で、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものを抽出する処理です。
 
-BookMiner の CLI では `pf [eval_refutation_margin] [eval_limit] [max_book_ply]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは enqueue 欄の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
+BookMiner の CLI では `pf [eval_refutation_margin] [eval_limit] [max_book_ply] [book_extend_ply]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは同じ行の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
 
 ## peta_depth_gap
 
 peta shock 後に、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
-BookMiner の CLI では `pd [eval_per_ply] [max_book_ply]`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pd [eval_per_ply] [max_book_ply] [book_extend_ply]`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
 ## peta_unsolved
 
 `book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿り、次に掘る局面として `book/think_sfens.txt` に書き出す処理です。
 
-BookMiner の CLI では `pu [eval_diff] [max_book_ply] [max_step]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。書き出し後の enqueue は手動で実行します。
+BookMiner の CLI では `pu [eval_diff] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。書き出し後の enqueue は手動で実行します。
+
+## peta_opponent
+
+`book/book_opponent/` に置いた過去配布定跡などを仮想敵とし、現在読み込んでいる peta_book と best 進行を辿って、相手定跡が切れる周辺の leaf を `book/think_sfens.txt` に書き出す処理です。
+
+BookMiner の CLI では `po [eval_diff] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta opponent` ボタンに対応します。`book_extend_ply` を指定すると、書き出し行に `book_extend_ply=...` が付き、その行だけ enqueue 時の best line 延長手数を上書きします。
 
 ## KifManager
 

@@ -28,6 +28,14 @@ book/think_sfens.txt
 
 入力ファイルは、1 行が 1 つの `startpos moves ...` 形式です。
 
+行末にカンマ区切りで `book_extend_ply=...` を付けると、その行だけ棋譜末端からの best line 延長手数を上書きできます。
+
+```text
+startpos moves 7g7f 3c3d, book_extend_ply=20
+```
+
+`book_extend_ply` が無い行、または `book_extend_ply=None` の行は、`t` コマンド第3引数の `think_command_ply` を使います。同じ局面が複数行にある場合は、`book_extend_ply` が大きい行を採用します。数値指定は `None` より優先されます。
+
 `t` は、入力ファイルの各行を辿り、まだ掘っていない局面をバックグラウンドの思考タスクとして投入します。この投入操作を GUI では `enqueue` と呼びます。
 
 引数は GUI の並び順と同じで、`eval_limit`、`max_book_ply`、`think_command_ply` の順です。
@@ -81,7 +89,7 @@ w
 出力例:
 
 ```text
-book/backup/book_miner-20260607071000_12345.db
+book/backup/book_miner-20260607071000_12345.ybb
 ```
 
 手数制限を付けることもできます。
@@ -93,12 +101,12 @@ w 100
 この場合、初期局面から 100 手目までの局面だけを書き出し、ファイル名に `_ply100` が付きます。
 
 ```text
-book/backup/book_miner-20260607071000_12345_ply100.db
+book/backup/book_miner-20260607071000_12345_ply100.ybb
 ```
 
 `_plyN` 付きのファイルは一部だけを書き出したものです。起動時の自動読み込み対象にはなりません。
 
-書き出しは一度 `*.db.tmp` に行い、完了後に `*.db` へ置換します。書き出し途中のファイルを完成済みバックアップとして扱わないためです。
+書き出しは一度 `tmp-*.ybb` に行い、完了後に `*.ybb` へ置換します。書き出し途中のファイルを完成済みバックアップとして扱わないためです。
 
 ## `p`
 
@@ -118,30 +126,30 @@ p
 
 通常の周回作業では、BookMiner が動いている環境で `p` を使うのが基本です。
 
-`p` で新しく通常定跡 DB を書き出した場合、通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。既存通常DBを再利用した場合も、その通常DBに対応する `peta_book-....db` が作られます。
+`p` で新しく通常定跡 DB を書き出した場合、通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。既存通常DBを再利用した場合も、その通常DBに対応する `peta_book-....ybb` が作られます。
 
 ```text
-book/backup/book_miner-20260607103251_14505901.db
-book/backup/peta_book-20260607103251_14505901.db
+book/backup/book_miner-20260607103251_14505901.ybb
+book/backup/peta_book-20260607103251_14505901.ybb
 ```
 
 ## `r`
 
-peta shock 化済みの `book/backup/peta_book-....db` を読み込みます。
+peta shock 化済みの `book/backup/peta_book-....ybb` を読み込みます。既存の `.db` 形式も読み込めます。
 
 ```text
 r
 ```
 
 `r` は read の略です。
-`r` 自体は peta shock 化を行いません。別マシンで変換した定跡を持ち込む場合など、先に自分で `peta_book-....db` を作って `book/backup/` に置いてから使います。
+`r` 自体は peta shock 化を行いません。別マシンで変換した定跡を持ち込む場合など、先に自分で `peta_book-....ybb` を作って `book/backup/` に置いてから使います。
 
-path を省略した場合は、`book/backup/` にある最新の `peta_book-....db` を読みます。
+path を省略した場合は、`book/backup/` にある最新の `peta_book-....ybb` または `peta_book-....db` を読みます。
 
 読み込む peta book を明示することもできます。
 
 ```text
-r book/backup/peta_book-20260607071000_12345.db
+r book/backup/peta_book-20260607071000_12345.ybb
 ```
 
 指定した path は、まず BookMiner.py の実行フォルダからの相対 path として解決されます。通常は BookMiner フォルダで起動するので、上のように `book/backup/...` と指定します。
@@ -149,10 +157,10 @@ r book/backup/peta_book-20260607071000_12345.db
 次に、`book/` からの相対 path としても解決します。そのため、次の指定も同じファイルを指します。
 
 ```text
-r backup/peta_book-20260607071000_12345.db
+r backup/peta_book-20260607071000_12345.ybb
 ```
 
-GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....db` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
+GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....ybb` または `peta_book-....db` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
 
 このあと `pn` コマンドを使うと、次に掘る局面を列挙できます。
 
@@ -183,19 +191,21 @@ book/think_sfens.txt
 
 値を大きくすると、より多くの枝を辿るので出力される局面が増えます。値を小さくすると、best move に近い枝だけを辿ります。
 
-第 2 引数で最大手数を指定できます。
+第 2 引数で最大 step 数(rootからの手数)を指定できます。省略時は `9999` です。
 
 ```text
-pn 30 200
+pn 30 40
 ```
 
-第 3 引数で最大 step 数(rootからの手数)を指定できます。省略時は `9999` です。
+第 3 引数で最大手数を指定できます。
 
 ```text
-pn 30 200 40
+pn 30 40 200
 ```
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。第 2 引数を指定した場合は、その値を使います。`None` を指定すると省略時のデフォルト値を使います。
+`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。第 3 引数を指定した場合は、その値を使います。`None` を指定すると省略時のデフォルト値を使います。
+
+第 4 引数で `book_extend_ply` を指定できます。数値を指定すると、書き出される `book/think_sfens.txt` の各行に `book_extend_ply=...` が付きます。
 
 `settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`pn` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
 `pn` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`pn` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
@@ -206,10 +216,10 @@ pn 30 200 40
 `peta_next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
 
 ```text
-pnf 30 200 9999 100
+pnf 30 100 9999 200 None
 ```
 
-引数は順に `eval_diff`、`max_book_ply`、`max_step`、`eval_refutation_margin` です。`max_step` の省略時は `9999`、`eval_refutation_margin` の省略時は `100` です。任意引数に `None` を指定するとデフォルト値を使います。
+引数は順に `eval_diff`、`eval_refutation_margin`、`max_step`、`max_book_ply`、`book_extend_ply` です。`eval_refutation_margin` の省略時は `100`、`max_step` の省略時は `9999` です。任意引数に `None` を指定するとデフォルト値を使います。
 
 leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の best であり、peta shock 前の通常bookでは best ではなく、次の条件を満たすものだけを `book/think_sfens.txt` へ書き出します。
 
@@ -224,13 +234,13 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
 
 ```text
-pf 100 400 200
+pf 100 400 200 None
 ```
 
 第1引数は `eval_refutation_margin` です。省略時は `100` です。
 peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。
 第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
-第3引数に `max_book_ply` を指定できます。
+第3引数に `max_book_ply`、第4引数に `book_extend_ply` を指定できます。
 
 出力先:
 
@@ -244,18 +254,18 @@ book/think_sfens.txt
 反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。第3引数を指定した場合は、その値を使います。
 10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
 
-`pf None None 200` のように `None` を指定すると、その引数は省略時のデフォルト値を使います。
+`pf None None 200 None` のように `None` を指定すると、その引数は省略時のデフォルト値を使います。
 
 ## peta_depth_gap
 
 peta shock 後、best以外の登録済み指し手について、その手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
-pd 1
+pd 1 200 None
 ```
 
 引数は `eval_per_ply` です。省略時は `0.1` です。0以上の数値を指定します。`0.5` のような小数も指定できます。
-第2引数に `max_book_ply` を指定できます。
+第2引数に `max_book_ply`、第3引数に `book_extend_ply` を指定できます。
 判定式は次の通りです。
 
 ```text
@@ -279,14 +289,35 @@ book/think_sfens.txt
 負けた棋譜などを `book/think_unsolved_sfens.txt` に入れておき、その棋譜上の各prefix局面から peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。
 
 ```text
-pu None 200 None
+pu None None 200 None
 ```
 
-引数は順に `eval_diff`、`max_book_ply`、`max_step` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
+引数は順に `eval_diff`、`max_step`、`max_book_ply`、`book_extend_ply` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
 
 `eval_diff` は、棋譜のroot局面の評価値からroot側視点でどれだけ悪化したprefixを除外するかです。`None` の場合は `99999` 扱いになり、通常は評価値差では除外しません。
 
 `pu` は `book/think_sfens.txt` を書き出すだけです。書き出し後の `enqueue` は手動で実行してください。
+
+## peta_opponent
+
+過去に頒布した定跡など、対策したい相手定跡を `book/book_opponent/` に置き、現在読み込んでいる peta_book と仮想対局させます。
+双方が自分の手番で best 候補を辿り、どちらかの定跡が切れた地点から現在の peta_book の PV leaf まで進めた局面を `book/think_sfens.txt` に書き出します。
+
+```text
+po 0 9999 200 20
+```
+
+引数は順に `eval_diff`、`max_step`、`max_book_ply`、`book_extend_ply` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
+
+```text
+po None None 200 None
+```
+
+`eval_diff` は、各局面で best と同評価値または近い評価値の候補をどこまで辿るかです。通常は `0` で、best と同評価値の候補だけを辿ります。
+
+`book_extend_ply` を数値で指定すると、書き出される `book/think_sfens.txt` の各行に `book_extend_ply=...` が付きます。その後 `enqueue` したとき、この値が `t` コマンド側の `think_command_ply` より優先されます。`book_extend_ply=None` の場合は行メタデータを付けず、通常通り `enqueue` 側の `think ply` を使います。
+
+Python版 BookMiner.py / BookMinerCpp ともに、`book/book_opponent/*.db` と `*.ybb` の両方を相手定跡として使えます。
 
 ## `i`
 
@@ -337,7 +368,7 @@ q
 出力ファイル名には、書き出し時刻と局面数が入ります。
 
 ```text
-book/backup/book_miner-20260607103251_14505901.db
+book/backup/book_miner-20260607103251_14505901.ybb
 ```
 
 ## `!`

@@ -31,11 +31,13 @@ pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]
 pf [eval_refutation_margin] [eval_limit] [max_book_ply]
 pd [eval_per_ply] [max_book_ply]
 pu [eval_diff] [max_book_ply] [max_step]
+po [eval_diff] [max_book_ply] [max_step] [book_extend_ply]
 t [eval_limit] [max_book_ply] [think_command_ply]
 h
 ```
 
 `t` は固定で `book/think_sfens.txt` を読みます。引数は GUI の並びと同じく、`eval_limit`、`max_book_ply`、`think_command_ply` の順です。省略または `None` 指定時は Python 版と同じデフォルト値を使います。
+`think_sfens.txt` の各行に `, book_extend_ply=20` のようなメタ情報がある場合、その行だけ `think_command_ply` よりメタ情報側を優先します。同じ局面が複数行にある場合は、`book_extend_ply` が大きい行を採用します。
 
 ## 起動時の通常DB選択
 
