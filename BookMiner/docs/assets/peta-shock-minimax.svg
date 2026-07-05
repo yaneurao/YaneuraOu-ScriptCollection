@@ -80,5 +80,5 @@
 
   <rect class="box" x="65" y="535" width="950" height="58" rx="12"/>
   <text class="text" x="540" y="560">peta shock 後の peta_book では、leaf 側の評価値をもとに内部ノードと root の評価値が計算し直される</text>
-  <text class="text small" x="540" y="583">そのため、peta_next / refutation / depth_gap / unsolved は伝播後の評価値を使って、次に広げる枝を選びやすくなる</text>
+  <text class="text small" x="540" y="583">そのため、peta next / refutation / depth_gap / unsolved は伝播後の評価値を使って、次に広げる枝を選びやすくなる</text>
 </svg>

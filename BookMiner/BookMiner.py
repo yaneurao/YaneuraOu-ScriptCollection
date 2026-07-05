@@ -222,6 +222,9 @@ class TaskQueueJobProgress:
     # このjobのeval_limit。複数値が混在する場合は"mixed"。
     eval_limit : int | str | None = None
 
+    # このjobのgame_ply_limit。複数値が混在する場合は"mixed"。
+    game_ply_limit : int | str | None = None
+
     # このjobのbook_extend_ply。複数値が混在する場合は"mixed"。
     book_extend_ply : str | None = None
 
@@ -1678,6 +1681,7 @@ class EngineManager:
         added_count:int,
         path:str,
         eval_limit:int|str,
+        game_ply_limit:int|str,
         book_extend_ply:str|int = DEFAULT_BOOK_EXTEND_PLY,
     ):
         book_extend_ply = str(book_extend_ply)
@@ -1686,6 +1690,7 @@ class EngineManager:
             self.task_progress_jobs[job_id] = TaskQueueJobProgress(
                 total=added_count,
                 eval_limit=eval_limit,
+                game_ply_limit=game_ply_limit,
                 book_extend_ply=book_extend_ply,
                 done_reported=added_count == 0,
             )
@@ -1698,19 +1703,19 @@ class EngineManager:
             f"[TaskQueueStart] {taken}/{total} "
             f"job={job_id} job_progress=0/{added_count} job_remaining={added_count} "
             f"added={added_count} remaining={remaining} path={path} "
-            f"eval_limit={eval_limit} book_extend_ply={book_extend_ply}"
+            f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
         )
         if added_count == 0:
             print(
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/0 job_remaining=0 remaining={remaining} "
-                f"eval_limit={eval_limit} book_extend_ply={book_extend_ply}"
+                f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
             )
         if remaining == 0:
             print(
                 f"[TaskQueueDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/{added_count} job_remaining=0 remaining=0 "
-                f"eval_limit={eval_limit} book_extend_ply={book_extend_ply}"
+                f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
             )
 
     def report_task_queue_progress(self, task:Task):
@@ -1727,17 +1732,21 @@ class EngineManager:
                 job_progress = TaskQueueJobProgress(
                     total=0,
                     eval_limit=task.eval_limit,
+                    game_ply_limit=task.max_book_ply,
                     book_extend_ply=str(task.book_extend_ply),
                 )
                 self.task_progress_jobs[task.job_id] = job_progress
             job_progress.taken += 1
             if job_progress.eval_limit is None:
                 job_progress.eval_limit = task.eval_limit
+            if job_progress.game_ply_limit is None:
+                job_progress.game_ply_limit = task.max_book_ply
             if job_progress.book_extend_ply is None:
                 job_progress.book_extend_ply = str(task.book_extend_ply)
             job_taken = job_progress.taken
             job_total = job_progress.total
             job_eval_limit = job_progress.eval_limit
+            job_game_ply_limit = job_progress.game_ply_limit
             job_book_extend_ply = job_progress.book_extend_ply
             remaining = max(total - taken, 0)
             job_remaining = max(job_total - job_taken, 0)
@@ -1760,14 +1769,14 @@ class EngineManager:
             f"[{tag}] {taken}/{total} "
             f"job={task.job_id} job_progress={job_taken}/{job_total} "
             f"job_remaining={job_remaining} remaining={remaining} "
-            f"eval_limit={job_eval_limit} book_extend_ply={job_book_extend_ply}"
+            f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
         )
         if should_report_job_done:
             print(
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={task.job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining=0 remaining={remaining} "
-                f"eval_limit={job_eval_limit} book_extend_ply={job_book_extend_ply}"
+                f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
             )
 
     def report_mining_progress(self, position_count:int, force:bool = False):
@@ -3468,6 +3477,15 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
     else:
         job_eval_limit = "mixed"
 
+    effective_game_ply_limit_values = {
+        max_book_ply if entry.max_book_ply is None else entry.max_book_ply
+        for entry in entries.values()
+    }
+    if len(effective_game_ply_limit_values) <= 1:
+        job_game_ply_limit : int | str = next(iter(effective_game_ply_limit_values), max_book_ply)
+    else:
+        job_game_ply_limit = "mixed"
+
     effective_book_extend_values = {
         book_extend_ply if entry.book_extend_ply is None else entry.book_extend_ply
         for entry in entries.values()
@@ -3481,6 +3499,7 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
         total,
         path,
         job_eval_limit,
+        job_game_ply_limit,
         job_book_extend_ply,
     )
 

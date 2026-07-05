@@ -143,6 +143,7 @@ LOG_VIEW_MODE_KEYS = {label: key for key, label in LOG_VIEW_MODES}
 class TaskJobListItem:
     job_id: int
     eval_limit: int | str | None
+    game_ply_limit: int | str | None
     book_extend_ply: str | None
     taken: int
     total: int | None
@@ -626,7 +627,7 @@ class BookMinerGui(ttk.Frame):
 
         self.next_button = ttk.Button(
             commands,
-            text="peta_next",
+            text="peta next",
             width=STEP_BUTTON_WIDTH,
             command=self.send_peta_next,
         )
@@ -656,7 +657,7 @@ class BookMinerGui(ttk.Frame):
         self.refutation_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
-            "`pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta_nextのleafのうち、元DBでbestでなかった反駁leafだけを抽出します。空欄はデフォルト値行を使います。",
+            "`pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next のleafのうち、元DBでbestでなかった反駁leafだけを抽出します。空欄はデフォルト値行を使います。",
         )
         ttk.Label(commands, text="eval refu.").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=4, column=3, sticky="w", pady=3)
@@ -684,7 +685,7 @@ class BookMinerGui(ttk.Frame):
         self.depth_gap_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.depth_gap_button,
-            "`pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta_nextと同じ範囲から、bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。空欄はデフォルト値行を使います。",
+            "`pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next と同じ範囲から、bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。空欄はデフォルト値行を使います。",
         )
         ttk.Label(commands, text="eval/ply").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=5, column=3, sticky="w", pady=3)
@@ -935,7 +936,7 @@ class BookMinerGui(ttk.Frame):
 
         tree = ttk.Treeview(
             list_frame,
-            columns=("job", "remaining", "total", "eval_limit", "book_extend_ply"),
+            columns=("job", "remaining", "total", "eval_limit", "game_ply_limit", "book_extend_ply"),
             show="headings",
             height=height,
         )
@@ -943,11 +944,13 @@ class BookMinerGui(ttk.Frame):
         tree.heading("remaining", text="残り")
         tree.heading("total", text="母数")
         tree.heading("eval_limit", text="eval_limit")
+        tree.heading("game_ply_limit", text="game_ply_limit")
         tree.heading("book_extend_ply", text="book_extend_ply")
         tree.column("job", width=90, minwidth=70, anchor="w", stretch=False)
         tree.column("remaining", width=90, minwidth=70, anchor="e", stretch=False)
         tree.column("total", width=90, minwidth=70, anchor="e", stretch=False)
         tree.column("eval_limit", width=90, minwidth=80, anchor="e", stretch=False)
+        tree.column("game_ply_limit", width=110, minwidth=95, anchor="e", stretch=False)
         tree.column("book_extend_ply", width=120, minwidth=100, anchor="e", stretch=True)
 
         yscroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
@@ -1060,6 +1063,7 @@ class BookMinerGui(ttk.Frame):
         for job_id in sorted(self.task_job_items):
             item = self.task_job_items[job_id]
             eval_limit_display = str(item.eval_limit) if item.eval_limit is not None else "-"
+            game_ply_limit_display = str(item.game_ply_limit) if item.game_ply_limit is not None else "-"
             book_extend_ply_display = item.book_extend_ply if item.book_extend_ply else "-"
             total_display = str(item.total) if item.total is not None else "?"
             remaining_display = str(item.remaining) if item.remaining is not None else "-"
@@ -1072,6 +1076,7 @@ class BookMinerGui(ttk.Frame):
                     remaining_display,
                     total_display,
                     eval_limit_display,
+                    game_ply_limit_display,
                     book_extend_ply_display,
                 ),
             )
@@ -1426,6 +1431,9 @@ class BookMinerGui(ttk.Frame):
         eval_limit = self._parse_task_job_eval_limit(fields.get("eval_limit"))
         if eval_limit is None and job_id in self.task_job_items:
             eval_limit = self.task_job_items[job_id].eval_limit
+        game_ply_limit = self._parse_task_job_eval_limit(fields.get("game_ply_limit"))
+        if game_ply_limit is None and job_id in self.task_job_items:
+            game_ply_limit = self.task_job_items[job_id].game_ply_limit
         book_extend_ply = fields.get("book_extend_ply")
         if book_extend_ply is None and job_id in self.task_job_items:
             book_extend_ply = self.task_job_items[job_id].book_extend_ply
@@ -1436,6 +1444,7 @@ class BookMinerGui(ttk.Frame):
             self.task_job_items[job_id] = TaskJobListItem(
                 job_id=job_id,
                 eval_limit=eval_limit,
+                game_ply_limit=game_ply_limit,
                 book_extend_ply=book_extend_ply,
                 taken=taken,
                 total=total,
@@ -2007,7 +2016,7 @@ class BookMinerGui(ttk.Frame):
         eval_diff = self._get_step2_int_token(
             self.peta_next_eval_diff,
             self.default_eval_diff,
-            "peta_next eval diff",
+            "peta next eval diff",
             auto,
             non_negative=True,
         )
@@ -2016,7 +2025,7 @@ class BookMinerGui(ttk.Frame):
         max_step = self._get_step2_int_token(
             self.peta_next_max_step,
             self.default_max_step,
-            "peta_next max step",
+            "peta next max step",
             auto,
             positive=True,
         )
@@ -2025,7 +2034,7 @@ class BookMinerGui(ttk.Frame):
         game_ply_limit = self._get_step2_int_token(
             self.peta_next_ply_limit,
             self.game_ply_limit,
-            "peta_next game ply limit",
+            "peta next game ply limit",
             auto,
             positive=True,
         )
@@ -2034,7 +2043,7 @@ class BookMinerGui(ttk.Frame):
         book_extend_ply = self._get_step2_int_token(
             self.peta_next_book_extend_ply,
             self.enqueue_book_extend_ply,
-            "peta_next book extend ply",
+            "peta next book extend ply",
             auto,
             non_negative=True,
         )
@@ -2043,7 +2052,7 @@ class BookMinerGui(ttk.Frame):
         eval_limit = self._get_step2_int_token(
             self.peta_next_eval_limit,
             self.eval_limit,
-            "peta_next eval_limit",
+            "peta next eval_limit",
             auto,
             non_negative=True,
         )

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1060" height="560" viewBox="0 0 1060 560" role="img" aria-labelledby="title desc">
   <title id="title">BookMiner GUI の基本手順</title>
-  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でpeta_next、peta_refutation、peta_depth_gap、peta_unsolved、peta_opponentによりthink_sfens.txtを作り、手順3でenqueueし、手順4の自動enqueueでは自動チェックされた手順2をthink_sfens-tmp.txtにまとめてenqueueする流れ</desc>
+  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でpeta next、peta_refutation、peta_depth_gap、peta_unsolved、peta_opponentによりthink_sfens.txtを作り、手順3でenqueueし、手順4の自動enqueueでは自動チェックされた手順2をthink_sfens-tmp.txtにまとめてenqueueする流れ</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -36,7 +36,7 @@
 
   <rect class="box" x="302" y="205" width="204" height="82"/>
   <text class="text step" x="404" y="230">手順2</text>
-  <text class="text" x="404" y="252">peta_next (pn)</text>
+  <text class="text" x="404" y="252">peta next (pn)</text>
   <text class="text small" x="404" y="273">refutation(pr) / depth_gap(pdg)</text>
   <text class="text small" x="404" y="291">unsolved(pu) / opponent(po)</text>
 

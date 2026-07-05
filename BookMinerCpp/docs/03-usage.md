@@ -36,7 +36,7 @@ GUI 上の操作は Python 版と同じです。
 ```text
 手順0. 棋譜抽出
 手順1. peta_shock / peta_read
-手順2. peta_next / peta next refu. / peta refutation / peta depth_gap / peta unsolved / peta opponent
+手順2. peta next / peta next refu. / peta refutation / peta depth_gap / peta unsolved / peta opponent
 手順3. enqueue
 手順4. 自動enqueue
 手順5. DB手動保存
@@ -59,9 +59,9 @@ cd YaneuraOu-ScriptCollection/BookMinerCpp
 ```text
 p                 現在DBを書き出し、peta_shock 化して読み込む
 r                 最新の peta_book を読み込む
-pn 100            peta_next を実行し、think_sfens.txt を作る
+pn 100            peta next を実行し、think_sfens.txt を作る
 pnf 100 200 9999 100
-                  peta_next の leaf のうち、反駁された leaf だけを作る
+                  peta next の leaf のうち、反駁された leaf だけを作る
 pf 100 400 200    反駁された depth 0 best を作る
 pd 0.1 200        depth差で逆転しうる候補のPV leafを作る
 pu None 200 None  think_unsolved_sfens.txt の棋譜prefix周辺を作る

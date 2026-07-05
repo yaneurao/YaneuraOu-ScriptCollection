@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -527,11 +528,18 @@ void process_position_command(
 struct PositionCommandEntry {
     std::string position_command;
     std::optional<int> book_extend_ply;
+    std::optional<int> eval_limit;
+    std::optional<int> max_book_ply;
 };
 
-int book_extend_ply_rank(const std::optional<int>& book_extend_ply)
+int optional_int_rank(const std::optional<int>& value)
 {
-    return book_extend_ply.value_or(-1);
+    return value.value_or(-1);
+}
+
+std::optional<int> max_optional_int(const std::optional<int>& lhs, const std::optional<int>& rhs)
+{
+    return optional_int_rank(lhs) >= optional_int_rank(rhs) ? lhs : rhs;
 }
 
 std::string trim_metadata_copy(std::string text)
@@ -555,7 +563,7 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
     if (parts.empty() || parts[0].empty())
         throw std::runtime_error("empty position command");
 
-    PositionCommandEntry entry{parts[0], std::nullopt};
+    PositionCommandEntry entry{parts[0], std::nullopt, std::nullopt, std::nullopt};
     for (std::size_t i = 1; i < parts.size(); ++i)
     {
         const auto& meta = parts[i];
@@ -580,34 +588,76 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
                 entry.book_extend_ply = parsed;
             }
         }
+        else if (key == "eval_limit")
+        {
+            if (is_none_argument(value))
+            {
+                entry.eval_limit = std::nullopt;
+            }
+            else
+            {
+                const int parsed = std::stoi(value);
+                if (parsed < 0)
+                    throw std::runtime_error("eval_limit must be non-negative integer or None");
+                entry.eval_limit = parsed;
+            }
+        }
+        else if (key == "game_ply_limit")
+        {
+            if (is_none_argument(value))
+            {
+                entry.max_book_ply = std::nullopt;
+            }
+            else
+            {
+                const int parsed = std::stoi(value);
+                if (parsed <= 0)
+                    throw std::runtime_error("game_ply_limit must be positive integer or None");
+                entry.max_book_ply = parsed;
+            }
+        }
     }
     return entry;
 }
 
-std::string format_position_command_entry(const std::string& position_command, std::optional<int> book_extend_ply)
+std::string format_position_command_entry(const PositionCommandEntry& entry)
 {
-    if (!book_extend_ply.has_value())
-        return position_command;
-    return position_command + ", book_extend_ply=" + std::to_string(*book_extend_ply);
+    std::vector<std::string> metadata;
+    if (entry.book_extend_ply.has_value())
+        metadata.push_back("book_extend_ply=" + std::to_string(*entry.book_extend_ply));
+    if (entry.eval_limit.has_value())
+        metadata.push_back("eval_limit=" + std::to_string(*entry.eval_limit));
+    if (entry.max_book_ply.has_value())
+        metadata.push_back("game_ply_limit=" + std::to_string(*entry.max_book_ply));
+    if (metadata.empty())
+        return entry.position_command;
+
+    std::string result = entry.position_command + ", " + metadata.front();
+    for (std::size_t i = 1; i < metadata.size(); ++i)
+        result += ", " + metadata[i];
+    return result;
 }
 
 void add_position_command_entry(
     std::vector<PositionCommandEntry>& out,
     std::unordered_map<std::string, std::size_t>& indexes,
     const std::string& position_command,
-    std::optional<int> book_extend_ply = std::nullopt)
+    std::optional<int> book_extend_ply = std::nullopt,
+    std::optional<int> eval_limit = std::nullopt,
+    std::optional<int> max_book_ply = std::nullopt)
 {
     auto it = indexes.find(position_command);
     if (it == indexes.end())
     {
         indexes[position_command] = out.size();
-        out.push_back(PositionCommandEntry{position_command, book_extend_ply});
+        out.push_back(PositionCommandEntry{position_command, book_extend_ply, eval_limit, max_book_ply});
         return;
     }
 
-    auto& old = out[it->second].book_extend_ply;
-    if (book_extend_ply_rank(book_extend_ply) > book_extend_ply_rank(old))
-        old = book_extend_ply;
+    auto& old = out[it->second];
+    old.book_extend_ply = max_optional_int(old.book_extend_ply, book_extend_ply);
+    old.eval_limit = max_optional_int(old.eval_limit, eval_limit);
+    old.max_book_ply = max_optional_int(old.max_book_ply, max_book_ply);
 }
 
 std::vector<PositionCommandEntry> read_position_commands_file(const std::filesystem::path& path)
@@ -626,9 +676,39 @@ std::vector<PositionCommandEntry> read_position_commands_file(const std::filesys
         if (line.empty() || line[0] == '#')
             continue;
         auto entry = parse_position_command_entry(line);
-        add_position_command_entry(commands, indexes, entry.position_command, entry.book_extend_ply);
+        add_position_command_entry(
+            commands,
+            indexes,
+            entry.position_command,
+            entry.book_extend_ply,
+            entry.eval_limit,
+            entry.max_book_ply);
     }
     return commands;
+}
+
+template <typename Getter>
+std::string summarize_effective_position_command_value(
+    const std::vector<PositionCommandEntry>& commands,
+    int default_value,
+    Getter getter)
+{
+    if (commands.empty())
+        return std::to_string(default_value);
+
+    std::optional<int> first_value;
+    for (const auto& command : commands)
+    {
+        const int value = getter(command).value_or(default_value);
+        if (!first_value.has_value())
+        {
+            first_value = value;
+            continue;
+        }
+        if (*first_value != value)
+            return "mixed";
+    }
+    return std::to_string(*first_value);
 }
 
 struct Task {
@@ -719,12 +799,35 @@ public:
         const auto commands = read_position_commands_file(path);
         const int job_id = next_job_id_.fetch_add(1);
         const auto added = commands.size();
+        const std::string job_eval_limit = summarize_effective_position_command_value(
+            commands,
+            eval_limit,
+            [](const PositionCommandEntry& command) {
+                return command.eval_limit;
+            });
+        const std::string job_game_ply_limit = summarize_effective_position_command_value(
+            commands,
+            max_book_ply,
+            [](const PositionCommandEntry& command) {
+                return command.max_book_ply;
+            });
+        const std::string job_book_extend_ply = summarize_effective_position_command_value(
+            commands,
+            think_command_ply,
+            [](const PositionCommandEntry& command) {
+                return command.book_extend_ply;
+            });
 
         std::size_t total_taken = 0;
         std::size_t total_enqueued = 0;
         {
             std::scoped_lock lock(progress_mutex_);
-            jobs_[job_id] = JobProgress{added, 0};
+            JobProgress progress;
+            progress.total = added;
+            progress.eval_limit = job_eval_limit;
+            progress.game_ply_limit = job_game_ply_limit;
+            progress.book_extend_ply = job_book_extend_ply;
+            jobs_[job_id] = std::move(progress);
             total_enqueued_ += added;
             total_taken = total_taken_;
             total_enqueued = total_enqueued_;
@@ -742,12 +845,16 @@ public:
             + " added=" + std::to_string(added)
             + " remaining=" + std::to_string(total_enqueued - total_taken)
             + " path=" + path.string()
-            + " eval_limit=" + std::to_string(eval_limit));
+            + " eval_limit=" + job_eval_limit
+            + " game_ply_limit=" + job_game_ply_limit
+            + " book_extend_ply=" + job_book_extend_ply);
 
         for (const auto& command : commands)
         {
+            const int task_eval_limit = command.eval_limit.value_or(eval_limit);
+            const int task_max_book_ply = command.max_book_ply.value_or(max_book_ply);
             const int task_think_command_ply = command.book_extend_ply.value_or(think_command_ply);
-            queue_.push(Task{command.position_command, eval_limit, max_book_ply, task_think_command_ply, job_id});
+            queue_.push(Task{command.position_command, task_eval_limit, task_max_book_ply, task_think_command_ply, job_id});
         }
 
         if (commands.empty())
@@ -774,6 +881,9 @@ private:
         std::size_t total = 0;
         std::size_t taken = 0;
         bool done_reported = false;
+        std::string eval_limit;
+        std::string game_ply_limit;
+        std::string book_extend_ply;
     };
 
     void worker_loop(bookminer::UsiEngine& engine)
@@ -811,6 +921,9 @@ private:
         std::size_t job_total = 0;
         bool should_report = false;
         bool should_report_job_done = false;
+        std::string job_eval_limit;
+        std::string job_game_ply_limit;
+        std::string job_book_extend_ply;
 
         const auto now = std::chrono::steady_clock::now();
         {
@@ -820,9 +933,18 @@ private:
             total_enqueued = total_enqueued_;
 
             auto& job = jobs_[task.job_id];
+            if (job.eval_limit.empty())
+                job.eval_limit = std::to_string(task.eval_limit);
+            if (job.game_ply_limit.empty())
+                job.game_ply_limit = std::to_string(task.max_book_ply);
+            if (job.book_extend_ply.empty())
+                job.book_extend_ply = std::to_string(task.think_command_ply);
             ++job.taken;
             job_taken = job.taken;
             job_total = job.total;
+            job_eval_limit = job.eval_limit;
+            job_game_ply_limit = job.game_ply_limit;
+            job_book_extend_ply = job.book_extend_ply;
             should_report_job_done = job.total > 0 && job.taken >= job.total && !job.done_reported;
             if (should_report_job_done)
                 job.done_reported = true;
@@ -847,7 +969,10 @@ private:
             + " job=" + std::to_string(task.job_id)
             + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
             + " job_remaining=" + std::to_string(job_remaining)
-            + " remaining=" + std::to_string(remaining));
+            + " remaining=" + std::to_string(remaining)
+            + " eval_limit=" + job_eval_limit
+            + " game_ply_limit=" + job_game_ply_limit
+            + " book_extend_ply=" + job_book_extend_ply);
 
         if (should_report_job_done)
         {
@@ -855,7 +980,10 @@ private:
                 + " job=" + std::to_string(task.job_id)
                 + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
                 + " job_remaining=0"
-                + " remaining=" + std::to_string(remaining));
+                + " remaining=" + std::to_string(remaining)
+                + " eval_limit=" + job_eval_limit
+                + " game_ply_limit=" + job_game_ply_limit
+                + " book_extend_ply=" + job_book_extend_ply);
         }
 
         if (remaining == 0)
@@ -864,7 +992,10 @@ private:
                 + " job=" + std::to_string(task.job_id)
                 + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
                 + " job_remaining=" + std::to_string(job_remaining)
-                + " remaining=0");
+                + " remaining=0"
+                + " eval_limit=" + job_eval_limit
+                + " game_ply_limit=" + job_game_ply_limit
+                + " book_extend_ply=" + job_book_extend_ply);
         }
     }
 
@@ -872,19 +1003,35 @@ private:
     {
         std::size_t total_taken = 0;
         std::size_t total_enqueued = 0;
+        std::string job_eval_limit = "-";
+        std::string job_game_ply_limit = "-";
+        std::string job_book_extend_ply = "-";
         {
             std::scoped_lock lock(progress_mutex_);
             total_taken = total_taken_;
             total_enqueued = total_enqueued_;
+            const auto it = jobs_.find(job_id);
+            if (it != jobs_.end())
+            {
+                job_eval_limit = it->second.eval_limit.empty() ? "-" : it->second.eval_limit;
+                job_game_ply_limit = it->second.game_ply_limit.empty() ? "-" : it->second.game_ply_limit;
+                job_book_extend_ply = it->second.book_extend_ply.empty() ? "-" : it->second.book_extend_ply;
+            }
         }
         log_line("[TaskQueueJobDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
-            + " job_progress=0/0 job_remaining=0 remaining=" + std::to_string(total_enqueued - total_taken));
+            + " job_progress=0/0 job_remaining=0 remaining=" + std::to_string(total_enqueued - total_taken)
+            + " eval_limit=" + job_eval_limit
+            + " game_ply_limit=" + job_game_ply_limit
+            + " book_extend_ply=" + job_book_extend_ply);
         if (total_taken >= total_enqueued)
         {
             log_line("[TaskQueueDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
                 + " job=" + std::to_string(job_id)
-                + " job_progress=0/0 job_remaining=0 remaining=0");
+                + " job_progress=0/0 job_remaining=0 remaining=0"
+                + " eval_limit=" + job_eval_limit
+                + " game_ply_limit=" + job_game_ply_limit
+                + " book_extend_ply=" + job_book_extend_ply);
         }
     }
 
@@ -1226,7 +1373,7 @@ std::size_t write_position_command_entries_file(const std::filesystem::path& pat
         throw std::runtime_error("failed to open output file: " + path.string());
 
     for (const auto& position_command : position_commands)
-        out << format_position_command_entry(position_command.position_command, position_command.book_extend_ply) << '\n';
+        out << format_position_command_entry(position_command) << '\n';
 
     return position_commands.size();
 }
@@ -1684,18 +1831,17 @@ struct CandidateBookMove {
     int eval = 0;
 };
 
-std::vector<CandidateBookMove> candidate_best_moves_for_sfen(
-    const bookminer::BookStore& book,
-    const std::string& sfen,
+std::vector<CandidateBookMove> candidate_best_moves_from_position(
+    const bookminer::PositionInfo& position,
+    bool flipped,
     int eval_diff)
 {
-    const auto hit = find_peta_position_with_flip(book, sfen);
-    if (hit.position == nullptr || hit.position->moves.empty())
+    if (position.moves.empty())
         return {};
 
     int best_eval = std::numeric_limits<int>::min();
     bool has_best = false;
-    for (const auto& moveinfo : hit.position->moves)
+    for (const auto& moveinfo : position.moves)
     {
         best_eval = std::max(best_eval, static_cast<int>(moveinfo.eval));
         has_best = true;
@@ -1705,12 +1851,12 @@ std::vector<CandidateBookMove> candidate_best_moves_for_sfen(
 
     std::vector<CandidateBookMove> moves;
     const int eval_low = best_eval - eval_diff;
-    for (const auto& moveinfo : hit.position->moves)
+    for (const auto& moveinfo : position.moves)
     {
         const int eval = static_cast<int>(moveinfo.eval);
         if (eval < eval_low)
             continue;
-        const std::uint16_t move16 = hit.flipped ? bookminer::flipped_move16(moveinfo.move16) : moveinfo.move16;
+        const std::uint16_t move16 = flipped ? bookminer::flipped_move16(moveinfo.move16) : moveinfo.move16;
         const std::string move = bookminer::move16_to_usi(move16);
         if (!move.empty())
             moves.push_back(CandidateBookMove{move, eval});
@@ -1718,63 +1864,94 @@ std::vector<CandidateBookMove> candidate_best_moves_for_sfen(
     return moves;
 }
 
-std::vector<std::string> peta_pv_leaf_position_commands_from_position(
+std::vector<CandidateBookMove> candidate_best_moves_for_sfen(
+    const bookminer::BookStore& peta_book,
+    const std::string& sfen,
+    int eval_diff)
+{
+    const auto hit = find_peta_position_with_flip(peta_book, sfen);
+    if (hit.position == nullptr)
+        return {};
+    return candidate_best_moves_from_position(*hit.position, hit.flipped, eval_diff);
+}
+
+struct ProbePositionHit {
+    std::optional<bookminer::PositionInfo> position;
+    bool flipped = false;
+};
+
+ProbePositionHit find_probe_position_with_flip(bookminer::BookProbe& probe, const std::string& sfen)
+{
+    if (auto position = probe.find_position_copy(sfen))
+        return {std::move(position), false};
+    if (auto position = probe.find_position_copy(bookminer::flipped_sfen(sfen)))
+        return {std::move(position), true};
+    return {};
+}
+
+std::vector<CandidateBookMove> candidate_best_moves_for_probe(
+    bookminer::BookProbe& probe,
+    const std::string& sfen,
+    int eval_diff)
+{
+    const auto hit = find_probe_position_with_flip(probe, sfen);
+    if (!hit.position.has_value())
+        return {};
+    return candidate_best_moves_from_position(*hit.position, hit.flipped, eval_diff);
+}
+
+std::optional<CandidateBookMove> choose_random_candidate_move(
+    const std::vector<CandidateBookMove>& moves,
+    std::mt19937_64& rng)
+{
+    if (moves.empty())
+        return std::nullopt;
+    std::uniform_int_distribution<std::size_t> dist(0, moves.size() - 1);
+    return moves[dist(rng)];
+}
+
+std::optional<std::string> peta_pv_leaf_position_command_from_position_random(
     const bookminer::BookStore& peta_book,
     const std::string& position_command,
     const std::string& sfen_with_ply,
     int max_book_ply,
-    int max_step)
+    int max_step,
+    int eval_diff,
+    std::mt19937_64& rng)
 {
-    std::vector<PositionCommandEntry> results;
-    std::unordered_map<std::string, std::size_t> result_indexes;
-    std::vector<std::pair<std::string, std::string>> current_positions = {{position_command, sfen_with_ply}};
+    if (max_step <= 0)
+        return std::nullopt;
+
+    std::string current_command = position_command;
+    std::string current_sfen_with_ply = sfen_with_ply;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
 
     int step = 0;
-    while (!current_positions.empty() && step < max_step)
+    while (true)
     {
-        std::vector<std::pair<std::string, std::string>> next_positions;
-        std::unordered_set<std::string> next_seen;
+        if (step >= max_step)
+            return std::nullopt;
 
-        for (const auto& [current_command, current_sfen_with_ply] : current_positions)
-        {
-            const auto [current_sfen, current_ply] = bookminer::trim_sfen_ply(current_sfen_with_ply);
-            if (current_ply >= max_book_ply)
-                continue;
-            if (visited_peta_position(visited, current_sfen))
-                continue;
-            visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
+        const auto [current_sfen, current_ply] = bookminer::trim_sfen_ply(current_sfen_with_ply);
+        if (current_ply >= max_book_ply)
+            return std::nullopt;
+        if (visited_peta_position(visited, current_sfen))
+            return std::nullopt;
+        visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
 
-            const auto moves = candidate_best_moves_for_sfen(peta_book, current_sfen, PetaOpponentDefaultEvalDiff);
-            if (moves.empty())
-            {
-                add_position_command_entry(results, result_indexes, current_command);
-                continue;
-            }
+        const auto moves = candidate_best_moves_for_sfen(peta_book, current_sfen, eval_diff);
+        const auto selected = choose_random_candidate_move(moves, rng);
+        if (!selected.has_value())
+            return current_command;
 
-            for (const auto& move : moves)
-            {
-                auto board = bookminer::SfenPosition::from_sfen(current_sfen_with_ply);
-                board.push_usi(move.move);
-                const std::string next_sfen_with_ply = board.sfen_with_ply();
-                if (bookminer::trim_sfen_ply(next_sfen_with_ply).second >= max_book_ply)
-                    continue;
-
-                const std::string next_command = append_position_move(current_command, move.move);
-                if (next_seen.insert(next_command).second)
-                    next_positions.emplace_back(next_command, next_sfen_with_ply);
-            }
-        }
-
-        current_positions = std::move(next_positions);
+        auto board = bookminer::SfenPosition::from_sfen(current_sfen_with_ply);
+        board.push_usi(selected->move);
+        current_sfen_with_ply = board.sfen_with_ply();
+        if (bookminer::trim_sfen_ply(current_sfen_with_ply).second >= max_book_ply)
+            return std::nullopt;
+        current_command = append_position_move(current_command, selected->move);
         ++step;
     }
-
-    std::vector<std::string> out;
-    out.reserve(results.size());
-    for (const auto& result : results)
-        out.push_back(result.position_command);
-    return out;
 }
 
 void peta_opponent(
@@ -1794,92 +1971,101 @@ void peta_opponent(
     if (opponent_paths.empty())
         throw std::runtime_error(std::string("opponent peta book file not found : ") + BookOpponentDir + "/*.db or *.ybb");
 
+    const auto random_seed = static_cast<std::uint64_t>(
+        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::mt19937_64 rng(random_seed);
+    log_line("[PetaOpponentRandomSeed] seed=" + std::to_string(random_seed));
+
     std::vector<PositionCommandEntry> think_sfens;
     std::unordered_map<std::string, std::size_t> think_indexes;
     std::size_t processed_nodes = 0;
     std::size_t cut_nodes = 0;
     std::size_t leaf_nodes = 0;
     std::size_t skipped_by_ply = 0;
+    std::size_t retired_repetition = 0;
+    std::size_t retired_max_step = 0;
 
     for (const auto& opponent_path : opponent_paths)
     {
-        log_line("peta_opponent read opponent book : " + opponent_path.string());
-        bookminer::BookStore opponent_book;
-        opponent_book.load_yaneuraou_book(opponent_path, false, nullptr, nullptr);
+        log_line("peta_opponent open opponent book probe : " + opponent_path.string());
+        auto opponent_probe = bookminer::open_book_probe(opponent_path);
 
         for (const int current_side : {1, 0})
         {
             const std::string side_name = current_side == 1 ? "black" : "white";
             log_line("--- peta_opponent " + opponent_path.filename().string() + " current=" + side_name + " ---");
 
-            std::vector<std::pair<std::string, std::string>> current_positions = {{"startpos", bookminer::StartSfenPly1}};
+            std::string position_command = "startpos";
+            std::string sfen_with_ply = bookminer::StartSfenPly1;
             std::unordered_set<std::string> visited;
             int step = 0;
-            while (!current_positions.empty() && step < max_step)
+            while (true)
             {
-                std::vector<std::pair<std::string, std::string>> next_positions;
-                std::unordered_set<std::string> next_seen;
-
-                for (const auto& [position_command, sfen_with_ply] : current_positions)
+                if (step >= max_step)
                 {
-                    ++processed_nodes;
-                    if (processed_nodes % PetaOpponentProgressInterval == 0)
-                    {
-                        log_line("opponent progress nodes = " + std::to_string(processed_nodes)
-                            + " , cuts = " + std::to_string(cut_nodes)
-                            + " , think_sfens = " + std::to_string(think_sfens.size()));
-                    }
-
-                    const auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
-                    if (ply >= max_book_ply)
-                    {
-                        ++skipped_by_ply;
-                        continue;
-                    }
-
-                    const std::string visited_key = std::to_string(current_side) + ":" + sfen;
-                    const std::string visited_key_flipped = std::to_string(current_side) + ":" + bookminer::flipped_sfen(sfen);
-                    if (visited.find(visited_key) != visited.end() || visited.find(visited_key_flipped) != visited.end())
-                        continue;
-                    visited.insert(visited_key);
-
-                    const bookminer::BookStore& side_book = (ply % 2 == current_side) ? peta_book : opponent_book;
-                    const auto moves = candidate_best_moves_for_sfen(side_book, sfen, eval_diff);
-                    if (moves.empty())
-                    {
-                        ++cut_nodes;
-                        const auto leaves = peta_pv_leaf_position_commands_from_position(
-                            peta_book,
-                            position_command,
-                            sfen_with_ply,
-                            max_book_ply,
-                            max_step);
-                        for (const auto& leaf : leaves)
-                        {
-                            add_position_command_entry(think_sfens, think_indexes, leaf, book_extend_ply);
-                            ++leaf_nodes;
-                        }
-                        continue;
-                    }
-
-                    for (const auto& move : moves)
-                    {
-                        auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
-                        board.push_usi(move.move);
-                        const std::string next_sfen_with_ply = board.sfen_with_ply();
-                        if (bookminer::trim_sfen_ply(next_sfen_with_ply).second >= max_book_ply)
-                        {
-                            ++skipped_by_ply;
-                            continue;
-                        }
-
-                        const std::string next_command = append_position_move(position_command, move.move);
-                        if (next_seen.insert(next_command).second)
-                            next_positions.emplace_back(next_command, next_sfen_with_ply);
-                    }
+                    ++retired_max_step;
+                    break;
                 }
 
-                current_positions = std::move(next_positions);
+                ++processed_nodes;
+                if (processed_nodes % PetaOpponentProgressInterval == 0)
+                {
+                    log_line("opponent progress nodes = " + std::to_string(processed_nodes)
+                        + " , cuts = " + std::to_string(cut_nodes)
+                        + " , think_sfens = " + std::to_string(think_sfens.size()));
+                }
+
+                const auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
+                if (ply >= max_book_ply)
+                {
+                    ++skipped_by_ply;
+                    break;
+                }
+
+                const std::string visited_key = std::to_string(current_side) + ":" + sfen;
+                const std::string visited_key_flipped = std::to_string(current_side) + ":" + bookminer::flipped_sfen(sfen);
+                if (visited.find(visited_key) != visited.end() || visited.find(visited_key_flipped) != visited.end())
+                {
+                    ++retired_repetition;
+                    break;
+                }
+                visited.insert(visited_key);
+
+                const auto moves = (ply % 2 == current_side)
+                    ? candidate_best_moves_for_sfen(peta_book, sfen, eval_diff)
+                    : candidate_best_moves_for_probe(*opponent_probe, sfen, eval_diff);
+                if (moves.empty())
+                {
+                    ++cut_nodes;
+                    const auto leaf = peta_pv_leaf_position_command_from_position_random(
+                        peta_book,
+                        position_command,
+                        sfen_with_ply,
+                        max_book_ply,
+                        max_step,
+                        eval_diff,
+                        rng);
+                    if (leaf.has_value())
+                    {
+                        add_position_command_entry(think_sfens, think_indexes, *leaf, book_extend_ply);
+                        ++leaf_nodes;
+                    }
+                    break;
+                }
+
+                const auto selected = choose_random_candidate_move(moves, rng);
+                if (!selected.has_value())
+                    break;
+
+                auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
+                board.push_usi(selected->move);
+                sfen_with_ply = board.sfen_with_ply();
+                if (bookminer::trim_sfen_ply(sfen_with_ply).second >= max_book_ply)
+                {
+                    ++skipped_by_ply;
+                    break;
+                }
+                position_command = append_position_move(position_command, selected->move);
                 ++step;
             }
         }
@@ -1896,7 +2082,9 @@ void peta_opponent(
         + " processed_nodes=" + std::to_string(processed_nodes)
         + " cut_nodes=" + std::to_string(cut_nodes)
         + " leaf_nodes=" + std::to_string(leaf_nodes)
-        + " skipped_by_ply=" + std::to_string(skipped_by_ply));
+        + " skipped_by_ply=" + std::to_string(skipped_by_ply)
+        + " retired_repetition=" + std::to_string(retired_repetition)
+        + " retired_max_step=" + std::to_string(retired_max_step));
 }
 
 fs::path executable_dir(const char* argv0)

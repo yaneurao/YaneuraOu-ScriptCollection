@@ -185,11 +185,11 @@ pn 30 40 200
 
 `settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`pn` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
 `pn` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`pn` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
-詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
+詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta-next-の開始局面集合を変える) を参照してください。
 
 ## peta_refutation
 
-`peta_next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
+`peta next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
 
 ```text
 pr 30 100 9999 200 None 400
@@ -203,17 +203,17 @@ leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の 
 peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >= eval_refutation_margin
 ```
 
-通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
+通常の `peta next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
 ## peta_depth_gap
 
-peta shock 後、`peta_next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
+peta shock 後、`peta next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
 pdg 30 0.1 9999 200 None 400
 ```
 
-引数は順に `eval_diff`、`eval_per_ply`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_diff` と `max_step` は `peta_next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。任意引数に `None` を指定するとデフォルト値を使います。
+引数は順に `eval_diff`、`eval_per_ply`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_diff` と `max_step` は `peta next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。任意引数に `None` を指定するとデフォルト値を使います。
 判定式は次の通りです。
 
 ```text

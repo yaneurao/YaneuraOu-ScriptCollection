@@ -183,7 +183,7 @@ settings/book_miner_settings.json5
     // この手数に到達したら、それ以上局面を掘らない。
     max_book_ply: 200,
 
-    // peta_nextの開始局面集合ファイル。
+    // peta nextの開始局面集合ファイル。
     // このファイルはpn/prコマンドの開始局面を絞るために使う。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
 }

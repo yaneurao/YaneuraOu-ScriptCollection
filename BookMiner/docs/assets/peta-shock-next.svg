@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="430" viewBox="0 0 1080 430" role="img" aria-labelledby="title desc">
-  <title id="title">peta_shock / peta_read と peta_next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent</title>
-  <desc id="desc">peta_shockは通常定跡DBからpeta_bookを作って読み込み、peta_readは外部で作ったpeta_bookを読み込み、peta_next、peta_refutation、peta_depth_gap、peta_unsolved、peta_opponentで次に掘る局面ファイルを作る流れ</desc>
+  <title id="title">peta_shock / peta_read と peta next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent</title>
+  <desc id="desc">peta_shockは通常定跡DBからpeta_bookを作って読み込み、peta_readは外部で作ったpeta_bookを読み込み、peta next、peta_refutation、peta_depth_gap、peta_unsolved、peta_opponentで次に掘る局面ファイルを作る流れ</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -41,7 +41,7 @@
 
   <path class="line" d="M 710 143 H 728"/>
   <rect class="box tool" x="738" y="76" width="184" height="136"/>
-  <text class="text" x="830" y="124">peta_next (pn)</text>
+  <text class="text" x="830" y="124">peta next (pn)</text>
   <text class="text small" x="830" y="148">または</text>
   <text class="text small" x="830" y="170">peta_refutation (pr)</text>
   <text class="text small" x="830" y="188">peta_depth_gap (pdg)</text>
