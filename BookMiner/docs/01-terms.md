@@ -71,8 +71,8 @@ BookMiner は、この定跡データを増やしていきます。
 
 BookMiner では主に次のファイルが出てきます。
 
-- `book/backup/book_miner-....ybb` : BookMiner が読み書きする通常定跡 DB。既存の `.db` 形式も読み込めます。
-- `book/backup/peta_book-....ybb` : peta shock 化の結果として作られる定跡 DB。peta shock の出力拡張子は `.ybb` 固定です。
+- `book/backup/book_miner-....db` : Python版 BookMiner.py が読み書きする通常定跡 DB。既存の `.ybb` 形式も起動時に読み込めます。
+- `book/backup/peta_book-....db` : peta shock 化の結果として作られる定跡 DB。外部で作った `.ybb` 形式も `peta_read` で読み込めます。
 
 ## 通常定跡 DB
 
@@ -81,7 +81,7 @@ BookMiner では主に次のファイルが出てきます。
 ファイル名は次のようになります。
 
 ```text
-book/backup/book_miner-20260607071000_12345.ybb
+book/backup/book_miner-20260607071000_12345.db
 ```
 
 `20260607071000` の部分は書き出した時刻、`_12345` の部分は書き出された局面数です。
@@ -89,7 +89,7 @@ book/backup/book_miner-20260607071000_12345.ybb
 
 ## やねうら王の定跡フォーマット
 
-やねうら王が読み込める定跡ファイル形式です。BookMiner が新しく書き出す通常定跡と peta book は `.ybb` 形式です。既存の `.db` テキスト形式も読み込めます。
+やねうら王が読み込める定跡ファイル形式です。Python版 BookMiner.py が新しく書き出す通常定跡と peta book は `.db` 形式です。既存の `.ybb` バイナリ形式も読み込めます。
 
 - [将棋ソフト用の標準定跡ファイルフォーマットの提案](https://yaneuraou.yaneu.com/2016/02/05/standard-shogi-book-format/)
 - [定跡の作成 - やねうら王Wiki](https://github.com/yaneurao/YaneuraOu/wiki/%E5%AE%9A%E8%B7%A1%E3%81%AE%E4%BD%9C%E6%88%90)

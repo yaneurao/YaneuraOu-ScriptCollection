@@ -62,7 +62,7 @@
   <path class="hint" d="M 498 303 H 525"/>
   <rect class="box file" x="535" y="255" width="200" height="96"/>
   <text class="text" x="635" y="286">book/backup/</text>
-  <text class="mono" x="635" y="315" text-anchor="middle">peta_book-....ybb</text>
+  <text class="mono" x="635" y="315" text-anchor="middle">peta_book-....db</text>
   <text class="text small" x="635" y="337">この環境へ置く</text>
 
   <path class="line" d="M 745 303 H 770"/>

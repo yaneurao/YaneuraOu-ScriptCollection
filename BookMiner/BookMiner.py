@@ -40,7 +40,7 @@ BOOK_BACKUP_DIR= os.path.join(BOOK_DIR, "backup")
              
 # このスクリプトの管理定跡ファイル名
 BOOK_DB_NAME   = "book_miner"
-BOOK_BACKUP_EXTENSION = ".ybb"
+BOOK_BACKUP_EXTENSION = ".db"
 
 # エンジン設定が書いてあるjson5ファイルのpath
 ENGINE_SETTINGS_JSON_PATH    = "settings/engine_settings.json5"
@@ -2260,12 +2260,16 @@ def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
 
 
 def peta_book_backup_path_from_source(source_book_path:str)->str:
+    extension = os.path.splitext(source_book_path)[1].lower()
+    if extension not in (".db", ".ybb"):
+        extension = BOOK_BACKUP_EXTENSION
+
     parsed = parse_regular_book_backup_name(source_book_path)
     if parsed is None:
-        return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{make_time_stamp()}.ybb")
+        return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{make_time_stamp()}{extension}")
 
     timestamp, position_count = parsed
-    return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{timestamp}_{position_count}.ybb")
+    return os.path.join(BOOK_BACKUP_DIR, f"{PETA_BOOK_DB_NAME}-{timestamp}_{position_count}{extension}")
 
 
 def to_book_dir_relative_path(path:str)->str:
@@ -2293,7 +2297,7 @@ def is_yaneuraou_progress_bar_line(line:str)->bool:
 def run_peta_shock_makebook(source_book_path:str)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
-    makebook peta_shock で source_book_path を book/backup/peta_book-*.ybb に変換する。
+    makebook peta_shock で source_book_path と同じ拡張子の book/backup/peta_book-* に変換する。
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     engine_path = os.path.join(script_dir, PETA_SHOCK_ENGINE_NAME)

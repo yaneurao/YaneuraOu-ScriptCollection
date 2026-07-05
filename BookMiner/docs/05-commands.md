@@ -89,7 +89,7 @@ w
 出力例:
 
 ```text
-book/backup/book_miner-20260607071000_12345.ybb
+book/backup/book_miner-20260607071000_12345.db
 ```
 
 手数制限を付けることもできます。
@@ -101,12 +101,12 @@ w 100
 この場合、初期局面から 100 手目までの局面だけを書き出し、ファイル名に `_ply100` が付きます。
 
 ```text
-book/backup/book_miner-20260607071000_12345_ply100.ybb
+book/backup/book_miner-20260607071000_12345_ply100.db
 ```
 
 `_plyN` 付きのファイルは一部だけを書き出したものです。起動時の自動読み込み対象にはなりません。
 
-書き出しは一度 `tmp-*.ybb` に行い、完了後に `*.ybb` へ置換します。書き出し途中のファイルを完成済みバックアップとして扱わないためです。
+書き出しは一度 `tmp-*.db` に行い、完了後に `*.db` へ置換します。書き出し途中のファイルを完成済みバックアップとして扱わないためです。
 
 ## `p`
 
@@ -126,30 +126,30 @@ p
 
 通常の周回作業では、BookMiner が動いている環境で `p` を使うのが基本です。
 
-`p` で新しく通常定跡 DB を書き出した場合、通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。既存通常DBを再利用した場合も、その通常DBに対応する `peta_book-....ybb` が作られます。
+`p` で新しく通常定跡 DB を書き出した場合、通常定跡 DB と peta shock 化後の DB は、同じ timestamp と局面数を持つペアになります。既存通常DBを再利用した場合も、その通常DBに対応する `peta_book-....db` または `peta_book-....ybb` が作られます。`makebook peta_shock` は `.db -> .db` と `.ybb -> .ybb` のみ対応しているため、拡張子は変換元に揃います。
 
 ```text
-book/backup/book_miner-20260607103251_14505901.ybb
-book/backup/peta_book-20260607103251_14505901.ybb
+book/backup/book_miner-20260607103251_14505901.db
+book/backup/peta_book-20260607103251_14505901.db
 ```
 
 ## `r`
 
-peta shock 化済みの `book/backup/peta_book-....ybb` を読み込みます。既存の `.db` 形式も読み込めます。
+peta shock 化済みの `book/backup/peta_book-....db` または `book/backup/peta_book-....ybb` を読み込みます。
 
 ```text
 r
 ```
 
 `r` は read の略です。
-`r` 自体は peta shock 化を行いません。別マシンで変換した定跡を持ち込む場合など、先に自分で `peta_book-....ybb` を作って `book/backup/` に置いてから使います。
+`r` 自体は peta shock 化を行いません。別マシンで変換した定跡を持ち込む場合など、先に自分で `peta_book-....db` または `peta_book-....ybb` を作って `book/backup/` に置いてから使います。
 
-path を省略した場合は、`book/backup/` にある最新の `peta_book-....ybb` または `peta_book-....db` を読みます。
+path を省略した場合は、`book/backup/` にある最新の `peta_book-....db` または `peta_book-....ybb` を読みます。
 
 読み込む peta book を明示することもできます。
 
 ```text
-r book/backup/peta_book-20260607071000_12345.ybb
+r book/backup/peta_book-20260607071000_12345.db
 ```
 
 指定した path は、まず BookMiner.py の実行フォルダからの相対 path として解決されます。通常は BookMiner フォルダで起動するので、上のように `book/backup/...` と指定します。
@@ -157,10 +157,10 @@ r book/backup/peta_book-20260607071000_12345.ybb
 次に、`book/` からの相対 path としても解決します。そのため、次の指定も同じファイルを指します。
 
 ```text
-r backup/peta_book-20260607071000_12345.ybb
+r backup/peta_book-20260607071000_12345.db
 ```
 
-GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....ybb` または `peta_book-....db` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
+GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....db` または `peta_book-....ybb` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
 
 このあと `pn` コマンドを使うと、次に掘る局面を列挙できます。
 
@@ -340,7 +340,7 @@ q
 出力ファイル名には、書き出し時刻と局面数が入ります。
 
 ```text
-book/backup/book_miner-20260607103251_14505901.ybb
+book/backup/book_miner-20260607103251_14505901.db
 ```
 
 ## `!`

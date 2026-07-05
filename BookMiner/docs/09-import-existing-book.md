@@ -32,11 +32,11 @@ book/backup/book_miner.db
 
 注意点:
 
-- `book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb` または既存の `.db` が存在する場合、BookMiner はそちらの最新ファイルを優先して読み込みます。
+- `book/backup/book_miner-YYYYMMDDHHMMSS_N.db` または既存の `.ybb` が存在する場合、BookMiner はそちらの最新ファイルを優先して読み込みます。
 - 既存定跡から開始したい場合は、`book/backup/` に既存の `book_miner-*` バックアップが無い状態にしてください。
 - `_plyN` 付きのファイルは部分書き出しなので、起動時の自動読み込み対象にはなりません。
 - 持ち込む既存定跡は、やねうら王標準定跡フォーマットの `.db` ファイルである必要があります。
-- `makebook peta_shock` に渡す定跡 DB は `sfen` 文字列で sort されている必要があります。BookMiner が `p` で書き出したあとの `book_miner-....ybb` は sort 済みです。
+- `makebook peta_shock` に渡す定跡 DB は `sfen` 文字列で sort されている必要があります。BookMiner が `p` で書き出したあとの `book_miner-....db` は sort 済みです。
 
 ## BookMiner を起動する
 
@@ -74,15 +74,15 @@ GUI:
 
 `p` コマンドは、現在メモリ上にある定跡を `book/backup/` に正規の名前で書き出し、そのファイルを peta shock 化して読み込みます。
 
-メモリなどの都合で別マシンで peta shock 化する場合は、先に外部で `peta_book-....ybb` を作り、そのファイルをこの BookMiner の `book/backup/` に置いてから `r` コマンドを使います。GUI では手順1の `peta_read` ボタンがこれに対応します。
+メモリなどの都合で別マシンで peta shock 化する場合は、先に外部で `peta_book-....db` または `.ybb` を作り、そのファイルをこの BookMiner の `book/backup/` に置いてから `r` コマンドを使います。GUI では手順1の `peta_read` ボタンがこれに対応します。
 
 外部変換の例:
 
 ```text
-makebook peta_shock backup/book_miner-20260607103251_14505901.ybb backup/peta_book-20260607103251_14505901.ybb
+makebook peta_shock backup/book_miner-20260607103251_14505901.db backup/peta_book-20260607103251_14505901.db
 ```
 
-`peta_read` / `r` は変換を実行しません。すでに peta shock 化された `peta_book-....ybb` または既存の `.db` を読み込むだけです。
+`peta_read` / `r` は変換を実行しません。すでに peta shock 化された `peta_book-....db` または `peta_book-....ybb` を読み込むだけです。
 
 ```text
 r
@@ -97,8 +97,8 @@ r
 出力例:
 
 ```text
-book/backup/book_miner-20260607103251_14505901.ybb
-book/backup/peta_book-20260607103251_14505901.ybb
+book/backup/book_miner-20260607103251_14505901.db
+book/backup/peta_book-20260607103251_14505901.db
 ```
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
@@ -234,7 +234,7 @@ GUI:
 ```
 
 これにより、新しく探索された leaf の評価値をもとに、peta shock 化された定跡が作り直されます。
-別環境で peta shock 化済みの `peta_book-....ybb` を作った場合は、そのファイルを `book/backup/` に置いてから `peta_read` を使います。既存の `.db` 形式も読み込めます。
+別環境で peta shock 化済みの `peta_book-....db` または `peta_book-....ybb` を作った場合は、そのファイルを `book/backup/` に置いてから `peta_read` を使います。
 
 このあとさらに広げたい場合は、次の手順を繰り返します。
 

@@ -50,7 +50,7 @@ book/think_sfens.txt
 次に掘る局面を `book/think_sfens.txt` に用意する方法はいくつかあります。
 
 棋譜から新しく掘る場合は、`棋譜抽出` を使います。
-既存の定跡DBを peta shock 化して leaf を延長する場合は、BookMiner 上で変換するなら `peta_shock`、別マシンなどで変換済みの `peta_book-....ybb` を持ち込むなら `peta_read` のあとに `peta_next`、`peta next refu.`、`peta next gap`、`peta unsolved`、`peta opponent` のいずれかを使います。
+既存の定跡DBを peta shock 化して leaf を延長する場合は、BookMiner 上で変換するなら `peta_shock`、別マシンなどで変換済みの `peta_book-....db` または `.ybb` を持ち込むなら `peta_read` のあとに `peta_next`、`peta next refu.`、`peta next gap`、`peta unsolved`、`peta opponent` のいずれかを使います。
 peta shock 化の意味、`peta_next`、`peta next refu.`、`peta_next_gap`、`peta_unsolved`、`peta_opponent` の関係は [10. peta shock 化](10-peta-shock.md) を参照してください。
 
 局面を用意できたら、`enqueue` で探索キューへ積みます。
@@ -81,9 +81,9 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `棋譜抽出` は KifManager を起動します。棋譜抽出結果として `book/think_sfens.txt` ができるので、この場合は `peta_shock`、`peta_next`、`peta next refu.`、`peta next gap`、`peta unsolved`、`peta opponent` を実行せずに `enqueue` へ進みます。
 
-`peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....ybb` の読み込みを一度に行います。peta shock の出力拡張子は `.ybb` 固定です。
+`peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....db` の読み込みを一度に行います。起動時に既存 `.ybb` を読み込んで未変更なら、`.ybb -> .ybb` として変換します。
 
-`peta_read` は `r` コマンドを送信し、`book/backup/` にある最新の `peta_book-....ybb` または既存の `.db` を読み込みます。`peta_read` 自体は peta shock 化を行わないため、別マシンや手動の `makebook peta_shock` で先に `peta_book-....ybb` を作って、このフォルダに置いておく必要があります。
+`peta_read` は `r` コマンドを送信し、`book/backup/` にある最新の `peta_book-....db` または `peta_book-....ybb` を読み込みます。`peta_read` 自体は peta shock 化を行わないため、別マシンや手動の `makebook peta_shock` で先に peta book を作って、このフォルダに置いておく必要があります。
 
 `peta_next` は `pn eval_diff max_step game_ply_limit book_extend_ply` を送信します。例えば `eval_diff` に `30`、`max step` に `40`、`game ply limit` に `200` と入力して実行すると、`pn 30 40 200 None` を送信します。空欄は `None` として送信され、CLI 側でデフォルト値になります。
 
@@ -114,7 +114,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 - `棋譜抽出`: KifManager を起動します。
 - `peta_shock`: 現在の定跡 DB を書き出し、peta shock 化して読み込みます。
-- `peta_read`: 外部で peta shock 化して `book/backup/` に置いた最新の `peta_book-....ybb` または既存の `.db` を読み込みます。
+- `peta_read`: 外部で peta shock 化して `book/backup/` に置いた最新の `peta_book-....db` または `peta_book-....ybb` を読み込みます。
 - `peta_next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
 - `peta next refu.`: `peta_next` の leaf のうち、反駁された leaf だけを `book/think_sfens.txt` に書き出します。
 - `peta next gap`: depthが浅く逆転しうる候補手のPV leafを `book/think_sfens.txt` に書き出します。
@@ -203,7 +203,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [PetaNextDone] path=book/think_sfens.txt count=50000
 ```
 
-起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` / `peta_read` 後の `book/backup/peta_book-....ybb` または既存 `.db` 読み込み、`DB手動保存` の書き出しで進捗が表示されます。
+起動時の `book/backup/` にある最新通常定跡 DB の読み込み、`peta_shock` / `peta_read` 後の `book/backup/peta_book-....db` または `peta_book-....ybb` 読み込み、`DB手動保存` の書き出しで進捗が表示されます。
 
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
