@@ -218,25 +218,25 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 eval_limit=400 game_ply_limit=200 book_extend_ply=6
 ```
 
-行頭の `30000/50000` は、BookMiner 起動後に enqueue した累計タスク数に対して、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。
+行頭の `30000/50000` は、BookMiner 起動後に enqueue した累計タスク数に対して、完了したタスク数です。
 
-`job_progress=30000/50000` は、そのログ行の `job=1` が投入した対局棋譜だけを見た進捗です。複数回 enqueue して job が混ざっている場合でも、各 job がどれくらい worker に渡ったかを確認できます。
+`job_progress=30000/50000` は、そのログ行の `job=1` が投入した対局棋譜だけを見た完了数です。複数回 enqueue して job が混ざっている場合でも、各 job がどれくらい完了したかを確認できます。
 
-`[TaskQueueJobDone]` は、その `job` の全タスクが worker に渡ったときに出ます。`remaining` が 0 でなければ、他の job のタスクが queue に残っています。
+`[TaskQueueJobDone]` は、その `job` の全タスクが完了したときに出ます。`remaining` が 0 でなければ、他の job のタスクがまだ残っています。
 
 `タスク状況ログ` の `タスク一覧` チェックを入れると、ログ表示の代わりに現存 job の一覧を表示します。
 各行には `job`、`残り` (`job_remaining`)、`母数` (`job_progress` の分母)、`eval_limit`、`game_ply_limit`、`book_extend_ply` が表示されます。
 `eval_limit`、`game_ply_limit`、`book_extend_ply` が job 内で複数値に分かれている場合は `mixed` と表示されます。
 `[TaskQueueJobDone]` または `job_remaining=0` を受け取った job は一覧から削除されます。
 
-複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが worker に渡った状態で 72462 行を追加 enqueue すると、次のように表示されます。
+複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが完了した状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
 [TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
 [TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
 ```
 
-ログは前回出力からおおむね 10 秒以上経過したとき、job の最後のタスクを worker が受け取ったとき、または全体 queue の最後のタスクを worker が受け取ったときに更新されます。
+ログは前回出力からおおむね 10 秒以上経過したとき、job の最後のタスクが完了したとき、または全体 queue の最後のタスクが完了したときに更新されます。
 
 自動enqueueは、この `remaining` が指定値より少なくなったときに発火します。
 手動で `peta_shock`、`peta_read`、手順2の各 peta 操作、`enqueue`、`DB手動保存` を実行している間は、自動enqueueは開始しません。

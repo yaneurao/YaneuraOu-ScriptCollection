@@ -80,10 +80,10 @@ GUIが解釈する進捗タグはPython版と揃えます。
 `e` は `book/think_sfens.txt` の `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
 各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` メタ情報がある場合、そのtaskだけ `sd` の値を上書きします。
 workerは `TaskQueueProgress` を、前回出力から約10秒以上経過したとき、または残りtask数が0になったときに出します。
-各 enqueue job の最後のtaskをworkerが取り出したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を出します。
+各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を出します。
 
-進捗の `done` は「workerがtaskを取り出した数」です。
-そのため `[TaskQueueDone]` が出たあとも、最後に取り出したtaskの探索ログや `[MiningProgress]` が少し続くことがあります。
+進捗の `done` は「完了したtask数」です。
+そのため `[TaskQueueDone]` が出た時点で、enqueue済みtaskはすべて処理済みです。
 
 定跡DBは `BookStore` が保持し、workerは局面情報をcopyで読み、探索結果をmergeで書き込みます。
 同一局面またはflip同一局面を複数workerが同時に探索しないよう、`BookStore` 内で探索中局面をleaseとして管理します。

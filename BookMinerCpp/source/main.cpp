@@ -904,8 +904,6 @@ private:
             if (!task.has_value())
                 return;
 
-            report_task_taken(*task);
-
             try
             {
                 process_position_command(
@@ -920,10 +918,11 @@ private:
             {
                 log_line(std::string("Exception : ") + ex.what());
             }
+            report_task_done(*task);
         }
     }
 
-    void report_task_taken(const Task& task)
+    void report_task_done(const Task& task)
     {
         std::size_t total_taken = 0;
         std::size_t total_enqueued = 0;

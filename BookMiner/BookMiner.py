@@ -206,6 +206,9 @@ class Task:
     # 他workerが同じ局面を探索中だったためにqueue末尾へ戻した回数。
     defer_count : int = 0
 
+    # TaskQueueProgressに計上済みか。
+    progress_reported : bool = False
+
     # このtaskで掘る最大手数。
     max_book_ply : int = MAX_BOOK_PLY
 
@@ -1531,10 +1534,14 @@ class EngineManager:
         engine.send_newgame()
 
         visited : set[Sfen] = set()
+        path_visited : set[Sfen] = set()
         last_thinking_ply = PLY_MIN
 
         for move in moves:
             current_sfen, ply = trim_sfen_ply(board.sfen())
+            if current_sfen in path_visited:
+                return TASK_RESULT_DONE
+            path_visited.add(current_sfen)
 
             if self.reached_max_book_ply(ply, max_book_ply):
                 self.print_reached_max_book_ply(current_sfen, ply, max_book_ply)
@@ -1564,6 +1571,8 @@ class EngineManager:
             checked_push_usi(board, move, context=task.position_cmd)
 
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
+        if leaf_sfen in path_visited:
+            return TASK_RESULT_DONE
         return self.start_thinking(
             book,
             engine,
@@ -1673,11 +1682,6 @@ class EngineManager:
             self.report_task_queue_progress(task)
             return
 
-        if task.defer_count == 1 or task.defer_count % 100 == 0:
-            print(
-                f"[TaskQueueDeferred] job={task.job_id} "
-                f"defer_count={task.defer_count} position={task.position_cmd or task.sfen}"
-            )
         time.sleep(TASK_DEFER_SLEEP_SECONDS)
         self.task_queue.put_deferred(task)
 
@@ -1732,6 +1736,9 @@ class EngineManager:
     def report_task_queue_progress(self, task:Task):
         if task.job_id <= 0:
             return
+        if task.progress_reported:
+            return
+        task.progress_reported = True
 
         now = time.time()
         with self.task_progress_lock:
