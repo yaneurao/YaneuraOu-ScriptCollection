@@ -1059,6 +1059,15 @@ std::optional<PositionInfo> BookStore::find_position_copy(const PackedSfen& key)
     return *position;
 }
 
+bool BookStore::is_searching(const std::string& sfen, const std::string& flipped_sfen) const
+{
+    const PackedSfen key = PackedSfen::from_sfen(sfen);
+    const PackedSfen flipped_key = PackedSfen::from_sfen(flipped_sfen);
+
+    std::scoped_lock lock(mutex_);
+    return searching_.find(key) != searching_.end() || searching_.find(flipped_key) != searching_.end();
+}
+
 SearchLease BookStore::try_begin_search(const std::string& sfen, const std::string& flipped_sfen)
 {
     const PackedSfen key = PackedSfen::from_sfen(sfen);

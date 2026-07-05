@@ -88,6 +88,7 @@ GUIが解釈する進捗タグはPython版と揃えます。
 
 定跡DBは `BookStore` が保持し、workerは局面情報をcopyで読み、探索結果をmergeで書き込みます。
 同一局面またはflip同一局面を複数workerが同時に探索しないよう、`BookStore` 内で探索中局面をleaseとして管理します。
+探索中局面に当たったtaskはworker内で待機せず、`TaskQueue` の末尾へ戻します。`startpos moves ...` の明示手順部分は処理開始前にも先読みし、手順中に探索中局面があればエンジンを使う前に後回しにします。raceや `book_extend_ply` 延長中の衝突に備えて、各局面到達時のlease取得判定も残します。
 
 ## 定跡DBのLSM-tree構造
 

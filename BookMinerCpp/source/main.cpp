@@ -55,6 +55,8 @@ constexpr const char* EngineSettingsPath = "settings/engine_settings.json5";
 constexpr const char* BookMinerSettingsPath = "settings/book_miner_settings.json5";
 constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settings.json5";
 constexpr int ThinkCommandPly = 6;
+constexpr int MaxTaskDeferCount = 1000;
+constexpr int TaskDeferSleepMilliseconds = 10;
 constexpr int DefaultEvalLimit = 400;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
@@ -368,12 +370,24 @@ std::optional<int> get_book_move_eval(const bookminer::BookStore& book, const st
     return get_move_eval(*lookup.position, book_move);
 }
 
+enum class TaskResult {
+    Done,
+    Deferred,
+};
+
+enum class ThinkOnceStatus {
+    Done,
+    Deferred,
+    Position,
+};
+
 struct ThinkOnceResult {
+    ThinkOnceStatus status = ThinkOnceStatus::Done;
     bookminer::PositionInfo position;
     std::string sfen;
 };
 
-std::optional<ThinkOnceResult> think_sfen_once(
+ThinkOnceResult think_sfen_once(
     bookminer::BookStore& book,
     bookminer::UsiEngine& engine,
     const std::string& sfen,
@@ -387,23 +401,18 @@ std::optional<ThinkOnceResult> think_sfen_once(
         log_line("max_book_ply reached. ply = " + std::to_string(ply)
             + ", max_book_ply = " + std::to_string(max_book_ply)
             + ", sfen = " + sfen);
-        return std::nullopt;
+        return {};
     }
 
     const auto sfen_key = bookminer::PackedSfen::from_sfen(sfen);
     const auto sfen_f_key = sfen_key.flipped();
     if (visited.find(sfen_key) != visited.end() || visited.find(sfen_f_key) != visited.end())
-        return std::nullopt;
+        return {};
 
     const std::string sfen_f = bookminer::flipped_sfen(sfen);
-    bookminer::SearchLease lease;
-    while (true)
-    {
-        lease = book.try_begin_search(sfen, sfen_f);
-        if (lease.acquired)
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
+    bookminer::SearchLease lease = book.try_begin_search(sfen, sfen_f);
+    if (!lease.acquired)
+        return ThinkOnceResult{ThinkOnceStatus::Deferred, {}, sfen};
 
     visited.insert(sfen_key);
     visited.insert(sfen_f_key);
@@ -415,7 +424,7 @@ std::optional<ThinkOnceResult> think_sfen_once(
     } guard{book, lease};
 
     if (has_considered(lease.position))
-        return ThinkOnceResult{*lease.position, lease.sfen};
+        return ThinkOnceResult{ThinkOnceStatus::Position, *lease.position, lease.sfen};
 
     const double node_ratio = last_thinking_ply + 1 == ply ? 0.7 : 1.0;
     {
@@ -434,11 +443,11 @@ std::optional<ThinkOnceResult> think_sfen_once(
 
     auto position = book.find_position_copy(lease.sfen);
     if (has_considered(position))
-        return ThinkOnceResult{*position, lease.sfen};
-    return std::nullopt;
+        return ThinkOnceResult{ThinkOnceStatus::Position, *position, lease.sfen};
+    return {};
 }
 
-void start_thinking_best_line(
+TaskResult start_thinking_best_line(
     bookminer::BookStore& book,
     bookminer::UsiEngine& engine,
     const std::string& leaf_sfen,
@@ -456,19 +465,21 @@ void start_thinking_best_line(
     while (rest_ply > 0)
     {
         auto thought = think_sfen_once(book, engine, current_sfen, current_ply, last_thinking_ply, max_book_ply, visited);
-        if (!thought.has_value())
-            return;
-        current_sfen = thought->sfen;
+        if (thought.status == ThinkOnceStatus::Deferred)
+            return TaskResult::Deferred;
+        if (thought.status != ThinkOnceStatus::Position)
+            return TaskResult::Done;
+        current_sfen = thought.sfen;
 
-        const auto best = get_best(thought->position);
+        const auto best = get_best(thought.position);
         if (!best.has_value())
-            return;
+            return TaskResult::Done;
         if (std::abs(best->first) > eval_limit)
-            return;
+            return TaskResult::Done;
 
         bool moved = false;
         auto board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
-        for (const auto& move_info : thought->position.moves)
+        for (const auto& move_info : thought.position.moves)
         {
             if (std::abs(static_cast<int>(move_info.eval)) > eval_limit)
                 continue;
@@ -480,11 +491,62 @@ void start_thinking_best_line(
             break;
         }
         if (!moved)
-            return;
+            return TaskResult::Done;
     }
+    return TaskResult::Done;
 }
 
-void process_position_command(
+bool position_command_hits_searching_position(
+    const bookminer::BookStore& book,
+    const bookminer::ParsedPositionCommand& parsed,
+    int max_book_ply)
+{
+    auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> path_visited;
+    bool stopped = false;
+
+    for (const auto& move : parsed.moves)
+    {
+        const auto current_sfen = board.sfen();
+        const int ply = board.ply();
+        const auto key = bookminer::PackedSfen::from_sfen(current_sfen);
+        const auto flipped_key = key.flipped();
+        if (path_visited.find(key) != path_visited.end() || path_visited.find(flipped_key) != path_visited.end())
+        {
+            stopped = true;
+            break;
+        }
+        path_visited.insert(key);
+        path_visited.insert(flipped_key);
+        if (ply >= max_book_ply)
+        {
+            stopped = true;
+            break;
+        }
+        if (book.is_searching(current_sfen, bookminer::flipped_sfen(current_sfen)))
+            return true;
+        board.push_usi(move);
+    }
+
+    if (!stopped)
+    {
+        const auto leaf_sfen = board.sfen();
+        const int leaf_ply = board.ply();
+        const auto key = bookminer::PackedSfen::from_sfen(leaf_sfen);
+        const auto flipped_key = key.flipped();
+        if (path_visited.find(key) == path_visited.end()
+            && path_visited.find(flipped_key) == path_visited.end()
+            && leaf_ply < max_book_ply
+            && book.is_searching(leaf_sfen, bookminer::flipped_sfen(leaf_sfen)))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+TaskResult process_position_command(
     bookminer::BookStore& book,
     bookminer::UsiEngine& engine,
     const std::string& position_command,
@@ -493,6 +555,9 @@ void process_position_command(
     int think_command_ply)
 {
     const auto parsed = bookminer::parse_position_command(position_command);
+    if (position_command_hits_searching_position(book, parsed, max_book_ply))
+        return TaskResult::Deferred;
+
     auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
 
     engine.usinewgame([](const std::string& message) {
@@ -511,10 +576,12 @@ void process_position_command(
         if (!has_considered(current_lookup.position))
         {
             auto thought = think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, max_book_ply, visited);
-            if (!thought.has_value())
-                return;
-            current_lookup.position = thought->position;
-            current_lookup.flipped = thought->sfen != current_sfen;
+            if (thought.status == ThinkOnceStatus::Deferred)
+                return TaskResult::Deferred;
+            if (thought.status != ThinkOnceStatus::Position)
+                return TaskResult::Done;
+            current_lookup.position = thought.position;
+            current_lookup.flipped = thought.sfen != current_sfen;
         }
 
         auto lookahead = board;
@@ -526,13 +593,13 @@ void process_position_command(
         {
             const auto move_eval = get_book_move_eval(book, current_sfen, move);
             if (move_eval.has_value() && std::abs(*move_eval) > eval_limit)
-                return;
+                return TaskResult::Done;
         }
 
         board.push_usi(move);
     }
 
-    start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply, think_command_ply);
+    return start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply, think_command_ply);
 }
 
 struct PositionCommandEntry {
@@ -727,6 +794,7 @@ struct Task {
     int max_book_ply = 0;
     int think_command_ply = ThinkCommandPly;
     int job_id = 0;
+    int defer_count = 0;
 };
 
 class TaskQueue {
@@ -738,6 +806,11 @@ public:
             queue_.push_back(std::move(task));
         }
         cv_.notify_one();
+    }
+
+    void push_deferred(Task task)
+    {
+        push(std::move(task));
     }
 
     std::optional<Task> pop()
@@ -924,9 +997,10 @@ private:
             if (!task.has_value())
                 return;
 
+            TaskResult result = TaskResult::Done;
             try
             {
-                process_position_command(
+                result = process_position_command(
                     book_,
                     engine,
                     task->position_command,
@@ -938,8 +1012,29 @@ private:
             {
                 log_line(std::string("Exception : ") + ex.what());
             }
+            if (result == TaskResult::Deferred)
+            {
+                defer_task(std::move(*task));
+                continue;
+            }
             report_task_done(*task);
         }
+    }
+
+    void defer_task(Task task)
+    {
+        ++task.defer_count;
+        if (task.defer_count > MaxTaskDeferCount)
+        {
+            log_line("[TaskQueueDeferLimit] job=" + std::to_string(task.job_id)
+                + " defer_count=" + std::to_string(task.defer_count)
+                + " position=" + task.position_command);
+            report_task_done(task);
+            return;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(TaskDeferSleepMilliseconds));
+        queue_.push_deferred(std::move(task));
     }
 
     void progress_reporter_loop()

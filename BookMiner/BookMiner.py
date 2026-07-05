@@ -1449,6 +1449,37 @@ class EngineManager:
 
         return None
 
+    def position_command_hits_searching_sfen(self, book:Book, position_cmd:PositionStr, max_book_ply:int)->bool:
+        """
+        `startpos moves ...` の明示手順上に、他workerが探索中の局面があるかを先読みする。
+        ここで検出できてもraceは残るので、到達時の探索中判定も残す。
+        """
+        sfen, moves = parse_position_string(position_cmd)
+        board = cshogi.Board(sfen) # type:ignore
+        sfens : list[Sfen] = []
+        path_visited : set[Sfen] = set()
+
+        for move in moves:
+            current_sfen, ply = trim_sfen_ply(board.sfen())
+            if current_sfen in path_visited:
+                break
+            path_visited.add(current_sfen)
+            if self.reached_max_book_ply(ply, max_book_ply):
+                break
+            sfens.append(current_sfen)
+            checked_push_usi(board, move, context=position_cmd)
+        else:
+            leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
+            if leaf_sfen not in path_visited and not self.reached_max_book_ply(leaf_ply, max_book_ply):
+                sfens.append(leaf_sfen)
+
+        with book.lock:
+            for current_sfen in sfens:
+                current_sfen_f = flipped_sfen(current_sfen)
+                if current_sfen in book.searching_sfens or current_sfen_f in book.searching_sfens:
+                    return True
+
+        return False
 
     def start_thinking(self, book:Book, engine:Engine, task:Task):
         """
@@ -1533,6 +1564,9 @@ class EngineManager:
 
         eval_limit = task.eval_limit
         max_book_ply = task.max_book_ply
+        if self.position_command_hits_searching_sfen(book, task.position_cmd, max_book_ply):
+            return TASK_RESULT_DEFERRED
+
         sfen, moves = parse_position_string(task.position_cmd)
         board = cshogi.Board(sfen) # type:ignore
 

@@ -86,6 +86,7 @@ public:
     const PositionInfo* find_position(const PackedSfen& key) const;
     std::optional<PositionInfo> find_position_copy(const std::string& sfen) const;
     std::optional<PositionInfo> find_position_copy(const PackedSfen& key) const;
+    bool is_searching(const std::string& sfen, const std::string& flipped_sfen) const;
     SearchLease try_begin_search(const std::string& sfen, const std::string& flipped_sfen);
     void end_search(const SearchLease& lease);
     void merge_position(const std::string& sfen, std::uint16_t ply, const std::vector<MoveInfo>& moves);
