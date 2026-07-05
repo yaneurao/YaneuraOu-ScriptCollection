@@ -1959,12 +1959,14 @@ void peta_opponent(
     int eval_diff,
     int max_book_ply,
     int max_step,
-    std::optional<int> book_extend_ply)
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit)
 {
     log_line("peta_opponent, eval_diff = " + std::to_string(eval_diff)
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", max_step = " + std::to_string(max_step)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", opponent_dir = " + std::string(BookOpponentDir));
 
     const auto opponent_paths = collect_opponent_book_paths();
@@ -2047,7 +2049,13 @@ void peta_opponent(
                         rng);
                     if (leaf.has_value())
                     {
-                        add_position_command_entry(think_sfens, think_indexes, *leaf, book_extend_ply);
+                        add_position_command_entry(
+                            think_sfens,
+                            think_indexes,
+                            *leaf,
+                            book_extend_ply,
+                            eval_limit,
+                            max_book_ply);
                         ++leaf_nodes;
                     }
                     break;
@@ -2745,7 +2753,7 @@ void print_help()
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PD : peta depth gap          , pd (eval_per_ply) (max_book_ply)");
     log_line("  PU : peta unsolved           , pu (eval_diff) (max_book_ply) (max_step)");
-    log_line("  PO : peta opponent           , po (eval_diff) (max_book_ply) (max_step) (book_extend_ply)");
+    log_line("  PO : peta opponent           , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  H : Help");
 }
 
@@ -3054,9 +3062,10 @@ int main(int argc, char* argv[])
             else if (command == "po")
             {
                 const int eval_diff = parse_int_argument(tokens, 1, PetaOpponentDefaultEvalDiff);
-                const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
-                const int max_step = parse_int_argument(tokens, 3, PetaDefaultMaxStep);
+                const int max_step = parse_int_argument(tokens, 2, PetaDefaultMaxStep);
+                const int command_max_book_ply = parse_int_argument(tokens, 3, max_book_ply);
                 const std::optional<int> book_extend_ply = parse_optional_int_argument(tokens, 4);
+                const std::optional<int> eval_limit = parse_optional_int_argument(tokens, 5);
                 if (eval_diff < 0)
                 {
                     log_line("Error : eval_diff must be non-negative integer.");
@@ -3077,12 +3086,18 @@ int main(int argc, char* argv[])
                     log_line("Error : book_extend_ply must be non-negative integer or None.");
                     continue;
                 }
+                if (eval_limit.has_value() && *eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer or None.");
+                    continue;
+                }
                 peta_opponent(
                     peta_book,
                     eval_diff,
                     command_max_book_ply,
                     max_step,
-                    book_extend_ply);
+                    book_extend_ply,
+                    eval_limit);
             }
             else if (command == "r")
             {

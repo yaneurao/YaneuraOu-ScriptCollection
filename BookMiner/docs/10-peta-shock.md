@@ -53,7 +53,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta refutation` | `pr eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、元DBでは best ではなかった反駁leafだけを `book/think_sfens.txt` に書き出します。 |
 | `peta depth gap` | `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` と同じ範囲で、best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜prefixから peta_book 上の best PV leaf を `book/think_sfens.txt` に書き出します。 |
-| `peta opponent` | `po [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta_book の best 進行を辿り、対策候補leafを `book/think_sfens.txt` に書き出します。 |
+| `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta_book の best 進行を辿り、対策候補leafを `book/think_sfens.txt` に書き出します。 |
 | `enqueue` | `e` | `book/think_sfens.txt` を探索 queue に積みます。探索条件は各行のメタ情報を使います。 |
 
 通常は `peta_shock` → `peta next` → `enqueue` を繰り返します。通常の leaf 延長のうち反駁されたものだけを優先したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth gap`、負けた棋譜の周辺を重点的に掘る場合は `peta unsolved`、過去配布定跡への対策候補を掘る場合は `peta opponent` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` または `peta_book-....ybb` を `book/backup/` に置き、`peta_read` → `peta next` / `peta refutation` / `peta depth gap` / `peta unsolved` / `peta opponent` → `enqueue` と進めます。
@@ -195,7 +195,7 @@ GUIでは `peta opponent`、CLIでは `po` コマンドです。
 po 0 9999 200 20 400
 ```
 
-引数は `eval_diff max_step max_book_ply book_extend_ply eval_limit` の順です。`eval_diff` は各局面で best からどれくらい評価値が離れた候補まで辿るかです。通常は `0` で、best と同評価値の候補だけを辿ります。
+引数は `eval_diff max_step game_ply_limit book_extend_ply eval_limit` の順です。`eval_diff` は各局面で best からどれくらい評価値が離れた候補まで辿るかです。通常は `0` で、best と同評価値の候補だけを辿ります。
 
 `peta_opponent` は、現在読み込んでいる peta_book と相手定跡を、手番に応じて交互に辿ります。どちらかの定跡が切れた局面を見つけたら、そこから現在の peta_book の PV leaf まで進め、その leaf 局面を `book/think_sfens.txt` に書き出します。DFS ではなく BFS で辿るため、分岐と合流を繰り返す定跡でも手順組み合わせを過剰に膨らませにくい作りです。
 

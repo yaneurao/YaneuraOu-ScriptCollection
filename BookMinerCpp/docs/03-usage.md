@@ -65,7 +65,8 @@ pnf 100 200 9999 100
 pf 100 400 200    反駁された depth 0 best を作る
 pd 0.1 200        depth差で逆転しうる候補のPV leafを作る
 pu None 200 None  think_unsolved_sfens.txt の棋譜prefix周辺を作る
-po 0 200 9999 20 book/book_opponent/ の相手定跡への対策候補を作る
+po 0 9999 200 20 400
+                  book/book_opponent/ の相手定跡への対策候補を作る
 t                 book/think_sfens.txt を探索キューへ積む
 t 400 200 6
                   eval_limit=400, max_book_ply=200, think_command_ply=6 で探索キューへ積む
