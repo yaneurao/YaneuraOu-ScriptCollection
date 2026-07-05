@@ -208,6 +208,10 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 この行を `enqueue` した場合、行ごとのメタ情報が探索条件として使われます。`None` の場合はメタ情報を書かず、`sd` で設定したデフォルト値を使います。同じ局面が複数の手順2から出た場合、自動enqueueの集約ではより大きいメタ情報を持つ行を残します。
 
+`max_step` は `book/think_sfens.txt` には書き出されません。これは `peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent` が leaf を探すときの範囲だけを絞る値です。
+
+一方、`game_ply_limit` は leaf 抽出時にも使われ、さらに `game_ply_limit=...` として `book/think_sfens.txt` に書き出されます。そのため、その後に `enqueue` すると探索worker側の手数上限としても効きます。抽出対象を絞りたいだけで、enqueue後の掘り方を変えたくない場合は、`game_ply_limit` ではなく `max_step` を小さくしてください。
+
 GUI の `デフォルト値` 行は、各 peta 操作や `enqueue` の直前に `sd ...` として BookMiner.py / BookMinerCpp へ送られます。KifManager の棋譜抽出で作った `think_sfens.txt` のように行末メタ情報がない場合も、この `sd` の値で `game_ply_limit`、`book_extend_ply`、`eval_limit` が決まります。
 
 ## eval_diff と eval_limit
@@ -220,6 +224,7 @@ GUI の `デフォルト値` 行は、各 peta 操作や `enqueue` の直前に 
 | `eval_drop_limit` | `peta_unsolved` / `pu` | 棋譜rootの評価値からroot側視点でどれくらい悪化したprefixを除外するか。 |
 | `eval_refutation_margin` | `peta_refutation` / `pr` | peta shock後の反駁候補手と旧best手の評価値差がどれくらい以上なら抽出するか。 |
 | `eval_per_ply` | `peta_depth_gap` / `pdg` | bestとのdepth差1手あたり、候補手の評価値がどれくらい改善しうると仮定するか。 |
+| `max_step` | 手順2の各 peta 抽出コマンド | peta_book の中で leaf を探す範囲を制限する値。`think_sfens.txt` には書き出されず、enqueue後の探索条件にはならない。 |
 | `eval_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
 | `game_ply_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | この手数に到達したらそれ以上掘らない上限。 |
 | `book_extend_ply` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` の行ごとに、棋譜末端から best line を何手分延長するかを上書きする値。 |

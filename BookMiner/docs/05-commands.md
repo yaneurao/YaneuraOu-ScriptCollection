@@ -196,6 +196,8 @@ pn 30 40 200
 
 第 4 引数で `book_extend_ply`、第 5 引数で `eval_limit` を指定できます。数値を指定すると、書き出される `book/think_sfens.txt` の各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` が付きます。
 
+`max_step` は `book/think_sfens.txt` に書き出されず、peta系コマンドが leaf を探す範囲だけを制限します。`game_ply_limit` は `game_ply_limit=...` として書き出されるため、後で `e` したときの探索workerにも効きます。抽出数だけを抑えたい場合は、`game_ply_limit` ではなく `max_step` を小さくしてください。
+
 `settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`pn` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
 `pn` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`pn` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta-next-の開始局面集合を変える) を参照してください。

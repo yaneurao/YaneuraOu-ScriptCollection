@@ -131,6 +131,8 @@ book/think_sfens.txt
 
 ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pdg` / `pu` / `po` コマンドの引数で調整してください。
 
+`game ply limit` は `book/think_sfens.txt` の行末メタ情報としても残るため、その後の `enqueue` の探索workerにも効きます。候補列挙だけを浅くしたい場合は `game ply limit` ではなく `max step` を調整してください。`max step` は `book/think_sfens.txt` に書き出されません。
+
 ## 手順3. enqueue する
 
 `peta next`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。

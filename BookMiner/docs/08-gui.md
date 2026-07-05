@@ -103,7 +103,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 `enqueue` は、`sd ...` でデフォルト値を反映してから、引数なしの `e` を送信します。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
-`game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
+`game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。候補書き出しだけを絞りたい場合は、`game ply limit` ではなく `max step` を小さくしてください。`max step` は `book/think_sfens.txt` には書き出されないため、enqueue後の探索条件にはなりません。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
 残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。

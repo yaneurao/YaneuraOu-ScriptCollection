@@ -132,6 +132,7 @@ peta shock 後の出力形式は入力形式に合わせます。
 ## peta 系コマンド
 
 `pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、メモリに読み込まれている peta book を辿り、次に掘る局面を `book/think_sfens.txt` に書き出します。
+`max_step` はこの列挙処理の範囲だけを制限し、`book/think_sfens.txt` には書き出しません。`game_ply_limit` は列挙時にも使われ、さらに行メタ情報として残るため、後で `e` したときの探索workerにも効きます。
 Python版と同様に、black側とwhite側を個別に辿ってから、次の3ファイルを書き出します。
 
 ```text
