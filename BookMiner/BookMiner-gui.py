@@ -556,7 +556,7 @@ class BookMinerGui(ttk.Frame):
 
         commands = ttk.Frame(self)
         commands.grid(row=0, column=0, sticky="ew")
-        commands.columnconfigure(13, weight=1)
+        commands.columnconfigure(15, weight=1)
 
         ttk.Label(commands, text="手順0.").grid(row=0, column=0, sticky="w", pady=3)
         self.kif_manager_button = ttk.Button(
@@ -628,7 +628,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=3, column=12, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_eval_limit, width=8).grid(row=3, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_next_enabled).grid(
-            row=3, column=14, sticky="w", padx=(12, 0), pady=3
+            row=3, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
@@ -656,7 +656,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=4, column=12, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_refutation_eval_limit, width=8).grid(row=4, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_refutation_enabled).grid(
-            row=4, column=14, sticky="w", padx=(12, 0), pady=3
+            row=4, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
@@ -684,7 +684,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=5, column=12, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_depth_gap_eval_limit, width=8).grid(row=5, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_depth_gap_enabled).grid(
-            row=5, column=14, sticky="w", padx=(12, 0), pady=3
+            row=5, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
@@ -710,7 +710,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=6, column=12, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_unsolved_eval_limit, width=8).grid(row=6, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_unsolved_enabled).grid(
-            row=6, column=14, sticky="w", padx=(12, 0), pady=3
+            row=6, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         ttk.Label(commands, text="").grid(row=7, column=0, sticky="w", pady=3)
@@ -736,7 +736,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="eval_limit").grid(row=7, column=12, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_opponent_eval_limit, width=8).grid(row=7, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_opponent_enabled).grid(
-            row=7, column=14, sticky="w", padx=(12, 0), pady=3
+            row=7, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         self.step2_widgets = [
