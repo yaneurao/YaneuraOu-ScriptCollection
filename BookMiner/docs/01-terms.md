@@ -49,7 +49,7 @@ eval limit は、局面を掘る処理を止めるための評価値の閾値で
 peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >= eval_refutation_margin
 ```
 
-を満たすものだけを `peta_refutation` の抽出対象にします。
+を満たすものだけを `peta_next_refutation` の抽出対象にします。
 
 ## 局面を掘る
 
@@ -120,7 +120,7 @@ book/backup/book_miner-20260607071000_12345.ybb
 peta shock 化は、やねうら王の `makebook peta_shock` コマンドです。
 
 通常定跡 DB を後ろから解析し、leaf 側の評価値を min-max で root 側へ伝播させた peta_book を作ります。
-BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、反駁候補を探す `peta_refutation`、depth差で延長候補を探す `peta_depth_gap`、負け棋譜周辺を掘る `peta_unsolved`、過去配布定跡への対策候補を掘る `peta_opponent`、対局用定跡の作成に使います。
+BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、depth差で延長候補を探す `peta_next_gap`、負け棋譜周辺を掘る `peta_unsolved`、過去配布定跡への対策候補を掘る `peta_opponent`、対局用定跡の作成に使います。
 
 詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
 
@@ -189,7 +189,7 @@ BookMiner が `eval limit` で延長するかどうかを決めるのは、leaf 
 PV line(Principal Variation line)とは、エンジンが最善だと判断した指し手(最善手)を辿った読み筋(最善手順)のことです。
 
 BookMiner は、棋譜の指し手を eval limit で止まらずに末端まで辿れた場合、PV line に沿って追加で数手分掘ることがあります。
-`peta_depth_gap` では、条件を満たした候補手を指したあと、peta_book 上の best PV を leaf まで辿った局面を書き出します。
+`peta_next_gap` では、条件を満たした候補手を指したあと、peta_book 上の best PV を leaf まで辿った局面を書き出します。
 
 ## root
 
@@ -218,19 +218,13 @@ BookMiner の CLI では `pnf eval_diff [eval_refutation_margin] [max_step] [max
 
 peta shock 化によって、peta shock 前は2番手以下だった指し手が best に入れ替わることです。
 
-反駁された指し手が depth 0 の場合、その先はまだ十分に延長されていない可能性があります。この評価値が root 側へ伝播するとノイズになり得るため、`peta_refutation` で追加探索候補として抽出します。
+反駁された指し手が depth 0 の場合、その先はまだ十分に延長されていない可能性があります。この評価値が root 側へ伝播するとノイズになり得るため、`peta_next_refutation` で追加探索候補として抽出します。
 
-## peta_refutation
+## peta_next_gap
 
-peta shock 後に best になっている depth 0 の指し手のうち、peta shock 前は2番手以下で、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものを抽出する処理です。
+peta shock 後に、`peta_next` と同じ BFS 範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
-BookMiner の CLI では `pf [eval_refutation_margin] [eval_limit] [max_book_ply] [book_extend_ply]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは同じ行の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
-
-## peta_depth_gap
-
-peta shock 後に、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
-
-BookMiner の CLI では `pd [eval_per_ply] [max_book_ply] [book_extend_ply]`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `png eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta next gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
 ## peta_unsolved
 

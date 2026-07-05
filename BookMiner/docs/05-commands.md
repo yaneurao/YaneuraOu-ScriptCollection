@@ -229,43 +229,15 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 
 通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
-## peta_refutation
+## peta_next_gap
 
-peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
-
-```text
-pf 100 400 200 None
-```
-
-第1引数は `eval_refutation_margin` です。省略時は `100` です。
-peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。
-第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
-第3引数に `max_book_ply`、第4引数に `book_extend_ply` を指定できます。
-
-出力先:
+peta shock 後、`peta_next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
-book/think_sfens.txt
+png 30 0.1 9999 200 None
 ```
 
-抽出された行は、反駁候補手を指した後の `sfen ... moves ...` 形式です。`enqueue` すると、その先の局面を探索できます。
-
-`pf` コマンドは root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。
-反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。第3引数を指定した場合は、その値を使います。
-10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
-
-`pf None None 200 None` のように `None` を指定すると、その引数は省略時のデフォルト値を使います。
-
-## peta_depth_gap
-
-peta shock 後、best以外の登録済み指し手について、その手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
-
-```text
-pd 1 200 None
-```
-
-引数は `eval_per_ply` です。省略時は `0.1` です。0以上の数値を指定します。`0.5` のような小数も指定できます。
-第2引数に `max_book_ply`、第3引数に `book_extend_ply` を指定できます。
+引数は順に `eval_diff`、`eval_per_ply`、`max_step`、`max_book_ply`、`book_extend_ply` です。`eval_diff` と `max_step` は `peta_next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。任意引数に `None` を指定するとデフォルト値を使います。
 判定式は次の通りです。
 
 ```text
