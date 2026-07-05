@@ -79,8 +79,9 @@ GUIが解釈する進捗タグはPython版と揃えます。
 `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` は、手順2系コマンドと `e` が使う共通デフォルト値を更新します。
 `e` は `book/think_sfens.txt` の `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
 各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` メタ情報がある場合、そのtaskだけ `sd` の値を上書きします。
-workerは `TaskQueueProgress` を、前回出力から約10秒以上経過したとき、または残りtask数が0になったときに出します。
-各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を出します。
+`TaskQueueProgress` は、おおむね10秒ごとに、前回出力時から完了数が変わっている job について出します。
+各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を即時に出します。
+全体queueの最後のtaskが完了したときは `TaskQueueDone` を即時に出します。
 
 進捗の `done` は「完了したtask数」です。
 そのため `[TaskQueueDone]` が出た時点で、enqueue済みtaskはすべて処理済みです。

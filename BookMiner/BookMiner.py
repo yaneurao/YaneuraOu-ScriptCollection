@@ -221,7 +221,7 @@ class TaskQueueJobProgress:
     # このjobで投入された対局棋譜数。
     total : int
 
-    # このjobでworkerが受け取った対局棋譜数。
+    # このjobで処理が完了した対局棋譜数。
     taken : int = 0
 
     # このjobのeval_limit。複数値が混在する場合は"mixed"。
@@ -235,6 +235,9 @@ class TaskQueueJobProgress:
 
     # このjobの完了ログを出力済みか。
     done_reported : bool = False
+
+    # 最後にTaskQueueProgressへ出力した完了数。
+    last_reported_taken : int = 0
 
 
 @dataclass
@@ -1239,6 +1242,8 @@ class EngineManager:
         self.task_progress_taken = 0
         self.task_progress_last_report = 0.0
         self.task_progress_jobs : dict[int, TaskQueueJobProgress] = {}
+        self.task_progress_reporter_thread = Thread(target=self.task_queue_progress_reporter, daemon=True)
+        self.task_progress_reporter_thread.start()
         self.mining_progress_lock = Lock()
         self.mining_progress_last_report = 0.0
 
@@ -1740,7 +1745,6 @@ class EngineManager:
             return
         task.progress_reported = True
 
-        now = time.time()
         with self.task_progress_lock:
             self.task_progress_taken += 1
             taken = self.task_progress_taken
@@ -1777,10 +1781,9 @@ class EngineManager:
                 job_progress.done_reported = True
             should_report = remaining == 0 or should_report_job_done
             if not should_report:
-                should_report = now - self.task_progress_last_report >= TASK_QUEUE_PROGRESS_INTERVAL
-            if not should_report:
                 return
-            self.task_progress_last_report = now
+            job_progress.last_reported_taken = job_taken
+            self.task_progress_last_report = time.time()
 
         tag = "TaskQueueDone" if remaining == 0 else "TaskQueueProgress"
         print(
@@ -1794,6 +1797,64 @@ class EngineManager:
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={task.job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining=0 remaining={remaining} "
+                f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+            )
+
+    def task_queue_progress_reporter(self):
+        while True:
+            time.sleep(TASK_QUEUE_PROGRESS_INTERVAL)
+            if getattr(self.global_settings, "quit", False):
+                return
+            self.report_periodic_task_queue_progress()
+
+    def report_periodic_task_queue_progress(self):
+        reports : list[tuple[int, int, int, int, int, int, int, int|str|None, int|str|None, str|None]] = []
+        with self.task_progress_lock:
+            total = self.task_progress_total
+            taken = self.task_progress_taken
+            remaining = max(total - taken, 0)
+            for job_id, job_progress in self.task_progress_jobs.items():
+                if job_progress.done_reported:
+                    continue
+                if job_progress.taken == job_progress.last_reported_taken:
+                    continue
+                job_taken = job_progress.taken
+                job_total = job_progress.total
+                job_remaining = max(job_total - job_taken, 0)
+                reports.append(
+                    (
+                        job_id,
+                        taken,
+                        total,
+                        job_taken,
+                        job_total,
+                        job_remaining,
+                        remaining,
+                        job_progress.eval_limit,
+                        job_progress.game_ply_limit,
+                        job_progress.book_extend_ply,
+                    )
+                )
+                job_progress.last_reported_taken = job_taken
+            if reports:
+                self.task_progress_last_report = time.time()
+
+        for (
+            job_id,
+            taken,
+            total,
+            job_taken,
+            job_total,
+            job_remaining,
+            remaining,
+            job_eval_limit,
+            job_game_ply_limit,
+            job_book_extend_ply,
+        ) in reports:
+            print(
+                f"[TaskQueueProgress] {taken}/{total} "
+                f"job={job_id} job_progress={job_taken}/{job_total} "
+                f"job_remaining={job_remaining} remaining={remaining} "
                 f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
             )
 
@@ -3745,11 +3806,13 @@ def user_input(from_gui:bool = False):
 
             elif i == 'q':
                 print("quit")
+                engine_manager.global_settings.quit = True
                 save_book_main()
                 break
 
             elif i == '!':
                 print("quit without saving")
+                engine_manager.global_settings.quit = True
                 break
 
             elif i == 'w':

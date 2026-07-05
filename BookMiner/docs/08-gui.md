@@ -236,7 +236,8 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 [TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
 ```
 
-ログは前回出力からおおむね 10 秒以上経過したとき、job の最後のタスクが完了したとき、または全体 queue の最後のタスクが完了したときに更新されます。
+`[TaskQueueProgress]` は、おおむね 10 秒ごとに、前回出力時から完了数が変わっている job について出力されます。
+job の最後のタスクが完了したときは `[TaskQueueJobDone]`、全体 queue の最後のタスクが完了したときは `[TaskQueueDone]` が即時に出ます。
 
 自動enqueueは、この `remaining` が指定値より少なくなったときに発火します。
 手動で `peta_shock`、`peta_read`、手順2の各 peta 操作、`enqueue`、`DB手動保存` を実行している間は、自動enqueueは開始しません。

@@ -802,6 +802,9 @@ public:
                 worker_loop(*engine_ptr);
             });
         }
+        progress_reporter_thread_ = std::thread([this] {
+            progress_reporter_loop();
+        });
     }
 
     int enqueue_position_commands(const std::filesystem::path& path, int eval_limit, int max_book_ply, int think_command_ply)
@@ -878,19 +881,36 @@ public:
         if (stopped_.exchange(true))
             return;
 
+        progress_reporter_cv_.notify_all();
         queue_.stop(discard_pending);
         for (auto& thread : threads_)
         {
             if (thread.joinable())
                 thread.join();
         }
+        if (progress_reporter_thread_.joinable())
+            progress_reporter_thread_.join();
     }
 
 private:
     struct JobProgress {
         std::size_t total = 0;
         std::size_t taken = 0;
+        std::size_t last_reported_taken = 0;
         bool done_reported = false;
+        std::string eval_limit;
+        std::string game_ply_limit;
+        std::string book_extend_ply;
+    };
+
+    struct ProgressReport {
+        int job_id = 0;
+        std::size_t total_taken = 0;
+        std::size_t total_enqueued = 0;
+        std::size_t job_taken = 0;
+        std::size_t job_total = 0;
+        std::size_t job_remaining = 0;
+        std::size_t remaining = 0;
         std::string eval_limit;
         std::string game_ply_limit;
         std::string book_extend_ply;
@@ -922,6 +942,21 @@ private:
         }
     }
 
+    void progress_reporter_loop()
+    {
+        std::unique_lock lock(progress_reporter_mutex_);
+        while (!stopped_.load())
+        {
+            if (progress_reporter_cv_.wait_for(lock, std::chrono::seconds(10), [this] {
+                    return stopped_.load();
+                }))
+            {
+                break;
+            }
+            report_periodic_task_progress();
+        }
+    }
+
     void report_task_done(const Task& task)
     {
         std::size_t total_taken = 0;
@@ -934,7 +969,6 @@ private:
         std::string job_game_ply_limit;
         std::string job_book_extend_ply;
 
-        const auto now = std::chrono::steady_clock::now();
         {
             std::scoped_lock lock(progress_mutex_);
             ++total_taken_;
@@ -959,13 +993,11 @@ private:
                 job.done_reported = true;
 
             const auto remaining = total_enqueued > total_taken ? total_enqueued - total_taken : 0;
-            if (last_task_progress_report_.time_since_epoch().count() == 0
-                || now - last_task_progress_report_ >= std::chrono::seconds(10)
-                || remaining == 0
-                || should_report_job_done)
+            if (remaining == 0 || should_report_job_done)
             {
                 should_report = true;
-                last_task_progress_report_ = now;
+                job.last_reported_taken = job.taken;
+                last_task_progress_report_ = std::chrono::steady_clock::now();
             }
         }
 
@@ -1005,6 +1037,50 @@ private:
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply);
+        }
+    }
+
+    void report_periodic_task_progress()
+    {
+        std::vector<ProgressReport> reports;
+        {
+            std::scoped_lock lock(progress_mutex_);
+            const auto remaining = total_enqueued_ > total_taken_ ? total_enqueued_ - total_taken_ : 0;
+            for (auto& [job_id, job] : jobs_)
+            {
+                if (job.done_reported)
+                    continue;
+                if (job.taken == job.last_reported_taken)
+                    continue;
+
+                ProgressReport report;
+                report.job_id = job_id;
+                report.total_taken = total_taken_;
+                report.total_enqueued = total_enqueued_;
+                report.job_taken = job.taken;
+                report.job_total = job.total;
+                report.job_remaining = job.total > job.taken ? job.total - job.taken : 0;
+                report.remaining = remaining;
+                report.eval_limit = job.eval_limit;
+                report.game_ply_limit = job.game_ply_limit;
+                report.book_extend_ply = job.book_extend_ply;
+                reports.push_back(std::move(report));
+                job.last_reported_taken = job.taken;
+            }
+            if (!reports.empty())
+                last_task_progress_report_ = std::chrono::steady_clock::now();
+        }
+
+        for (const auto& report : reports)
+        {
+            log_line("[TaskQueueProgress] " + std::to_string(report.total_taken) + "/" + std::to_string(report.total_enqueued)
+                + " job=" + std::to_string(report.job_id)
+                + " job_progress=" + std::to_string(report.job_taken) + "/" + std::to_string(report.job_total)
+                + " job_remaining=" + std::to_string(report.job_remaining)
+                + " remaining=" + std::to_string(report.remaining)
+                + " eval_limit=" + report.eval_limit
+                + " game_ply_limit=" + report.game_ply_limit
+                + " book_extend_ply=" + report.book_extend_ply);
         }
     }
 
@@ -1048,9 +1124,12 @@ private:
     std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines_;
     TaskQueue queue_;
     std::vector<std::thread> threads_;
+    std::thread progress_reporter_thread_;
     std::atomic<int> next_job_id_{1};
     std::atomic<bool> stopped_{false};
     std::mutex progress_mutex_;
+    std::mutex progress_reporter_mutex_;
+    std::condition_variable progress_reporter_cv_;
     std::map<int, JobProgress> jobs_;
     std::size_t total_enqueued_ = 0;
     std::size_t total_taken_ = 0;
