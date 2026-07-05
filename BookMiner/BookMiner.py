@@ -73,6 +73,8 @@ DEFAULT_EVAL_REFUTATION_MARGIN = 100
 DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 0.1
 PETA_DEFAULT_INF_EVAL_DIFF = 99999
 PETA_DEFAULT_MAX_STEP = 9999
+DEFAULT_STEP2_EVAL_DIFF = 30
+DEFAULT_STEP2_MAX_STEP = 99999
 PETA_DEPTH_GAP_MAX_BEST_DEPTH = 1000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
 PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
@@ -238,6 +240,15 @@ class PositionCommandEntry:
     book_extend_ply : int | None = None
     eval_limit : int | None = None
     max_book_ply : int | None = None
+
+
+@dataclass
+class CommandDefaults:
+    eval_diff : int = DEFAULT_STEP2_EVAL_DIFF
+    max_step : int = DEFAULT_STEP2_MAX_STEP
+    game_ply_limit : int = MAX_BOOK_PLY
+    book_extend_ply : int = DEFAULT_BOOK_EXTEND_PLY
+    eval_limit : int = DEFAULT_EVAL_LIMIT
 
 
 @dataclass
@@ -3646,6 +3657,7 @@ def user_input(from_gui:bool = False):
     """
     book : Book = Book()
     book_miner_settings = load_book_miner_settings()
+    command_defaults = CommandDefaults(game_ply_limit=book_miner_settings.max_book_ply)
     print("[StartupStage] stage=book_read message=定跡DBを読み込み中")
     load_latest_book_backup(book)
     print("[StartupStage] stage=book_read_done message=定跡DB読み込み完了")
@@ -3706,16 +3718,17 @@ def user_input(from_gui:bool = False):
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
                 print("  E : enqueue positions        , e")
+                print("  SD  : set defaults           , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
-                print("  PN   : peta_shock next , pn peta_eval_diff (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                print("  PR  : peta refutation , pr peta_eval_diff (eval_refutation_margin) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                print("  PDG   : peta depth gap , pdg peta_eval_diff (eval_per_ply) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                print("  PO   : peta opponent , po (eval_diff) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
+                print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PR  : peta refutation , pr (peta_eval_diff) (eval_refutation_margin) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PDG   : peta depth gap , pdg (peta_eval_diff) (eval_per_ply) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PO   : peta opponent , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -3743,11 +3756,42 @@ def user_input(from_gui:bool = False):
                 # 定跡を丸ごと書き出す。
                 write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
 
+            elif i == 'sd' or i == 'set-default':
+                if len(inp) != 6:
+                    print("Usage : sd eval_diff max_step game_ply_limit book_extend_ply eval_limit")
+                    continue
+                new_defaults = CommandDefaults(
+                    eval_diff=int(inp[1]),
+                    max_step=int(inp[2]),
+                    game_ply_limit=int(inp[3]),
+                    book_extend_ply=int(inp[4]),
+                    eval_limit=int(inp[5]),
+                )
+                if new_defaults.eval_diff < 0:
+                    print("Error : default eval_diff must be non-negative integer.")
+                elif new_defaults.max_step <= 0:
+                    print("Error : default max_step must be positive integer.")
+                elif new_defaults.game_ply_limit <= 0:
+                    print("Error : default game_ply_limit must be positive integer.")
+                elif new_defaults.book_extend_ply < 0:
+                    print("Error : default book_extend_ply must be non-negative integer.")
+                elif new_defaults.eval_limit < 0:
+                    print("Error : default eval_limit must be non-negative integer.")
+                else:
+                    command_defaults = new_defaults
+                    print(
+                        f"[DefaultSettings] eval_diff={command_defaults.eval_diff} "
+                        f"max_step={command_defaults.max_step} "
+                        f"game_ply_limit={command_defaults.game_ply_limit} "
+                        f"book_extend_ply={command_defaults.book_extend_ply} "
+                        f"eval_limit={command_defaults.eval_limit}"
+                    )
+
             elif i == 'e':
                 path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-                eval_limit = DEFAULT_EVAL_LIMIT
-                max_book_ply = book_miner_settings.max_book_ply
-                book_extend_ply = DEFAULT_BOOK_EXTEND_PLY
+                eval_limit = command_defaults.eval_limit
+                max_book_ply = command_defaults.game_ply_limit
+                book_extend_ply = command_defaults.book_extend_ply
 
                 if len(inp) > 1:
                     print("Usage : e")
@@ -3790,127 +3834,124 @@ def user_input(from_gui:bool = False):
             
             elif i == 'pn':
                 # peta_next
-                if len(inp) < 2:
-                    print("Usage : pn peta_eval_diff (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                else:
-                    peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                    max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
-                    max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
-                    book_extend_ply = parse_optional_int_argument(inp, 4)
-                    eval_limit = parse_optional_int_argument(inp, 5)
-                    if max_book_ply <= 0:
-                        print("Error : max_book_ply must be positive integer.")
-                        continue
-                    if max_step <= 0:
-                        print("Error : max_step must be positive integer.")
-                        continue
-                    if book_extend_ply is not None and book_extend_ply < 0:
-                        print("Error : book_extend_ply must be non-negative integer or None.")
-                        continue
-                    if eval_limit is not None and eval_limit < 0:
-                        print("Error : eval_limit must be non-negative integer or None.")
-                        continue
-                    peta_next(
-                        peta_eval_diff,
-                        max_step,
-                        max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path,
-                        book_extend_ply,
-                        eval_limit=eval_limit,
-                    )
+                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
+                max_step = parse_int_argument(inp, 2, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
+                if peta_eval_diff < 0:
+                    print("Error : peta_eval_diff must be non-negative integer.")
+                    continue
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                    continue
+                if max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                    continue
+                if book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                    continue
+                if eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
+                    continue
+                peta_next(
+                    peta_eval_diff,
+                    max_step,
+                    max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                    book_extend_ply,
+                    eval_limit=eval_limit,
+                )
 
             elif i == 'pr':
                 # peta_refutation
-                if len(inp) < 2:
-                    print("Usage : pr peta_eval_diff (eval_refutation_margin) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                else:
-                    peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                    eval_refutation_margin = parse_int_argument(inp, 2, DEFAULT_EVAL_REFUTATION_MARGIN)
-                    max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
-                    max_book_ply = parse_int_argument(inp, 4, book_miner_settings.max_book_ply)
-                    book_extend_ply = parse_optional_int_argument(inp, 5)
-                    eval_limit = parse_optional_int_argument(inp, 6)
-                    if max_book_ply <= 0:
-                        print("Error : max_book_ply must be positive integer.")
-                        continue
-                    if max_step <= 0:
-                        print("Error : max_step must be positive integer.")
-                        continue
-                    if eval_refutation_margin < 0:
-                        print("Error : eval_refutation_margin must be non-negative integer.")
-                        continue
-                    if book_extend_ply is not None and book_extend_ply < 0:
-                        print("Error : book_extend_ply must be non-negative integer or None.")
-                        continue
-                    if eval_limit is not None and eval_limit < 0:
-                        print("Error : eval_limit must be non-negative integer or None.")
-                        continue
-                    peta_next(
-                        peta_eval_diff,
-                        max_step,
-                        max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path,
-                        book_extend_ply,
-                        book,
-                        eval_refutation_margin,
-                        eval_limit=eval_limit,
-                    )
+                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
+                eval_refutation_margin = parse_int_argument(inp, 2, DEFAULT_EVAL_REFUTATION_MARGIN)
+                max_step = parse_int_argument(inp, 3, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 4, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 5, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 6, command_defaults.eval_limit)
+                if peta_eval_diff < 0:
+                    print("Error : peta_eval_diff must be non-negative integer.")
+                    continue
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                    continue
+                if max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                    continue
+                if eval_refutation_margin < 0:
+                    print("Error : eval_refutation_margin must be non-negative integer.")
+                    continue
+                if book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                    continue
+                if eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
+                    continue
+                peta_next(
+                    peta_eval_diff,
+                    max_step,
+                    max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                    book_extend_ply,
+                    book,
+                    eval_refutation_margin,
+                    eval_limit=eval_limit,
+                )
 
             elif i == 'pdg':
                 # peta_depth_gap
-                if len(inp) < 2:
-                    print("Usage : pdg peta_eval_diff (eval_per_ply) (max_step) (max_book_ply) (book_extend_ply) (eval_limit)")
-                else:
-                    peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                    eval_per_ply = parse_float_argument(inp, 2, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
-                    max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
-                    max_book_ply = parse_int_argument(inp, 4, book_miner_settings.max_book_ply)
-                    book_extend_ply = parse_optional_int_argument(inp, 5)
-                    eval_limit = parse_optional_int_argument(inp, 6)
-                    if peta_eval_diff < 0:
-                        print("Error : peta_eval_diff must be non-negative integer.")
-                        continue
-                    if eval_per_ply < 0:
-                        print("Error : eval_per_ply must be non-negative number.")
-                        continue
-                    if max_step <= 0:
-                        print("Error : max_step must be positive integer.")
-                        continue
-                    if max_book_ply <= 0:
-                        print("Error : max_book_ply must be positive integer.")
-                        continue
-                    if book_extend_ply is not None and book_extend_ply < 0:
-                        print("Error : book_extend_ply must be non-negative integer or None.")
-                        continue
-                    if eval_limit is not None and eval_limit < 0:
-                        print("Error : eval_limit must be non-negative integer or None.")
-                        continue
-                    peta_depth_gap(
-                        peta_eval_diff,
-                        eval_per_ply,
-                        max_step,
-                        max_book_ply,
-                        book_extend_ply,
-                        eval_limit=eval_limit,
-                    )
+                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
+                eval_per_ply = parse_float_argument(inp, 2, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
+                max_step = parse_int_argument(inp, 3, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 4, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 5, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 6, command_defaults.eval_limit)
+                if peta_eval_diff < 0:
+                    print("Error : peta_eval_diff must be non-negative integer.")
+                    continue
+                if eval_per_ply < 0:
+                    print("Error : eval_per_ply must be non-negative number.")
+                    continue
+                if max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                    continue
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                    continue
+                if book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                    continue
+                if eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
+                    continue
+                peta_depth_gap(
+                    peta_eval_diff,
+                    eval_per_ply,
+                    max_step,
+                    max_book_ply,
+                    book_extend_ply,
+                    eval_limit=eval_limit,
+                )
 
             elif i == 'pu':
                 # peta_unsolved
                 eval_drop_limit = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
-                max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
-                max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
-                book_extend_ply = parse_optional_int_argument(inp, 4)
-                eval_limit = parse_optional_int_argument(inp, 5)
+                max_step = parse_int_argument(inp, 2, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
                 if eval_drop_limit < 0:
                     print("Error : eval_drop_limit must be non-negative integer.")
                 elif max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                 elif max_step <= 0:
                     print("Error : max_step must be positive integer.")
-                elif book_extend_ply is not None and book_extend_ply < 0:
-                    print("Error : book_extend_ply must be non-negative integer or None.")
-                elif eval_limit is not None and eval_limit < 0:
-                    print("Error : eval_limit must be non-negative integer or None.")
+                elif book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                elif eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
                 else:
                     peta_unsolved(
                         eval_drop_limit,
@@ -3922,21 +3963,21 @@ def user_input(from_gui:bool = False):
 
             elif i == 'po':
                 # peta_opponent
-                eval_diff = parse_int_argument(inp, 1, PETA_OPPONENT_DEFAULT_EVAL_DIFF)
-                max_step = parse_int_argument(inp, 2, PETA_DEFAULT_MAX_STEP)
-                max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
-                book_extend_ply = parse_optional_int_argument(inp, 4)
-                eval_limit = parse_optional_int_argument(inp, 5)
+                eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
+                max_step = parse_int_argument(inp, 2, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
                 if eval_diff < 0:
                     print("Error : eval_diff must be non-negative integer.")
                 elif max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                 elif max_step <= 0:
                     print("Error : max_step must be positive integer.")
-                elif book_extend_ply is not None and book_extend_ply < 0:
-                    print("Error : book_extend_ply must be non-negative integer or None.")
-                elif eval_limit is not None and eval_limit < 0:
-                    print("Error : eval_limit must be non-negative integer or None.")
+                elif book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                elif eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
                 else:
                     peta_opponent(
                         eval_diff,

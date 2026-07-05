@@ -1999,9 +1999,20 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def send_enqueue(self, auto: bool = False) -> bool:
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                if self.enqueue_pending:
+                    self.enqueue_pending = False
+                else:
+                    self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command("e", origin=origin):
             return True
         if not auto:
@@ -2058,9 +2069,17 @@ class BookMinerGui(ttk.Frame):
         )
         if eval_limit is None:
             return False
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_peta_next"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command(
             f"pn {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}",
             origin=origin,
@@ -2125,15 +2144,59 @@ class BookMinerGui(ttk.Frame):
         )
         if eval_limit is None:
             return False
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_peta_refutation"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command(f"pr {eval_diff} {eval_refutation_margin} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
             self.busy_action = None
             self._update_buttons()
         return False
+
+    def _build_default_settings_command(self, auto: bool = False) -> str | None:
+        specs = [
+            (self.default_eval_diff, "default eval_diff", GUI_SETTING_DEFAULTS["default_eval_diff"], False, True),
+            (self.default_max_step, "default max step", GUI_SETTING_DEFAULTS["default_max_step"], True, False),
+            (self.game_ply_limit, "default game ply limit", GUI_SETTING_DEFAULTS["game_ply_limit"], True, False),
+            (self.enqueue_book_extend_ply, "default book extend ply", GUI_SETTING_DEFAULTS["enqueue_book_extend_ply"], False, True),
+            (self.eval_limit, "default eval_limit", GUI_SETTING_DEFAULTS["eval_limit"], False, True),
+        ]
+        tokens: list[str] = []
+        for variable, label, fallback, positive, non_negative in specs:
+            value = variable.get().strip()
+            if not value or value.lower() == "none":
+                value = fallback
+            try:
+                parsed = int(value)
+            except ValueError:
+                if auto:
+                    self._append_log("task", f"[AUTO] {label} must be an integer.\n")
+                else:
+                    messagebox.showerror("入力エラー", f"{label} には整数を指定してください。")
+                return None
+            if positive and parsed <= 0:
+                if auto:
+                    self._append_log("task", f"[AUTO] {label} must be positive.\n")
+                else:
+                    messagebox.showerror("入力エラー", f"{label} には正の整数を指定してください。")
+                return None
+            if non_negative and parsed < 0:
+                if auto:
+                    self._append_log("task", f"[AUTO] {label} must be non-negative.\n")
+                else:
+                    messagebox.showerror("入力エラー", f"{label} には0以上の整数を指定してください。")
+                return None
+            tokens.append(str(parsed))
+        return "sd " + " ".join(tokens)
 
     def _get_game_ply_limit(self, auto: bool = False) -> str | None:
         return self._get_optional_int_token(self.game_ply_limit, "game ply limit", auto, positive=True)
@@ -2303,9 +2366,17 @@ class BookMinerGui(ttk.Frame):
         )
         if eval_limit is None:
             return False
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_peta_depth_gap"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command(f"pdg {eval_diff} {eval_per_ply} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
@@ -2358,9 +2429,17 @@ class BookMinerGui(ttk.Frame):
         )
         if eval_limit is None:
             return False
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_peta_unsolved"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command(f"pu {eval_drop_limit} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
@@ -2414,9 +2493,17 @@ class BookMinerGui(ttk.Frame):
         )
         if eval_limit is None:
             return False
+        default_command = self._build_default_settings_command(auto)
+        if default_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_peta_opponent"):
             return False
         origin = "AUTO" if auto else "GUI"
+        if not self.send_command(default_command, origin=origin):
+            if not auto:
+                self.busy_action = None
+                self._update_buttons()
+            return False
         if self.send_command(f"po {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:

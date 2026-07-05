@@ -61,6 +61,8 @@ constexpr int DefaultEvalRefutationMargin = 100;
 constexpr double DefaultDepthGapEvalPerPly = 0.1;
 constexpr int PetaDefaultInfEvalDiff = 99999;
 constexpr int PetaDefaultMaxStep = 9999;
+constexpr int DefaultStep2EvalDiff = 30;
+constexpr int DefaultStep2MaxStep = 99999;
 constexpr int PetaDepthGapMaxBestDepth = 1000;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaDepthGapProgressInterval = 100000;
@@ -68,6 +70,14 @@ constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
 constexpr int PetaOpponentDefaultEvalDiff = 0;
 constexpr const char* BookOpponentDir = "book/book_opponent";
+
+struct CommandDefaults {
+    int eval_diff = DefaultStep2EvalDiff;
+    int max_step = DefaultStep2MaxStep;
+    int game_ply_limit = 200;
+    int book_extend_ply = ThinkCommandPly;
+    int eval_limit = DefaultEvalLimit;
+};
 
 #ifdef _WIN32
 void configure_windows_console()
@@ -1378,6 +1388,19 @@ std::size_t write_position_command_entries_file(const std::filesystem::path& pat
     return position_commands.size();
 }
 
+std::vector<PositionCommandEntry> make_position_command_entries(
+    const std::vector<std::string>& position_commands,
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit,
+    std::optional<int> max_book_ply)
+{
+    std::vector<PositionCommandEntry> entries;
+    entries.reserve(position_commands.size());
+    for (const auto& position_command : position_commands)
+        entries.push_back(PositionCommandEntry{position_command, book_extend_ply, eval_limit, max_book_ply});
+    return entries;
+}
+
 std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_path, const std::filesystem::path& white_path, const std::filesystem::path& output_path)
 {
     std::ifstream black(black_path);
@@ -1422,7 +1445,9 @@ void peta_next(
     int max_step,
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
-    std::optional<int> eval_refutation_margin)
+    std::optional<int> eval_refutation_margin,
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit)
 {
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
     log_line(
@@ -1430,18 +1455,24 @@ void peta_next(
         + ", peta_eval_diff = " + std::to_string(peta_eval_diff)
         + ", max_step = " + std::to_string(max_step)
         + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", start_sfens_path = " + start_sfens_path.string()
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
 
     const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
-    write_position_commands_file(black_path, black);
+    write_position_command_entries_file(
+        black_path,
+        make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
     const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
-    write_position_commands_file(white_path, white);
+    write_position_command_entries_file(
+        white_path,
+        make_position_command_entries(white, book_extend_ply, eval_limit, max_book_ply));
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path);
@@ -1515,12 +1546,16 @@ std::optional<std::string> peta_pv_leaf_position_command(
 void peta_depth_gap(
     const bookminer::BookStore& peta_book,
     double eval_per_ply,
-    int max_book_ply)
+    int max_book_ply,
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit)
 {
     std::ostringstream eval_per_ply_stream;
     eval_per_ply_stream << eval_per_ply;
     log_line("peta_depth_gap, eval_per_ply = " + eval_per_ply_stream.str()
-        + ", max_book_ply = " + std::to_string(max_book_ply));
+        + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None")));
 
     std::vector<std::string> think_sfens;
     std::unordered_set<std::string> think_seen;
@@ -1584,7 +1619,9 @@ void peta_depth_gap(
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
-    write_position_commands_file(output_path, think_sfens);
+    write_position_command_entries_file(
+        output_path,
+        make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
 
     log_line("peta_depth_gap done.");
     log_line("[PetaDepthGapDone] path=" + output_path.string()
@@ -1598,12 +1635,16 @@ void peta_unsolved(
     const bookminer::BookStore& peta_book,
     int eval_diff,
     int max_book_ply,
-    int max_step)
+    int max_step,
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit)
 {
     const fs::path input_path = fs::path(BookDir) / ThinkUnsolvedSfensName;
     log_line("peta_unsolved, eval_diff = " + std::to_string(eval_diff)
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", max_step = " + std::to_string(max_step)
+        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", unsolved_sfens_path = " + input_path.string());
 
     std::ifstream input(input_path);
@@ -1696,7 +1737,9 @@ void peta_unsolved(
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
-    write_position_commands_file(output_path, think_sfens);
+    write_position_command_entries_file(
+        output_path,
+        make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
 
     log_line("peta_unsolved done.");
     log_line("[PetaUnsolvedDone] path=" + output_path.string()
@@ -2745,14 +2788,18 @@ void print_help()
     log_line("  Q : quit");
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
+    log_line("  E : enqueue positions        , e");
     log_line("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)");
+    log_line("  SD: set defaults             , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
-    log_line("  PN : peta_shock next         , pn peta_eval_diff (max_book_ply) (max_step)");
+    log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PR : peta refutation         , pr (peta_eval_diff) (eval_refutation_margin) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PD : peta depth gap          , pd (eval_per_ply) (max_book_ply)");
-    log_line("  PU : peta unsolved           , pu (eval_diff) (max_book_ply) (max_step)");
+    log_line("  PDG: peta depth gap          , pdg (peta_eval_diff) (eval_per_ply) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PU : peta unsolved           , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PO : peta opponent           , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  H : Help");
 }
@@ -2801,6 +2848,7 @@ int main(int argc, char* argv[])
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
     int max_book_ply = 200;
+    CommandDefaults command_defaults;
     std::optional<fs::path> clean_source_path;
     std::uint64_t clean_source_revision = 0;
 
@@ -2815,6 +2863,7 @@ int main(int argc, char* argv[])
             + ", max_book_ply = " + std::to_string(book_miner_settings.max_book_ply)
             + ", peta_next_start_sfens_path = " + book_miner_settings.peta_next_start_sfens_path);
         max_book_ply = book_miner_settings.max_book_ply;
+        command_defaults.game_ply_limit = max_book_ply;
 
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
         clean_source_path = load_latest_book_backup(book);
@@ -2899,12 +2948,59 @@ int main(int argc, char* argv[])
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
             }
+            else if (command == "sd" || command == "set-default")
+            {
+                if (tokens.size() != 6)
+                {
+                    log_line("Usage : sd eval_diff max_step game_ply_limit book_extend_ply eval_limit");
+                    continue;
+                }
+                CommandDefaults new_defaults;
+                new_defaults.eval_diff = std::stoi(tokens[1]);
+                new_defaults.max_step = std::stoi(tokens[2]);
+                new_defaults.game_ply_limit = std::stoi(tokens[3]);
+                new_defaults.book_extend_ply = std::stoi(tokens[4]);
+                new_defaults.eval_limit = std::stoi(tokens[5]);
+                if (new_defaults.eval_diff < 0)
+                    log_line("Error : default eval_diff must be non-negative integer.");
+                else if (new_defaults.max_step <= 0)
+                    log_line("Error : default max_step must be positive integer.");
+                else if (new_defaults.game_ply_limit <= 0)
+                    log_line("Error : default game_ply_limit must be positive integer.");
+                else if (new_defaults.book_extend_ply < 0)
+                    log_line("Error : default book_extend_ply must be non-negative integer.");
+                else if (new_defaults.eval_limit < 0)
+                    log_line("Error : default eval_limit must be non-negative integer.");
+                else
+                {
+                    command_defaults = new_defaults;
+                    log_line("[DefaultSettings] eval_diff=" + std::to_string(command_defaults.eval_diff)
+                        + " max_step=" + std::to_string(command_defaults.max_step)
+                        + " game_ply_limit=" + std::to_string(command_defaults.game_ply_limit)
+                        + " book_extend_ply=" + std::to_string(command_defaults.book_extend_ply)
+                        + " eval_limit=" + std::to_string(command_defaults.eval_limit));
+                }
+            }
+            else if (command == "e")
+            {
+                const std::string path = fs::path(BookDir).append(ThinkSfensName).string();
+                if (tokens.size() > 1)
+                    log_line("Usage : e");
+                else if (!task_workers)
+                    log_line("Error : task workers are not running.");
+                else
+                    task_workers->enqueue_position_commands(
+                        path,
+                        command_defaults.eval_limit,
+                        command_defaults.game_ply_limit,
+                        command_defaults.book_extend_ply);
+            }
             else if (command == "t")
             {
                 const std::string path = fs::path(BookDir).append(ThinkSfensName).string();
-                const int task_eval_limit = parse_int_argument(tokens, 1, DefaultEvalLimit);
-                const int task_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
-                const int task_think_command_ply = parse_int_argument(tokens, 3, ThinkCommandPly);
+                const int task_eval_limit = parse_int_argument(tokens, 1, command_defaults.eval_limit);
+                const int task_max_book_ply = parse_int_argument(tokens, 2, command_defaults.game_ply_limit);
+                const int task_think_command_ply = parse_int_argument(tokens, 3, command_defaults.book_extend_ply);
                 if (!task_workers)
                     log_line("Error : task workers are not running.");
                 else if (task_eval_limit < 0)
@@ -2941,34 +3037,46 @@ int main(int argc, char* argv[])
             }
             else if (command == "pn")
             {
-                if (tokens.size() < 2)
+                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
+                const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
+                if (peta_eval_diff < 0)
                 {
-                    log_line("Usage : pn peta_eval_diff (max_book_ply) (max_step)");
+                    log_line("Error : peta_eval_diff must be non-negative integer.");
+                    continue;
                 }
-                else
+                if (command_max_book_ply <= 0)
                 {
-                    const int peta_eval_diff = parse_int_argument(tokens, 1, PetaDefaultInfEvalDiff);
-                    const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
-                    const int max_step = parse_int_argument(tokens, 3, PetaDefaultMaxStep);
-                    if (command_max_book_ply <= 0)
-                    {
-                        log_line("Error : max_book_ply must be positive integer.");
-                        continue;
-                    }
-                    if (max_step <= 0)
-                    {
-                        log_line("Error : max_step must be positive integer.");
-                        continue;
-                    }
-                    peta_next(
-                        nullptr,
-                        peta_book,
-                        peta_eval_diff,
-                        max_step,
-                        command_max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path,
-                        std::nullopt);
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
                 }
+                if (max_step <= 0)
+                {
+                    log_line("Error : max_step must be positive integer.");
+                    continue;
+                }
+                if (book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer.");
+                    continue;
+                }
+                if (eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer.");
+                    continue;
+                }
+                peta_next(
+                    nullptr,
+                    peta_book,
+                    peta_eval_diff,
+                    max_step,
+                    command_max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                    std::nullopt,
+                    book_extend_ply,
+                    eval_limit);
             }
             else if (command == "pnf")
             {
@@ -2999,8 +3107,59 @@ int main(int argc, char* argv[])
                         max_step,
                         command_max_book_ply,
                         book_miner_settings.peta_next_start_sfens_path,
-                        eval_refutation_margin);
+                        eval_refutation_margin,
+                        std::nullopt,
+                        std::nullopt);
                 }
+            }
+            else if (command == "pr")
+            {
+                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
+                const int eval_refutation_margin = parse_int_argument(tokens, 2, DefaultEvalRefutationMargin);
+                const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 4, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 5, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 6, command_defaults.eval_limit);
+                if (peta_eval_diff < 0)
+                {
+                    log_line("Error : peta_eval_diff must be non-negative integer.");
+                    continue;
+                }
+                if (eval_refutation_margin < 0)
+                {
+                    log_line("Error : eval_refutation_margin must be non-negative integer.");
+                    continue;
+                }
+                if (max_step <= 0)
+                {
+                    log_line("Error : max_step must be positive integer.");
+                    continue;
+                }
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
+                if (book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer.");
+                    continue;
+                }
+                if (eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer.");
+                    continue;
+                }
+                peta_next(
+                    &book,
+                    peta_book,
+                    peta_eval_diff,
+                    max_step,
+                    command_max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                    eval_refutation_margin,
+                    book_extend_ply,
+                    eval_limit);
             }
             else if (command == "pf")
             {
@@ -3036,13 +3195,69 @@ int main(int argc, char* argv[])
                 peta_depth_gap(
                     peta_book,
                     eval_per_ply,
-                    command_max_book_ply);
+                    command_max_book_ply,
+                    std::nullopt,
+                    std::nullopt);
+            }
+            else if (command == "pdg")
+            {
+                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
+                const double eval_per_ply = parse_double_argument(tokens, 2, DefaultDepthGapEvalPerPly);
+                const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 4, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 5, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 6, command_defaults.eval_limit);
+                if (peta_eval_diff < 0)
+                {
+                    log_line("Error : peta_eval_diff must be non-negative integer.");
+                    continue;
+                }
+                if (eval_per_ply < 0)
+                {
+                    log_line("Error : eval_per_ply must be non-negative number.");
+                    continue;
+                }
+                if (max_step <= 0)
+                {
+                    log_line("Error : max_step must be positive integer.");
+                    continue;
+                }
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
+                if (book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer.");
+                    continue;
+                }
+                if (eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer.");
+                    continue;
+                }
+                (void)peta_eval_diff;
+                (void)max_step;
+                peta_depth_gap(
+                    peta_book,
+                    eval_per_ply,
+                    command_max_book_ply,
+                    book_extend_ply,
+                    eval_limit);
             }
             else if (command == "pu")
             {
                 const int eval_diff = parse_int_argument(tokens, 1, PetaDefaultInfEvalDiff);
-                const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
-                const int max_step = parse_int_argument(tokens, 3, PetaDefaultMaxStep);
+                const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
+                if (eval_diff < 0)
+                {
+                    log_line("Error : eval_drop_limit must be non-negative integer.");
+                    continue;
+                }
                 if (command_max_book_ply <= 0)
                 {
                     log_line("Error : max_book_ply must be positive integer.");
@@ -3053,19 +3268,31 @@ int main(int argc, char* argv[])
                     log_line("Error : max_step must be positive integer.");
                     continue;
                 }
+                if (book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer.");
+                    continue;
+                }
+                if (eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer.");
+                    continue;
+                }
                 peta_unsolved(
                     peta_book,
                     eval_diff,
                     command_max_book_ply,
-                    max_step);
+                    max_step,
+                    book_extend_ply,
+                    eval_limit);
             }
             else if (command == "po")
             {
-                const int eval_diff = parse_int_argument(tokens, 1, PetaOpponentDefaultEvalDiff);
-                const int max_step = parse_int_argument(tokens, 2, PetaDefaultMaxStep);
-                const int command_max_book_ply = parse_int_argument(tokens, 3, max_book_ply);
-                const std::optional<int> book_extend_ply = parse_optional_int_argument(tokens, 4);
-                const std::optional<int> eval_limit = parse_optional_int_argument(tokens, 5);
+                const int eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
+                const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
                 if (eval_diff < 0)
                 {
                     log_line("Error : eval_diff must be non-negative integer.");
@@ -3081,14 +3308,14 @@ int main(int argc, char* argv[])
                     log_line("Error : max_step must be positive integer.");
                     continue;
                 }
-                if (book_extend_ply.has_value() && *book_extend_ply < 0)
+                if (book_extend_ply < 0)
                 {
-                    log_line("Error : book_extend_ply must be non-negative integer or None.");
+                    log_line("Error : book_extend_ply must be non-negative integer.");
                     continue;
                 }
-                if (eval_limit.has_value() && *eval_limit < 0)
+                if (eval_limit < 0)
                 {
-                    log_line("Error : eval_limit must be non-negative integer or None.");
+                    log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
                 peta_opponent(

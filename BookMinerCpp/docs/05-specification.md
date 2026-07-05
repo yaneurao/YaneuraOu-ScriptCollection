@@ -26,18 +26,19 @@ q                 保存して終了
 w [ply_limit]     通常DBを手動保存
 p                 通常DB保存、peta_shock、peta book 読み込み
 r [path]          指定 peta book、または最新 peta book を読み込み
-pn eval_diff [max_book_ply] [max_step]
-pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]
-pf [eval_refutation_margin] [eval_limit] [max_book_ply]
-pd [eval_per_ply] [max_book_ply]
-pu [eval_diff] [max_book_ply] [max_step]
+sd eval_diff max_step game_ply_limit book_extend_ply eval_limit
+pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
+pr eval_diff [eval_refutation_margin] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
+pdg eval_diff [eval_per_ply] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
+pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
-t [eval_limit] [max_book_ply] [think_command_ply]
+e
 h
 ```
 
-`t` は固定で `book/think_sfens.txt` を読みます。引数は GUI の並びと同じく、`eval_limit`、`max_book_ply`、`think_command_ply` の順です。省略または `None` 指定時は Python 版と同じデフォルト値を使います。
-`think_sfens.txt` の各行に `, book_extend_ply=20, eval_limit=400, game_ply_limit=200` のようなメタ情報がある場合、その行だけコマンド引数よりメタ情報側を優先します。同じ局面が複数行にある場合は、各メタ情報の値が大きい行を採用します。
+`sd` は手順2系コマンドと `e` が使う共通デフォルト値を設定します。短縮名ではなく `set-default` と書いても同じです。
+`e` は固定で `book/think_sfens.txt` を読みます。コマンド自体には引数を取りません。
+`think_sfens.txt` の各行に `, book_extend_ply=20, eval_limit=400, game_ply_limit=200` のようなメタ情報がある場合、その行だけ `sd` の値よりメタ情報側を優先します。同じ局面が複数行にある場合は、各メタ情報の値が大きい行を採用します。メタ情報がない行、または値が `None` の行は `sd` の値を使います。
 
 ## 起動時の通常DB選択
 

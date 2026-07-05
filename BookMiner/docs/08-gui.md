@@ -87,6 +87,7 @@ GUI 上でもこの手順が縦に並んでいます。
 `peta_read` は `r` コマンドを送信し、`book/backup/` にある最新の `peta_book-....db` または `peta_book-....ybb` を読み込みます。`peta_read` 自体は peta shock 化を行わないため、別マシンや手動の `makebook peta_shock` で先に peta book を作って、このフォルダに置いておく必要があります。
 
 手順2の各行で空欄にした共通項は、`デフォルト値` 行の値を使います。明示的に `None` と入力した場合だけ、CLI へ `None` を送ります。初期値は `eval_diff=30`、`max step=99999`、`game ply limit=200`、`book extend ply=6`、`eval_limit=400` です。
+GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送って、この `デフォルト値` 行を BookMiner.py / BookMinerCpp 側へ反映します。KifManager で作ったような行メタ情報なしの `think_sfens.txt` を `enqueue` した場合も、このデフォルト値行が使われます。
 
 `peta next` は `pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。例えばデフォルト値行が初期値のままなら、行側をすべて空欄にして実行すると `pn 30 99999 200 6 400` を送信します。
 
@@ -100,7 +101,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 手順2の各行の `game ply limit`、`book extend ply`、`eval_limit` を数値で指定すると、書き出す各行に `game_ply_limit=...`、`book_extend_ply=...`、`eval_limit=...` が付きます。その行を `enqueue` したときは、この行ごとの値で探索します。
 
-`enqueue` は、引数なしの `e` を送信します。
+`enqueue` は、`sd ...` でデフォルト値を反映してから、引数なしの `e` を送信します。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
 `game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
 

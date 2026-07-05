@@ -13,7 +13,7 @@ BookMinerCpp の操作手順は Python 版 BookMiner と同じです。
 - [既存のやねうら王定跡から掘り始める](../../BookMiner/docs/09-import-existing-book.md)
 
 BookMinerCpp 独自のコマンド体系は作っていません。
-`p`、`pn`、`pnf`、`pf`、`pd`、`pu`、`po`、`t`、`w`、`q` の意味は Python 版と同じです。
+`p`、`r`、`sd`、`pn`、`pr`、`pdg`、`pu`、`po`、`e`、`w`、`q` の意味は Python 版と同じです。
 
 ## GUI から使う
 
@@ -59,19 +59,16 @@ cd YaneuraOu-ScriptCollection/BookMinerCpp
 ```text
 p                 現在DBを書き出し、peta_shock 化して読み込む
 r                 最新の peta_book を読み込む
+sd 30 99999 200 6 400
+                  peta系コマンドと enqueue の共通デフォルト値を設定する
 pn 100            peta next を実行し、think_sfens.txt を作る
-pnf 100 200 9999 100
-                  peta next の leaf のうち、反駁された leaf だけを作る
-pf 100 400 200    反駁された depth 0 best を作る
-pd 0.1 200        depth差で逆転しうる候補のPV leafを作る
-pu None 200 None  think_unsolved_sfens.txt の棋譜prefix周辺を作る
+pr 100 100        peta next の leaf のうち、反駁された leaf だけを作る
+pdg 100 0.1       depth差で逆転しうる候補のPV leafを作る
+pu None None 200 None 400
+                  think_unsolved_sfens.txt の棋譜prefix周辺を作る
 po 0 9999 200 20 400
                   book/book_opponent/ の相手定跡への対策候補を作る
-t                 book/think_sfens.txt を探索キューへ積む
-t 400 200 6
-                  eval_limit=400, max_book_ply=200, think_command_ply=6 で探索キューへ積む
-t 400 200 None
-                  think_command_ply にデフォルト値の6を使う
+e                 book/think_sfens.txt を探索キューへ積む
 w                 現在DBを手動保存する
 q                 保存して終了する
 !                 保存せず終了する

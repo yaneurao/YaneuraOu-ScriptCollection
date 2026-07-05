@@ -54,6 +54,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta depth gap` | `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` と同じ範囲で、best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜prefixから peta_book 上の best PV leaf を `book/think_sfens.txt` に書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta_book の best 進行を辿り、対策候補leafを `book/think_sfens.txt` に書き出します。 |
+| `デフォルト値` | `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` | 手順2系コマンドと `enqueue` が `None` やメタ情報なし行で使う共通デフォルト値を設定します。 |
 | `enqueue` | `e` | `book/think_sfens.txt` を探索 queue に積みます。探索条件は各行のメタ情報を使います。 |
 
 通常は `peta_shock` → `peta next` → `enqueue` を繰り返します。通常の leaf 延長のうち反駁されたものだけを優先したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth gap`、負けた棋譜の周辺を重点的に掘る場合は `peta unsolved`、過去配布定跡への対策候補を掘る場合は `peta opponent` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` または `peta_book-....ybb` を `book/backup/` に置き、`peta_read` → `peta next` / `peta refutation` / `peta depth gap` / `peta unsolved` / `peta opponent` → `enqueue` と進めます。
@@ -129,7 +130,7 @@ GUIでは `peta refutation`、CLIでは `pr` コマンドです。
 pr 30 100 9999 200 None 400
 ```
 
-引数は `eval_diff eval_refutation_margin max_step max_book_ply book_extend_ply eval_limit` の順です。GUIでは `peta next` と `peta refutation` で `max step` を別々に指定できます。手順2の行が空欄ならデフォルト値行の値が使われ、`None` と明示した場合はCLI側でデフォルト値が使われます。
+引数は `eval_diff eval_refutation_margin max_step max_book_ply book_extend_ply eval_limit` の順です。GUIでは `peta next` と `peta refutation` で `max step` を別々に指定できます。手順2の行が空欄ならデフォルト値行の値が使われ、`None` と明示した場合は直前の `sd` で設定した値が使われます。
 
 判定式は次の通りです。
 
@@ -149,7 +150,7 @@ GUIでは `peta depth gap`、CLIでは `pdg` コマンドです。
 pdg 30 0.1 9999 200 None 400
 ```
 
-引数は `eval_diff eval_per_ply max_step max_book_ply book_extend_ply eval_limit` の順です。`eval_diff` と `max_step` は `peta next` と同じ意味です。`None` を指定するとデフォルト値を使います。
+引数は `eval_diff eval_per_ply max_step max_book_ply book_extend_ply eval_limit` の順です。`eval_diff` と `max_step` は `peta next` と同じ意味です。共通引数に `None` を指定すると直前の `sd` で設定した値を使います。
 
 判定式は次の通りです。
 
@@ -173,7 +174,7 @@ GUIでは `peta unsolved`、CLIでは `pu` コマンドです。
 pu None None 200 None 400
 ```
 
-引数は `eval_drop_limit max_step max_book_ply book_extend_ply eval_limit` の順です。`None` を指定するとデフォルト値を使います。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかで、`None` の場合は `99999` 扱いです。
+引数は `eval_drop_limit max_step max_book_ply book_extend_ply eval_limit` の順です。共通引数に `None` を指定すると直前の `sd` で設定した値を使います。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかで、`None` の場合は `99999` 扱いです。
 
 `peta_unsolved` は `book/think_sfens.txt` を書き出すだけで、自動的には enqueue しません。負けた棋譜の変化周辺を確認してから、手動で `enqueue` します。
 
@@ -205,7 +206,9 @@ po 0 9999 200 20 400
 startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 ```
 
-この行を `enqueue` した場合、行ごとのメタ情報が探索条件として使われます。`None` の場合はメタ情報を書かず、BookMiner.py 側のデフォルト値を使います。同じ局面が複数の手順2から出た場合、自動enqueueの集約ではより大きいメタ情報を持つ行を残します。
+この行を `enqueue` した場合、行ごとのメタ情報が探索条件として使われます。`None` の場合はメタ情報を書かず、`sd` で設定したデフォルト値を使います。同じ局面が複数の手順2から出た場合、自動enqueueの集約ではより大きいメタ情報を持つ行を残します。
+
+GUI の `デフォルト値` 行は、各 peta 操作や `enqueue` の直前に `sd ...` として BookMiner.py / BookMinerCpp へ送られます。KifManager の棋譜抽出で作った `think_sfens.txt` のように行末メタ情報がない場合も、この `sd` の値で `game_ply_limit`、`book_extend_ply`、`eval_limit` が決まります。
 
 ## eval_diff と eval_limit
 
