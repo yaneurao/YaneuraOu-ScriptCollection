@@ -97,6 +97,11 @@ PETA_MAKEBOOK_LINE_RE = re.compile(
 )
 YANEURAOU_PROGRESS_BAR_RE = re.compile(r"^\s*0%\s+\[.*\]\s+100%\s*$")
 STEP_BUTTON_WIDTH = 12
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 720
+MIN_WINDOW_WIDTH = 760
+MIN_WINDOW_HEIGHT = 520
+WINDOW_SCREEN_MARGIN = 48
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
 MINING_STATS_SAMPLE_INTERVAL_MS = 60 * 1000
@@ -273,6 +278,16 @@ def think_sfen_metadata_rank(metadata: ThinkSfenMetadata) -> tuple[int, int, int
         book_extend_ply_rank(metadata.eval_limit),
         book_extend_ply_rank(metadata.game_ply_limit),
     )
+
+
+def configure_initial_window_size(root: tk.Tk) -> None:
+    root.update_idletasks()
+    max_width = max(MIN_WINDOW_WIDTH, root.winfo_screenwidth() - WINDOW_SCREEN_MARGIN)
+    max_height = max(MIN_WINDOW_HEIGHT, root.winfo_screenheight() - WINDOW_SCREEN_MARGIN)
+    width = min(max(DEFAULT_WINDOW_WIDTH, root.winfo_reqwidth()), max_width)
+    height = min(max(DEFAULT_WINDOW_HEIGHT, root.winfo_reqheight()), max_height)
+    root.geometry(f"{width}x{height}")
+    root.minsize(min(MIN_WINDOW_WIDTH, width), min(MIN_WINDOW_HEIGHT, height))
 
 
 class Tooltip:
@@ -2487,12 +2502,12 @@ def main() -> int:
 
     root = tk.Tk()
     root.title("BookMiner GUI" + (" - C++" if args.cpp else ""))
-    root.geometry("980x720")
-    root.minsize(760, 520)
+    root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
     gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=args.cpp)
+    configure_initial_window_size(root)
 
     def on_close() -> None:
         if not messagebox.askyesno(
