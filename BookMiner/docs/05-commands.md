@@ -158,14 +158,14 @@ r backup/peta_book-20260607071000_12345.db
 
 GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....db` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
 
-このあと `n` コマンドを使うと、次に掘る局面を列挙できます。
+このあと `pn` コマンドを使うと、次に掘る局面を列挙できます。
 
-## `n`
+## `pn`
 
 peta shock 化して読み込んだ定跡から、leaf の先へ定跡ツリーを伸ばすための局面を書き出します。
 
 ```text
-n 30
+pn 30
 ```
 
 アルゴリズムの説明は下記のページをご覧ください。
@@ -183,26 +183,26 @@ book/think_sfens.txt
 
 第 1 引数は eval diff です。root の best move からどの程度評価値が離れた枝まで辿るかを指定します。
 
-例えば `n 100` は、best move から評価値が大きく離れすぎていない枝も辿って、leaf の先へ伸ばす局面を探す、という意味です。
+例えば `pn 100` は、best move から評価値が大きく離れすぎていない枝も辿って、leaf の先へ伸ばす局面を探す、という意味です。
 
 値を大きくすると、より多くの枝を辿るので出力される局面が増えます。値を小さくすると、best move に近い枝だけを辿ります。
 
-第 2 引数で最大 step 数(rootからの手数)を指定できます。省略時は `9999` です。
+第 2 引数で最大手数を指定できます。
 
 ```text
-n 30 40
+pn 30 200
 ```
 
-第 3 引数で最大手数を指定できます。
+第 3 引数で最大 step 数(rootからの手数)を指定できます。省略時は `9999` です。
 
 ```text
-n 30 40 200
+pn 30 200 40
 ```
 
-`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。第 3 引数を指定した場合は、その値を使います。
+`settings/book_miner_settings.json5` の `max_book_ply` に到達する局面は、出力対象から除外されます。第 2 引数を指定した場合は、その値を使います。`None` を指定すると省略時のデフォルト値を使います。
 
-`settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`n` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
-`n` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`n` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
+`settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されたファイルが存在する場合、`pn` コマンドは `startpos` ではなく、そのファイルに書かれた局面集合から辿り始めます。
+`pn` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`pn` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
 
 ## peta_next_refutation
@@ -210,10 +210,10 @@ n 30 40 200
 `peta_next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
 
 ```text
-nf 30 9999 200 100
+pnf 30 200 9999 100
 ```
 
-引数は順に `eval_diff`、`max_step`、`max_book_ply`、`eval_refutation_margin` です。`max_step` の省略時は `9999`、`eval_refutation_margin` の省略時は `100` です。
+引数は順に `eval_diff`、`max_book_ply`、`max_step`、`eval_refutation_margin` です。`max_step` の省略時は `9999`、`eval_refutation_margin` の省略時は `100` です。任意引数に `None` を指定するとデフォルト値を使います。
 
 leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の best であり、peta shock 前の通常bookでは best ではなく、次の条件を満たすものだけを `book/think_sfens.txt` へ書き出します。
 
@@ -221,17 +221,17 @@ leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の 
 peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >= eval_refutation_margin
 ```
 
-通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。`next_refutation` というコマンド名でも同じ処理を実行できます。
+通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
 ## peta_refutation
 
 peta shock 後、best になっている指し手の depth が 0 の局面を調べ、peta shock 前には 2番手以下だった指し手が best に反駁しているものを抽出します。
 
 ```text
-f 100 400
+pf 100 400 200
 ```
 
-引数は `eval_refutation_margin` です。省略時は `100` です。
+第1引数は `eval_refutation_margin` です。省略時は `100` です。
 peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。
 第2引数に `eval_limit` を指定すると、反駁候補手の peta shock 前の評価値の絶対値が `eval_limit` を超える局面は `book/think_sfens.txt` へ書き出しません。これは、その後 `enqueue` しても事前に retire することが確定している候補を除外するためです。第2引数を省略した場合、この事前除外は行いません。
 第3引数に `max_book_ply` を指定できます。
@@ -244,18 +244,18 @@ book/think_sfens.txt
 
 抽出された行は、反駁候補手を指した後の `sfen ... moves ...` 形式です。`enqueue` すると、その先の局面を探索できます。
 
-`f` コマンドは root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。
+`pf` コマンドは root から BFS で辿るのではなく、読み込み済みの `peta_book` の全nodeを走査します。
 反駁候補手を指した後の局面が `max_book_ply` に到達する場合は、次に掘る局面として書き出しません。第3引数を指定した場合は、その値を使います。
 10万node処理するごとに、走査済みnode数と `book/think_sfens.txt` へ書き出す予定の局面数が progress として表示されます。
 
-`refutation 100 400` というコマンド名でも同じ処理を実行できます。`refutation` だけの場合は `eval_refutation_margin=100`、`eval_limit` なしとして扱います。
+`pf None None 200` のように `None` を指定すると、その引数は省略時のデフォルト値を使います。
 
 ## peta_depth_gap
 
 peta shock 後、best以外の登録済み指し手について、その手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
-d 1
+pd 1
 ```
 
 引数は `eval_per_ply` です。省略時は `0.1` です。0以上の数値を指定します。`0.5` のような小数も指定できます。
@@ -276,7 +276,21 @@ d 1
 book/think_sfens.txt
 ```
 
-抽出された行は、候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿った leaf 局面です。`depth_gap 1` というコマンド名でも同じ処理を実行できます。
+抽出された行は、候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿った leaf 局面です。
+
+## peta_unsolved
+
+負けた棋譜などを `book/think_unsolved_sfens.txt` に入れておき、その棋譜上の各prefix局面から peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。
+
+```text
+pu None 200 None
+```
+
+引数は順に `eval_diff`、`max_book_ply`、`max_step` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
+
+`eval_diff` は、棋譜のroot局面の評価値からroot側視点でどれだけ悪化したprefixを除外するかです。`None` の場合は `99999` 扱いになり、通常は評価値差では除外しません。
+
+`pu` は `book/think_sfens.txt` を書き出すだけです。書き出し後の `enqueue` は手動で実行してください。
 
 ## `i`
 

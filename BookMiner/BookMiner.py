@@ -66,12 +66,16 @@ TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
 DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 0.1
+PETA_DEFAULT_INF_EVAL_DIFF = 99999
+PETA_DEFAULT_MAX_STEP = 9999
 PETA_DEPTH_GAP_MAX_BEST_DEPTH = 1000
 PETA_REFUTATION_PROGRESS_INTERVAL = 100000
 PETA_DEPTH_GAP_PROGRESS_INTERVAL = 100000
+PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
+THINK_UNSOLVED_SFENS_NAME = "think_unsolved_sfens.txt"
 
 # 自動保存の間隔 [s]。settings/book_miner_settings.json5 で上書きされる。
 AUTO_SAVE_INTERVAL = 3 * 60 * 60 # 3時間おき
@@ -648,6 +652,35 @@ def append_position_move(position_cmd:PositionStr, move:MoveStr)->PositionStr:
     return f"{position_cmd} moves {move}"
 
 
+def base_position_command(position_cmd:PositionStr)->PositionStr:
+    """
+    position commandのうち、movesより前だけをBookMiner内部の形式で返す。
+    `position startpos moves ...` は `startpos` に正規化する。
+    """
+    text = position_cmd.strip()
+    if text.startswith('position '):
+        text = text[len('position '):].strip()
+    base, _, _ = text.partition(' moves ')
+    return base.strip()
+
+
+def iter_position_prefixes(position_cmd:PositionStr):
+    """
+    position commandの各prefixを `(position_cmd, sfen_with_ply)` として列挙する。
+    例: startpos moves 7g7f 3c3d なら startpos, startpos moves 7g7f, ...
+    """
+    base_cmd = base_position_command(position_cmd)
+    sfen, moves = parse_position_string(position_cmd)
+    board = cshogi.Board(sfen) # type:ignore
+    current_cmd = base_cmd
+    yield current_cmd, board.sfen()
+
+    for move in moves:
+        checked_push_usi(board, move, context=position_cmd)
+        current_cmd = append_position_move(current_cmd, move)
+        yield current_cmd, board.sfen()
+
+
 def decode_position_string(s : PositionStr)->Sfen:
     """
     positionコマンドで指定する文字列
@@ -684,6 +717,28 @@ def index_of(a:list[Any] | str, x:Any):
     if x in a:
         return a.index(x)
     return -1
+
+
+def is_none_argument(value:str)->bool:
+    return value.strip().lower() == "none"
+
+
+def parse_int_argument(args:list[str], index:int, default:int)->int:
+    if len(args) <= index or is_none_argument(args[index]):
+        return default
+    return int(args[index])
+
+
+def parse_optional_int_argument(args:list[str], index:int)->int|None:
+    if len(args) <= index or is_none_argument(args[index]):
+        return None
+    return int(args[index])
+
+
+def parse_float_argument(args:list[str], index:int, default:float)->float:
+    if len(args) <= index or is_none_argument(args[index]):
+        return default
+    return float(args[index])
 
 def clamp_eval(x:int)->int:
     return min(VALUE_EVAL_CLAMP, max(-VALUE_EVAL_CLAMP, x))
@@ -2477,6 +2532,20 @@ def best_moveinfo_in_sfen_orientation(position_info:PositionInfo, flipped_bookhi
     return best_info, moveinfo_move_in_sfen_orientation(best_info, flipped_bookhit)
 
 
+def peta_best_moveinfo_for_sfen(sfen:Sfen)->tuple[MoveInfo|None, MoveStr]:
+    global peta_book
+
+    position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
+    if position_info is None or not position_info.moveinfos:
+        return None, "none"
+
+    best, best_move = best_moveinfo_in_sfen_orientation(position_info, flipped_bookhit)
+    if best is None or not isinstance(best.eval, int):
+        return None, "none"
+
+    return best, best_move
+
+
 def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen]]:
     root_positions : list[tuple[PositionStr, Sfen]] = []
     if os.path.exists(start_sfens_path):
@@ -2580,6 +2649,7 @@ def peta_pv_leaf_position_cmd(
     sfen_with_ply:Sfen,
     first_move:MoveStr,
     max_book_ply:int,
+    max_step:int = PETA_DEFAULT_MAX_STEP,
 )->PositionStr|None:
     """
     first_moveを指した後、peta_book上のbest PVをdepth 0またはDB外まで辿り、
@@ -2587,6 +2657,9 @@ def peta_pv_leaf_position_cmd(
     """
 
     global peta_book
+
+    if max_step <= 0:
+        return None
 
     board = cshogi.Board(sfen_with_ply)
     checked_push_usi(board, first_move, context=position_cmd)
@@ -2597,6 +2670,7 @@ def peta_pv_leaf_position_cmd(
 
     leaf_position_cmd = append_position_move(position_cmd, first_move)
     visited : set[Sfen] = set()
+    step = 1
 
     while True:
         current_sfen, current_ply = trim_sfen_ply(next_sfen_with_ply)
@@ -2615,6 +2689,8 @@ def peta_pv_leaf_position_cmd(
         best = position_info.moveinfos[0]
         if best.depth <= 0:
             return leaf_position_cmd
+        if step >= max_step:
+            return None
 
         move = moveinfo_move_in_sfen_orientation(best, flipped_bookhit)
         board = cshogi.Board(next_sfen_with_ply)
@@ -2625,6 +2701,118 @@ def peta_pv_leaf_position_cmd(
             return None
 
         leaf_position_cmd = append_position_move(leaf_position_cmd, move)
+        step += 1
+
+
+def peta_unsolved(
+    eval_diff:int = PETA_DEFAULT_INF_EVAL_DIFF,
+    max_book_ply:int = MAX_BOOK_PLY,
+    max_step:int = PETA_DEFAULT_MAX_STEP,
+    unsolved_sfens_path:str|None = None,
+):
+    """
+    book/think_unsolved_sfens.txt にある棋譜の各prefixについて、
+    peta_book上のbest PVをleafまで辿った局面を book/think_sfens.txt に書き出す。
+
+    eval_diff は、棋譜rootの評価値からroot側視点で指定値以上悪化したprefixを除外する。
+    """
+
+    if unsolved_sfens_path is None:
+        unsolved_sfens_path = os.path.join(BOOK_DIR, THINK_UNSOLVED_SFENS_NAME)
+
+    print(
+        f"peta_unsolved, eval_diff = {eval_diff}, "
+        f"max_book_ply = {max_book_ply}, max_step = {max_step}, "
+        f"unsolved_sfens_path = {unsolved_sfens_path}"
+    )
+
+    if not os.path.exists(unsolved_sfens_path):
+        raise Exception(f"think_unsolved_sfens file not found : {unsolved_sfens_path}")
+
+    think_sfens : dict[PositionStr,None] = {}
+    processed_prefixes = 0
+    input_games = 0
+    candidates = 0
+    skipped_by_eval_diff = 0
+    skipped_by_ply = 0
+    skipped_no_peta = 0
+    skipped_no_leaf = 0
+
+    with open(unsolved_sfens_path, 'r') as f:
+        for line_no, line in enumerate(f, start=1):
+            position_line = line.strip()
+            if not position_line or position_line.startswith('#'):
+                continue
+
+            input_games += 1
+            prefixes = iter_position_prefixes(position_line)
+            try:
+                root_position_cmd, root_sfen_with_ply = next(prefixes)
+            except StopIteration:
+                continue
+
+            root_sfen, root_ply = trim_sfen_ply(root_sfen_with_ply)
+            root_best, _ = peta_best_moveinfo_for_sfen(root_sfen)
+            if root_best is None or not isinstance(root_best.eval, int):
+                skipped_no_peta += 1
+                continue
+
+            root_eval = root_best.eval
+            for prefix_position_cmd, prefix_sfen_with_ply in [(root_position_cmd, root_sfen_with_ply), *prefixes]:
+                processed_prefixes += 1
+                if processed_prefixes % PETA_UNSOLVED_PROGRESS_INTERVAL == 0:
+                    print(
+                        f"unsolved progress prefixes = {processed_prefixes} , "
+                        f"think_sfens = {len(think_sfens)} , "
+                        f"skipped_by_eval_diff = {skipped_by_eval_diff} , "
+                        f"skipped_by_ply = {skipped_by_ply} , "
+                        f"skipped_no_peta = {skipped_no_peta}"
+                    )
+
+                prefix_sfen, prefix_ply = trim_sfen_ply(prefix_sfen_with_ply)
+                if prefix_ply >= max_book_ply:
+                    skipped_by_ply += 1
+                    continue
+
+                best, best_move = peta_best_moveinfo_for_sfen(prefix_sfen)
+                if best is None or not isinstance(best.eval, int):
+                    skipped_no_peta += 1
+                    continue
+
+                # evalは局面の手番側視点なので、rootから手番が反転していれば符号を反転する。
+                current_eval_from_root = best.eval if (prefix_ply - root_ply) % 2 == 0 else -best.eval
+                if root_eval - current_eval_from_root >= eval_diff:
+                    skipped_by_eval_diff += 1
+                    continue
+
+                candidates += 1
+                leaf_position_cmd = peta_pv_leaf_position_cmd(
+                    prefix_position_cmd,
+                    prefix_sfen_with_ply,
+                    best_move,
+                    max_book_ply,
+                    max_step,
+                )
+                if leaf_position_cmd is None:
+                    skipped_no_leaf += 1
+                    continue
+
+                think_sfens[leaf_position_cmd] = None
+
+    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+    with open(path, 'w') as w:
+        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+        for position_cmd in think_sfens:
+            w.write(position_cmd + '\n')
+
+    print("peta_unsolved done.")
+    print(
+        f"[PetaUnsolvedDone] path={path} count={len(think_sfens)} "
+        f"input_games={input_games} processed_prefixes={processed_prefixes} "
+        f"candidates={candidates} skipped_by_eval_diff={skipped_by_eval_diff} "
+        f"skipped_by_ply={skipped_by_ply} skipped_no_peta={skipped_no_peta} "
+        f"skipped_no_leaf={skipped_no_leaf}"
+    )
 
 
 def peta_depth_gap(eval_per_ply:float, max_book_ply:int):
@@ -2957,10 +3145,11 @@ def user_input(from_gui:bool = False):
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
-                print("  N    : peta_shock next , n peta_eval_diff (max_step) (max_book_ply)")
-                print("  NF   : peta next refutation , nf peta_eval_diff (max_step) (max_book_ply) (eval_refutation_margin)")
-                print("  F    : peta refutation , f (eval_refutation_margin) (eval_limit) (max_book_ply)")
-                print("  D    : peta depth gap , d (eval_per_ply) (max_book_ply)")
+                print("  PN   : peta_shock next , pn peta_eval_diff (max_book_ply) (max_step)")
+                print("  PNF  : peta next refutation , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)")
+                print("  PF   : peta refutation , pf (eval_refutation_margin) (eval_limit) (max_book_ply)")
+                print("  PD   : peta depth gap , pd (eval_per_ply) (max_book_ply)")
+                print("  PU   : peta unsolved , pu (eval_diff) (max_book_ply) (max_step)")
                 print("  H : Help")
 
                 # --- 削除したコマンド
@@ -3052,16 +3241,19 @@ def user_input(from_gui:bool = False):
                 # write and peta_read
                 write_and_read_peta_book(book)
             
-            elif i == 'n':
+            elif i == 'pn':
                 # peta_next
                 if len(inp) < 2:
-                    print("Usage : n peta_eval_diff (max_step) (max_book_ply)")
+                    print("Usage : pn peta_eval_diff (max_book_ply) (max_step)")
                 else:
-                    peta_eval_diff = int(inp[1])
-                    max_step = 9999 if len(inp) < 3 else int(inp[2])
-                    max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
+                    peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
+                    max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                    max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
                     if max_book_ply <= 0:
                         print("Error : max_book_ply must be positive integer.")
+                        continue
+                    if max_step <= 0:
+                        print("Error : max_step must be positive integer.")
                         continue
                     peta_next(
                         peta_eval_diff,
@@ -3070,17 +3262,20 @@ def user_input(from_gui:bool = False):
                         book_miner_settings.peta_next_start_sfens_path,
                     )
 
-            elif i == 'nf' or i == 'next_refutation':
+            elif i == 'pnf':
                 # peta_next_refutation
                 if len(inp) < 2:
-                    print("Usage : nf peta_eval_diff (max_step) (max_book_ply) (eval_refutation_margin)")
+                    print("Usage : pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)")
                 else:
-                    peta_eval_diff = int(inp[1])
-                    max_step = 9999 if len(inp) < 3 else int(inp[2])
-                    max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
-                    eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 5 else int(inp[4])
+                    peta_eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
+                    max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                    max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
+                    eval_refutation_margin = parse_int_argument(inp, 4, DEFAULT_EVAL_REFUTATION_MARGIN)
                     if max_book_ply <= 0:
                         print("Error : max_book_ply must be positive integer.")
+                        continue
+                    if max_step <= 0:
+                        print("Error : max_step must be positive integer.")
                         continue
                     peta_next(
                         peta_eval_diff,
@@ -3091,11 +3286,11 @@ def user_input(from_gui:bool = False):
                         eval_refutation_margin,
                     )
 
-            elif i == 'f' or i == 'refutation':
+            elif i == 'pf':
                 # peta_refutation
-                eval_refutation_margin = DEFAULT_EVAL_REFUTATION_MARGIN if len(inp) < 2 else int(inp[1])
-                refutation_eval_limit = None if len(inp) < 3 else int(inp[2])
-                max_book_ply = book_miner_settings.max_book_ply if len(inp) < 4 else int(inp[3])
+                eval_refutation_margin = parse_int_argument(inp, 1, DEFAULT_EVAL_REFUTATION_MARGIN)
+                refutation_eval_limit = parse_optional_int_argument(inp, 2)
+                max_book_ply = parse_int_argument(inp, 3, book_miner_settings.max_book_ply)
                 if max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                     continue
@@ -3106,10 +3301,10 @@ def user_input(from_gui:bool = False):
                     max_book_ply,
                 )
 
-            elif i == 'd' or i == 'depth_gap':
+            elif i == 'pd':
                 # peta_depth_gap
-                eval_per_ply = DEFAULT_DEPTH_GAP_EVAL_PER_PLY if len(inp) < 2 else float(inp[1])
-                max_book_ply = book_miner_settings.max_book_ply if len(inp) < 3 else int(inp[2])
+                eval_per_ply = parse_float_argument(inp, 1, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
+                max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
                 if eval_per_ply < 0:
                     print("Error : eval_per_ply must be non-negative number.")
                 elif max_book_ply <= 0:
@@ -3118,6 +3313,22 @@ def user_input(from_gui:bool = False):
                     peta_depth_gap(
                         eval_per_ply,
                         max_book_ply,
+                    )
+
+            elif i == 'pu':
+                # peta_unsolved
+                eval_diff = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
+                max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                max_step = parse_int_argument(inp, 3, PETA_DEFAULT_MAX_STEP)
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                elif max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                else:
+                    peta_unsolved(
+                        eval_diff,
+                        max_book_ply,
+                        max_step,
                     )
 
         except Exception as e:

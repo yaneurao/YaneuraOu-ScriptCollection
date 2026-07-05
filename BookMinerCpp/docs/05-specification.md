@@ -26,7 +26,11 @@ q                 保存して終了
 w [ply_limit]     通常DBを手動保存
 p                 通常DB保存、peta_shock、peta book 読み込み
 r [path]          指定 peta book、または最新 peta book を読み込み
-n eval_diff [max_step]
+pn eval_diff [max_book_ply] [max_step]
+pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]
+pf [eval_refutation_margin] [eval_limit] [max_book_ply]
+pd [eval_per_ply] [max_book_ply]
+pu [eval_diff] [max_book_ply] [max_step]
 t [path]
 e eval_limit
 h

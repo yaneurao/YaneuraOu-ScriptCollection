@@ -124,7 +124,7 @@ BookMiner が書き出す通常定跡 DB には、次のような特徴があり
 peta shock 化は、やねうら王の `makebook peta_shock` コマンドです。
 
 通常定跡 DB を後ろから解析し、leaf 側の評価値を min-max で root 側へ伝播させた peta_book を作ります。
-BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、反駁候補を探す `peta_refutation`、対局用定跡の作成に使います。
+BookMiner では、次に掘る leaf を探す `peta_next`、反駁された leaf を探す `peta_next_refutation`、反駁候補を探す `peta_refutation`、負け棋譜周辺を掘る `peta_unsolved`、対局用定跡の作成に使います。
 
 詳しくは [10. peta shock 化](10-peta-shock.md) を参照してください。
 
@@ -216,7 +216,7 @@ peta shock 化した定跡 DB から、leaf の先へ定跡ツリーを伸ばす
 
 `peta_next` の leaf のうち、定跡から抜ける最後の1手が peta shock 前の通常bookでは best ではなかったものだけを抽出する処理です。
 
-BookMiner の CLI では `nf eval_diff [max_step] [max_book_ply] [eval_refutation_margin]`、GUI では `peta next refu.` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]`、GUI では `peta next refu.` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
 
 ## 反駁
 
@@ -228,13 +228,19 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 peta shock 後に best になっている depth 0 の指し手のうち、peta shock 前は2番手以下で、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものを抽出する処理です。
 
-BookMiner の CLI では `f eval_refutation_margin [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは enqueue 欄の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
+BookMiner の CLI では `pf [eval_refutation_margin] [eval_limit] [max_book_ply]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。GUIでは enqueue 欄の `eval_limit` を使い、enqueue 時に retire することが確定している候補を事前に除外します。
 
 ## peta_depth_gap
 
 peta shock 後に、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
-BookMiner の CLI では `d eval_per_ply`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pd [eval_per_ply] [max_book_ply]`、GUI では `peta depth_gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+
+## peta_unsolved
+
+`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿り、次に掘る局面として `book/think_sfens.txt` に書き出す処理です。
+
+BookMiner の CLI では `pu [eval_diff] [max_book_ply] [max_step]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。書き出し後の enqueue は手動で実行します。
 
 ## KifManager
 

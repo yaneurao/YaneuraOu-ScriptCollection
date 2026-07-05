@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta_next / peta_next_refutation / peta_refutation / peta_depth_gap](assets/peta-shock-next.svg)
+![peta_shock と peta_next / peta_next_refutation / peta_refutation / peta_depth_gap / peta_unsolved](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta_next / peta_next_refutation / peta_refutation / peta_depth_gap で局面を列挙する
+## 手順2. peta_next / peta_next_refutation / peta_refutation / peta_depth_gap / peta_unsolved で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -112,7 +112,7 @@ book/backup/peta_book-20260607103251_14505901.db
 CLI:
 
 ```text
-n 99999
+pn 99999
 ```
 
 GUI:
@@ -129,11 +129,11 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `n`/`nf`/`f`/`d` コマンドの末尾側の引数で調整してください。
+ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pnf` / `pf` / `pd` / `pu` コマンドの引数で調整してください。
 
 ## 手順3. enqueue する
 
-`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta_next`、`peta_next_refutation`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -176,7 +176,7 @@ GUI:
 CLI:
 
 ```text
-f 100 400
+pf 100 400 200
 ```
 
 GUI:
@@ -186,7 +186,7 @@ GUI:
 手順3. enqueue          eval_limit 400
 ```
 
-`100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。GUIでは enqueue 欄の `eval_limit` も同時に `f` コマンドへ渡し、反駁候補手の旧評価値の絶対値が `eval_limit` を超えるものは事前に除外します。
+`100` は `eval_refutation_margin`、`400` は `eval_limit`、`200` は `max_book_ply` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上のものだけを抽出します。GUIでは enqueue 欄の `eval_limit` も同時に `pf` コマンドへ渡し、反駁候補手の旧評価値の絶対値が `eval_limit` を超えるものは事前に除外します。
 
 出力先は `peta_next` と同じです。
 
@@ -201,7 +201,7 @@ book/think_sfens.txt
 CLI:
 
 ```text
-nf 99999 9999 200 100
+pnf 99999 200 9999 100
 ```
 
 GUI:
@@ -246,6 +246,7 @@ GUI:
         または peta next refu. eval_diff 99999 eval refu. 100
         または peta refutation eval refu. 100
         または peta depth_gap eval/ply 0.1
+        または peta unsolved eval_diff None
 手順3. enqueue    eval_limit 99999
 ```
 

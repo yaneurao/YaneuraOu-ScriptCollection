@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1040" height="470" viewBox="0 0 1040 470" role="img" aria-labelledby="title desc">
-  <title id="title">n コマンドと peta_start_sfens.txt</title>
-  <desc id="desc">nコマンドはメモリ上のpeta_bookを辿り、peta_start_sfens.txtがある場合は開始局面集合として使う</desc>
+  <title id="title">pn コマンドと peta_start_sfens.txt</title>
+  <desc id="desc">pnコマンドはメモリ上のpeta_bookを辿り、peta_start_sfens.txtがある場合は開始局面集合として使う</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
@@ -21,7 +21,7 @@
     </style>
   </defs>
   <rect class="bg" x="0" y="0" width="1040" height="470"/>
-  <text class="text" x="520" y="38" style="font-size:23px">n コマンドはメモリ上の peta_book を辿る。DBファイルは読み直さない。</text>
+  <text class="text" x="520" y="38" style="font-size:23px">pn コマンドはメモリ上の peta_book を辿る。DBファイルは読み直さない。</text>
 
   <rect class="box file" x="45" y="95" width="285" height="170" rx="14"/>
   <text class="text" x="187" y="127">book/peta_start_sfens.txt</text>
@@ -32,8 +32,8 @@
 
   <path class="line" d="M 340 180 H 405"/>
   <rect class="box tool" x="415" y="110" width="215" height="140" rx="14"/>
-  <text class="text" x="522" y="141">n コマンド</text>
-  <text class="text small" x="522" y="166">peta_next (n)</text>
+  <text class="text" x="522" y="141">pn コマンド</text>
+  <text class="text small" x="522" y="166">peta_next (pn)</text>
   <text class="text small" x="522" y="190">開始局面から</text>
   <text class="text small" x="522" y="212">peta_bookを辿る</text>
   <text class="text small" x="522" y="234">DBファイルは読まない</text>
