@@ -2238,6 +2238,7 @@ class BookMinerGui(ttk.Frame):
                 "manual_peta_next_refutation",
                 "manual_peta_next_gap",
                 "manual_peta_unsolved",
+                "manual_peta_opponent",
                 "auto_enqueue",
             }
         )
@@ -2260,6 +2261,7 @@ class BookMinerGui(ttk.Frame):
         configure_state("next_refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("next_gap_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("unsolved_button", "normal" if command_enabled and not peta_book_busy else "disabled")
+        configure_state("opponent_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state(
             "enqueue_button",
             (
