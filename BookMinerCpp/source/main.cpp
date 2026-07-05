@@ -2872,11 +2872,11 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
-    log_line("  PR : peta refutation         , pr (peta_eval_diff) (eval_refutation_margin) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PD : peta depth gap          , pd (eval_per_ply) (max_book_ply)");
-    log_line("  PDG: peta depth gap          , pdg (peta_eval_diff) (eval_per_ply) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PDG: peta depth gap          , pdg (eval_per_ply) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PU : peta unsolved           , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PO : peta opponent           , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  H : Help");
@@ -3192,8 +3192,8 @@ int main(int argc, char* argv[])
             }
             else if (command == "pr")
             {
-                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
-                const int eval_refutation_margin = parse_int_argument(tokens, 2, DefaultEvalRefutationMargin);
+                const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
+                const int peta_eval_diff = parse_int_argument(tokens, 2, command_defaults.eval_diff);
                 const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
                 const int command_max_book_ply = parse_int_argument(tokens, 4, command_defaults.game_ply_limit);
                 const int book_extend_ply = parse_int_argument(tokens, 5, command_defaults.book_extend_ply);
@@ -3279,8 +3279,8 @@ int main(int argc, char* argv[])
             }
             else if (command == "pdg")
             {
-                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
-                const double eval_per_ply = parse_double_argument(tokens, 2, DefaultDepthGapEvalPerPly);
+                const double eval_per_ply = parse_double_argument(tokens, 1, DefaultDepthGapEvalPerPly);
+                const int peta_eval_diff = parse_int_argument(tokens, 2, command_defaults.eval_diff);
                 const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
                 const int command_max_book_ply = parse_int_argument(tokens, 4, command_defaults.game_ply_limit);
                 const int book_extend_ply = parse_int_argument(tokens, 5, command_defaults.book_extend_ply);

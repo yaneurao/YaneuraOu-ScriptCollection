@@ -125,7 +125,7 @@ e で book/think_sfens.txt を探索 queue に積む
 
 ```text
 p で peta_book を作って読む
-pr 30 100 9999 200 None で反駁leafを book/think_sfens.txt に書き出す
+pr 100 30 9999 200 None で反駁leafを book/think_sfens.txt に書き出す
 e で book/think_sfens.txt を探索 queue に積む
 ```
 
@@ -177,10 +177,10 @@ peta shock 後に、ある局面の best が入れ替わることがあります
 通常の `peta next` で辿った leaf のうち、定跡から抜ける最後の1手が反駁された手だったものだけを出力する `pr` コマンドがあります。GUIでは `peta refutation` がこれに対応します。
 
 ```text
-pr 30 100 9999 200 None
+pr 100 30 9999 200 None
 ```
 
-引数は `eval_diff eval_refutation_margin max_step max_book_ply book_extend_ply` の順です。peta shock 後の局面で、
+引数は `eval_refutation_margin eval_diff max_step max_book_ply book_extend_ply` の順です。peta shock 後の局面で、
 
 ```text
 peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >= eval_refutation_margin

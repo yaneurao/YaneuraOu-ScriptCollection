@@ -3793,8 +3793,8 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
-                print("  PR  : peta refutation , pr (peta_eval_diff) (eval_refutation_margin) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
-                print("  PDG   : peta depth gap , pdg (peta_eval_diff) (eval_per_ply) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PDG   : peta depth gap , pdg (eval_per_ply) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PO   : peta opponent , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  H : Help")
@@ -3935,8 +3935,8 @@ def user_input(from_gui:bool = False):
 
             elif i == 'pr':
                 # peta_refutation
-                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
-                eval_refutation_margin = parse_int_argument(inp, 2, DEFAULT_EVAL_REFUTATION_MARGIN)
+                eval_refutation_margin = parse_int_argument(inp, 1, DEFAULT_EVAL_REFUTATION_MARGIN)
+                peta_eval_diff = parse_int_argument(inp, 2, command_defaults.eval_diff)
                 max_step = parse_int_argument(inp, 3, command_defaults.max_step)
                 max_book_ply = parse_int_argument(inp, 4, command_defaults.game_ply_limit)
                 book_extend_ply = parse_int_argument(inp, 5, command_defaults.book_extend_ply)
@@ -3972,8 +3972,8 @@ def user_input(from_gui:bool = False):
 
             elif i == 'pdg':
                 # peta_depth_gap
-                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
-                eval_per_ply = parse_float_argument(inp, 2, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
+                eval_per_ply = parse_float_argument(inp, 1, DEFAULT_DEPTH_GAP_EVAL_PER_PLY)
+                peta_eval_diff = parse_int_argument(inp, 2, command_defaults.eval_diff)
                 max_step = parse_int_argument(inp, 3, command_defaults.max_step)
                 max_book_ply = parse_int_argument(inp, 4, command_defaults.game_ply_limit)
                 book_extend_ply = parse_int_argument(inp, 5, command_defaults.book_extend_ply)

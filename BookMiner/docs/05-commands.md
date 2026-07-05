@@ -205,10 +205,10 @@ pn 30 40 200
 `peta next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
 
 ```text
-pr 30 100 9999 200 None 400
+pr 100 30 9999 200 None 400
 ```
 
-引数は順に `eval_diff`、`eval_refutation_margin`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_refutation_margin` の省略時は `100` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。
+引数は順に `eval_refutation_margin`、`eval_diff`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_refutation_margin` の省略時は `100` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。
 
 leaf を作る最後の1手について、peta shock 後のDBでは depth 0 の best であり、peta shock 前の通常bookでは best ではなく、次の条件を満たすものだけを `book/think_sfens.txt` へ書き出します。
 
@@ -223,10 +223,10 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 peta shock 後、`peta next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
-pdg 30 0.1 9999 200 None 400
+pdg 0.1 30 9999 200 None 400
 ```
 
-引数は順に `eval_diff`、`eval_per_ply`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_diff` と `max_step` は `peta next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。共通引数を省略または `None` 指定した場合は `sd` の値を使います。
+引数は順に `eval_per_ply`、`eval_diff`、`max_step`、`max_book_ply`、`book_extend_ply`、`eval_limit` です。`eval_diff` と `max_step` は `peta next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。共通引数を省略または `None` 指定した場合は `sd` の値を使います。
 判定式は次の通りです。
 
 ```text

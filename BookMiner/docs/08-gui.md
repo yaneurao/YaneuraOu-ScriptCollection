@@ -91,9 +91,9 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 `peta next` は `pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。例えばデフォルト値行が初期値のままなら、行側をすべて空欄にして実行すると `pn 30 99999 200 6 400` を送信します。
 
-`peta refutation` は `pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply eval_limit` を送信します。通常の `peta next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta next` とは別に指定できます。
+`peta refutation` は `pr eval_refutation_margin eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。通常の `peta next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta next` とは別に指定できます。
 
-`peta depth gap` は `pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply eval_limit` を送信します。`peta next` と同じ範囲で、best以外の登録済み指し手がbestより浅く、depth差ぶん延長すれば best を逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
+`peta depth gap` は `pdg eval_per_ply eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`peta next` と同じ範囲で、best以外の登録済み指し手がbestより浅く、depth差ぶん延長すれば best を逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
 
 `peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
 

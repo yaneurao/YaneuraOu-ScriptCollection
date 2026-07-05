@@ -147,9 +147,9 @@ book/think_sfens.txt
 定跡は `FlippedBook` 前提で先手番局面だけが入っていることがあるため、peta next中の局面検索では、元局面の `PackedSfen` と、それを直接 flip した `PackedSfen` の両方を調べます。
 flip hitした場合の指し手は、やねうら王の `flip_move(Move16)` で元局面側の指し手に戻してから辿ります。
 
-`pr eval_diff [eval_refutation_margin] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`peta next` のleafのうち、定跡から抜ける最後の1手が通常book上ではbestではなかったものだけを書き出します。判定はPython版と同じく、peta_book上の `反駁候補手評価値 - 旧best手評価値 >= eval_refutation_margin` です。
+`pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`peta next` のleafのうち、定跡から抜ける最後の1手が通常book上ではbestではなかったものだけを書き出します。判定はPython版と同じく、peta_book上の `反駁候補手評価値 - 旧best手評価値 >= eval_refutation_margin` です。
 
-`pdg eval_diff [eval_per_ply] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`peta next` と同じ範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを書き出します。
+`pdg eval_per_ply [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`peta next` と同じ範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを書き出します。
 
 共通引数に `None` を指定した場合は `sd` の値を使います。
 

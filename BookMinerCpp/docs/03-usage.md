@@ -62,8 +62,8 @@ r                 最新の peta_book を読み込む
 sd 30 99999 200 6 400
                   peta系コマンドと enqueue の共通デフォルト値を設定する
 pn 100            peta next を実行し、think_sfens.txt を作る
-pr 100 100        peta next の leaf のうち、反駁された leaf だけを作る
-pdg 100 0.1       depth差で逆転しうる候補のPV leafを作る
+pr 100 30         peta next の leaf のうち、反駁された leaf だけを作る
+pdg 0.1 100       depth差で逆転しうる候補のPV leafを作る
 pu None None 200 None 400
                   think_unsolved_sfens.txt の棋譜prefix周辺を作る
 po 0 9999 200 20 400

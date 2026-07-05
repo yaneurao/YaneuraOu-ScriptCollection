@@ -50,8 +50,8 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta_shock` | `p` | 現在の通常bookを peta shock 化して、生成された `peta_book-....db` を読み込みます。通常bookが未変更なら既存DBを再利用し、変更済みなら書き出してから変換します。変換元が既存 `.ybb` の場合は `.ybb` のまま変換します。 |
 | `peta_read` | `r` | すでに存在する `peta_book-....db` または `peta_book-....ybb` を読み込みます。peta shock 化自体は行いません。 |
 | `peta next` | `pn eval_diff [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | 読み込み済みの peta_book を辿り、次に掘る候補を `book/think_sfens.txt` に書き出します。 |
-| `peta refutation` | `pr eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、元DBでは best ではなかった反駁leafだけを `book/think_sfens.txt` に書き出します。 |
-| `peta depth gap` | `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` と同じ範囲で、best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
+| `peta refutation` | `pr eval_refutation_margin [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、元DBでは best ではなかった反駁leafだけを `book/think_sfens.txt` に書き出します。 |
+| `peta depth gap` | `pdg eval_per_ply [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta next` と同じ範囲で、best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜prefixから peta_book 上の best PV leaf を `book/think_sfens.txt` に書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta_book の best 進行を辿り、対策候補leafを `book/think_sfens.txt` に書き出します。 |
 | `デフォルト値` | `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` | 手順2系コマンドと `enqueue` が `None` やメタ情報なし行で使う共通デフォルト値を設定します。 |
@@ -127,10 +127,10 @@ best move ではない
 GUIでは `peta refutation`、CLIでは `pr` コマンドです。
 
 ```text
-pr 30 100 9999 200 None 400
+pr 100 30 9999 200 None 400
 ```
 
-引数は `eval_diff eval_refutation_margin max_step max_book_ply book_extend_ply eval_limit` の順です。GUIでは `peta next` と `peta refutation` で `max step` を別々に指定できます。手順2の行が空欄ならデフォルト値行の値が使われ、`None` と明示した場合は直前の `sd` で設定した値が使われます。
+引数は `eval_refutation_margin eval_diff max_step max_book_ply book_extend_ply eval_limit` の順です。GUIでは `peta next` と `peta refutation` で `max step` を別々に指定できます。手順2の行が空欄ならデフォルト値行の値が使われ、`None` と明示した場合は直前の `sd` で設定した値が使われます。
 
 判定式は次の通りです。
 
@@ -147,10 +147,10 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 GUIでは `peta depth gap`、CLIでは `pdg` コマンドです。
 
 ```text
-pdg 30 0.1 9999 200 None 400
+pdg 0.1 30 9999 200 None 400
 ```
 
-引数は `eval_diff eval_per_ply max_step max_book_ply book_extend_ply eval_limit` の順です。`eval_diff` と `max_step` は `peta next` と同じ意味です。共通引数に `None` を指定すると直前の `sd` で設定した値を使います。
+引数は `eval_per_ply eval_diff max_step max_book_ply book_extend_ply eval_limit` の順です。`eval_diff` と `max_step` は `peta next` と同じ意味です。共通引数に `None` を指定すると直前の `sd` で設定した値を使います。
 
 判定式は次の通りです。
 
@@ -162,7 +162,7 @@ pdg 30 0.1 9999 200 None 400
 
 ただし、best の `depth` が `1000` 以上の局面は対象外です。peta shock 後の番兵値や過大な depth を、実際に読んだ手数として扱って大量抽出することを避けるためです。
 
-`peta_depth_gap` は条件を満たした候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿り、そのPV leafを `book/think_sfens.txt` に書き出します。GUI の `peta depth gap` ボタンは `pdg eval_diff eval_per_ply max_step max_book_ply book_extend_ply eval_limit` に対応します。
+`peta_depth_gap` は条件を満たした候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿り、そのPV leafを `book/think_sfens.txt` に書き出します。GUI の `peta depth gap` ボタンは `pdg eval_per_ply eval_diff max_step max_book_ply book_extend_ply eval_limit` に対応します。
 
 ## peta_unsolved
 

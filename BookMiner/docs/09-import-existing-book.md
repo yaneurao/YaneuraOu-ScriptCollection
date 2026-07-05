@@ -176,17 +176,17 @@ GUI:
 CLI:
 
 ```text
-pr 99999 100 9999 200 None 400
+pr 100 99999 9999 200 None 400
 ```
 
 GUI:
 
 ```text
-手順2. peta refutation  eval_diff 99999  eval refu. 100  eval_limit 400
+手順2. peta refutation  eval refu. 100  eval_diff 99999  eval_limit 400
 手順3. enqueue
 ```
 
-`99999` は `eval_diff`、`100` は `eval_refutation_margin`、`9999` は `max_step`、`200` は `max_book_ply` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
+`100` は `eval_refutation_margin`、`99999` は `eval_diff`、`9999` は `max_step`、`200` は `max_book_ply` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
 
 出力先は `peta next` と同じです。
 
@@ -201,13 +201,13 @@ book/think_sfens.txt
 CLI:
 
 ```text
-pr 99999 100 9999 200 None 400
+pr 100 99999 9999 200 None 400
 ```
 
 GUI:
 
 ```text
-手順2. peta refutation  eval_diff 99999  eval refu. 100  max step 9999  game ply limit 200  eval_limit 99999
+手順2. peta refutation  eval refu. 100  eval_diff 99999  max step 9999  game ply limit 200  eval_limit 99999
 ```
 
 `100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。

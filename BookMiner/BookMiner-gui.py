@@ -657,7 +657,7 @@ class BookMinerGui(ttk.Frame):
         self.refutation_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
-            "`pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next のleafのうち、元DBでbestでなかった反駁leafだけを抽出します。空欄はデフォルト値行を使います。",
+            "`pr eval_refutation_margin eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next のleafのうち、元DBでbestでなかった反駁leafだけを抽出します。空欄はデフォルト値行を使います。",
         )
         ttk.Label(commands, text="eval refu.").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=4, column=3, sticky="w", pady=3)
@@ -685,7 +685,7 @@ class BookMinerGui(ttk.Frame):
         self.depth_gap_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.depth_gap_button,
-            "`pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next と同じ範囲から、bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。空欄はデフォルト値行を使います。",
+            "`pdg eval_per_ply eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next と同じ範囲から、bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。空欄はデフォルト値行を使います。",
         )
         ttk.Label(commands, text="eval/ply").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=5, column=3, sticky="w", pady=3)
@@ -2155,7 +2155,7 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
             return False
-        if self.send_command(f"pr {eval_diff} {eval_refutation_margin} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
+        if self.send_command(f"pr {eval_refutation_margin} {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
             self.busy_action = None
@@ -2377,7 +2377,7 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
             return False
-        if self.send_command(f"pdg {eval_diff} {eval_per_ply} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
+        if self.send_command(f"pdg {eval_per_ply} {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
             self.busy_action = None

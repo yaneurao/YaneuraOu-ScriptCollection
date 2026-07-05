@@ -212,7 +212,7 @@ peta shock 化した定跡 DB から、leaf の先へ定跡ツリーを伸ばす
 
 `peta next` の leaf のうち、定跡から抜ける最後の1手が peta shock 前の通常bookでは best ではなかったものだけを抽出する処理です。
 
-BookMiner の CLI では `pr eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pr eval_refutation_margin [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
 
 ## 反駁
 
@@ -224,7 +224,7 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 peta shock 後に、`peta next` と同じ BFS 範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
-BookMiner の CLI では `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta depth gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pdg eval_per_ply [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta depth gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
 ## peta_unsolved
 
