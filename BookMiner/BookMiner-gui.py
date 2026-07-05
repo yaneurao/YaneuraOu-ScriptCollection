@@ -46,7 +46,7 @@ GUI_SETTING_DEFAULTS = {
     "depth_gap_eval_per_ply": "0.1",
     "eval_limit": "400",
     "game_ply_limit": "200",
-    "think_command_ply": "6",
+    "enqueue_book_extend_ply": "6",
     "peta_next_ply_limit": "200",
     "peta_next_refutation_ply_limit": "200",
     "peta_refutation_ply_limit": "200",
@@ -184,6 +184,10 @@ def load_gui_settings() -> dict[str, str]:
     if isinstance(legacy_eval_refu, str) and legacy_eval_refu.strip():
         settings.setdefault("peta_next_refutation_eval_refu", legacy_eval_refu)
         settings.setdefault("peta_refutation_eval_refu", legacy_eval_refu)
+
+    legacy_book_extend_ply = data.get("think_command_ply")
+    if "enqueue_book_extend_ply" not in data and isinstance(legacy_book_extend_ply, str):
+        settings["enqueue_book_extend_ply"] = legacy_book_extend_ply
 
     return settings
 
@@ -414,8 +418,8 @@ class BookMinerGui(ttk.Frame):
         self.game_ply_limit = tk.StringVar(
             value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
         )
-        self.think_command_ply = tk.StringVar(
-            value=gui_settings.get("think_command_ply", GUI_SETTING_DEFAULTS["think_command_ply"])
+        self.enqueue_book_extend_ply = tk.StringVar(
+            value=gui_settings.get("enqueue_book_extend_ply", GUI_SETTING_DEFAULTS["enqueue_book_extend_ply"])
         )
         self.peta_next_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_next_ply_limit", gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["peta_next_ply_limit"]))
@@ -490,7 +494,7 @@ class BookMinerGui(ttk.Frame):
 
         commands = ttk.Frame(self)
         commands.grid(row=0, column=0, sticky="ew")
-        commands.columnconfigure(8, weight=1)
+        commands.columnconfigure(13, weight=1)
 
         ttk.Label(commands, text="手順0.").grid(row=0, column=0, sticky="w", pady=3)
         self.kif_manager_button = ttk.Button(
@@ -686,13 +690,13 @@ class BookMinerGui(ttk.Frame):
             command=self.send_think,
         )
         self.enqueue_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`t eval_limit game_ply_limit think_ply` を送信し、book/think_sfens.txt の局面を探索キューに積みます。空欄はNoneとして送信します。")
+        Tooltip(self.enqueue_button, "`t eval_limit game_ply_limit book_extend_ply` を送信し、book/think_sfens.txt の局面を探索キューに積みます。空欄はNoneとして送信します。")
         ttk.Label(commands, text="eval_limit").grid(row=8, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=8, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=8, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.game_ply_limit, width=8).grid(row=8, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="think ply").grid(row=8, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.think_command_ply, width=8).grid(row=8, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=8, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.enqueue_book_extend_ply, width=8).grid(row=8, column=7, sticky="w", pady=3)
 
         ttk.Label(commands, text="手順4.").grid(row=9, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
@@ -1853,7 +1857,7 @@ class BookMinerGui(ttk.Frame):
             "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
-            "think_command_ply": self.think_command_ply.get(),
+            "enqueue_book_extend_ply": self.enqueue_book_extend_ply.get(),
             "peta_next_ply_limit": self.peta_next_ply_limit.get(),
             "peta_next_refutation_ply_limit": self.peta_next_refutation_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
@@ -1920,13 +1924,13 @@ class BookMinerGui(ttk.Frame):
         game_ply_limit = self._get_optional_int_token(self.game_ply_limit, "game ply limit", auto, positive=True)
         if game_ply_limit is None:
             return False
-        think_command_ply = self._get_optional_int_token(self.think_command_ply, "think ply", auto, positive=True)
-        if think_command_ply is None:
+        book_extend_ply = self._get_optional_int_token(self.enqueue_book_extend_ply, "book extend ply", auto, positive=True)
+        if book_extend_ply is None:
             return False
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
-        if self.send_command(f"t {eval_limit} {game_ply_limit} {think_command_ply}", origin=origin):
+        if self.send_command(f"t {eval_limit} {game_ply_limit} {book_extend_ply}", origin=origin):
             return True
         if not auto:
             if self.enqueue_pending:
