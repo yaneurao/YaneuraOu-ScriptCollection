@@ -76,7 +76,7 @@ GUIが解釈する進捗タグはPython版と揃えます。
 
 ## worker queue
 
-`t [path]` は `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
+`t [eval_limit] [max_book_ply] [think_command_ply]` は `book/think_sfens.txt` の `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
 workerは `TaskQueueProgress` を、前回出力から約10秒以上経過したとき、または残りtask数が0になったときに出します。
 各 enqueue job の最後のtaskをworkerが取り出したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を出します。
 

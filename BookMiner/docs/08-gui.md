@@ -43,7 +43,7 @@ GUI の `enqueue` は、固定で次のファイルを読みます。
 book/think_sfens.txt
 ```
 
-`enqueue` を押すと、先に `e eval_limit` を送信し、そのあと `t book/think_sfens.txt game_ply_limit think_ply` を BookMiner.py に送信します。
+`enqueue` を押すと、`t eval_limit game_ply_limit think_ply` を BookMiner.py に送信します。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -95,14 +95,14 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta unsolved` は `pu eval_diff game_ply_limit max_step` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`peta unsolved` は自動enqueue対象ではなく、書き出し後に手動で `enqueue` します。
 
-`enqueue` は、`e eval_limit` を送信してから `t book/think_sfens.txt game_ply_limit think_ply` を送信します。例えば `game ply limit` に `200`、`think ply` に `6`、`eval_limit` に `400` と入力して実行すると、`e 400`、`t book/think_sfens.txt 200 6` を送信して、`book/think_sfens.txt` の局面を探索キューへ積みます。
+`enqueue` は、`t eval_limit game_ply_limit think_ply` を送信します。例えば `eval_limit` に `400`、`game ply limit` に `200`、`think ply` に `6` と入力して実行すると、`t 400 200 6` を送信して、`book/think_sfens.txt` の局面を探索キューへ積みます。`eval_limit`、`game ply limit`、`think ply` を空欄にした場合は `None` を送信し、CLI側でデフォルト値を使います。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
-`game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`think ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。
+`game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`think ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
 残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。
 各抽出が `book/think_sfens.txt` に書き出した内容は、GUI が `book/think_sfens-tmp.txt` に追記します。重複行はこの追記時に除外します。
-チェックされた手順2をすべて実行したら、GUI は `book/think_sfens-tmp.txt` を `enqueue` します。
+チェックされた手順2をすべて実行したら、GUI は `book/think_sfens-tmp.txt` を `book/think_sfens.txt` に置き換えてから `enqueue` します。
 自動実行中に同じ処理が二重に走らないよう、次の段階へ進むのは BookMiner.py の完了タグを受け取ってからです。
 
 自動enqueueは、探索workerがまだ処理していないqueue残数を目安にします。
@@ -118,7 +118,7 @@ GUI 上でもこの手順が縦に並んでいます。
 - `peta refutation`: peta shock 後に best になった depth 0 の反駁候補を `book/think_sfens.txt` に書き出します。
 - `peta depth_gap`: depthが浅く逆転しうる候補手のPV leafを `book/think_sfens.txt` に書き出します。
 - `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜prefixからPV leafを `book/think_sfens.txt` に書き出します。
-- `enqueue`: eval limit を設定してから、`book/think_sfens.txt` の棋譜上の局面を探索キューへ積みます。
+- `enqueue`: 指定した eval limit / game ply limit / think ply で、`book/think_sfens.txt` の棋譜上の局面を探索キューへ積みます。
 - `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。
 - `DB手動保存`: 現在の定跡 DB を `book/backup/` に書き出します。
 
@@ -236,7 +236,7 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 自動enqueue後も `remaining` がまだ指定値より少ない場合は、足りるまで続けて自動enqueueします。
 
 自動enqueueで手順2を複数チェックしている場合、抽出ごとの `book/think_sfens.txt` は直接 enqueue されません。
-GUI がそれぞれの結果を `book/think_sfens-tmp.txt` へ集約し、最後にこの一時ファイルを enqueue します。
+GUI がそれぞれの結果を `book/think_sfens-tmp.txt` へ集約し、最後に `book/think_sfens.txt` へ置き換えてから enqueue します。
 
 ## 注意点
 

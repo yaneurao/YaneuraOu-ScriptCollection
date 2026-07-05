@@ -64,6 +64,7 @@ BOOK_READ_PROGRESS_INTERVAL = 10000
 BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
+DEFAULT_EVAL_LIMIT = 400
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
 DEFAULT_DEPTH_GAP_EVAL_PER_PLY = 0.1
 PETA_DEFAULT_INF_EVAL_DIFF = 99999
@@ -3120,9 +3121,6 @@ def user_input(from_gui:bool = False):
     time.sleep(2)
     print("[CommandReady] message=コマンド受付を開始しました。")
 
-    # 定跡を掘る範囲
-    eval_limit = 400
-
     # enable_print_log()
 
     while True:
@@ -3138,10 +3136,9 @@ def user_input(from_gui:bool = False):
                 print("  Q : quit")
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
-                print("  T : think positions          , t (think_sfens path) (max_book_ply) (think_command_ply)")
+                print("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
-                print("  E : EvalLimit , e [eval_limit]")
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
@@ -3178,21 +3175,14 @@ def user_input(from_gui:bool = False):
                 write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
 
             elif i == 't':
-                max_book_ply = book_miner_settings.max_book_ply
-                think_command_ply = THINK_COMMAND_PLY
-                if len(inp) < 2:
-                    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-                elif len(inp) == 2 and inp[1].isdigit():
-                    path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
-                    max_book_ply = int(inp[1])
-                else:
-                    path = inp[1]
-                    if len(inp) >= 3:
-                        max_book_ply = int(inp[2])
-                    if len(inp) >= 4:
-                        think_command_ply = int(inp[3])
+                path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+                eval_limit = parse_int_argument(inp, 1, DEFAULT_EVAL_LIMIT)
+                max_book_ply = parse_int_argument(inp, 2, book_miner_settings.max_book_ply)
+                think_command_ply = parse_int_argument(inp, 3, THINK_COMMAND_PLY)
 
-                if max_book_ply <= 0:
+                if eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
+                elif max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                 elif think_command_ply <= 0:
                     print("Error : think_command_ply must be positive integer.")
@@ -3216,14 +3206,6 @@ def user_input(from_gui:bool = False):
                     sfen = trim_sfen(' '.join(inp[1:]))
 
                 inquire_position(book, sfen)
-
-            elif i == 'e':
-                # eval_limitの指定。`e eval_limit eval_limit_low`のように指定できる。
-                if len(inp) < 2:
-                    print("Error : EvalLimit e")
-                else:
-                    eval_limit = int(inp[1])
-                    print(f"eval_limit = {eval_limit}")
 
             elif i == 'm':
                 merge_flipped_positions(book)

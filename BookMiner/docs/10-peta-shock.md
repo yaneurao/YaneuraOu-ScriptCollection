@@ -54,7 +54,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta refutation` | `pf [eval_refutation_margin] [eval_limit] [max_book_ply]` | 反駁された depth 0 best のうち、peta shock後の旧best手との差が大きい候補を `book/think_sfens.txt` に書き出します。`eval_limit` 指定時は enqueue 前に retire が確定している候補を除外します。 |
 | `peta depth_gap` | `pd [eval_per_ply] [max_book_ply]` | best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `peta unsolved` | `pu [eval_diff] [max_book_ply] [max_step]` | `book/think_unsolved_sfens.txt` の棋譜prefixから peta_book 上の best PV leaf を `book/think_sfens.txt` に書き出します。 |
-| `enqueue` | `e eval_limit` のあと `t` | `book/think_sfens.txt` を探索 queue に積みます。 |
+| `enqueue` | `t eval_limit [max_book_ply] [think_command_ply]` | `book/think_sfens.txt` を探索 queue に積みます。 |
 
 通常は `peta_shock` → `peta_next` → `enqueue` を繰り返します。通常の leaf 延長のうち反駁されたものだけを優先したい場合は `peta next refu.`、反駁された depth 0 best を重点的に延長したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth_gap`、負けた棋譜の周辺を重点的に掘る場合は `peta unsolved` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` を `book/backup/` に置き、`peta_read` → `peta_next` / `peta next refu.` / `peta refutation` / `peta depth_gap` / `peta unsolved` → `enqueue` と進めます。
 

@@ -31,12 +31,11 @@ pnf eval_diff [max_book_ply] [max_step] [eval_refutation_margin]
 pf [eval_refutation_margin] [eval_limit] [max_book_ply]
 pd [eval_per_ply] [max_book_ply]
 pu [eval_diff] [max_book_ply] [max_step]
-t [path]
-e eval_limit
+t [eval_limit] [max_book_ply] [think_command_ply]
 h
 ```
 
-`t` の `path` 省略時は `book/think_sfens.txt` を読みます。
+`t` は固定で `book/think_sfens.txt` を読みます。引数は GUI の並びと同じく、`eval_limit`、`max_book_ply`、`think_command_ply` の順です。省略または `None` 指定時は Python 版と同じデフォルト値を使います。
 
 ## 起動時の通常DB選択
 

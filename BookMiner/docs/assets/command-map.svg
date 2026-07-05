@@ -24,11 +24,11 @@
   <rect class="group" x="55" y="90" width="280" height="205" rx="14"/>
   <text class="text" x="195" y="122">局面を積む</text>
   <rect class="cmd" x="92" y="145" width="86" height="58" rx="10"/>
-  <text class="code" x="135" y="181">e</text>
-  <text class="text small" x="235" y="169">eval limit設定</text>
-  <text class="text small" x="235" y="191">例: e 400</text>
+  <text class="code" x="135" y="181">t</text>
+  <text class="text small" x="235" y="169">eval/game/think指定</text>
+  <text class="text small" x="235" y="191">例: t 400 200 6</text>
   <rect class="cmd" x="92" y="220" width="86" height="58" rx="10"/>
-  <text class="code" x="135" y="256">t</text>
+  <text class="code" x="135" y="256">txt</text>
   <text class="text small" x="235" y="244">think_sfens.txtを読む</text>
   <text class="text small" x="235" y="266">queueへenqueue</text>
 
@@ -39,7 +39,7 @@
   <text class="text small" x="585" y="169">書き出し</text>
   <text class="text small" x="585" y="191">+ peta_shock</text>
   <rect class="make" x="430" y="220" width="86" height="58" rx="10"/>
-  <text class="code" x="473" y="256">n</text>
+  <text class="code" x="473" y="256">pn</text>
   <text class="text small" x="585" y="244">leafの先を探す</text>
   <text class="text small" x="585" y="266">think_sfens.txt作成</text>
   <path class="line" d="M 473 203 V 210"/>
@@ -81,5 +81,5 @@
 
   <path class="line" d="M 335 252 H 380"/>
   <path class="line" d="M 670 252 H 715"/>
-  <text class="text small" x="530" y="575">よく使う流れ: e → t → p → n → t → p → n ...</text>
+  <text class="text small" x="530" y="575">よく使う流れ: t → p → pn → t → p → pn ...</text>
 </svg>

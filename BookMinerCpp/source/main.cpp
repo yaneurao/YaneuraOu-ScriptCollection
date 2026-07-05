@@ -54,6 +54,7 @@ constexpr const char* EngineSettingsPath = "settings/engine_settings.json5";
 constexpr const char* BookMinerSettingsPath = "settings/book_miner_settings.json5";
 constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settings.json5";
 constexpr int ThinkCommandPly = 6;
+constexpr int DefaultEvalLimit = 400;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
 constexpr double DefaultDepthGapEvalPerPly = 0.1;
@@ -2197,8 +2198,7 @@ void print_help()
     log_line("  Q : quit");
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
-    log_line("  T : think positions          , t (think_sfens path) (max_book_ply) (think_command_ply)");
-    log_line("  E : EvalLimit                , e [eval_limit]");
+    log_line("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  PN : peta_shock next         , pn peta_eval_diff (max_book_ply) (max_step)");
@@ -2252,7 +2252,6 @@ int main(int argc, char* argv[])
     std::vector<std::unique_ptr<bookminer::UsiEngine>> engines;
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
-    int eval_limit = 400;
     int max_book_ply = 200;
     std::optional<fs::path> clean_source_path;
     std::uint64_t clean_source_revision = 0;
@@ -2352,41 +2351,22 @@ int main(int argc, char* argv[])
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
             }
-            else if (command == "e")
-            {
-                if (tokens.size() < 2)
-                    log_line("Error : EvalLimit e");
-                else
-                {
-                    eval_limit = std::stoi(tokens[1]);
-                    log_line("eval_limit = " + std::to_string(eval_limit));
-                }
-            }
             else if (command == "t")
             {
-                int task_max_book_ply = max_book_ply;
-                int task_think_command_ply = ThinkCommandPly;
-                std::string path = fs::path(BookDir).append(ThinkSfensName).string();
-                if (tokens.size() == 2 && std::all_of(tokens[1].begin(), tokens[1].end(), ::isdigit))
-                {
-                    task_max_book_ply = std::stoi(tokens[1]);
-                }
-                else if (tokens.size() >= 2)
-                {
-                    path = tokens[1];
-                    if (tokens.size() >= 3)
-                        task_max_book_ply = std::stoi(tokens[2]);
-                    if (tokens.size() >= 4)
-                        task_think_command_ply = std::stoi(tokens[3]);
-                }
+                const std::string path = fs::path(BookDir).append(ThinkSfensName).string();
+                const int task_eval_limit = parse_int_argument(tokens, 1, DefaultEvalLimit);
+                const int task_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
+                const int task_think_command_ply = parse_int_argument(tokens, 3, ThinkCommandPly);
                 if (!task_workers)
                     log_line("Error : task workers are not running.");
+                else if (task_eval_limit < 0)
+                    log_line("Error : eval_limit must be non-negative integer.");
                 else if (task_max_book_ply <= 0)
                     log_line("Error : max_book_ply must be positive integer.");
                 else if (task_think_command_ply <= 0)
                     log_line("Error : think_command_ply must be positive integer.");
                 else
-                    task_workers->enqueue_position_commands(path, eval_limit, task_max_book_ply, task_think_command_ply);
+                    task_workers->enqueue_position_commands(path, task_eval_limit, task_max_book_ply, task_think_command_ply);
             }
             else if (command == "p")
             {

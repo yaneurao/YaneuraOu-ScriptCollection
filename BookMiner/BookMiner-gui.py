@@ -535,7 +535,7 @@ class BookMinerGui(ttk.Frame):
             command=self.send_think,
         )
         self.enqueue_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`e eval_limit` のあと `t book/think_sfens.txt game_ply_limit think_ply` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        Tooltip(self.enqueue_button, "`t eval_limit game_ply_limit think_ply` を送信し、book/think_sfens.txt の局面を探索キューに積みます。空欄はNoneとして送信します。")
         ttk.Label(commands, text="eval_limit").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.eval_limit, width=8).grid(row=7, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=7, column=4, sticky="w", padx=(12, 6), pady=3)
@@ -1488,6 +1488,19 @@ class BookMinerGui(ttk.Frame):
         )
         return True
 
+    def _promote_auto_think_sfens_tmp(self) -> bool:
+        try:
+            if not AUTO_THINK_SFENS_PATH.exists():
+                self._append_log("task", f"[GUI] auto enqueue stopped: {AUTO_THINK_SFENS_COMMAND_PATH} was not created.\n")
+                return False
+            THINK_SFENS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(AUTO_THINK_SFENS_PATH, THINK_SFENS_PATH)
+        except OSError as exc:
+            self._append_log("task", f"[GUI] auto enqueue stopped: failed to prepare {THINK_SFENS_COMMAND_PATH}: {exc}\n")
+            return False
+        self._append_log("task", f"[GUI] auto enqueue prepared {THINK_SFENS_COMMAND_PATH}: total={len(self.auto_tmp_seen)}\n")
+        return True
+
     def _start_next_auto_step2(self) -> None:
         if not self.auto_enqueue_enabled.get():
             self._abort_auto_enqueue("auto enqueue stopped: disabled before step 2.")
@@ -1496,7 +1509,10 @@ class BookMinerGui(ttk.Frame):
         if not self.auto_step2_queue:
             self.auto_current_step2 = None
             self.auto_enqueue_state = AUTO_ENQUEUE_ENQUEUE
-            if not self.send_think(auto=True, think_sfens_path=AUTO_THINK_SFENS_COMMAND_PATH):
+            if not self._promote_auto_think_sfens_tmp():
+                self._abort_auto_enqueue("auto enqueue stopped: failed to prepare enqueue input.")
+                return
+            if not self.send_think(auto=True):
                 self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
             return
 
@@ -1700,35 +1716,20 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
         return False
 
-    def send_think(self, auto: bool = False, think_sfens_path: str = THINK_SFENS_COMMAND_PATH) -> bool:
-        value = self.eval_limit.get().strip()
-        game_ply_limit = self._get_game_ply_limit(auto)
+    def send_think(self, auto: bool = False) -> bool:
+        eval_limit = self._get_optional_int_token(self.eval_limit, "eval_limit", auto, non_negative=True)
+        if eval_limit is None:
+            return False
+        game_ply_limit = self._get_optional_int_token(self.game_ply_limit, "game ply limit", auto, positive=True)
         if game_ply_limit is None:
             return False
-        think_command_ply = self._get_positive_int(self.think_command_ply, "think ply", auto)
+        think_command_ply = self._get_optional_int_token(self.think_command_ply, "think ply", auto, positive=True)
         if think_command_ply is None:
-            return False
-        if not value:
-            if auto:
-                self._append_log("task", "[AUTO] eval_limit is empty.\n")
-            else:
-                messagebox.showerror("入力エラー", "eval_limit を指定してください。")
-            return False
-        try:
-            int(value)
-        except ValueError:
-            if auto:
-                self._append_log("task", "[AUTO] eval_limit must be an integer.\n")
-            else:
-                messagebox.showerror("入力エラー", "eval_limit には整数を指定してください。")
             return False
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
-        if (
-            self.send_command(f"e {value}", origin=origin)
-            and self.send_command(f"t {think_sfens_path} {game_ply_limit} {think_command_ply}", origin=origin)
-        ):
+        if self.send_command(f"t {eval_limit} {game_ply_limit} {think_command_ply}", origin=origin):
             return True
         if not auto:
             if self.enqueue_pending:
