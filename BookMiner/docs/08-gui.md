@@ -43,7 +43,7 @@ GUI の `enqueue` は、固定で次のファイルを読みます。
 book/think_sfens.txt
 ```
 
-`enqueue` を押すと、引数なしの `t` を BookMiner.py に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
+`enqueue` を押すと、引数なしの `e` を BookMiner.py に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -100,7 +100,7 @@ GUI 上でもこの手順が縦に並んでいます。
 
 手順2の各行の `game ply limit`、`book extend ply`、`eval_limit` を数値で指定すると、書き出す各行に `game_ply_limit=...`、`book_extend_ply=...`、`eval_limit=...` が付きます。その行を `enqueue` したときは、この行ごとの値で探索します。
 
-`enqueue` は、引数なしの `t` を送信します。
+`enqueue` は、引数なしの `e` を送信します。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
 `game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
 

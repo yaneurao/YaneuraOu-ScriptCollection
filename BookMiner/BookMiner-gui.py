@@ -752,10 +752,10 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
-            command=self.send_think,
+            command=self.send_enqueue,
         )
         self.enqueue_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`t` を送信し、book/think_sfens.txt の局面を行ごとのメタ情報に従って探索キューに積みます。")
+        Tooltip(self.enqueue_button, "`e` を送信し、book/think_sfens.txt の局面を行ごとのメタ情報に従って探索キューに積みます。")
 
         ttk.Label(commands, text="手順4.").grid(row=9, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
@@ -1751,8 +1751,9 @@ class BookMinerGui(ttk.Frame):
             if not self._promote_auto_think_sfens_tmp():
                 self._abort_auto_enqueue("auto enqueue stopped: failed to prepare enqueue input.")
                 return
-            if not self.send_think(auto=True):
+            if not self.send_enqueue(auto=True):
                 self._abort_auto_enqueue("auto enqueue stopped: failed to send enqueue.")
+                return
             return
 
         method = self.auto_step2_queue.pop(0)
@@ -1973,11 +1974,11 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
         return False
 
-    def send_think(self, auto: bool = False) -> bool:
+    def send_enqueue(self, auto: bool = False) -> bool:
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
-        if self.send_command("t", origin=origin):
+        if self.send_command("e", origin=origin):
             return True
         if not auto:
             if self.enqueue_pending:

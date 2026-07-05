@@ -102,7 +102,7 @@ VALUE_EVAL_CLAMP             =   30000
 OLD_BOOK_VALUE_MATE          =  100000
 OLD_BOOK_MATE_THRESHOLD      =   99000
 
-# `t`コマンドで、棋譜末端からbest lineを何手分延長して掘るか。
+# `e`コマンドで、棋譜末端からbest lineを何手分延長して掘るか。
 DEFAULT_BOOK_EXTEND_PLY = 6
 
 TASK_RESULT_DONE = "done"
@@ -195,10 +195,10 @@ class Task:
     # 掘る範囲の評価値
     eval_limit : int
 
-    # `t`コマンドで指定された position 文字列。Noneなら従来のsfen開始タスク。
+    # `e`コマンドで指定された position 文字列。Noneなら従来のsfen開始タスク。
     position_cmd : PositionStr | None = None
 
-    # `t`コマンドで積まれたタスクの進捗表示用。
+    # `e`コマンドで積まれたタスクの進捗表示用。
     job_id : int = 0
 
     # 他workerが同じ局面を探索中だったためにqueue末尾へ戻した回数。
@@ -331,7 +331,7 @@ class ListRingQueue(Generic[T]):
 class JobRoundRobinQueue(Generic[T]):
     """job_idごとに公平に取り出すqueue。
 
-    tコマンドはjobごとに大量のtaskを投入するため、単一FIFOだと後続jobが長時間
+    eコマンドはjobごとに大量のtaskを投入するため、単一FIFOだと後続jobが長時間
     進まない。worker側はこのqueueからjobをround-robinで取り出す。
     """
 
@@ -817,7 +817,7 @@ def parse_position_command_entry(line:PositionStr)->PositionCommandEntry:
       startpos moves 7g7f, book_extend_ply=20
       startpos moves 7g7f, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
-    メタ情報が無い、または None の場合は t コマンド側のデフォルト値を使う。
+    メタ情報が無い、または None の場合は e コマンド側のデフォルト値を使う。
     """
     parts = line.split(',')
     position_cmd = parts[0].strip()
@@ -1443,7 +1443,7 @@ class EngineManager:
         # 開始時の手数を保存しておく。開始局面の次以降は探索nodeを減らす。
         last_thinking_ply = PLY_MIN
 
-        # `t`コマンドでbest lineを延長して掘る時の残り手数
+        # `e`コマンドでbest lineを延長して掘る時の残り手数
         rest_ply = task.book_extend_ply
 
         # 現在探索中の局面
@@ -1783,7 +1783,7 @@ class EngineManager:
 #                     helper functions
 # ============================================================
 
-# tコマンドのtask番号。(連番で増えていく)
+# eコマンドのtask番号。(連番で増えていく)
 job_counter : int = 0
 
 def get_job_counter()->int:
@@ -3676,7 +3676,7 @@ def user_input(from_gui:bool = False):
     while True:
         try:
             if not from_gui:
-                print("[Q]uit [T]hink [H]elp> ", end='')
+                print("[Q]uit [E]nqueue [H]elp> ", end='')
             inp = input().split()
             if not inp:
                 continue
@@ -3686,7 +3686,7 @@ def user_input(from_gui:bool = False):
                 print("  Q : quit")
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
-                print("  T : think positions          , t")
+                print("  E : enqueue positions        , e")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
                 print("  B : bfs for ply")
@@ -3724,14 +3724,14 @@ def user_input(from_gui:bool = False):
                 # 定跡を丸ごと書き出す。
                 write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
 
-            elif i == 't':
+            elif i == 'e':
                 path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
                 eval_limit = DEFAULT_EVAL_LIMIT
                 max_book_ply = book_miner_settings.max_book_ply
                 book_extend_ply = DEFAULT_BOOK_EXTEND_PLY
 
                 if len(inp) > 1:
-                    print("Usage : t")
+                    print("Usage : e")
                 else:
                     Thread(
                         target=lambda: put_position_commands(

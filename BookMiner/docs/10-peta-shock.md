@@ -54,7 +54,7 @@ BookMiner の GUI ボタンと CLI コマンドは次の対応です。
 | `peta depth gap` | `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `peta_next` と同じ範囲で、best以外の候補手がbestより浅く、depth差ぶん延長すると逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜prefixから peta_book 上の best PV leaf を `book/think_sfens.txt` に書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta_book の best 進行を辿り、対策候補leafを `book/think_sfens.txt` に書き出します。 |
-| `enqueue` | `t` | `book/think_sfens.txt` を探索 queue に積みます。探索条件は各行のメタ情報を使います。 |
+| `enqueue` | `e` | `book/think_sfens.txt` を探索 queue に積みます。探索条件は各行のメタ情報を使います。 |
 
 通常は `peta_shock` → `peta_next` → `enqueue` を繰り返します。通常の leaf 延長のうち反駁されたものだけを優先したい場合は `peta refutation`、best に近いが浅すぎる候補を延長したい場合は `peta depth gap`、負けた棋譜の周辺を重点的に掘る場合は `peta unsolved`、過去配布定跡への対策候補を掘る場合は `peta opponent` を使います。メモリや時間の都合で別マシンで peta shock 化する場合は、外部で作った `peta_book-....db` または `peta_book-....ybb` を `book/backup/` に置き、`peta_read` → `peta_next` / `peta refutation` / `peta depth gap` / `peta unsolved` / `peta opponent` → `enqueue` と進めます。
 
@@ -217,9 +217,9 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 | `eval_drop_limit` | `peta_unsolved` / `pu` | 棋譜rootの評価値からroot側視点でどれくらい悪化したprefixを除外するか。 |
 | `eval_refutation_margin` | `peta_refutation` / `pr` | peta shock後の反駁候補手と旧best手の評価値差がどれくらい以上なら抽出するか。 |
 | `eval_per_ply` | `peta_depth_gap` / `pdg` | bestとのdepth差1手あたり、候補手の評価値がどれくらい改善しうると仮定するか。 |
-| `eval_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `t` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
-| `game_ply_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `t` | この手数に到達したらそれ以上掘らない上限。 |
-| `book_extend_ply` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `t` | `book/think_sfens.txt` の行ごとに、棋譜末端から best line を何手分延長するかを上書きする値。 |
+| `eval_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
+| `game_ply_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | この手数に到達したらそれ以上掘らない上限。 |
+| `book_extend_ply` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` の行ごとに、棋譜末端から best line を何手分延長するかを上書きする値。 |
 
 既存定跡から広く掘り始める初回は、`eval_diff 99999` と `eval_limit 99999` のように大きな値を使うと、評価値による枝刈りをほぼ無効化できます。通常運用では、目的に応じてこれらを小さくし、形勢が大きく傾いた枝を広げすぎないようにします。
 

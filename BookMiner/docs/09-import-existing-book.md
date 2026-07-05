@@ -138,7 +138,7 @@ book/think_sfens.txt
 CLI:
 
 ```text
-t
+e
 ```
 
 GUI:
@@ -215,7 +215,7 @@ GUI:
 抽出後は、通常通り `enqueue` します。
 
 ```text
-t
+e
 ```
 
 ## 探索後にもう一度 peta_shock 化する

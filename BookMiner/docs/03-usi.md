@@ -78,7 +78,7 @@ startpos moves 2g2f 8c8d 2f2e
 ```
 
 BookMiner の `book/think_sfens.txt` も、考え方はこれと同じです。
-拡張子は `.txt` ですが、1行に1つの `startpos moves ...` を書き、`t` コマンドまたは GUI の `enqueue` で読み込みます。
+拡張子は `.txt` ですが、1行に1つの `startpos moves ...` を書き、`e` コマンドまたは GUI の `enqueue` で読み込みます。
 
 ## 将棋所から局面文字列を得る
 
