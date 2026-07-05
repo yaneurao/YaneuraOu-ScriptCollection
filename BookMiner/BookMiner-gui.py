@@ -50,6 +50,7 @@ GUI_SETTING_DEFAULTS = {
     "auto_enqueue_threshold": "1000",
     "log_view_mode": "2x2",
     "task_list_mode": "1",
+    "step2_collapsed": "0",
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
@@ -229,6 +230,12 @@ class BookMinerGui(ttk.Frame):
                 GUI_SETTING_DEFAULTS["task_list_mode"],
             )
         )
+        self.step2_collapsed = tk.BooleanVar(
+            value=settings_bool(
+                gui_settings.get("step2_collapsed"),
+                GUI_SETTING_DEFAULTS["step2_collapsed"],
+            )
+        )
         self.task_job_items: dict[int, TaskJobListItem] = {}
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.progress_labels = {
@@ -404,7 +411,13 @@ class BookMinerGui(ttk.Frame):
         self.peta_read_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.peta_read_button, "`r` を送信します。外部で peta shock 化して book/backup/ に置いた最新 peta_book を読み込みます。")
 
-        ttk.Label(commands, text="手順2.").grid(row=2, column=0, sticky="w", pady=3)
+        self.step2_toggle_button = ttk.Button(
+            commands,
+            width=10,
+            command=self.on_step2_collapsed_toggled,
+        )
+        self.step2_toggle_button.grid(row=2, column=0, sticky="w", pady=3)
+        Tooltip(self.step2_toggle_button, "手順2の詳細行を折りたたみ/展開します。")
         self.next_button = ttk.Button(
             commands,
             text="peta_next",
@@ -505,6 +518,14 @@ class BookMinerGui(ttk.Frame):
         ttk.Entry(commands, textvariable=self.peta_unsolved_ply_limit, width=8).grid(row=6, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=6, column=7, sticky="w", pady=3)
+
+        self.step2_widgets = [
+            widget
+            for widget in commands.grid_slaves()
+            if widget is not self.step2_toggle_button
+            and int(widget.grid_info().get("row", -1)) in {2, 3, 4, 5, 6}
+        ]
+        self._refresh_step2_visibility()
 
         ttk.Label(commands, text="手順3.").grid(row=7, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
@@ -778,6 +799,24 @@ class BookMinerGui(ttk.Frame):
     def on_task_list_mode_toggled(self) -> None:
         self._update_task_view_mode()
         self.save_gui_settings()
+
+    def on_step2_collapsed_toggled(self) -> None:
+        self.step2_collapsed.set(not self.step2_collapsed.get())
+        self._refresh_step2_visibility()
+        self.save_gui_settings()
+
+    def _refresh_step2_visibility(self) -> None:
+        if not hasattr(self, "step2_toggle_button"):
+            return
+
+        collapsed = self.step2_collapsed.get()
+        self.step2_toggle_button.configure(text="手順2. ▶" if collapsed else "手順2. ▼")
+
+        for widget in getattr(self, "step2_widgets", []):
+            if collapsed:
+                widget.grid_remove()
+            else:
+                widget.grid()
 
     def _refresh_task_job_views(self) -> None:
         for _text, _list_frame, tree in self.task_job_views:
@@ -1622,6 +1661,7 @@ class BookMinerGui(ttk.Frame):
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
             "log_view_mode": normalize_log_view_mode(LOG_VIEW_MODE_KEYS.get(self.log_view_mode.get())),
             "task_list_mode": "1" if self.task_list_mode_enabled.get() else "0",
+            "step2_collapsed": "1" if self.step2_collapsed.get() else "0",
         }
         try:
             with open(GUI_SETTINGS_PATH, "wb") as f:

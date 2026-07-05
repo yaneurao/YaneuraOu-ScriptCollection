@@ -76,6 +76,9 @@ GUI 上でもこの手順が縦に並んでいます。
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
 
+`手順2.` の見出しボタンを押すと、手順2の詳細行を折りたたみ/展開できます。
+この折りたたみ状態は `BookMiner-gui.pickle` に保存され、次回起動時にも再現されます。
+
 `棋譜抽出` は KifManager を起動します。棋譜抽出結果として `book/think_sfens.txt` ができるので、この場合は `peta_shock`、`peta_next`、`peta next refu.`、`peta refutation`、`peta depth_gap`、`peta unsolved` を実行せずに `enqueue` へ進みます。
 
 `peta_shock` は `p` コマンドを送信し、現在の定跡 DB の書き出し、peta shock 化、生成された `book/backup/peta_book-....db` の読み込みを一度に行います。
@@ -124,7 +127,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは各 `eval_diff`、各 `eval refu.`、各 `max step`、`eval/ply`、`eval_limit`、各 `game ply limit`、`think ply`、手順2の `自動` チェック状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは各 `eval_diff`、各 `eval refu.`、各 `max step`、`eval/ply`、`eval_limit`、各 `game ply limit`、`think ply`、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
