@@ -292,6 +292,15 @@ def read_ybb_header(path: Path) -> tuple[int, int]:
     return int(record_count), int(flags)
 
 
+def normalize_probe_sfen(sfen: str) -> str:
+    sfen = sfen.strip()
+    if sfen == "startpos":
+        return trim_number(cshogi.Board().sfen())
+    if sfen.startswith("sfen "):
+        sfen = sfen[5:].strip()
+    return trim_number(sfen)
+
+
 def board_from_packed_sfen(packed_sfen: bytes) -> cshogi.Board:
     board = cshogi.Board()
     psfen = np.frombuffer(packed_sfen, dtype=cshogi.PackedSfen, count=1)
@@ -314,6 +323,188 @@ def move16_to_usi(board: cshogi.Board, move16: int) -> str:
     if move == cshogi.MOVE_NONE:
         return "none"
     return cshogi.move_to_usi(move)
+
+
+class BookProbe:
+    """やねうら王定跡を全読みせず、指定局面だけ読むための共通probe。"""
+
+    def probe(self, sfen: str) -> list[BookMove] | None:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self) -> "BookProbe":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+
+class YbbBookProbe(BookProbe):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.record_count, self.flags = read_ybb_header(self.path)
+        self.move_struct = (
+            YBB_MOVE_DEPTH_STRUCT if self.flags & YBB_FLAG_MOVE_DEPTH else YBB_MOVE_STRUCT
+        )
+        self.moves_base = YBB_HEADER_STRUCT.size + self.record_count * YBB_INDEX_STRUCT.size
+        file_size = self.path.stat().st_size
+        if file_size < self.moves_base:
+            raise ValueError(f"broken ybb index area: {self.path}")
+        self.moves_file_size = file_size - self.moves_base
+        self.file = self.path.open("rb")
+
+    def close(self) -> None:
+        self.file.close()
+
+    def _index_record_at(self, index: int) -> tuple[bytes, int, int, int]:
+        self.file.seek(YBB_HEADER_STRUCT.size + index * YBB_INDEX_STRUCT.size)
+        record = self.file.read(YBB_INDEX_STRUCT.size)
+        if len(record) != YBB_INDEX_STRUCT.size:
+            raise ValueError(f"broken ybb index record: {self.path}")
+        packed_sfen, move_offset, ply, move_count = YBB_INDEX_STRUCT.unpack(record)
+        return packed_sfen, int(move_offset), int(ply), int(move_count)
+
+    def probe(self, sfen: str) -> list[BookMove] | None:
+        board = cshogi.Board()
+        board.set_sfen(normalize_probe_sfen(sfen))
+        target = pack_sfen(board)
+
+        lo = 0
+        hi = self.record_count
+        while lo < hi:
+            mid = (lo + hi) // 2
+            packed_sfen, _move_offset, _ply, _move_count = self._index_record_at(mid)
+            if packed_sfen < target:
+                lo = mid + 1
+            else:
+                hi = mid
+
+        if lo >= self.record_count:
+            return None
+
+        packed_sfen, move_offset, _ply, move_count = self._index_record_at(lo)
+        if packed_sfen != target:
+            return None
+
+        moves_size = move_count * self.move_struct.size
+        if move_offset + moves_size > self.moves_file_size:
+            raise ValueError(f"moves offset is out of range at record {lo}")
+        self.file.seek(self.moves_base + move_offset)
+        moves_blob = self.file.read(moves_size)
+        if len(moves_blob) != moves_size:
+            raise ValueError(f"broken ybb move records at record {lo}")
+
+        moves: list[BookMove] = []
+        for offset in range(0, len(moves_blob), self.move_struct.size):
+            if self.flags & YBB_FLAG_MOVE_DEPTH:
+                move16, value, depth = self.move_struct.unpack(
+                    moves_blob[offset : offset + self.move_struct.size]
+                )
+            else:
+                move16, value = self.move_struct.unpack(
+                    moves_blob[offset : offset + self.move_struct.size]
+                )
+                depth = 0
+            moves.append(BookMove(move16_to_usi(board, move16), "none", value, depth, 1))
+        return moves
+
+
+def sfen_key_from_db_line(raw_line: bytes) -> str | None:
+    try:
+        line = raw_line.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        line = raw_line.decode("utf-8", errors="replace")
+    line = line.strip()
+    if line.startswith("\ufeff"):
+        line = line.lstrip("\ufeff")
+    if not line.startswith("sfen "):
+        return None
+    return trim_number(line[5:].strip())
+
+
+class DbBookProbe(BookProbe):
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.file = self.path.open("rb")
+        self.size = self.path.stat().st_size
+
+    def close(self) -> None:
+        self.file.close()
+
+    def _seek_to_line_start(self, offset: int) -> None:
+        offset = max(0, min(offset, self.size))
+        if offset == 0:
+            self.file.seek(0)
+            return
+        self.file.seek(offset - 1)
+        if self.file.read(1) != b"\n":
+            self.file.readline()
+
+    def _sfen_line_at_or_after(self, offset: int) -> tuple[int, int, str] | None:
+        self._seek_to_line_start(offset)
+        while True:
+            pos = self.file.tell()
+            raw = self.file.readline()
+            if not raw:
+                return None
+            next_pos = self.file.tell()
+            key = sfen_key_from_db_line(raw)
+            if key is not None:
+                return pos, next_pos, key
+
+    def _read_moves_after(self, offset: int) -> list[BookMove]:
+        self.file.seek(offset)
+        moves: list[BookMove] = []
+        while True:
+            raw = self.file.readline()
+            if not raw:
+                break
+            try:
+                line = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                line = raw.decode("utf-8", errors="replace")
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("\ufeff"):
+                line = line.lstrip("\ufeff")
+            if line.startswith("sfen "):
+                break
+            if line.startswith("#") or line.startswith("//"):
+                continue
+            moves.append(parse_book_move(line))
+        return moves
+
+    def probe(self, sfen: str) -> list[BookMove] | None:
+        target = normalize_probe_sfen(sfen)
+        lo = 0
+        hi = self.size
+
+        while lo < hi:
+            mid = (lo + hi) // 2
+            entry = self._sfen_line_at_or_after(mid)
+            if entry is None:
+                hi = mid
+                continue
+            pos, next_pos, key = entry
+            if key < target:
+                lo = max(next_pos, mid + 1)
+            else:
+                hi = pos if pos < hi else mid
+
+        entry = self._sfen_line_at_or_after(lo)
+        if entry is None:
+            return None
+        _pos, next_pos, key = entry
+        if key != target:
+            return None
+        return self._read_moves_after(next_pos)
+
+
+def open_book_probe(path: str | Path) -> BookProbe:
+    return YbbBookProbe(path) if is_ybb_path(path) else DbBookProbe(path)
 
 
 def read_ybb_book_blocks(
