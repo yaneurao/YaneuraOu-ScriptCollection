@@ -208,10 +208,10 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
 ```text
-[TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400
-[TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000
-[TaskQueueJobDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0
-[TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0
+[TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt eval_limit=400 book_extend_ply=6
+[TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000 eval_limit=400 book_extend_ply=6
+[TaskQueueJobDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 eval_limit=400 book_extend_ply=6
+[TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 eval_limit=400 book_extend_ply=6
 ```
 
 行頭の `30000/50000` は、BookMiner 起動後に enqueue した累計タスク数に対して、worker が受け取ったタスク数です。探索が完全に完了した数ではありませんが、残りタスク量を把握するための目安になります。
@@ -221,14 +221,15 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `[TaskQueueJobDone]` は、その `job` の全タスクが worker に渡ったときに出ます。`remaining` が 0 でなければ、他の job のタスクが queue に残っています。
 
 `タスク状況ログ` の `タスク一覧` チェックを入れると、ログ表示の代わりに現存 job の一覧を表示します。
-各行には `job`、`進捗` (`job_progress`)、`残り` (`job_remaining`) が表示されます。
+各行には `job`、`残り` (`job_remaining`)、`母数` (`job_progress` の分母)、`eval_limit`、`book_extend_ply` が表示されます。
+`book_extend_ply` が job 内で複数値に分かれている場合は `mixed` と表示されます。
 `[TaskQueueJobDone]` または `job_remaining=0` を受け取った job は一覧から削除されます。
 
 複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが worker に渡った状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
-[TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400
-[TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000
+[TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt eval_limit=400 book_extend_ply=mixed
+[TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000 eval_limit=400 book_extend_ply=mixed
 ```
 
 ログは前回出力からおおむね 10 秒以上経過したとき、job の最後のタスクを worker が受け取ったとき、または全体 queue の最後のタスクを worker が受け取ったときに更新されます。

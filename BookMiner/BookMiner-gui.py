@@ -131,6 +131,7 @@ LOG_VIEW_MODE_KEYS = {label: key for key, label in LOG_VIEW_MODES}
 class TaskJobListItem:
     job_id: int
     eval_limit: int | None
+    book_extend_ply: str | None
     taken: int
     total: int | None
     remaining: int | None
@@ -832,18 +833,20 @@ class BookMinerGui(ttk.Frame):
 
         tree = ttk.Treeview(
             list_frame,
-            columns=("job", "eval_limit", "progress", "remaining"),
+            columns=("job", "remaining", "total", "eval_limit", "book_extend_ply"),
             show="headings",
             height=height,
         )
         tree.heading("job", text="job")
-        tree.heading("eval_limit", text="eval_limit")
-        tree.heading("progress", text="進捗")
         tree.heading("remaining", text="残り")
+        tree.heading("total", text="母数")
+        tree.heading("eval_limit", text="eval_limit")
+        tree.heading("book_extend_ply", text="book_extend_ply")
         tree.column("job", width=90, minwidth=70, anchor="w", stretch=False)
-        tree.column("eval_limit", width=90, minwidth=80, anchor="e", stretch=False)
-        tree.column("progress", width=160, minwidth=110, anchor="center", stretch=True)
         tree.column("remaining", width=90, minwidth=70, anchor="e", stretch=False)
+        tree.column("total", width=90, minwidth=70, anchor="e", stretch=False)
+        tree.column("eval_limit", width=90, minwidth=80, anchor="e", stretch=False)
+        tree.column("book_extend_ply", width=120, minwidth=100, anchor="e", stretch=True)
 
         yscroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=yscroll.set)
@@ -955,13 +958,20 @@ class BookMinerGui(ttk.Frame):
         for job_id in sorted(self.task_job_items):
             item = self.task_job_items[job_id]
             eval_limit_display = str(item.eval_limit) if item.eval_limit is not None else "-"
+            book_extend_ply_display = item.book_extend_ply if item.book_extend_ply else "-"
             total_display = str(item.total) if item.total is not None else "?"
             remaining_display = str(item.remaining) if item.remaining is not None else "-"
             tree.insert(
                 "",
                 "end",
                 iid=str(job_id),
-                values=(f"job {job_id}", eval_limit_display, f"{item.taken}/{total_display}", remaining_display),
+                values=(
+                    f"job {job_id}",
+                    remaining_display,
+                    total_display,
+                    eval_limit_display,
+                    book_extend_ply_display,
+                ),
             )
 
     def _update_log_view(self) -> None:
@@ -1314,6 +1324,9 @@ class BookMinerGui(ttk.Frame):
         eval_limit = self._parse_task_job_eval_limit(fields.get("eval_limit"))
         if eval_limit is None and job_id in self.task_job_items:
             eval_limit = self.task_job_items[job_id].eval_limit
+        book_extend_ply = fields.get("book_extend_ply")
+        if book_extend_ply is None and job_id in self.task_job_items:
+            book_extend_ply = self.task_job_items[job_id].book_extend_ply
 
         if total == 0 or remaining == 0 or (total is not None and taken >= total):
             self.task_job_items.pop(job_id, None)
@@ -1321,6 +1334,7 @@ class BookMinerGui(ttk.Frame):
             self.task_job_items[job_id] = TaskJobListItem(
                 job_id=job_id,
                 eval_limit=eval_limit,
+                book_extend_ply=book_extend_ply,
                 taken=taken,
                 total=total,
                 remaining=remaining,
