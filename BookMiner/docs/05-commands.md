@@ -211,12 +211,12 @@ pn 30 40 200
 `pn` コマンドは、すでにメモリ上に読み込まれている `peta_book` を辿ります。`pn` を実行しても、peta shock 化済みDBファイルを読み直すわけではありません。
 詳しくは [4. 定跡を掘るための基礎](04-basics.md#peta_next-の開始局面集合を変える) を参照してください。
 
-## peta_next_refutation
+## peta_refutation
 
 `peta_next` と同じように peta_book を辿りますが、leaf として見つかった局面のうち、定跡から抜ける最後の1手が反駁された手だけを書き出します。
 
 ```text
-pnf 30 100 9999 200 None
+pr 30 100 9999 200 None
 ```
 
 引数は順に `eval_diff`、`eval_refutation_margin`、`max_step`、`max_book_ply`、`book_extend_ply` です。`eval_refutation_margin` の省略時は `100`、`max_step` の省略時は `9999` です。任意引数に `None` を指定するとデフォルト値を使います。
@@ -229,12 +229,12 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 
 通常の `peta_next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
-## peta_next_gap
+## peta_depth_gap
 
 peta shock 後、`peta_next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
 
 ```text
-png 30 0.1 9999 200 None
+pdg 30 0.1 9999 200 None
 ```
 
 引数は順に `eval_diff`、`eval_per_ply`、`max_step`、`max_book_ply`、`book_extend_ply` です。`eval_diff` と `max_step` は `peta_next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。任意引数に `None` を指定するとデフォルト値を使います。
@@ -264,9 +264,9 @@ book/think_sfens.txt
 pu None None 200 None
 ```
 
-引数は順に `eval_diff`、`max_step`、`max_book_ply`、`book_extend_ply` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
+引数は順に `eval_drop_limit`、`max_step`、`max_book_ply`、`book_extend_ply` です。`None` を指定するとデフォルト値を使います。GUIで空欄にした場合も `None` として送信します。
 
-`eval_diff` は、棋譜のroot局面の評価値からroot側視点でどれだけ悪化したprefixを除外するかです。`None` の場合は `99999` 扱いになり、通常は評価値差では除外しません。
+`eval_drop_limit` は、棋譜のroot局面の評価値からroot側視点でどれだけ悪化したprefixを除外するかです。`None` の場合は `99999` 扱いになり、通常は評価値差では除外しません。
 
 `pu` は `book/think_sfens.txt` を書き出すだけです。書き出し後の `enqueue` は手動で実行してください。
 

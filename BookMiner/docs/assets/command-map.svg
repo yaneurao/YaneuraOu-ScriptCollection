@@ -40,7 +40,7 @@
   <text class="text small" x="585" y="191">+ peta_shock</text>
   <rect class="make" x="430" y="220" width="86" height="58" rx="10"/>
   <text class="code" x="473" y="256">p*</text>
-  <text class="text small" x="585" y="244">pn/pnf/png/pu/po</text>
+  <text class="text small" x="585" y="244">pn/pr/pdg/pu/po</text>
   <text class="text small" x="585" y="266">think_sfens.txt作成</text>
   <path class="line" d="M 473 203 V 210"/>
 

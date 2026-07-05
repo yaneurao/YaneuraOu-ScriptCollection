@@ -184,7 +184,7 @@ settings/book_miner_settings.json5
     max_book_ply: 200,
 
     // peta_nextの開始局面集合ファイル。
-    // このファイルはpn/pnfコマンドの開始局面を絞るために使う。
+    // このファイルはpn/prコマンドの開始局面を絞るために使う。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
 }
 ```
@@ -193,15 +193,15 @@ settings/book_miner_settings.json5
 
 - `auto_save_interval_seconds` : 定期自動バックアップの間隔です。単位は秒です。
 - `max_book_ply` : この手数に到達したら、それ以上局面を掘りません。
-- `peta_next_start_sfens_path` : `pn` / `pnf` コマンドの `peta_next` で使う開始局面集合ファイルです。
+- `peta_next_start_sfens_path` : `pn` / `pr` / `pdg` コマンドで使う開始局面集合ファイルです。
 
 `auto_save_interval_seconds` の `10800` は 3 時間です。
 
-`max_book_ply` が `200` の場合、ply が 200 に到達した局面では思考せず、`pn` / `pnf` / `png` / `pu` / `po` コマンドでも ply 200 以降の局面を次の掘削対象として書き出しません。
+`max_book_ply` が `200` の場合、ply が 200 に到達した局面では思考せず、`pn` / `pr` / `pdg` / `pu` / `po` コマンドでも ply 200 以降の局面を次の掘削対象として書き出しません。
 GUI の各 `game ply limit` 欄、または CLI の各 peta コマンド引数で実行ごとに指定できます。恒久的なデフォルト値は `settings/book_miner_settings.json5` で指定します。
 
 `peta_next_start_sfens_path` は、通常は `book/peta_start_sfens.txt` のままでかまいません。
-このファイルが存在する場合、`pn` / `pnf` コマンドはそこに書かれた局面集合から定跡ツリーを辿ります。
+このファイルが存在する場合、`pn` / `pr` / `pdg` コマンドはそこに書かれた局面集合から定跡ツリーを辿ります。
 ファイルが存在しない場合は、平手の初期局面 `startpos` から辿ります。
 
 ## SSH 経由で複数 PC を使う方法

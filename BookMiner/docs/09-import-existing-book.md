@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta_next / peta_next_refutation / peta_next_gap / peta_unsolved / peta_opponent](assets/peta-shock-next.svg)
+![peta_shock と peta_next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta_next / peta_next_refutation / peta_next_gap / peta_unsolved / peta_opponent で局面を列挙する
+## 手順2. peta_next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -129,11 +129,11 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pnf` / `png` / `pu` / `po` コマンドの引数で調整してください。
+ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pdg` / `pu` / `po` コマンドの引数で調整してください。
 
 ## 手順3. enqueue する
 
-`peta_next`、`peta_next_refutation`、`peta_next_gap`、`peta_unsolved`、`peta_opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta_next`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -166,22 +166,22 @@ GUI:
 
 `enqueue` は `book/think_sfens.txt` に書かれた各行を読み、まだ掘っていない局面を探索キューへ積みます。探索キューに積まれた局面は、探索 worker によって順に処理されます。
 
-## 必要なら peta_next_refutation で反駁 leaf を延長する
+## 必要なら peta_refutation で反駁 leaf を延長する
 
 既存定跡を peta shock 化すると、もともと2番手以下だった指し手が best に入れ替わることがあります。これを BookMiner では「反駁」と呼びます。
 
-反駁された指し手が depth 0 のままだと、その評価値は十分に延長されていない可能性があります。通常の leaf 延長のうち、このような候補だけを重点的に掘りたい場合は `peta next refu.` を使います。
+反駁された指し手が depth 0 のままだと、その評価値は十分に延長されていない可能性があります。通常の leaf 延長のうち、このような候補だけを重点的に掘りたい場合は `peta refutation` を使います。
 
 CLI:
 
 ```text
-pnf 99999 100 9999 200 None
+pr 99999 100 9999 200 None
 ```
 
 GUI:
 
 ```text
-手順2. peta next refu.  eval_diff 99999  eval refu. 100
+手順2. peta refutation  eval_diff 99999  eval refu. 100
 手順3. enqueue          eval_limit 400
 ```
 
@@ -195,18 +195,18 @@ book/think_sfens.txt
 
 ## peta_next の leaf から反駁されたものだけを掘る
 
-通常の `peta_next` では候補が多すぎる場合、`peta next refu.` を使うと、`peta_next` の leaf のうち、定跡から抜ける最後の1手が反駁された手だったものだけを書き出せます。
+通常の `peta_next` では候補が多すぎる場合、`peta refutation` を使うと、`peta_next` の leaf のうち、定跡から抜ける最後の1手が反駁された手だったものだけを書き出せます。
 
 CLI:
 
 ```text
-pnf 99999 100 9999 200 None
+pr 99999 100 9999 200 None
 ```
 
 GUI:
 
 ```text
-手順2. peta next refu.  eval_diff 99999  eval refu. 100  max step 9999  game ply limit 200
+手順2. peta refutation  eval_diff 99999  eval refu. 100  max step 9999  game ply limit 200
 ```
 
 `100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
@@ -241,9 +241,9 @@ GUI:
 ```text
 手順1. peta_shock または 外部変換後の peta_read
 手順2. peta_next  eval_diff 99999
-        または peta next refu. eval_diff 99999 eval refu. 100
-        または peta next gap eval_diff 99999 eval/ply 0.1
-        または peta unsolved eval_diff None
+        または peta refutation eval_diff 99999 eval refu. 100
+        または peta depth gap eval_diff 99999 eval/ply 0.1
+        または peta unsolved eval_drop_limit None
         または peta opponent eval_diff 0 book extend ply 20
 手順3. enqueue    eval_limit 99999
 ```
