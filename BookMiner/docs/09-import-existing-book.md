@@ -138,22 +138,23 @@ book/think_sfens.txt
 CLI:
 
 ```text
-t 99999
+t
 ```
 
 GUI:
 
 ```text
-手順3. enqueue  eval_limit 99999
+手順2. デフォルト値  eval_diff 99999  max step 99999  game ply limit 200  book extend ply 6  eval_limit 99999
+手順3. enqueue
 ```
 
-`eval_limit` も大きな値にしておくと、評価値が大きく傾いた leaf からも延長しやすくなります。
+手順2の `eval_limit` も大きな値にしておくと、評価値が大きく傾いた leaf からも延長しやすくなります。
 
 ここは既存定跡から掘り始めるときの重要な注意点です。
-`peta_next` の `eval_diff` と、`enqueue` の `eval_limit` は別の値です。
+`peta_next` の `eval_diff` と、手順2の行メタ情報として書き出す `eval_limit` は別の値です。
 
 `peta_next` は、peta shock 化した定跡のなかでどの枝を辿って leaf から外へ伸ばす局面を列挙するかを決めます。
-一方、`enqueue` の `eval_limit` は、`book/think_sfens.txt` の各行を再生している途中で、定跡木の外へ出る枝を延長するかどうかを決める値です。
+一方、手順2から `book/think_sfens.txt` の各行に書き込まれる `eval_limit` は、enqueue 時にその行を再生している途中で、定跡木の外へ出る枝を延長するかどうかを決める値です。
 
 `enqueue` は `book/think_sfens.txt` の各行を先頭局面から順に再生しますが、定跡木の内部ノードの評価値では打ち切りません。
 例えば平手開始局面が定跡木の内部ノードなら、その評価値が `800` で、`eval_limit 400` であっても、その局面は単に通過します。
@@ -175,14 +176,14 @@ GUI:
 CLI:
 
 ```text
-pr 99999 100 9999 200 None
+pr 99999 100 9999 200 None 400
 ```
 
 GUI:
 
 ```text
-手順2. peta refutation  eval_diff 99999  eval refu. 100
-手順3. enqueue          eval_limit 400
+手順2. peta refutation  eval_diff 99999  eval refu. 100  eval_limit 400
+手順3. enqueue
 ```
 
 `99999` は `eval_diff`、`100` は `eval_refutation_margin`、`9999` は `max_step`、`200` は `max_book_ply` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
@@ -200,13 +201,13 @@ book/think_sfens.txt
 CLI:
 
 ```text
-pr 99999 100 9999 200 None
+pr 99999 100 9999 200 None 400
 ```
 
 GUI:
 
 ```text
-手順2. peta refutation  eval_diff 99999  eval refu. 100  max step 9999  game ply limit 200
+手順2. peta refutation  eval_diff 99999  eval refu. 100  max step 9999  game ply limit 200  eval_limit 99999
 ```
 
 `100` は `eval_refutation_margin` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
@@ -214,7 +215,7 @@ GUI:
 抽出後は、通常通り `enqueue` します。
 
 ```text
-t 99999
+t
 ```
 
 ## 探索後にもう一度 peta_shock 化する
@@ -240,12 +241,13 @@ GUI:
 
 ```text
 手順1. peta_shock または 外部変換後の peta_read
-手順2. peta_next  eval_diff 99999
+手順2. デフォルト値 eval_diff 99999 max step 99999 game ply limit 200 book extend ply 6 eval_limit 99999
+        peta_next
         または peta refutation eval_diff 99999 eval refu. 100
         または peta depth gap eval_diff 99999 eval/ply 0.1
         または peta unsolved eval_drop_limit None
         または peta opponent eval_diff 0 book extend ply 20
-手順3. enqueue    eval_limit 99999
+手順3. enqueue
 ```
 
 通常運用では、既存定跡から初回の延長をしたあと、`eval_diff` や `eval_limit` を目的に応じて小さくしていきます。

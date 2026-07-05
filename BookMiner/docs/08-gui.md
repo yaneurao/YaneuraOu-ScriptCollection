@@ -43,7 +43,7 @@ GUI の `enqueue` は、固定で次のファイルを読みます。
 book/think_sfens.txt
 ```
 
-`enqueue` を押すと、`t eval_limit game_ply_limit book_extend_ply` を BookMiner.py に送信します。
+`enqueue` を押すと、引数なしの `t` を BookMiner.py に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -66,12 +66,13 @@ GUI 上でもこの手順が縦に並んでいます。
 ```text
 手順0. [ 棋譜抽出   ]  ← 手順1.～2.の代わりに think_sfens.txt を用意する
 手順1. [ peta_shock ] [ peta_read  ]
-手順2. [ peta_next       ] eval_diff [ X ]                 max step [ Y ] game ply limit [ P ] book extend ply [ T ] 自動 [✓]
-        [ peta refutation ] eval_diff [ X ] eval refu. [ R ] max step [ Y ] game ply limit [ P ] book extend ply [ T ] 自動 [ ]
-        [ peta depth gap  ] eval_diff [ X ] eval/ply  [ G ] max step [ Y ] game ply limit [ P ] book extend ply [ T ] 自動 [ ]
-        [ peta unsolved   ] eval_drop_limit [ X ]           max step [ Y ] game ply limit [ P ] book extend ply [ T ] 自動 [ ]
-        [ peta opponent   ] eval_diff [ X ]                 max step [ Y ] game ply limit [ P ] book extend ply [ T ] 自動 [ ]
-手順3. [ enqueue    ] eval_limit [ Z ] game ply limit [ P ] book extend ply [ T ]
+手順2. デフォルト値                            eval_diff [ 30 ] max step [ 99999 ] game ply limit [ 200 ] book extend ply [ 6 ] eval_limit [ 400 ]
+        [ peta_next       ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [✓]
+        [ peta refutation ] eval refu. [ R ]   eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+        [ peta depth gap  ] eval/ply  [ G ]   eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+        [ peta unsolved   ] eval_drop_limit [ X ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+        [ peta opponent   ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+手順3. [ enqueue    ]
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順2の自動チェック分をまとめてenqueue
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
@@ -85,25 +86,27 @@ GUI 上でもこの手順が縦に並んでいます。
 
 `peta_read` は `r` コマンドを送信し、`book/backup/` にある最新の `peta_book-....db` または `peta_book-....ybb` を読み込みます。`peta_read` 自体は peta shock 化を行わないため、別マシンや手動の `makebook peta_shock` で先に peta book を作って、このフォルダに置いておく必要があります。
 
-`peta_next` は `pn eval_diff max_step game_ply_limit book_extend_ply` を送信します。例えば `eval_diff` に `30`、`max step` に `40`、`game ply limit` に `200` と入力して実行すると、`pn 30 40 200 None` を送信します。空欄は `None` として送信され、CLI 側でデフォルト値になります。
+手順2の各行で空欄にした共通項は、`デフォルト値` 行の値を使います。明示的に `None` と入力した場合だけ、CLI へ `None` を送ります。初期値は `eval_diff=30`、`max step=99999`、`game ply limit=200`、`book extend ply=6`、`eval_limit=400` です。
 
-`peta refutation` は `pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply` を送信します。通常の `peta_next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta_next` とは別に指定できます。
+`peta_next` は `pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。例えばデフォルト値行が初期値のままなら、行側をすべて空欄にして実行すると `pn 30 99999 200 6 400` を送信します。
 
-`peta depth gap` は `pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply` を送信します。`peta_next` と同じ範囲で、best以外の登録済み指し手がbestより浅く、depth差ぶん延長すれば best を逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
+`peta refutation` は `pr eval_diff eval_refutation_margin max_step game_ply_limit book_extend_ply eval_limit` を送信します。通常の `peta_next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta_next` とは別に指定できます。
 
-`peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
+`peta depth gap` は `pdg eval_diff eval_per_ply max_step game_ply_limit book_extend_ply eval_limit` を送信します。`peta_next` と同じ範囲で、best以外の登録済み指し手がbestより浅く、depth差ぶん延長すれば best を逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
 
-`peta opponent` は `po eval_diff max_step game_ply_limit book_extend_ply` を送信します。`book/book_opponent/` に置いた過去配布定跡などを相手定跡とみなし、現在読み込んでいる peta_book と best 進行を辿ります。どちらかの定跡が切れた地点から、現在の peta_book の PV leaf まで進めた局面を `book/think_sfens.txt` に書き出します。
+`peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
 
-手順2の各行の `book extend ply` を数値で指定すると、書き出す各行に `book_extend_ply=...` が付きます。その行を `enqueue` したときは、手順3の `book extend ply` ではなく、この行ごとの値で best line を延長します。空欄または `None` の場合はメタ情報を付けず、手順3の `book extend ply` を使います。
+`peta opponent` は `po eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/book_opponent/` に置いた過去配布定跡などを相手定跡とみなし、現在読み込んでいる peta_book と best 進行を辿ります。どちらかの定跡が切れた地点から、現在の peta_book の PV leaf まで進めた局面を `book/think_sfens.txt` に書き出します。
 
-`enqueue` は、`t eval_limit game_ply_limit book_extend_ply` を送信します。例えば `eval_limit` に `400`、`game ply limit` に `200`、`book extend ply` に `6` と入力して実行すると、`t 400 200 6` を送信して、`book/think_sfens.txt` の局面を探索キューへ積みます。`eval_limit`、`game ply limit`、`book extend ply` を空欄にした場合は `None` を送信し、CLI側でデフォルト値を使います。
+手順2の各行の `game ply limit`、`book extend ply`、`eval_limit` を数値で指定すると、書き出す各行に `game_ply_limit=...`、`book_extend_ply=...`、`eval_limit=...` が付きます。その行を `enqueue` したときは、この行ごとの値で探索します。
+
+`enqueue` は、引数なしの `t` を送信します。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
 `game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta_next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
 残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。
-各抽出が `book/think_sfens.txt` に書き出した内容は、GUI が `book/think_sfens-tmp.txt` に追記します。重複行はこの追記時に除外します。行末に `book_extend_ply=...` が付いている同一局面が複数ある場合は、値が大きいほうを残します。
+各抽出が `book/think_sfens.txt` に書き出した内容は、GUI が `book/think_sfens-tmp.txt` に追記します。重複行はこの追記時に除外します。行末メタ情報が付いている同一局面が複数ある場合は、より大きい値を持つ行を残します。
 チェックされた手順2をすべて実行したら、GUI は `book/think_sfens-tmp.txt` を `book/think_sfens.txt` に置き換えてから `enqueue` します。
 自動実行中に同じ処理が二重に走らないよう、次の段階へ進むのは BookMiner.py の完了タグを受け取ってからです。
 
@@ -120,7 +123,7 @@ GUI 上でもこの手順が縦に並んでいます。
 - `peta depth gap`: depthが浅く逆転しうる候補手のPV leafを `book/think_sfens.txt` に書き出します。
 - `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜prefixからPV leafを `book/think_sfens.txt` に書き出します。
 - `peta opponent`: `book/book_opponent/` の相手定跡と現行 peta_book の best 進行から、対策候補leafを `book/think_sfens.txt` に書き出します。
-- `enqueue`: 指定した eval limit / game ply limit / book extend ply で、`book/think_sfens.txt` の棋譜上の局面を探索キューへ積みます。
+- `enqueue`: `book/think_sfens.txt` の行メタ情報に従って、棋譜上の局面を探索キューへ積みます。
 - `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。
 - `DB手動保存`: 現在の定跡 DB を `book/backup/` に書き出します。
 
@@ -129,7 +132,7 @@ GUI 上でもこの手順が縦に並んでいます。
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは各 `eval_diff`、`peta unsolved` の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、`eval/ply`、各 `eval_limit`、各 `game ply limit`、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは手順2のデフォルト値、各 `eval_diff`、`peta unsolved` の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、`eval/ply`、各 `eval_limit`、各 `game ply limit`、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。

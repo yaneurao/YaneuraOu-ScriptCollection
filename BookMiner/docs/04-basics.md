@@ -61,7 +61,7 @@ BookMiner は指し手を順に再生して通過します。
 
 また、`max_book_ply` に到達した場合も、その対局の処理はそこで止まります。GUIでは `game ply limit` 欄で変更できます。
 
-棋譜の末端まで到達できた場合は、そこからエンジンの best line を `book_extend_ply` 手分だけ延長して掘ります。デフォルトは `6` で、CLIでは `t` コマンドの第3引数、GUIでは `enqueue` 行の `book extend ply` 欄で変更できます。CLIで `None` を指定した場合や、GUIで空欄にした場合もデフォルトの `6` です。この延長中も、評価値の絶対値が eval limit を超えたら停止します。
+棋譜の末端まで到達できた場合は、そこからエンジンの best line を `book_extend_ply` 手分だけ延長して掘ります。デフォルトは `6` で、`book/think_sfens.txt` の行末メタ情報 `book_extend_ply=...` で変更できます。メタ情報が無い場合や `None` の場合はデフォルトの `6` です。この延長中も、評価値の絶対値が eval limit を超えたら停止します。
 
 ## 探索ログの末尾に出る 1.0 と 0.7
 

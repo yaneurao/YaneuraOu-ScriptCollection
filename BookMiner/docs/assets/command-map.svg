@@ -25,8 +25,8 @@
   <text class="text" x="195" y="122">局面を積む</text>
   <rect class="cmd" x="92" y="145" width="86" height="58" rx="10"/>
   <text class="code" x="135" y="181">t</text>
-  <text class="text small" x="235" y="169">eval/game/think指定</text>
-  <text class="text small" x="235" y="191">例: t 400 200 6</text>
+  <text class="text small" x="235" y="169">行メタ情報を読む</text>
+  <text class="text small" x="235" y="191">例: t</text>
   <rect class="cmd" x="92" y="220" width="86" height="58" rx="10"/>
   <text class="code" x="135" y="256">txt</text>
   <text class="text small" x="235" y="244">think_sfens.txtを読む</text>

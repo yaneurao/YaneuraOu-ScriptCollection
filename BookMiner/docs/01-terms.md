@@ -212,7 +212,7 @@ peta shock 化した定跡 DB から、leaf の先へ定跡ツリーを伸ばす
 
 `peta_next` の leaf のうち、定跡から抜ける最後の1手が peta shock 前の通常bookでは best ではなかったものだけを抽出する処理です。
 
-BookMiner の CLI では `pr eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pr eval_diff [eval_refutation_margin] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta refutation` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。
 
 ## 反駁
 
@@ -224,19 +224,19 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 peta shock 後に、`peta_next` と同じ BFS 範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん延長すると best を逆転しうる場合に抽出する処理です。
 
-BookMiner の CLI では `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta depth gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
+BookMiner の CLI では `pdg eval_diff [eval_per_ply] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta depth gap` ボタンに対応します。抽出結果は、その候補手のPV leafとして `book/think_sfens.txt` に書き出されます。
 
 ## peta_unsolved
 
 `book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿り、次に掘る局面として `book/think_sfens.txt` に書き出す処理です。
 
-BookMiner の CLI では `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。`eval_drop_limit` は棋譜rootからどれだけ悪化したprefixを除外するかです。書き出し後の enqueue は手動で実行します。
+BookMiner の CLI では `pu [eval_drop_limit] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。`eval_drop_limit` は棋譜rootからどれだけ悪化したprefixを除外するかです。書き出し後の enqueue は手動で実行します。
 
 ## peta_opponent
 
 `book/book_opponent/` に置いた過去配布定跡などを仮想敵とし、現在読み込んでいる peta_book と best 進行を辿って、相手定跡が切れる周辺の leaf を `book/think_sfens.txt` に書き出す処理です。
 
-BookMiner の CLI では `po [eval_diff] [max_step] [max_book_ply] [book_extend_ply]`、GUI では `peta opponent` ボタンに対応します。`book_extend_ply` を指定すると、書き出し行に `book_extend_ply=...` が付き、その行だけ enqueue 時の best line 延長手数を上書きします。
+BookMiner の CLI では `po [eval_diff] [max_step] [max_book_ply] [book_extend_ply] [eval_limit]`、GUI では `peta opponent` ボタンに対応します。`book_extend_ply`、`eval_limit`、`max_book_ply` を指定すると、書き出し行にメタ情報が付き、その行だけ enqueue 時の探索条件を上書きします。
 
 ## KifManager
 
