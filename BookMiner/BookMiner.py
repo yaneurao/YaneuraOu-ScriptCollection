@@ -239,6 +239,12 @@ class TaskQueueJobProgress:
     # 最後にTaskQueueProgressへ出力した完了数。
     last_reported_taken : int = 0
 
+    # このjobで、他workerが探索中の局面に当たりqueue末尾へ戻した累計回数。
+    deferred : int = 0
+
+    # 最後にTaskQueueProgressへ出力したdeferred数。
+    last_reported_deferred : int = 0
+
 
 @dataclass
 class PositionCommandEntry:
@@ -1713,6 +1719,11 @@ class EngineManager:
 
     def defer_task(self, task:Task):
         task.defer_count += 1
+        with self.task_progress_lock:
+            job_progress = self.task_progress_jobs.get(task.job_id)
+            if job_progress is not None:
+                job_progress.deferred += 1
+
         if task.defer_count > MAX_TASK_DEFER_COUNT:
             print(
                 f"[TaskQueueDeferLimit] job={task.job_id} "
@@ -1757,19 +1768,22 @@ class EngineManager:
             f"[TaskQueueStart] {taken}/{total} "
             f"job={job_id} job_progress=0/{added_count} job_remaining={added_count} "
             f"added={added_count} remaining={remaining} path={path} "
-            f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+            f"deferred=0 eval_limit={eval_limit} "
+            f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
         )
         if added_count == 0:
             print(
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/0 job_remaining=0 remaining={remaining} "
-                f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+                f"deferred=0 eval_limit={eval_limit} "
+                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
             )
         if remaining == 0:
             print(
                 f"[TaskQueueDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/{added_count} job_remaining=0 remaining=0 "
-                f"eval_limit={eval_limit} game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+                f"deferred=0 eval_limit={eval_limit} "
+                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
             )
 
     def report_task_queue_progress(self, task:Task):
@@ -1804,6 +1818,7 @@ class EngineManager:
             job_eval_limit = job_progress.eval_limit
             job_game_ply_limit = job_progress.game_ply_limit
             job_book_extend_ply = job_progress.book_extend_ply
+            job_deferred = job_progress.deferred
             remaining = max(total - taken, 0)
             job_remaining = max(job_total - job_taken, 0)
             should_report_job_done = (
@@ -1817,6 +1832,7 @@ class EngineManager:
             if not should_report:
                 return
             job_progress.last_reported_taken = job_taken
+            job_progress.last_reported_deferred = job_deferred
             self.task_progress_last_report = time.time()
 
         tag = "TaskQueueDone" if remaining == 0 else "TaskQueueProgress"
@@ -1824,14 +1840,16 @@ class EngineManager:
             f"[{tag}] {taken}/{total} "
             f"job={task.job_id} job_progress={job_taken}/{job_total} "
             f"job_remaining={job_remaining} remaining={remaining} "
-            f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+            f"deferred={job_deferred} eval_limit={job_eval_limit} "
+            f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
         )
         if should_report_job_done:
             print(
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={task.job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining=0 remaining={remaining} "
-                f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+                f"deferred={job_deferred} eval_limit={job_eval_limit} "
+                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
             )
 
     def task_queue_progress_reporter(self):
@@ -1842,7 +1860,7 @@ class EngineManager:
             self.report_periodic_task_queue_progress()
 
     def report_periodic_task_queue_progress(self):
-        reports : list[tuple[int, int, int, int, int, int, int, int|str|None, int|str|None, str|None]] = []
+        reports : list[tuple[int, int, int, int, int, int, int, int, int|str|None, int|str|None, str|None]] = []
         with self.task_progress_lock:
             total = self.task_progress_total
             taken = self.task_progress_taken
@@ -1850,11 +1868,15 @@ class EngineManager:
             for job_id, job_progress in self.task_progress_jobs.items():
                 if job_progress.done_reported:
                     continue
-                if job_progress.taken == job_progress.last_reported_taken:
+                if (
+                    job_progress.taken == job_progress.last_reported_taken
+                    and job_progress.deferred == job_progress.last_reported_deferred
+                ):
                     continue
                 job_taken = job_progress.taken
                 job_total = job_progress.total
                 job_remaining = max(job_total - job_taken, 0)
+                job_deferred = job_progress.deferred
                 reports.append(
                     (
                         job_id,
@@ -1864,12 +1886,14 @@ class EngineManager:
                         job_total,
                         job_remaining,
                         remaining,
+                        job_deferred,
                         job_progress.eval_limit,
                         job_progress.game_ply_limit,
                         job_progress.book_extend_ply,
                     )
                 )
                 job_progress.last_reported_taken = job_taken
+                job_progress.last_reported_deferred = job_deferred
             if reports:
                 self.task_progress_last_report = time.time()
 
@@ -1881,6 +1905,7 @@ class EngineManager:
             job_total,
             job_remaining,
             remaining,
+            job_deferred,
             job_eval_limit,
             job_game_ply_limit,
             job_book_extend_ply,
@@ -1889,7 +1914,8 @@ class EngineManager:
                 f"[TaskQueueProgress] {taken}/{total} "
                 f"job={job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining={job_remaining} remaining={remaining} "
-                f"eval_limit={job_eval_limit} game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+                f"deferred={job_deferred} eval_limit={job_eval_limit} "
+                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
             )
 
     def report_mining_progress(self, position_count:int, force:bool = False):

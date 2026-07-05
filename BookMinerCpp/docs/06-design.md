@@ -79,7 +79,7 @@ GUIが解釈する進捗タグはPython版と揃えます。
 `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` は、手順2系コマンドと `e` が使う共通デフォルト値を更新します。
 `e` は `book/think_sfens.txt` の `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
 各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` メタ情報がある場合、そのtaskだけ `sd` の値を上書きします。
-`TaskQueueProgress` は、おおむね10秒ごとに、前回出力時から完了数が変わっている job について出します。
+`TaskQueueProgress` は、おおむね10秒ごとに、前回出力時から完了数または `deferred` が変わっている job について出します。
 各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を即時に出します。
 全体queueの最後のtaskが完了したときは `TaskQueueDone` を即時に出します。
 
@@ -89,6 +89,7 @@ GUIが解釈する進捗タグはPython版と揃えます。
 定跡DBは `BookStore` が保持し、workerは局面情報をcopyで読み、探索結果をmergeで書き込みます。
 同一局面またはflip同一局面を複数workerが同時に探索しないよう、`BookStore` 内で探索中局面をleaseとして管理します。
 探索中局面に当たったtaskはworker内で待機せず、`TaskQueue` の末尾へ戻します。`startpos moves ...` の明示手順部分は処理開始前にも先読みし、手順中に探索中局面があればエンジンを使う前に後回しにします。raceや `book_extend_ply` 延長中の衝突に備えて、各局面到達時のlease取得判定も残します。
+この後回し回数は job ごとに `deferred` として `TaskQueueStart` / `TaskQueueProgress` / `TaskQueueJobDone` / `TaskQueueDone` に出力します。
 
 ## 定跡DBのLSM-tree構造
 

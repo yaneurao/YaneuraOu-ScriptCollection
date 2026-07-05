@@ -145,6 +145,7 @@ class TaskJobListItem:
     eval_limit: int | str | None
     game_ply_limit: int | str | None
     book_extend_ply: str | None
+    deferred: int
     taken: int
     total: int | None
     remaining: int | None
@@ -936,19 +937,21 @@ class BookMinerGui(ttk.Frame):
 
         tree = ttk.Treeview(
             list_frame,
-            columns=("job", "remaining", "total", "eval_limit", "game_ply_limit", "book_extend_ply"),
+            columns=("job", "remaining", "total", "deferred", "eval_limit", "game_ply_limit", "book_extend_ply"),
             show="headings",
             height=height,
         )
         tree.heading("job", text="job")
         tree.heading("remaining", text="残り")
         tree.heading("total", text="母数")
+        tree.heading("deferred", text="deferred")
         tree.heading("eval_limit", text="eval_limit")
         tree.heading("game_ply_limit", text="game_ply_limit")
         tree.heading("book_extend_ply", text="book_extend_ply")
         tree.column("job", width=90, minwidth=70, anchor="w", stretch=False)
         tree.column("remaining", width=90, minwidth=70, anchor="e", stretch=False)
         tree.column("total", width=90, minwidth=70, anchor="e", stretch=False)
+        tree.column("deferred", width=90, minwidth=75, anchor="e", stretch=False)
         tree.column("eval_limit", width=90, minwidth=80, anchor="e", stretch=False)
         tree.column("game_ply_limit", width=110, minwidth=95, anchor="e", stretch=False)
         tree.column("book_extend_ply", width=120, minwidth=100, anchor="e", stretch=True)
@@ -1067,6 +1070,7 @@ class BookMinerGui(ttk.Frame):
             book_extend_ply_display = item.book_extend_ply if item.book_extend_ply else "-"
             total_display = str(item.total) if item.total is not None else "?"
             remaining_display = str(item.remaining) if item.remaining is not None else "-"
+            deferred_display = str(item.deferred)
             tree.insert(
                 "",
                 "end",
@@ -1075,6 +1079,7 @@ class BookMinerGui(ttk.Frame):
                     f"job {job_id}",
                     remaining_display,
                     total_display,
+                    deferred_display,
                     eval_limit_display,
                     game_ply_limit_display,
                     book_extend_ply_display,
@@ -1428,6 +1433,11 @@ class BookMinerGui(ttk.Frame):
         taken = int(taken_text)
         total = None if total_text == "?" else int(total_text)
         remaining = self._parse_task_job_remaining(fields.get("job_remaining"), taken, total)
+        deferred = self._parse_task_job_deferred(fields.get("deferred"))
+        if deferred is None and job_id in self.task_job_items:
+            deferred = self.task_job_items[job_id].deferred
+        if deferred is None:
+            deferred = 0
         eval_limit = self._parse_task_job_eval_limit(fields.get("eval_limit"))
         if eval_limit is None and job_id in self.task_job_items:
             eval_limit = self.task_job_items[job_id].eval_limit
@@ -1446,6 +1456,7 @@ class BookMinerGui(ttk.Frame):
                 eval_limit=eval_limit,
                 game_ply_limit=game_ply_limit,
                 book_extend_ply=book_extend_ply,
+                deferred=deferred,
                 taken=taken,
                 total=total,
                 remaining=remaining,
@@ -1459,6 +1470,14 @@ class BookMinerGui(ttk.Frame):
             return int(eval_limit_text)
         except ValueError:
             return eval_limit_text
+
+    def _parse_task_job_deferred(self, deferred_text: str | None) -> int | None:
+        if deferred_text is None:
+            return None
+        try:
+            return int(deferred_text)
+        except ValueError:
+            return None
 
     def _parse_task_job_remaining(
         self,

@@ -931,6 +931,7 @@ public:
             + " added=" + std::to_string(added)
             + " remaining=" + std::to_string(total_enqueued - total_taken)
             + " path=" + path.string()
+            + " deferred=0"
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
             + " book_extend_ply=" + job_book_extend_ply);
@@ -970,6 +971,8 @@ private:
         std::size_t total = 0;
         std::size_t taken = 0;
         std::size_t last_reported_taken = 0;
+        std::size_t deferred = 0;
+        std::size_t last_reported_deferred = 0;
         bool done_reported = false;
         std::string eval_limit;
         std::string game_ply_limit;
@@ -984,6 +987,7 @@ private:
         std::size_t job_total = 0;
         std::size_t job_remaining = 0;
         std::size_t remaining = 0;
+        std::size_t deferred = 0;
         std::string eval_limit;
         std::string game_ply_limit;
         std::string book_extend_ply;
@@ -1024,6 +1028,13 @@ private:
     void defer_task(Task task)
     {
         ++task.defer_count;
+        {
+            std::scoped_lock lock(progress_mutex_);
+            auto it = jobs_.find(task.job_id);
+            if (it != jobs_.end())
+                ++it->second.deferred;
+        }
+
         if (task.defer_count > MaxTaskDeferCount)
         {
             log_line("[TaskQueueDeferLimit] job=" + std::to_string(task.job_id)
@@ -1063,6 +1074,7 @@ private:
         std::string job_eval_limit;
         std::string job_game_ply_limit;
         std::string job_book_extend_ply;
+        std::size_t job_deferred = 0;
 
         {
             std::scoped_lock lock(progress_mutex_);
@@ -1083,6 +1095,7 @@ private:
             job_eval_limit = job.eval_limit;
             job_game_ply_limit = job.game_ply_limit;
             job_book_extend_ply = job.book_extend_ply;
+            job_deferred = job.deferred;
             should_report_job_done = job.total > 0 && job.taken >= job.total && !job.done_reported;
             if (should_report_job_done)
                 job.done_reported = true;
@@ -1092,6 +1105,7 @@ private:
             {
                 should_report = true;
                 job.last_reported_taken = job.taken;
+                job.last_reported_deferred = job.deferred;
                 last_task_progress_report_ = std::chrono::steady_clock::now();
             }
         }
@@ -1106,6 +1120,7 @@ private:
             + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
             + " job_remaining=" + std::to_string(job_remaining)
             + " remaining=" + std::to_string(remaining)
+            + " deferred=" + std::to_string(job_deferred)
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
             + " book_extend_ply=" + job_book_extend_ply);
@@ -1117,6 +1132,7 @@ private:
                 + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
                 + " job_remaining=0"
                 + " remaining=" + std::to_string(remaining)
+                + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply);
@@ -1129,6 +1145,7 @@ private:
                 + " job_progress=" + std::to_string(job_taken) + "/" + std::to_string(job_total)
                 + " job_remaining=" + std::to_string(job_remaining)
                 + " remaining=0"
+                + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply);
@@ -1145,7 +1162,7 @@ private:
             {
                 if (job.done_reported)
                     continue;
-                if (job.taken == job.last_reported_taken)
+                if (job.taken == job.last_reported_taken && job.deferred == job.last_reported_deferred)
                     continue;
 
                 ProgressReport report;
@@ -1156,11 +1173,13 @@ private:
                 report.job_total = job.total;
                 report.job_remaining = job.total > job.taken ? job.total - job.taken : 0;
                 report.remaining = remaining;
+                report.deferred = job.deferred;
                 report.eval_limit = job.eval_limit;
                 report.game_ply_limit = job.game_ply_limit;
                 report.book_extend_ply = job.book_extend_ply;
                 reports.push_back(std::move(report));
                 job.last_reported_taken = job.taken;
+                job.last_reported_deferred = job.deferred;
             }
             if (!reports.empty())
                 last_task_progress_report_ = std::chrono::steady_clock::now();
@@ -1173,6 +1192,7 @@ private:
                 + " job_progress=" + std::to_string(report.job_taken) + "/" + std::to_string(report.job_total)
                 + " job_remaining=" + std::to_string(report.job_remaining)
                 + " remaining=" + std::to_string(report.remaining)
+                + " deferred=" + std::to_string(report.deferred)
                 + " eval_limit=" + report.eval_limit
                 + " game_ply_limit=" + report.game_ply_limit
                 + " book_extend_ply=" + report.book_extend_ply);
@@ -1186,6 +1206,7 @@ private:
         std::string job_eval_limit = "-";
         std::string job_game_ply_limit = "-";
         std::string job_book_extend_ply = "-";
+        std::size_t job_deferred = 0;
         {
             std::scoped_lock lock(progress_mutex_);
             total_taken = total_taken_;
@@ -1196,11 +1217,13 @@ private:
                 job_eval_limit = it->second.eval_limit.empty() ? "-" : it->second.eval_limit;
                 job_game_ply_limit = it->second.game_ply_limit.empty() ? "-" : it->second.game_ply_limit;
                 job_book_extend_ply = it->second.book_extend_ply.empty() ? "-" : it->second.book_extend_ply;
+                job_deferred = it->second.deferred;
             }
         }
         log_line("[TaskQueueJobDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
             + " job_progress=0/0 job_remaining=0 remaining=" + std::to_string(total_enqueued - total_taken)
+            + " deferred=" + std::to_string(job_deferred)
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
             + " book_extend_ply=" + job_book_extend_ply);
@@ -1209,6 +1232,7 @@ private:
             log_line("[TaskQueueDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
                 + " job=" + std::to_string(job_id)
                 + " job_progress=0/0 job_remaining=0 remaining=0"
+                + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply);
