@@ -36,7 +36,7 @@ GUI 上の操作は Python 版と同じです。
 ```text
 手順0. 棋譜抽出
 手順1. peta_shock / peta_read
-手順2. peta next / peta next refu. / peta refutation / peta depth_gap / peta unsolved / peta opponent
+手順2. peta next / peta refutation / peta depth gap / peta unsolved / peta opponent
 手順3. enqueue
 手順4. 自動enqueue
 手順5. DB手動保存
@@ -65,7 +65,7 @@ pn 100            peta next を実行し、think_sfens.txt を作る
 pr 100 30         peta next の leaf のうち、反駁された leaf だけを作る
 pdg 0.1 100       depth差で逆転しうる候補のPV leafを作る
 pu None None 200 None 400
-                  think_unsolved_sfens.txt の棋譜prefix周辺を作る
+                  think_unsolved_sfens.txt の棋譜の各途中局面周辺を作る
 po 0 9999 200 20 400
                   book/book_opponent/ の相手定跡への対策候補を作る
 e                 book/think_sfens.txt を探索キューへ積む

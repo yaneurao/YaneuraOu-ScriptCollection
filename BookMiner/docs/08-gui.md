@@ -51,7 +51,7 @@ book/think_sfens.txt
 
 棋譜から新しく掘る場合は、`棋譜抽出` を使います。
 既存の定跡DBを peta shock 化して leaf を延長する場合は、BookMiner 上で変換するなら `peta_shock`、別マシンなどで変換済みの `peta_book-....db` または `.ybb` を持ち込むなら `peta_read` のあとに `peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent` のいずれかを使います。
-peta shock 化の意味、`peta next`、`peta refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent` の関係は [10. peta shock 化](10-peta-shock.md) を参照してください。
+peta shock 化の意味は [10. peta shock 化](10-peta-shock.md)、peta book を使う各操作の関係は [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) を参照してください。
 
 局面を用意できたら、`enqueue` で探索キューへ積みます。
 
@@ -95,7 +95,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 `peta depth gap` は `pdg eval_per_ply eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`peta next` と同じ範囲で、best以外の登録済み指し手がbestより浅く、depth差ぶん延長すれば best を逆転しうる場合に、そのPV leafを `book/think_sfens.txt` に書き出します。`eval/ply` は、1手深く掘ったときに評価値がどれくらい改善しうると仮定するかの値です。デフォルトは `0.1` で、`0.5` のような小数も指定できます。
 
-`peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各prefix局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化したprefixを除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
+`peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各途中局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化した途中局面を除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
 
 `peta opponent` は `po eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/book_opponent/` に置いた過去配布定跡などを相手定跡とみなし、現在読み込んでいる peta_book と best 進行を辿ります。どちらかの定跡が切れた地点から、現在の peta_book の PV leaf まで進めた局面を `book/think_sfens.txt` に書き出します。
 
@@ -122,7 +122,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 - `peta next`: peta shock 化した定跡から、次に掘る局面を `book/think_sfens.txt` に書き出します。
 - `peta refutation`: `peta next` の leaf のうち、反駁された leaf だけを `book/think_sfens.txt` に書き出します。
 - `peta depth gap`: depthが浅く逆転しうる候補手のPV leafを `book/think_sfens.txt` に書き出します。
-- `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜prefixからPV leafを `book/think_sfens.txt` に書き出します。
+- `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜の各途中局面からPV leafを `book/think_sfens.txt` に書き出します。
 - `peta opponent`: `book/book_opponent/` の相手定跡と現行 peta_book の best 進行から、対策候補leafを `book/think_sfens.txt` に書き出します。
 - `enqueue`: `book/think_sfens.txt` の行メタ情報に従って、棋譜上の局面を探索キューへ積みます。
 - `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。

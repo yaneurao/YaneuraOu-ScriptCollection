@@ -10,7 +10,7 @@
 
 探索後に再度 peta shock 化すると、既存定跡内の局面評価も、新しく伸ばした先の評価値をもとに計算し直されます。
 
-ここでは手順を中心に説明します。peta shock 化そのものの意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) を参照してください。
+ここでは手順を中心に説明します。peta shock 化そのものの意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) を参照してください。peta book から次に掘る局面を作る操作の詳細は [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) を参照してください。
 
 ![定跡木と leaf からの延長](assets/book-tree-leaf-extension.svg)
 
@@ -92,7 +92,7 @@ r
 手順1. peta_read
 ```
 
-![peta_shock と peta next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent](assets/peta-shock-next.svg)
+![peta_shock と peta 系操作](assets/peta-shock-next.svg)
 
 出力例:
 
@@ -103,7 +103,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta next / peta_refutation / peta_depth_gap / peta_unsolved / peta_opponent で局面を列挙する
+## 手順2. peta next / peta refutation / peta depth gap / peta unsolved / peta opponent で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -129,13 +129,13 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`max_book_ply` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pdg` / `pu` / `po` コマンドの引数で調整してください。
+ただし、`game_ply_limit` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pdg` / `pu` / `po` コマンドの引数で調整してください。
 
 `game ply limit` は `book/think_sfens.txt` の行末メタ情報としても残るため、その後の `enqueue` の探索workerにも効きます。候補列挙だけを浅くしたい場合は `game ply limit` ではなく `max step` を調整してください。`max step` は `book/think_sfens.txt` に書き出されません。
 
 ## 手順3. enqueue する
 
-`peta next`、`peta_refutation`、`peta_depth_gap`、`peta_unsolved`、`peta_opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -169,7 +169,7 @@ GUI:
 
 `enqueue` は `book/think_sfens.txt` に書かれた各行を読み、まだ掘っていない局面を探索キューへ積みます。探索キューに積まれた局面は、探索 worker によって順に処理されます。
 
-## 必要なら peta_refutation で反駁 leaf を延長する
+## 必要なら peta refutation で反駁 leaf を延長する
 
 既存定跡を peta shock 化すると、もともと2番手以下だった指し手が best に入れ替わることがあります。これを BookMiner では「反駁」と呼びます。
 
@@ -188,7 +188,7 @@ GUI:
 手順3. enqueue
 ```
 
-`100` は `eval_refutation_margin`、`99999` は `eval_diff`、`9999` は `max_step`、`200` は `max_book_ply` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
+`100` は `eval_refutation_margin`、`99999` は `eval_diff`、`9999` は `max_step`、`200` は `game_ply_limit` です。peta shock 後の `反駁候補手評価値 - 旧best手評価値` がこの値以上の leaf だけを抽出します。
 
 出力先は `peta next` と同じです。
 

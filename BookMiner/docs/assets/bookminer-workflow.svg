@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1060" height="560" viewBox="0 0 1060 560" role="img" aria-labelledby="title desc">
   <title id="title">BookMiner GUI の基本手順</title>
-  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でpeta next、peta_refutation、peta_depth_gap、peta_unsolved、peta_opponentによりthink_sfens.txtを作り、手順3でenqueueし、手順4の自動enqueueでは自動チェックされた手順2をthink_sfens-tmp.txtにまとめてenqueueする流れ</desc>
+  <desc id="desc">手順0または手順1のpeta_shock、外部で作ったpeta_bookを読むpeta_read、手順2でpeta next、peta refutation、peta depth gap、peta unsolved、peta opponentによりthink_sfens.txtを作り、手順3でenqueueし、手順4の自動enqueueでは自動チェックされた手順2をthink_sfens-tmp.txtにまとめてenqueueする流れ</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#315f72"/>
