@@ -227,11 +227,11 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `[TaskQueueJobDone]` は、その `job` の全タスクが完了したときに出ます。`remaining` が 0 でなければ、他の job のタスクがまだ残っています。
 
 `タスク状況ログ` の `タスク一覧` チェックを入れると、ログ表示の代わりに現存 job の一覧を表示します。
-各行には `job`、`残り` (`job_remaining`)、`母数` (`job_progress` の分母)、`deferred`、`eval_limit`、`game_ply_limit`、`book_extend_ply` が表示されます。
+各行には `job`、`残り` (`job_remaining`)、`総数` (`job_progress` の総数)、`deferred`、`eval_limit`、`game_ply_limit`、`book_extend_ply` が表示されます。
 `eval_limit`、`game_ply_limit`、`book_extend_ply` が job 内で複数値に分かれている場合は `mixed` と表示されます。
 `[TaskQueueJobDone]` または `job_remaining=0` を受け取った job は一覧から削除されます。
 
-複数回 enqueue した場合、`[TaskQueueStart]` の分母は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが完了した状態で 72462 行を追加 enqueue すると、次のように表示されます。
+複数回 enqueue した場合、`[TaskQueueStart]` の総数は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが完了した状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
 [TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt deferred=0 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
