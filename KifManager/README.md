@@ -54,7 +54,7 @@ Linux/macOS:
 python3 kif-manager.py --from_bookminer
 ```
 
-この場合、棋譜抽出の出力ファイルは BookMiner が読む `BookMiner/book/think_sfens.txt` に強制設定されます。
+この場合、棋譜抽出の出力ファイルが未設定またはデフォルト値なら、BookMiner が読む `BookMiner/book/think_sfens.txt` に自動設定されます。出力ファイル欄を手で変更した場合は、その値が `kif-manager-settings.pickle` に保存され、次回起動時も復元されます。
 
 上位タブは `棋譜抽出` と `棋譜のダウンロード` に分かれています。
 

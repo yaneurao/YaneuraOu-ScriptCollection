@@ -1807,7 +1807,6 @@ class KifManager(tk.Tk):
         self.log_target_files = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="待機中")
         self.extract_panes: dict[str, ExtractorPane] = {}
-        self.bookminer_original_output_paths: dict[str, str] = {}
         self.download_panes: dict[
             str,
             DownloadPlaceholderPane
@@ -2529,8 +2528,9 @@ class KifManager(tk.Tk):
 
     def _apply_bookminer_output_path(self) -> None:
         for pane in self.extract_panes.values():
-            self.bookminer_original_output_paths[pane.kind.key] = pane.output_path.get()
-            pane.output_path.set(BOOKMINER_EXTRACT_OUTPUT_FILE)
+            output_path = pane.output_path.get().strip()
+            if not output_path or output_path == EXTRACT_DEFAULT_OUTPUT_FILE:
+                pane.output_path.set(BOOKMINER_EXTRACT_OUTPUT_FILE)
 
     def _save_settings(self) -> None:
         selected_extract_pane = self._current_extract_pane()
@@ -2538,11 +2538,6 @@ class KifManager(tk.Tk):
         selected_download_pane = self._current_download_pane()
         selected_download_key = selected_download_pane.kind.key if selected_download_pane is not None else ""
         extract_pane_settings = {key: pane.settings() for key, pane in self.extract_panes.items()}
-        if self.from_bookminer:
-            for key, output_path in self.bookminer_original_output_paths.items():
-                pane_settings = extract_pane_settings.get(key)
-                if pane_settings is not None:
-                    pane_settings["output_path"] = output_path
 
         settings = {
             "version": SETTINGS_VERSION,
