@@ -58,7 +58,7 @@ python3 BookMiner-gui.py
 
 既存定跡を読み込んだら、まず peta shock 化した定跡を BookMiner の `peta_book` として読み込みます。
 
-BookMiner を動かしている環境でそのまま変換できる場合は、`peta_shock` を使います。
+BookMiner を動かしている環境でそのまま変換できる場合は、`peta_shock` を使います。直前に保存済みの `book/backup/book_miner-....db` または `.ybb` をそのまま使う場合は、DBを書き出さない `peta_shock_latest` も使えます。
 
 CLI:
 
@@ -73,6 +73,16 @@ GUI:
 ```
 
 `p` コマンドは、現在メモリ上にある定跡を `book/backup/` に正規の名前で書き出し、そのファイルを peta shock 化して読み込みます。
+
+```text
+pl
+```
+
+```text
+手順1. peta_shock_latest
+```
+
+`pl` / `peta_shock_latest` は、現在メモリ上の定跡を書き出さず、`book/backup/` の最新通常bookから peta shock 化します。
 
 メモリなどの都合で別マシンで peta shock 化する場合は、先に外部で `peta_book-....db` または `.ybb` を作り、そのファイルをこの BookMiner の `book/backup/` に置いてから `r` コマンドを使います。GUI では手順1の `peta_read` ボタンがこれに対応します。
 
@@ -242,7 +252,7 @@ GUI:
 このあとさらに広げたい場合は、次の手順を繰り返します。
 
 ```text
-手順1. peta_shock または 外部変換後の peta_read
+手順1. peta_shock または peta_shock_latest または 外部変換後の peta_read
 手順2. デフォルト値 eval_diff 99999 max step 99999 game ply limit 200 book extend ply 6 eval_limit 99999
         peta next
         または peta refutation eval_diff 99999 eval refu. 100

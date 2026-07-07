@@ -3852,6 +3852,7 @@ def user_input(from_gui:bool = False):
                 print("  B : bfs for ply")
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
+                print("  PL   : make and read peta shocked book from latest backup")
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PDG   : peta depth gap , pdg (eval_per_ply) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
@@ -3961,6 +3962,13 @@ def user_input(from_gui:bool = False):
             elif i == 'p':
                 # write and peta_read
                 write_and_read_peta_book(book)
+
+            elif i == 'pl' or i == 'peta_shock_latest':
+                # latest regular backup -> peta_read
+                print("start pl command : peta_shock latest backup, and read peta book.")
+                make_and_read_peta_book(None)
+                print("..pl command has done.")
+                print("[PetaCommandDone]")
             
             elif i == 'pn':
                 # peta_next

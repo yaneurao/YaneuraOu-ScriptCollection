@@ -26,7 +26,7 @@ python3 BookMiner-gui.py --cpp
 ```
 
 GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに起動される子プロセスです。
-そのため、GUI のボタン、ログ欄、progress bar、`peta_shock`、`peta_read`、`peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent`、`enqueue` の考え方は Python 版と同じです。
+そのため、GUI のボタン、ログ欄、progress bar、`peta_shock`、`peta_shock_latest`、`peta_read`、`peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent`、`enqueue` の考え方は Python 版と同じです。
 
 ## C++版で変わること
 

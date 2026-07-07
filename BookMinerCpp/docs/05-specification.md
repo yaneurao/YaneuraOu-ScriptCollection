@@ -25,6 +25,7 @@ q                 保存して終了
 !                 保存せず終了
 w [ply_limit]     通常DBを手動保存
 p                 通常DB保存、peta_shock、peta book 読み込み
+pl                最新通常バックアップをpeta_shock、peta book 読み込み
 r [path]          指定 peta book、または最新 peta book を読み込み
 sd eval_diff max_step game_ply_limit book_extend_ply eval_limit
 pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
@@ -84,7 +85,7 @@ book_miner-....ybb.tmp
 
 ## peta book
 
-`p` または外部の `makebook peta_shock` によって作られる peta book は、入力形式と同じ形式で保存します。BookMinerCpp の通常バックアップは `.ybb` なので、通常は `.ybb` です。
+`p`、`pl`、または外部の `makebook peta_shock` によって作られる peta book は、入力形式と同じ形式で保存します。BookMinerCpp の通常バックアップは `.ybb` なので、通常は `.ybb` です。
 
 ```text
 book/backup/peta_book-YYYYMMDDHHMMSS_N.ybb

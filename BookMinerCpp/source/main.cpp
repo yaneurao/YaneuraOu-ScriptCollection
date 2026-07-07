@@ -2990,6 +2990,7 @@ void print_help()
     log_line("  SD: set defaults             , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit");
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
+    log_line("  PL: make and read peta shocked book from latest backup");
     log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
@@ -3231,6 +3232,13 @@ int main(int argc, char* argv[])
                     }
                 }
                 write_and_read_peta_book(app_dir, peta_book, source_book_path);
+            }
+            else if (command == "pl" || command == "peta_shock_latest")
+            {
+                log_line("start pl command : peta_shock latest backup, and read peta book.");
+                make_and_read_peta_book(app_dir, peta_book, std::nullopt);
+                log_line("..pl command has done.");
+                log_line("[PetaCommandDone]");
             }
             else if (command == "pn")
             {

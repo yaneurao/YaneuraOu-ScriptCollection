@@ -35,7 +35,7 @@ GUI 上の操作は Python 版と同じです。
 
 ```text
 手順0. 棋譜抽出
-手順1. peta_shock / peta_read
+手順1. peta_shock / peta_shock_latest / peta_read
 手順2. peta next / peta refutation / peta depth gap / peta unsolved / peta opponent
 手順3. enqueue
 手順4. 自動enqueue
@@ -58,6 +58,7 @@ cd YaneuraOu-ScriptCollection/BookMinerCpp
 
 ```text
 p                 現在DBを書き出し、peta_shock 化して読み込む
+pl                最新通常バックアップをpeta_shock化して読み込む
 r                 最新の peta_book を読み込む
 sd 30 99999 200 6 400
                   peta系コマンドと enqueue の共通デフォルト値を設定する

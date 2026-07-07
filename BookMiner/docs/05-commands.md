@@ -124,6 +124,18 @@ book/backup/book_miner-20260607103251_14505901.db
 book/backup/peta_book-20260607103251_14505901.db
 ```
 
+## `pl` / `peta_shock_latest`
+
+現在の定跡 DB を保存せず、`book/backup/` にある最新の通常bookを peta shock 化して読み込みます。
+
+```text
+pl
+```
+
+`pl` は `peta_shock_latest` の短縮形です。直前の自動保存や `w` で最新通常bookがすでに `book/backup/` にあるとき、もう一度同じ内容を書き出さずに peta shock 化できます。
+
+注意点は、メモリ上にだけ存在する未保存の局面を含まないことです。最新バックアップから少しずれた peta book でも構わない運用、または直前保存済みであることがわかっている運用で使います。
+
 ## `r`
 
 peta shock 化済みの `book/backup/peta_book-....db` または `book/backup/peta_book-....ybb` を読み込みます。

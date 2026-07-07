@@ -58,6 +58,14 @@ p
 
 ただし、起動時に読み込んだ通常DB、または最後に `w` / 自動保存で書き出した通常DBからメモリ内容が変わっていない場合は、同じ内容の通常DBを再書き出しせず、その既存ファイルを変換元として再利用します。追加で掘っていないのに同じ `book_miner-....db` を増やさないためです。
 
+直前の自動保存や手動保存で最新通常bookがすでに `book/backup/` にあるなら、`pl` コマンド、GUI では `peta_shock_latest` を使えます。
+
+```text
+pl
+```
+
+`pl` は現在の通常bookを保存しません。`book/backup/` の最新通常bookをそのまま peta shock 化して読み込みます。保存と peta shock 化が連続して二重保存になるのを避けたいときに使います。メモリ上にだけ存在する未保存の局面は含まれません。
+
 出力例:
 
 ```text
@@ -143,6 +151,7 @@ BookMiner では、この用途のために `YO-MATERIAL.exe` を使います。
 ## 運用上の注意
 
 - `peta_read` は変換を実行しません。外部で作った `peta_book-....db` または `peta_book-....ybb` を読み込むだけです。
+- `peta_shock_latest` / `pl` は変換を実行しますが、現在の通常bookを保存しません。変換元は `book/backup/` の最新通常bookです。
 - 通常bookを探索で増やしたあとは、古い peta_book ではなく、新しく peta shock 化した peta_book を使います。
 - `makebook peta_shock` に渡す通常定跡 DB は sort 済みである必要があります。BookMiner.py が `p` で書き出した `book_miner-....db` はそのまま使えます。
 - peta shock 化した DB を使って次に掘る局面を作る操作は [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) を参照してください。
