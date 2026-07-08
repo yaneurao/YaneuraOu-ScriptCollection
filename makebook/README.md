@@ -158,6 +158,8 @@ python3 from_sfen.py bw black.sfen no_file output.db --moves 24
 ```bash
 python3 merge.py book1.db book2.db merged.db
 python3 merge.py book1.ybb book2.db merged.ybb
+python3 merge.py bw book1.db book2.db merged.db
+python3 merge.py bw book1.ybb book2.db merged.ybb
 ```
 
 同じ SFEN が両方のDBにある場合は、旧 `makebook merge` と同じ基準で片方の候補手リストを採用します。
@@ -168,6 +170,16 @@ python3 merge.py book1.ybb book2.db merged.ybb
 4. それも同じなら第1引数側を採用する。
 
 片方にしかない SFEN はそのまま出力します。
+
+`bw` を指定した場合は、旧 `makebook merge bw` と同じく、第1引数のDBから先手番局面だけ、第2引数のDBから後手番局面だけを採用してマージします。逆に第1引数の後手番局面と第2引数の先手番局面を採用したい場合は `wb` を指定します。入力と出力は `.db` / `.ybb` のどちらでも構いません。
+
+例えば、先手番で使いたい定跡を `black_book.db`、後手番で使いたい定跡を `white_book.db` として別々に作った場合は、次のように1本の定跡へまとめます。
+
+```bash
+python3 merge.py bw black_book.db white_book.db user_book.db
+```
+
+このとき `user_book.db` には、`black_book.db` の先手番局面と、`white_book.db` の後手番局面だけが入ります。逆に、1つ目のDBを後手番用、2つ目のDBを先手番用として使う場合は `wb` を使います。
 
 オプション:
 
@@ -186,7 +198,11 @@ python3 merge.py book1.ybb book2.db merged.ybb
 ```bash
 python3 merge_largebook.py book1.db book2.db merged.db
 python3 merge_largebook.py book1.ybb book2.db merged.ybb
+python3 merge_largebook.py bw book1.db book2.db merged.db
+python3 merge_largebook.py bw book1.ybb book2.db merged.ybb
 ```
+
+`bw` / `wb` の意味は `merge.py` と同じです。
 
 一時ファイルの作成先を指定する場合:
 

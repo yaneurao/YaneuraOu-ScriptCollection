@@ -30,6 +30,9 @@ from YaneuraOuBookLib import (
 from sort_largebook import DEFAULT_CHUNK_POSITIONS, tmp_root_from_arg
 
 
+MERGE_SIDE_MODES = {"bw", "wb"}
+
+
 def choose_moves(lhs: list[BookMove], rhs: list[BookMove]) -> list[BookMove]:
     if not lhs:
         return rhs
@@ -44,17 +47,31 @@ def choose_moves(lhs: list[BookMove], rhs: list[BookMove]) -> list[BookMove]:
     return rhs
 
 
+def side_to_move(sfen: str) -> str:
+    tokens = sfen.split()
+    if tokens and tokens[0] == "sfen":
+        tokens = tokens[1:]
+    if len(tokens) < 2 or tokens[1] not in ("b", "w"):
+        raise ValueError(f"invalid SFEN side to move: {sfen}")
+    return tokens[1]
+
+
 class BlockReader:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, side: str | None):
         self._blocks = read_yaneuraou_book_blocks(str(path))
+        self._side = side
         self.current: tuple[str, list[BookMove]] | None = None
         self.advance()
 
     def advance(self) -> None:
-        try:
-            self.current = next(self._blocks)
-        except StopIteration:
-            self.current = None
+        while True:
+            try:
+                self.current = next(self._blocks)
+            except StopIteration:
+                self.current = None
+                return
+            if self._side is None or side_to_move(self.current[0]) == self._side:
+                return
 
 
 def run_sort_largebook(
@@ -81,9 +98,11 @@ def run_sort_largebook(
     subprocess.run(cmd, check=True)
 
 
-def merge_sorted_books(src1: Path, src2: Path, dst: str) -> tuple[int, int, int, int, int]:
-    reader1 = BlockReader(src1)
-    reader2 = BlockReader(src2)
+def merge_sorted_books(src1: Path, src2: Path, dst: str, mode: str) -> tuple[int, int, int, int, int]:
+    side1 = mode[0] if mode else None
+    side2 = mode[1] if mode else None
+    reader1 = BlockReader(src1, side1)
+    reader2 = BlockReader(src2, side2)
     same_nodes = 0
     different_nodes1 = 0
     different_nodes2 = 0
@@ -137,6 +156,7 @@ def merge_largebook(
     max_open_runs: int,
     ignore_book_ply: bool,
     keep_temp: bool,
+    mode: str,
 ) -> None:
     tmp_root = tmp_root_from_arg(tmp_dir)
     work_dir = Path(tempfile.mkdtemp(prefix="merge_largebook-", dir=tmp_root))
@@ -160,7 +180,7 @@ def merge_largebook(
         )
         output_db = str(work_dir / "merged.db") if is_ybb_path(dst) else dst
         same_nodes, different_nodes1, different_nodes2, positions, entries = merge_sorted_books(
-            sorted1, sorted2, output_db
+            sorted1, sorted2, output_db, mode
         )
         if is_ybb_path(dst):
             convert_db_to_ybb(
@@ -172,6 +192,8 @@ def merge_largebook(
                 max_open_runs,
                 True,
             )
+        if mode:
+            print(f"mode      = {mode}")
         print(f"same nodes = {same_nodes} , different nodes =  {different_nodes1} + {different_nodes2}")
         print(f"positions = {positions}")
         print(f"entries   = {entries}")
@@ -185,11 +207,26 @@ def merge_largebook(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Merge two large YaneuraOu book DB files without loading them fully."
+        description="Merge two large YaneuraOu book DB files without loading them fully.",
+        usage="%(prog)s [bw|wb] src1 src2 dst [options]",
     )
-    parser.add_argument("src1", help="first source YaneuraOu book DB")
-    parser.add_argument("src2", help="second source YaneuraOu book DB")
-    parser.add_argument("dst", help="destination YaneuraOu book DB")
+    parser.add_argument(
+        "mode_or_src1",
+        help="merge mode bw/wb, or first source YaneuraOu book DB",
+    )
+    parser.add_argument(
+        "src1_or_src2",
+        help="first source DB when mode is specified, otherwise second source DB",
+    )
+    parser.add_argument(
+        "src2_or_dst",
+        help="second source DB when mode is specified, otherwise destination DB",
+    )
+    parser.add_argument(
+        "dst",
+        nargs="?",
+        help="destination YaneuraOu book DB when mode is specified",
+    )
     parser.add_argument(
         "--tmp-dir",
         default=None,
@@ -232,16 +269,32 @@ def main() -> None:
     if args.max_open_runs < 2:
         raise SystemExit("--max-open-runs must be at least 2")
 
+    if args.mode_or_src1 in MERGE_SIDE_MODES:
+        if args.dst is None:
+            parser.error("side merge usage: merge_largebook.py bw src1 src2 dst")
+        mode = args.mode_or_src1
+        src1 = args.src1_or_src2
+        src2 = args.src2_or_dst
+        dst = args.dst
+    else:
+        if args.dst is not None:
+            parser.error("usage: merge_largebook.py src1 src2 dst")
+        mode = ""
+        src1 = args.mode_or_src1
+        src2 = args.src1_or_src2
+        dst = args.src2_or_dst
+
     merge_largebook(
-        args.src1,
-        args.src2,
-        args.dst,
+        src1,
+        src2,
+        dst,
         tmp_dir=args.tmp_dir,
         chunk_positions=args.chunk_positions,
         chunk_bytes=args.chunk_bytes,
         max_open_runs=args.max_open_runs,
         ignore_book_ply=args.ignore_book_ply,
         keep_temp=args.keep_temp,
+        mode=mode,
     )
 
 
