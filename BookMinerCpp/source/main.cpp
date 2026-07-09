@@ -60,14 +60,11 @@ constexpr int TaskDeferSleepMilliseconds = 10;
 constexpr int DefaultEvalLimit = 400;
 constexpr int PlyMin = std::numeric_limits<int>::min();
 constexpr int DefaultEvalRefutationMargin = 100;
-constexpr double DefaultDepthGapEvalPerPly = 0.1;
 constexpr int PetaDefaultInfEvalDiff = 99999;
 constexpr int PetaDefaultMaxStep = 9999;
 constexpr int DefaultStep2EvalDiff = 30;
 constexpr int DefaultStep2MaxStep = 99999;
-constexpr int PetaDepthGapMaxBestDepth = 1000;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
-constexpr std::size_t PetaDepthGapProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
 constexpr int PetaOpponentDefaultEvalDiff = 0;
@@ -216,13 +213,6 @@ std::optional<int> parse_optional_int_argument(const std::vector<std::string>& t
     if (tokens.size() <= index || is_none_argument(tokens[index]))
         return std::nullopt;
     return std::stoi(tokens[index]);
-}
-
-double parse_double_argument(const std::vector<std::string>& tokens, std::size_t index, double default_value)
-{
-    if (tokens.size() <= index || is_none_argument(tokens[index]))
-        return default_value;
-    return std::stod(tokens[index]);
 }
 
 bool has_considered(const std::optional<bookminer::PositionInfo>& position)
@@ -1740,94 +1730,6 @@ std::optional<std::string> peta_pv_leaf_position_command(
     }
 }
 
-void peta_depth_gap(
-    const bookminer::BookStore& peta_book,
-    double eval_per_ply,
-    int max_book_ply,
-    std::optional<int> book_extend_ply,
-    std::optional<int> eval_limit)
-{
-    std::ostringstream eval_per_ply_stream;
-    eval_per_ply_stream << eval_per_ply;
-    log_line("peta_depth_gap, eval_per_ply = " + eval_per_ply_stream.str()
-        + ", max_book_ply = " + std::to_string(max_book_ply)
-        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
-        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None")));
-
-    std::vector<std::string> think_sfens;
-    std::unordered_set<std::string> think_seen;
-    std::size_t candidates = 0;
-    std::size_t skipped_by_ply = 0;
-    std::size_t skipped_by_best_depth = 0;
-    const auto peta_entries = peta_book.snapshot_entries();
-    const std::size_t total = peta_entries.size();
-
-    for (std::size_t index = 0; index < peta_entries.size(); ++index)
-    {
-        const std::size_t processed = index + 1;
-        if (processed % PetaDepthGapProgressInterval == 0)
-        {
-            log_line("depth_gap progress nodes = " + std::to_string(processed) + "/" + std::to_string(total)
-                + " , candidates = " + std::to_string(candidates)
-                + " , think_sfens = " + std::to_string(think_sfens.size()));
-        }
-
-        const auto& entry = peta_entries[index];
-        const auto& peta_position = entry.position;
-        if (peta_position.moves.size() < 2)
-            continue;
-
-        const auto& best = peta_position.moves.front();
-        if (best.depth >= PetaDepthGapMaxBestDepth)
-        {
-            ++skipped_by_best_depth;
-            continue;
-        }
-        const std::string sfen = bookminer::trim_sfen(bookminer::unpack_sfen_bytes(entry.key.bytes));
-        const std::string sfen_with_ply = sfen + " " + std::to_string(peta_position.ply);
-        if (bookminer::trim_sfen_ply(sfen_with_ply).second >= max_book_ply)
-            continue;
-
-        const std::string position_command = "sfen " + sfen_with_ply;
-        for (std::size_t move_index = 1; move_index < peta_position.moves.size(); ++move_index)
-        {
-            const auto& candidate = peta_position.moves[move_index];
-            const int depth_gap = best.depth - candidate.depth;
-            if (depth_gap <= 0)
-                continue;
-            if (static_cast<double>(candidate.eval) + depth_gap * eval_per_ply < static_cast<double>(best.eval))
-                continue;
-
-            ++candidates;
-            const auto leaf_position_command = peta_pv_leaf_position_command(
-                peta_book,
-                position_command,
-                sfen_with_ply,
-                candidate.move16,
-                max_book_ply);
-            if (!leaf_position_command.has_value())
-            {
-                ++skipped_by_ply;
-                continue;
-            }
-            append_unique_position_command(think_sfens, think_seen, *leaf_position_command);
-        }
-    }
-
-    const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
-    log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
-    write_position_command_entries_file(
-        output_path,
-        make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
-
-    log_line("peta_depth_gap done.");
-    log_line("[PetaDepthGapDone] path=" + output_path.string()
-        + " count=" + std::to_string(think_sfens.size())
-        + " candidates=" + std::to_string(candidates)
-        + " skipped_by_ply=" + std::to_string(skipped_by_ply)
-        + " skipped_by_best_depth=" + std::to_string(skipped_by_best_depth));
-}
-
 void peta_unsolved(
     const bookminer::BookStore& peta_book,
     int eval_diff,
@@ -2995,8 +2897,6 @@ void print_help()
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
-    log_line("  PD : peta depth gap          , pd (eval_per_ply) (max_book_ply)");
-    log_line("  PDG: peta depth gap          , pdg (eval_per_ply) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PU : peta unsolved           , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PO : peta opponent           , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  H : Help");
@@ -3382,74 +3282,6 @@ int main(int argc, char* argv[])
                     eval_refutation_margin,
                     refutation_eval_limit,
                     command_max_book_ply);
-            }
-            else if (command == "pd")
-            {
-                const double eval_per_ply = parse_double_argument(tokens, 1, DefaultDepthGapEvalPerPly);
-                const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
-                if (eval_per_ply < 0)
-                {
-                    log_line("Error : eval_per_ply must be non-negative number.");
-                    continue;
-                }
-                if (command_max_book_ply <= 0)
-                {
-                    log_line("Error : max_book_ply must be positive integer.");
-                    continue;
-                }
-                peta_depth_gap(
-                    peta_book,
-                    eval_per_ply,
-                    command_max_book_ply,
-                    std::nullopt,
-                    std::nullopt);
-            }
-            else if (command == "pdg")
-            {
-                const double eval_per_ply = parse_double_argument(tokens, 1, DefaultDepthGapEvalPerPly);
-                const int peta_eval_diff = parse_int_argument(tokens, 2, command_defaults.eval_diff);
-                const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
-                const int command_max_book_ply = parse_int_argument(tokens, 4, command_defaults.game_ply_limit);
-                const int book_extend_ply = parse_int_argument(tokens, 5, command_defaults.book_extend_ply);
-                const int eval_limit = parse_int_argument(tokens, 6, command_defaults.eval_limit);
-                if (peta_eval_diff < 0)
-                {
-                    log_line("Error : peta_eval_diff must be non-negative integer.");
-                    continue;
-                }
-                if (eval_per_ply < 0)
-                {
-                    log_line("Error : eval_per_ply must be non-negative number.");
-                    continue;
-                }
-                if (max_step <= 0)
-                {
-                    log_line("Error : max_step must be positive integer.");
-                    continue;
-                }
-                if (command_max_book_ply <= 0)
-                {
-                    log_line("Error : max_book_ply must be positive integer.");
-                    continue;
-                }
-                if (book_extend_ply < 0)
-                {
-                    log_line("Error : book_extend_ply must be non-negative integer.");
-                    continue;
-                }
-                if (eval_limit < 0)
-                {
-                    log_line("Error : eval_limit must be non-negative integer.");
-                    continue;
-                }
-                (void)peta_eval_diff;
-                (void)max_step;
-                peta_depth_gap(
-                    peta_book,
-                    eval_per_ply,
-                    command_max_book_ply,
-                    book_extend_ply,
-                    eval_limit);
             }
             else if (command == "pu")
             {

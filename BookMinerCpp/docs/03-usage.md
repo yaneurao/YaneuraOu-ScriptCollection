@@ -13,7 +13,7 @@ BookMinerCpp の操作手順は Python 版 BookMiner と同じです。
 - [既存のやねうら王定跡から掘り始める](../../BookMiner/docs/09-import-existing-book.md)
 
 BookMinerCpp 独自のコマンド体系は作っていません。
-`p`、`r`、`sd`、`pn`、`pr`、`pdg`、`pu`、`po`、`e`、`w`、`q` の意味は Python 版と同じです。
+`p`、`r`、`sd`、`pn`、`pr`、`pu`、`po`、`e`、`w`、`q` の意味は Python 版と同じです。
 
 ## GUI から使う
 
@@ -36,7 +36,7 @@ GUI 上の操作は Python 版と同じです。
 ```text
 手順0. 棋譜抽出
 手順1. peta_shock / peta_shock_latest / peta_read
-手順2. peta next / peta refutation / peta depth gap / peta unsolved / peta opponent
+手順2. peta next / peta refutation / peta unsolved / peta opponent
 手順3. enqueue
 手順4. 自動enqueue
 手順5. DB手動保存
@@ -64,7 +64,6 @@ sd 30 99999 200 6 400
                   peta系コマンドと enqueue の共通デフォルト値を設定する
 pn 100            peta next を実行し、think_sfens.txt を作る
 pr 100 30         peta next の leaf のうち、反駁された leaf だけを作る
-pdg 0.1 100       depth差で逆転しうる候補のPV leafを作る
 pu None None 200 None 400
                   think_unsolved_sfens.txt の棋譜の各途中局面周辺を作る
 po 0 9999 200 20 400

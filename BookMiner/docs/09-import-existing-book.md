@@ -113,7 +113,7 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta next / peta refutation / peta depth gap / peta unsolved / peta opponent で局面を列挙する
+## 手順2. peta next / peta refutation / peta unsolved / peta opponent で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
@@ -139,13 +139,13 @@ GUI:
 book/think_sfens.txt
 ```
 
-ただし、`game_ply_limit` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pdg` / `pu` / `po` コマンドの引数で調整してください。
+ただし、`game_ply_limit` に到達する局面は、次に掘る局面としては書き出されません。GUIでは各 peta 操作行の `game ply limit` 欄、CLIでは `pn` / `pr` / `pu` / `po` コマンドの引数で調整してください。
 
 `game ply limit` は `book/think_sfens.txt` の行末メタ情報としても残るため、その後の `enqueue` の探索workerにも効きます。候補列挙だけを浅くしたい場合は `game ply limit` ではなく `max step` を調整してください。`max step` は `book/think_sfens.txt` に書き出されません。
 
 ## 手順3. enqueue する
 
-`peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`peta next`、`peta refutation`、`peta unsolved`、`peta opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
@@ -256,7 +256,6 @@ GUI:
 手順2. デフォルト値 eval_diff 99999 max step 99999 game ply limit 200 book extend ply 6 eval_limit 99999
         peta next
         または peta refutation eval_diff 99999 eval refu. 100
-        または peta depth gap eval_diff 99999 eval/ply 0.1
         または peta unsolved eval_drop_limit None
         または peta opponent eval_diff 0 book extend ply 20
 手順3. enqueue

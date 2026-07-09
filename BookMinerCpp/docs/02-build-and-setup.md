@@ -127,7 +127,7 @@ BookMinerCpp 本体の動作設定です。
 
 - `auto_save_interval_seconds`: 定期自動保存の間隔。単位は秒。
 - `max_book_ply`: この手数に到達したら、それ以上深く掘らない。
-- `peta_next_start_sfens_path`: `pn` / `pr` / `pdg` コマンドの開始局面集合。
+- `peta_next_start_sfens_path`: `pn` / `pr` コマンドの開始局面集合。
 
 ## 起動確認
 

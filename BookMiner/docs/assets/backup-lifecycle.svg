@@ -54,7 +54,7 @@
   <path class="line" d="M 505 387 H 650"/>
   <rect class="box peta" x="660" y="335" width="325" height="105" rx="14"/>
   <text class="mono" x="822" y="374" text-anchor="middle">peta_book-20260609..._456.db</text>
-  <text class="text small" x="822" y="405">対局用・peta next/refutation/depth_gap用</text>
+  <text class="text small" x="822" y="405">対局用・peta next/refutation用</text>
 
   <rect class="box" x="65" y="455" width="920" height="58" rx="14"/>
   <text class="text" x="525" y="491">復旧するときは、使いたくない最新ファイルを退避してから起動する</text>

@@ -21,7 +21,7 @@ sd 30 99999 200 6 400
 ```
 
 引数は順に `eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。
-GUI は `peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent`、`enqueue` の直前にこのコマンドを送ります。
+GUI は `peta next`、`peta refutation`、`peta unsolved`、`peta opponent`、`enqueue` の直前にこのコマンドを送ります。
 
 `book/think_sfens.txt` の行にメタ情報がない場合や、peta系コマンドの共通引数に `None` を指定した場合は、最後に設定した `sd` の値を使います。
 
@@ -235,35 +235,6 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 通常の `peta next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
 詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-refutation) を参照してください。
-
-## peta depth gap
-
-peta shock 後、`peta next` と同じように root から BFS で辿れる範囲で、best以外の登録済み指し手が best より浅く、depth差ぶん追加で掘ると best を逆転しうる場合に抽出します。
-
-```text
-pdg 0.1 30 9999 200 None 400
-```
-
-引数は順に `eval_per_ply`、`eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。`eval_diff` と `max_step` は `peta next` と同じ意味です。`eval_per_ply` の省略時は `0.1` です。0以上の数値を指定し、`0.5` のような小数も指定できます。共通引数を省略または `None` 指定した場合は `sd` の値を使います。
-判定式は次の通りです。
-
-```text
-候補手評価値 + (best.depth - 候補手.depth) * eval_per_ply >= best評価値
-```
-
-例えば best が `eval=100 depth=10`、候補手が `eval=95 depth=1`、`eval_per_ply=1` の場合、`95 + (10 - 1) * 1 = 104` なので抽出対象です。
-
-ただし、best の `depth` が `1000` 以上の局面は対象外です。peta shock 後の番兵値や過大な depth を、実際に読んだ手数として扱って大量抽出することを避けるためです。
-
-出力先:
-
-```text
-book/think_sfens.txt
-```
-
-抽出された行は、候補手を指したあと、peta_book 上の best PV を depth 0 または DB 外まで辿った leaf 局面です。
-
-詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-depth-gap) を参照してください。
 
 ## peta unsolved
 

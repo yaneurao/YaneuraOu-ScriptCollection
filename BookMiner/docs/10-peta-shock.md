@@ -2,7 +2,7 @@
 
 この章では、peta shock 化そのものだけを説明します。
 
-peta shock 化した DB を使って `book/think_sfens.txt` を作る操作、つまり `peta next`、`peta refutation`、`peta depth gap`、`peta unsolved`、`peta opponent` については、次の章で説明します。
+peta shock 化した DB を使って `book/think_sfens.txt` を作る操作、つまり `peta next`、`peta refutation`、`peta unsolved`、`peta opponent` については、次の章で説明します。
 
 - [11. peta book を使って次に掘る局面を作る](11-peta-operations.md)
 

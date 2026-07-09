@@ -30,7 +30,6 @@ r [path]          指定 peta book、または最新 peta book を読み込み
 sd eval_diff max_step game_ply_limit book_extend_ply eval_limit
 pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
-pdg eval_per_ply [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 e

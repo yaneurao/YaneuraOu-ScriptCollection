@@ -30,37 +30,30 @@ GUI_SETTING_DEFAULTS = {
     "default_max_step": "99999",
     "peta_next_eval_diff": "",
     "peta_refutation_eval_diff": "",
-    "peta_depth_gap_eval_diff": "",
     "peta_next_max_step": "",
     "peta_refutation_max_step": "",
-    "peta_depth_gap_max_step": "",
     "peta_refutation_eval_refu": "100",
     "peta_next_book_extend_ply": "",
     "peta_refutation_book_extend_ply": "",
-    "peta_depth_gap_book_extend_ply": "",
     "peta_unsolved_book_extend_ply": "",
     "peta_unsolved_eval_drop_limit": "",
     "peta_unsolved_max_step": "",
     "peta_opponent_eval_diff": "",
     "peta_opponent_max_step": "",
     "peta_opponent_book_extend_ply": "",
-    "depth_gap_eval_per_ply": "0.1",
     "eval_limit": "400",
     "game_ply_limit": "200",
     "enqueue_book_extend_ply": "6",
     "peta_next_ply_limit": "",
     "peta_refutation_ply_limit": "",
-    "peta_depth_gap_ply_limit": "",
     "peta_unsolved_ply_limit": "",
     "peta_opponent_ply_limit": "",
     "peta_next_eval_limit": "",
     "peta_refutation_eval_limit": "",
-    "peta_depth_gap_eval_limit": "",
     "peta_unsolved_eval_limit": "",
     "peta_opponent_eval_limit": "",
     "auto_step2_peta_next": "1",
     "auto_step2_peta_refutation": "0",
-    "auto_step2_peta_depth_gap": "0",
     "auto_step2_peta_unsolved": "0",
     "auto_step2_peta_opponent": "0",
     "auto_enqueue_threshold": "1000",
@@ -82,7 +75,6 @@ PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
 PETA_READ_DONE_RE = re.compile(r"\[PetaReadDone\]")
 PETA_NEXT_DONE_RE = re.compile(r"\[PetaNextDone\]")
 PETA_REFUTATION_DONE_RE = re.compile(r"\[PetaRefutationDone\]")
-PETA_DEPTH_GAP_DONE_RE = re.compile(r"\[PetaDepthGapDone\]")
 PETA_UNSOLVED_DONE_RE = re.compile(r"\[PetaUnsolvedDone\]")
 PETA_OPPONENT_DONE_RE = re.compile(r"\[PetaOpponentDone\]")
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
@@ -112,13 +104,11 @@ AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
 AUTO_STEP2_PETA_NEXT = "peta_next"
 AUTO_STEP2_PETA_REFUTATION = "peta_refutation"
-AUTO_STEP2_PETA_DEPTH_GAP = "peta_depth_gap"
 AUTO_STEP2_PETA_UNSOLVED = "peta_unsolved"
 AUTO_STEP2_PETA_OPPONENT = "peta_opponent"
 AUTO_STEP2_ORDER = [
     AUTO_STEP2_PETA_NEXT,
     AUTO_STEP2_PETA_REFUTATION,
-    AUTO_STEP2_PETA_DEPTH_GAP,
     AUTO_STEP2_PETA_UNSOLVED,
     AUTO_STEP2_PETA_OPPONENT,
 ]
@@ -211,12 +201,6 @@ def load_gui_settings() -> dict[str, str]:
         "peta_next_refutation_book_extend_ply": "peta_refutation_book_extend_ply",
         "peta_next_refutation_ply_limit": "peta_refutation_ply_limit",
         "auto_step2_peta_next_refutation": "auto_step2_peta_refutation",
-        "peta_next_gap_eval_diff": "peta_depth_gap_eval_diff",
-        "peta_next_gap_max_step": "peta_depth_gap_max_step",
-        "peta_next_gap_book_extend_ply": "peta_depth_gap_book_extend_ply",
-        "next_gap_eval_per_ply": "depth_gap_eval_per_ply",
-        "peta_next_gap_ply_limit": "peta_depth_gap_ply_limit",
-        "auto_step2_peta_next_gap": "auto_step2_peta_depth_gap",
     }
     for legacy_key, new_key in legacy_renamed_keys.items():
         value = data.get(legacy_key)
@@ -412,18 +396,6 @@ class BookMinerGui(ttk.Frame):
                 GUI_SETTING_DEFAULTS["peta_refutation_max_step"],
             )
         )
-        self.peta_depth_gap_eval_diff = tk.StringVar(
-            value=gui_settings.get(
-                "peta_depth_gap_eval_diff",
-                GUI_SETTING_DEFAULTS["peta_depth_gap_eval_diff"],
-            )
-        )
-        self.peta_depth_gap_max_step = tk.StringVar(
-            value=gui_settings.get(
-                "peta_depth_gap_max_step",
-                GUI_SETTING_DEFAULTS["peta_depth_gap_max_step"],
-            )
-        )
         self.peta_refutation_eval_refu = tk.StringVar(
             value=gui_settings.get(
                 "peta_refutation_eval_refu",
@@ -440,12 +412,6 @@ class BookMinerGui(ttk.Frame):
             value=gui_settings.get(
                 "peta_refutation_book_extend_ply",
                 GUI_SETTING_DEFAULTS["peta_refutation_book_extend_ply"],
-            )
-        )
-        self.peta_depth_gap_book_extend_ply = tk.StringVar(
-            value=gui_settings.get(
-                "peta_depth_gap_book_extend_ply",
-                GUI_SETTING_DEFAULTS["peta_depth_gap_book_extend_ply"],
             )
         )
         self.peta_unsolved_book_extend_ply = tk.StringVar(
@@ -484,9 +450,6 @@ class BookMinerGui(ttk.Frame):
                 GUI_SETTING_DEFAULTS["peta_opponent_book_extend_ply"],
             )
         )
-        self.depth_gap_eval_per_ply = tk.StringVar(
-            value=gui_settings.get("depth_gap_eval_per_ply", GUI_SETTING_DEFAULTS["depth_gap_eval_per_ply"])
-        )
         self.eval_limit = tk.StringVar(value=gui_settings.get("eval_limit", GUI_SETTING_DEFAULTS["eval_limit"]))
         self.game_ply_limit = tk.StringVar(
             value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
@@ -502,9 +465,6 @@ class BookMinerGui(ttk.Frame):
                 "peta_refutation_ply_limit",
                 GUI_SETTING_DEFAULTS["peta_refutation_ply_limit"],
             )
-        )
-        self.peta_depth_gap_ply_limit = tk.StringVar(
-            value=gui_settings.get("peta_depth_gap_ply_limit", GUI_SETTING_DEFAULTS["peta_depth_gap_ply_limit"])
         )
         self.peta_unsolved_ply_limit = tk.StringVar(
             value=gui_settings.get(
@@ -524,9 +484,6 @@ class BookMinerGui(ttk.Frame):
         self.peta_refutation_eval_limit = tk.StringVar(
             value=gui_settings.get("peta_refutation_eval_limit", GUI_SETTING_DEFAULTS["peta_refutation_eval_limit"])
         )
-        self.peta_depth_gap_eval_limit = tk.StringVar(
-            value=gui_settings.get("peta_depth_gap_eval_limit", GUI_SETTING_DEFAULTS["peta_depth_gap_eval_limit"])
-        )
         self.peta_unsolved_eval_limit = tk.StringVar(
             value=gui_settings.get("peta_unsolved_eval_limit", GUI_SETTING_DEFAULTS["peta_unsolved_eval_limit"])
         )
@@ -540,12 +497,6 @@ class BookMinerGui(ttk.Frame):
             value=settings_bool(
                 gui_settings.get("auto_step2_peta_refutation"),
                 GUI_SETTING_DEFAULTS["auto_step2_peta_refutation"],
-            )
-        )
-        self.auto_step2_peta_depth_gap_enabled = tk.BooleanVar(
-            value=settings_bool(
-                gui_settings.get("auto_step2_peta_depth_gap"),
-                GUI_SETTING_DEFAULTS["auto_step2_peta_depth_gap"],
             )
         )
         self.auto_step2_peta_unsolved_enabled = tk.BooleanVar(
@@ -685,116 +636,88 @@ class BookMinerGui(ttk.Frame):
         )
 
         ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
-        self.depth_gap_button = ttk.Button(
-            commands,
-            text="peta depth gap",
-            width=16,
-            command=self.send_peta_depth_gap,
-        )
-        self.depth_gap_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(
-            self.depth_gap_button,
-            "`pdg eval_per_ply eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next と同じ範囲から、bestより浅く、depth差ぶん延長すると逆転しうる候補手のPV leafを抽出します。空欄はデフォルト値行を使います。",
-        )
-        ttk.Label(commands, text="eval/ply").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.depth_gap_eval_per_ply, width=8).grid(row=5, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_diff").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_eval_diff, width=8).grid(row=5, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=5, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_max_step, width=8).grid(row=5, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=5, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_ply_limit, width=8).grid(row=5, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=5, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_book_extend_ply, width=8).grid(row=5, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=5, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_depth_gap_eval_limit, width=8).grid(row=5, column=13, sticky="w", pady=3)
-        ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_depth_gap_enabled).grid(
-            row=5, column=14, sticky="w", padx=(12, 12), pady=3
-        )
-
-        ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
         self.unsolved_button = ttk.Button(
             commands,
             text="peta unsolved",
             width=16,
             command=self.send_peta_unsolved,
         )
-        self.unsolved_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.unsolved_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.unsolved_button,
             "`pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。book/think_unsolved_sfens.txt の棋譜prefixからpeta_book上のPV leafを抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval_drop_limit").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_drop_limit, width=8).grid(row=6, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=6, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=6, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_ply_limit, width=8).grid(row=6, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=6, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_book_extend_ply, width=8).grid(row=6, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=6, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_limit, width=8).grid(row=6, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_drop_limit").grid(row=5, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_drop_limit, width=8).grid(row=5, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=5, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=5, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=5, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_ply_limit, width=8).grid(row=5, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=5, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_book_extend_ply, width=8).grid(row=5, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=5, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_limit, width=8).grid(row=5, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_unsolved_enabled).grid(
-            row=6, column=14, sticky="w", padx=(12, 12), pady=3
+            row=5, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
-        ttk.Label(commands, text="").grid(row=7, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
         self.opponent_button = ttk.Button(
             commands,
             text="peta opponent",
             width=16,
             command=self.send_peta_opponent,
         )
-        self.opponent_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.opponent_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.opponent_button,
             "`po eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。book/book_opponent/ の相手bookと現行peta_bookのbest進行から、対策候補leafを抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval_diff").grid(row=7, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_eval_diff, width=8).grid(row=7, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=7, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_max_step, width=8).grid(row=7, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=7, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_ply_limit, width=8).grid(row=7, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=7, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_book_extend_ply, width=8).grid(row=7, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=7, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_eval_limit, width=8).grid(row=7, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_diff").grid(row=6, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_eval_diff, width=8).grid(row=6, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_max_step, width=8).grid(row=6, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=6, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_ply_limit, width=8).grid(row=6, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=6, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_book_extend_ply, width=8).grid(row=6, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=6, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_eval_limit, width=8).grid(row=6, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_opponent_enabled).grid(
-            row=7, column=14, sticky="w", padx=(12, 12), pady=3
+            row=6, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         self.step2_widgets = [
             widget
             for widget in commands.grid_slaves()
             if widget is not self.step2_toggle_button
-            and int(widget.grid_info().get("row", -1)) in {2, 3, 4, 5, 6, 7}
+            and int(widget.grid_info().get("row", -1)) in {2, 3, 4, 5, 6}
         ]
         self._refresh_step2_visibility()
 
-        ttk.Label(commands, text="手順3.").grid(row=8, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順3.").grid(row=7, column=0, sticky="w", pady=3)
         self.enqueue_button = ttk.Button(
             commands,
             text="enqueue",
             width=STEP_BUTTON_WIDTH,
             command=self.send_enqueue,
         )
-        self.enqueue_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.enqueue_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.enqueue_button, "`e` を送信し、book/think_sfens.txt の局面を行ごとのメタ情報に従って探索キューに積みます。")
 
-        ttk.Label(commands, text="手順4.").grid(row=9, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順4.").grid(row=8, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
             commands,
             text="自動enqueue",
             variable=self.auto_enqueue_enabled,
             command=self.on_auto_enqueue_toggled,
         )
-        self.auto_check.grid(row=9, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.auto_check.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock後に手順2で自動チェックされた抽出を順に実行し、結果をまとめてenqueueします。")
-        ttk.Label(commands, text="queueの残りが").grid(row=9, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=9, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="queueの残りが").grid(row=8, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=8, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、自動チェックされた手順2をまとめてenqueue").grid(
-            row=9,
+            row=8,
             column=4,
             columnspan=4,
             sticky="w",
@@ -802,17 +725,17 @@ class BookMinerGui(ttk.Frame):
             pady=3,
         )
 
-        ttk.Label(commands, text="手順5.").grid(row=10, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="手順5.").grid(row=9, column=0, sticky="w", pady=3)
         self.write_button = ttk.Button(
             commands,
             text="DB手動保存",
             width=STEP_BUTTON_WIDTH,
             command=self.send_backup,
         )
-        self.write_button.grid(row=10, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.write_button.grid(row=9, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
         ttk.Label(commands, textvariable=self.backup_status).grid(
-            row=10,
+            row=9,
             column=2,
             columnspan=6,
             sticky="w",
@@ -825,7 +748,6 @@ class BookMinerGui(ttk.Frame):
             self.peta_read_button,
             self.next_button,
             self.refutation_button,
-            self.depth_gap_button,
             self.unsolved_button,
             self.opponent_button,
             self.enqueue_button,
@@ -1606,15 +1528,6 @@ class BookMinerGui(ttk.Frame):
                 self._complete_auto_step2(AUTO_STEP2_PETA_REFUTATION)
                 return
 
-        if PETA_DEPTH_GAP_DONE_RE.search(line):
-            if self.busy_action == "manual_peta_depth_gap":
-                self.busy_action = None
-                self._update_buttons()
-                return
-            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT:
-                self._complete_auto_step2(AUTO_STEP2_PETA_DEPTH_GAP)
-                return
-
         if PETA_UNSOLVED_DONE_RE.search(line):
             if self.busy_action == "manual_peta_unsolved":
                 self.busy_action = None
@@ -1720,8 +1633,6 @@ class BookMinerGui(ttk.Frame):
             methods.append(AUTO_STEP2_PETA_NEXT)
         if self.auto_step2_peta_refutation_enabled.get():
             methods.append(AUTO_STEP2_PETA_REFUTATION)
-        if self.auto_step2_peta_depth_gap_enabled.get():
-            methods.append(AUTO_STEP2_PETA_DEPTH_GAP)
         if self.auto_step2_peta_unsolved_enabled.get():
             methods.append(AUTO_STEP2_PETA_UNSOLVED)
         if self.auto_step2_peta_opponent_enabled.get():
@@ -1813,7 +1724,6 @@ class BookMinerGui(ttk.Frame):
         senders = {
             AUTO_STEP2_PETA_NEXT: self.send_peta_next,
             AUTO_STEP2_PETA_REFUTATION: self.send_peta_refutation,
-            AUTO_STEP2_PETA_DEPTH_GAP: self.send_peta_depth_gap,
             AUTO_STEP2_PETA_UNSOLVED: self.send_peta_unsolved,
             AUTO_STEP2_PETA_OPPONENT: self.send_peta_opponent,
         }
@@ -1889,7 +1799,6 @@ class BookMinerGui(ttk.Frame):
             or "[petareaddone]" in lower
             or "[petanextdone]" in lower
             or "[petarefutationdone]" in lower
-            or "[petadepthgapdone]" in lower
             or "[petaunsolveddone]" in lower
             or "[petaopponentdone]" in lower
             or PETA_MAKEBOOK_CONTEXT_RE.search(line)
@@ -1897,12 +1806,10 @@ class BookMinerGui(ttk.Frame):
             or "peta shocked book" in lower
             or "peta_next" in lower
             or "peta_refutation" in lower
-            or "peta_depth_gap" in lower
             or "peta_unsolved" in lower
             or "peta_opponent" in lower
             or "refutation step" in lower
             or "refutation progress" in lower
-            or "depth_gap progress" in lower
             or "unsolved progress" in lower
             or "opponent progress" in lower
             or "root sfen" in lower
@@ -1951,37 +1858,30 @@ class BookMinerGui(ttk.Frame):
             "default_max_step": self.default_max_step.get(),
             "peta_next_eval_diff": self.peta_next_eval_diff.get(),
             "peta_refutation_eval_diff": self.peta_refutation_eval_diff.get(),
-            "peta_depth_gap_eval_diff": self.peta_depth_gap_eval_diff.get(),
             "peta_next_max_step": self.peta_next_max_step.get(),
             "peta_refutation_max_step": self.peta_refutation_max_step.get(),
-            "peta_depth_gap_max_step": self.peta_depth_gap_max_step.get(),
             "peta_refutation_eval_refu": self.peta_refutation_eval_refu.get(),
             "peta_next_book_extend_ply": self.peta_next_book_extend_ply.get(),
             "peta_refutation_book_extend_ply": self.peta_refutation_book_extend_ply.get(),
-            "peta_depth_gap_book_extend_ply": self.peta_depth_gap_book_extend_ply.get(),
             "peta_unsolved_book_extend_ply": self.peta_unsolved_book_extend_ply.get(),
             "peta_unsolved_eval_drop_limit": self.peta_unsolved_eval_drop_limit.get(),
             "peta_unsolved_max_step": self.peta_unsolved_max_step.get(),
             "peta_opponent_eval_diff": self.peta_opponent_eval_diff.get(),
             "peta_opponent_max_step": self.peta_opponent_max_step.get(),
             "peta_opponent_book_extend_ply": self.peta_opponent_book_extend_ply.get(),
-            "depth_gap_eval_per_ply": self.depth_gap_eval_per_ply.get(),
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
             "enqueue_book_extend_ply": self.enqueue_book_extend_ply.get(),
             "peta_next_ply_limit": self.peta_next_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
-            "peta_depth_gap_ply_limit": self.peta_depth_gap_ply_limit.get(),
             "peta_unsolved_ply_limit": self.peta_unsolved_ply_limit.get(),
             "peta_opponent_ply_limit": self.peta_opponent_ply_limit.get(),
             "peta_next_eval_limit": self.peta_next_eval_limit.get(),
             "peta_refutation_eval_limit": self.peta_refutation_eval_limit.get(),
-            "peta_depth_gap_eval_limit": self.peta_depth_gap_eval_limit.get(),
             "peta_unsolved_eval_limit": self.peta_unsolved_eval_limit.get(),
             "peta_opponent_eval_limit": self.peta_opponent_eval_limit.get(),
             "auto_step2_peta_next": "1" if self.auto_step2_peta_next_enabled.get() else "0",
             "auto_step2_peta_refutation": "1" if self.auto_step2_peta_refutation_enabled.get() else "0",
-            "auto_step2_peta_depth_gap": "1" if self.auto_step2_peta_depth_gap_enabled.get() else "0",
             "auto_step2_peta_unsolved": "1" if self.auto_step2_peta_unsolved_enabled.get() else "0",
             "auto_step2_peta_opponent": "1" if self.auto_step2_peta_opponent_enabled.get() else "0",
             "auto_enqueue_threshold": self.auto_enqueue_threshold.get(),
@@ -2349,78 +2249,6 @@ class BookMinerGui(ttk.Frame):
             return None
         return str(parsed)
 
-    def send_peta_depth_gap(self, auto: bool = False) -> bool:
-        eval_diff = self._get_step2_int_token(
-            self.peta_depth_gap_eval_diff,
-            self.default_eval_diff,
-            "peta depth gap eval_diff",
-            auto,
-            non_negative=True,
-        )
-        if eval_diff is None:
-            return False
-        eval_per_ply = self._get_optional_float_token(
-            self.depth_gap_eval_per_ply,
-            "peta depth gap eval/ply",
-            auto,
-            non_negative=True,
-        )
-        if eval_per_ply is None:
-            return False
-        max_step = self._get_step2_int_token(
-            self.peta_depth_gap_max_step,
-            self.default_max_step,
-            "peta depth gap max step",
-            auto,
-            positive=True,
-        )
-        if max_step is None:
-            return False
-        game_ply_limit = self._get_step2_int_token(
-            self.peta_depth_gap_ply_limit,
-            self.game_ply_limit,
-            "peta depth gap game ply limit",
-            auto,
-            positive=True,
-        )
-        if game_ply_limit is None:
-            return False
-        book_extend_ply = self._get_step2_int_token(
-            self.peta_depth_gap_book_extend_ply,
-            self.enqueue_book_extend_ply,
-            "peta depth gap book extend ply",
-            auto,
-            non_negative=True,
-        )
-        if book_extend_ply is None:
-            return False
-        eval_limit = self._get_step2_int_token(
-            self.peta_depth_gap_eval_limit,
-            self.eval_limit,
-            "peta depth gap eval_limit",
-            auto,
-            non_negative=True,
-        )
-        if eval_limit is None:
-            return False
-        default_command = self._build_default_settings_command(auto)
-        if default_command is None:
-            return False
-        if not auto and not self._begin_manual_action("manual_peta_depth_gap"):
-            return False
-        origin = "AUTO" if auto else "GUI"
-        if not self.send_command(default_command, origin=origin):
-            if not auto:
-                self.busy_action = None
-                self._update_buttons()
-            return False
-        if self.send_command(f"pdg {eval_per_ply} {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
-            return True
-        if not auto:
-            self.busy_action = None
-            self._update_buttons()
-        return False
-
     def send_peta_unsolved(self, auto: bool = False) -> bool:
         eval_drop_limit = self._get_optional_int_token(
             self.peta_unsolved_eval_drop_limit,
@@ -2587,7 +2415,6 @@ class BookMinerGui(ttk.Frame):
                 "manual_peta_read",
                 "manual_peta_next",
                 "manual_peta_refutation",
-                "manual_peta_depth_gap",
                 "manual_peta_unsolved",
                 "manual_peta_opponent",
                 "auto_enqueue",
@@ -2611,7 +2438,6 @@ class BookMinerGui(ttk.Frame):
         configure_state("peta_read_button", "normal" if command_enabled and not any_busy else "disabled")
         configure_state("next_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
-        configure_state("depth_gap_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("unsolved_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("opponent_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state(
