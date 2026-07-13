@@ -27,6 +27,61 @@ git clone https://github.com/TadaoYamaoka/DeepLearningShogi.git
 | `pack` | 棋譜形式なので、ファイル上のレコードを単純に局面単位シャッフルする用途には向かない。 |
 | `hcpe3` | 棋譜単位の可変長形式なので、単純な局面単位シャッフルには向かない。 |
 
+### HCPE/PSVフォルダをオフメモリでシャッフルして分割する
+
+巨大なHCPE/PSV教師フォルダを学習前に混ぜ直したい場合は `teacher/shuffle_split_teacher_external.py` を使う。
+入力フォルダ内の `.hcpe` または `.psv` をすべて読み、局面を表す 32 byteから計算したbucketへ一時分配し、bucketごとにシャッフルして出力フォルダへ分割する。
+入力全体を一度にメモリへ載せないので、`split_teacher.py --shuffle` より大きな教師データを扱いやすい。
+
+```bash
+python teacher/shuffle_split_teacher_external.py src_teacher_folder dst_teacher_folder --positions 10000000
+```
+
+出力は以下のようになる。
+
+```text
+dst_teacher_folder/shuffled-001.hcpe
+dst_teacher_folder/shuffled-002.hcpe
+...
+```
+
+PSVフォルダを指定した場合は `.psv` で出力する。
+
+```text
+dst_teacher_folder/shuffled-001.psv
+dst_teacher_folder/shuffled-002.psv
+...
+```
+
+出力ファイル名のprefixを変えたい場合:
+
+```bash
+python teacher/shuffle_split_teacher_external.py src_teacher_folder dst_teacher_folder --positions 10000000 --prefix train
+```
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---:|---|
+| `--positions` | `10000000` | 1出力ファイルあたりの局面数。 |
+| `--prefix` | `shuffled` | 出力ファイル名のprefix。 |
+| `--bucket-count` | `1024` | 一時bucket数。大きいほどbucketごとのメモリ使用量は下がる。 |
+| `--chunk-records` | `1000000` | 入力を読む単位。 |
+| `--seed` | `0` | bucket順とbucket内shuffleのseed。 |
+| `--format` | 自動判定 | `hcpe` または `psv`。入力フォルダに両方ある場合は明示する。 |
+| `--recursive` | off | 入力フォルダを再帰的に探索する。 |
+| `--tmp-dir` | 出力フォルダ | 一時bucketファイルの作成先。 |
+| `--force` | off | 出力先の既存ファイルを許可し、同じprefixの出力を上書きする。 |
+
+注意点:
+
+- 対象は `.hcpe` と `.psv`。同じ入力フォルダ内で両形式を混在させる場合は `--format` を指定する。
+- bucketごとのシャッフルなので、厳密な全体Fisher-Yates shuffleではない。棋譜内の連続局面による自己相関を壊す目的には十分実用的。
+- 一時ファイルとして入力とほぼ同じサイズの容量が追加で必要。
+- 出力フォルダに既存ファイルがある場合は、誤上書きを避けるためデフォルトではエラーにする。
+
+### 固定長教師ファイルをオンメモリでシャッフルする
+
 PSVをシャッフルして1ファイルに出力:
 
 ```bash
