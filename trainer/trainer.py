@@ -134,15 +134,6 @@ def latest_checkpoint(directory: Path, suffix: str) -> Path | None:
     return max(checkpoints, key=lambda item: item[0])[1]
 
 
-def find_checkpoint_by_number(base_dir: Path, number: int, suffix: str) -> Path | None:
-    checkpoint_name = f"checkpoint-{number:04}{suffix}"
-    for _, directory in round_directories(base_dir):
-        path = directory / checkpoint_name
-        if path.exists():
-            return path
-    return None
-
-
 def latest_round_checkpoint(base_dir: Path, suffix: str) -> tuple[int, int, Path, Path] | None:
     states: list[tuple[int, int, Path, Path]] = []
     for round_number, directory in round_directories(base_dir):
@@ -155,25 +146,70 @@ def latest_round_checkpoint(base_dir: Path, suffix: str) -> tuple[int, int, Path
     return max(states, key=lambda item: item[0])
 
 
+def latest_round_checkpoint_before(
+    base_dir: Path, before_round: int, suffix: str
+) -> tuple[int, int, Path, Path] | None:
+    states: list[tuple[int, int, Path, Path]] = []
+    for round_number, directory in round_directories(base_dir):
+        if round_number >= before_round:
+            continue
+        checkpoint = latest_checkpoint(directory, suffix)
+        if checkpoint is None:
+            continue
+        states.append((checkpoint_number(checkpoint), round_number, directory, checkpoint))
+    if not states:
+        return None
+    return max(states, key=lambda item: item[0])
+
+
+def checkpoint_numbers_in_directory(directory: Path, suffix: str) -> list[int]:
+    numbers: list[int] = []
+    for path in directory.glob(f"checkpoint-*{suffix}"):
+        try:
+            numbers.append(checkpoint_number(path))
+        except ValueError:
+            continue
+    return sorted(numbers)
+
+
+def checkpoint_offset_from_round_dir(directory: Path, suffix: str) -> int:
+    numbers = checkpoint_numbers_in_directory(directory, suffix)
+    return numbers[0] - 1 if numbers else 0
+
+
+def round_has_exported_model(directory: Path) -> bool:
+    return any(directory.glob("model-*"))
+
+
 def auto_round_state(
     model_root: Path, network: str, total_epochs: int, checkpoint_suffix: str
 ) -> tuple[Path, Path | None, int, bool, bool]:
     base_dir = make_out_dir(model_root, network)
-    latest_state = latest_round_checkpoint(base_dir, checkpoint_suffix)
-    if latest_state is None:
+    round_dirs = round_directories(base_dir)
+    if not round_dirs:
         return base_dir, None, 0, False, False
 
-    latest_number, _, latest_dir, latest_path = latest_state
-    if latest_number % total_epochs == 0:
+    latest_round_number, latest_dir = round_dirs[-1]
+    latest_path = latest_checkpoint(latest_dir, checkpoint_suffix)
+
+    if latest_path is None:
+        previous_state = latest_round_checkpoint_before(
+            base_dir, latest_round_number, checkpoint_suffix
+        )
+        if previous_state is None:
+            return latest_dir, None, 0, False, False
+        previous_number, _, _, previous_path = previous_state
+        return latest_dir, previous_path, previous_number, True, True
+
+    latest_number = checkpoint_number(latest_path)
+    round_checkpoint_count = len(
+        checkpoint_numbers_in_directory(latest_dir, checkpoint_suffix)
+    )
+    if round_has_exported_model(latest_dir) or round_checkpoint_count >= total_epochs:
         return next_round_out_dir(latest_path), latest_path, latest_number, True, True
 
-    checkpoint_offset = (latest_number // total_epochs) * total_epochs
-    resume_checkpoint = (
-        find_checkpoint_by_number(base_dir, checkpoint_offset, checkpoint_suffix)
-        if checkpoint_offset > 0
-        else None
-    )
-    return latest_dir, resume_checkpoint, checkpoint_offset, False, False
+    checkpoint_offset = checkpoint_offset_from_round_dir(latest_dir, checkpoint_suffix)
+    return latest_dir, None, checkpoint_offset, False, False
 
 
 def train_log_info_message(line: str) -> str:
@@ -764,8 +800,14 @@ def run_one_round(
             base_dir = make_out_dir(model_root, args.network)
             legacy_state = latest_round_checkpoint(base_dir, ".pth")
             if legacy_state is not None:
-                legacy_number, _, _, legacy_checkpoint = legacy_state
-                if legacy_number % total_epochs != 0:
+                legacy_number, _, legacy_dir, legacy_checkpoint = legacy_state
+                legacy_checkpoint_count = len(
+                    checkpoint_numbers_in_directory(legacy_dir, ".pth")
+                )
+                if not (
+                    round_has_exported_model(legacy_dir)
+                    or legacy_checkpoint_count >= total_epochs
+                ):
                     raise RuntimeError(
                         "PTL backend found legacy train.py checkpoints, but the "
                         f"latest one is incomplete: {legacy_checkpoint}. "

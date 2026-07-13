@@ -102,6 +102,10 @@ python .\trainer.py
 C:\shogi\model\exp___i20x256_round2
 ```
 
+round が変わると、教師ファイルの読み込み位置は現在指定している `--train_dir` の1個目に戻ります。つまり、round2 以降で `--train_dir` を別フォルダに変更した場合、その新しい教師セットを先頭から使います。
+
+`--rounds` 実行中に、次の round フォルダだけが作られた状態で停止した場合も、その空の round フォルダを次の開始地点として扱います。例えば `exp___i20x256_round7` が空で存在し、`round6` に最後の checkpoint がある場合、次回起動時は `round7` に対して現在の `--train_dir` の1個目から学習します。
+
 ## まとめて複数 round 回す
 
 `--rounds N` を指定すると、`trainer.py` を `N` 回連続で呼ぶのと同じ動きをします。1回の起動で round を `N` 周進めるので、毎回手で再実行する必要がありません。
