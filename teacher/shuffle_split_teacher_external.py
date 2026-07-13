@@ -33,6 +33,7 @@ from TeacherFormatLib import (  # noqa: E402
 DEFAULT_POSITIONS = 10_000_000
 DEFAULT_BUCKET_COUNT = 1024
 DEFAULT_CHUNK_RECORDS = 1_000_000
+DEFAULT_DIGITS = 5
 UINT64_MASK = (1 << 64) - 1
 
 FORMATS = {
@@ -54,7 +55,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Out-of-core shuffle/split for a folder of fixed-size teacher files "
             "(.hcpe or .psv). Output files are written as "
-            "<prefix>-001.<format>, <prefix>-002.<format>, ..."
+            "<prefix>-00001.<format>, <prefix>-00002.<format>, ..."
         )
     )
     parser.add_argument("src_teacher_folder", type=Path, help="folder containing input .hcpe or .psv files")
@@ -71,6 +72,12 @@ def parse_args() -> argparse.Namespace:
         help=f"positions per output file (default: {DEFAULT_POSITIONS})",
     )
     parser.add_argument("--prefix", default="shuffled", help="output filename prefix (default: shuffled)")
+    parser.add_argument(
+        "--digits",
+        type=int,
+        default=DEFAULT_DIGITS,
+        help=f"zero-padding width for output file numbers (default: {DEFAULT_DIGITS})",
+    )
     parser.add_argument(
         "--bucket-count",
         type=int,
@@ -198,11 +205,12 @@ def shard_inputs(
 
 
 class SplitWriter:
-    def __init__(self, dst_dir: Path, prefix: str, positions: int, fmt: str):
+    def __init__(self, dst_dir: Path, prefix: str, positions: int, fmt: str, digits: int):
         self.dst_dir = dst_dir
         self.prefix = prefix
         self.positions = positions
         self.fmt = fmt
+        self.digits = digits
         self.index = 0
         self.in_current = 0
         self.current = None
@@ -217,7 +225,7 @@ class SplitWriter:
         self.close()
         self.index += 1
         self.in_current = 0
-        path = self.dst_dir / f"{self.prefix}-{self.index:03}.{self.fmt}"
+        path = self.dst_dir / f"{self.prefix}-{self.index:0{self.digits}d}.{self.fmt}"
         self.current = path.open("wb")
         self.paths.append(path)
 
@@ -240,6 +248,7 @@ def write_shuffled_outputs(
     fmt: str,
     dtype: np.dtype,
     prefix: str,
+    digits: int,
     bucket_count: int,
     positions: int,
     seed: int,
@@ -248,7 +257,7 @@ def write_shuffled_outputs(
     bucket_order = np.arange(bucket_count)
     rng.shuffle(bucket_order)
 
-    writer = SplitWriter(dst_dir, prefix, positions, fmt)
+    writer = SplitWriter(dst_dir, prefix, positions, fmt, digits)
     try:
         for ordinal, bucket in enumerate(bucket_order, start=1):
             path = bucket_path(work_dir, int(bucket), fmt)
@@ -274,6 +283,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--bucket-count must be positive")
     if args.chunk_records <= 0:
         raise ValueError("--chunk-records must be positive")
+    if args.digits <= 0:
+        raise ValueError("--digits must be positive")
     if not args.prefix:
         raise ValueError("--prefix must not be empty")
 
@@ -299,6 +310,7 @@ def main() -> None:
     print(f"input files : {len(input_files)}")
     print(f"output dir  : {args.dst_teacher_folder}")
     print(f"positions   : {args.positions}")
+    print(f"digits      : {args.digits}")
     print(f"buckets     : {args.bucket_count}")
     print(f"chunk       : {args.chunk_records}")
     print(f"seed        : {args.seed}")
@@ -322,6 +334,7 @@ def main() -> None:
             fmt=fmt,
             dtype=dtype,
             prefix=args.prefix,
+            digits=args.digits,
             bucket_count=args.bucket_count,
             positions=args.positions,
             seed=args.seed,

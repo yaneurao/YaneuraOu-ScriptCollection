@@ -40,16 +40,16 @@ python teacher/shuffle_split_teacher_external.py src_teacher_folder dst_teacher_
 出力は以下のようになる。
 
 ```text
-dst_teacher_folder/shuffled-001.hcpe
-dst_teacher_folder/shuffled-002.hcpe
+dst_teacher_folder/shuffled-00001.hcpe
+dst_teacher_folder/shuffled-00002.hcpe
 ...
 ```
 
 PSVフォルダを指定した場合は `.psv` で出力する。
 
 ```text
-dst_teacher_folder/shuffled-001.psv
-dst_teacher_folder/shuffled-002.psv
+dst_teacher_folder/shuffled-00001.psv
+dst_teacher_folder/shuffled-00002.psv
 ...
 ```
 
@@ -65,6 +65,7 @@ python teacher/shuffle_split_teacher_external.py src_teacher_folder dst_teacher_
 |---|---:|---|
 | `--positions` | `10000000` | 1出力ファイルあたりの局面数。 |
 | `--prefix` | `shuffled` | 出力ファイル名のprefix。 |
+| `--digits` | `5` | 出力ファイル番号のゼロ埋め桁数。10000ファイル以上になるなら5桁以上が必要。 |
 | `--bucket-count` | `1024` | 一時bucket数。大きいほどbucketごとのメモリ使用量は下がる。 |
 | `--chunk-records` | `1000000` | 入力を読む単位。 |
 | `--seed` | `0` | bucket順とbucket内shuffleのseed。 |
