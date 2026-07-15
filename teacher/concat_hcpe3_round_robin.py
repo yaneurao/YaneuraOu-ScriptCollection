@@ -74,27 +74,52 @@ def make_output_path(output_dir: Path, prefix: str, index: int, digits: int) -> 
     return output_dir / f"{prefix}-{index:0{digits}d}.hcpe3"
 
 
-def selected_files_for_output(sources: list[SourceSpec], output_index: int) -> list[tuple[int, int, Path]]:
+def selected_slots_for_output(sources: list[SourceSpec], output_index: int) -> list[list[Path | None]]:
     selected = []
-    for source_index, source in enumerate(sources, start=1):
+    for source in sources:
         start = output_index * source.take
-        end = start + source.take
-        for input_index, path in enumerate(source.files[start:end], start=start + 1):
-            selected.append((source_index, input_index, path))
+        source_slots = []
+        for offset in range(source.take):
+            input_index = start + offset
+            if input_index < len(source.files):
+                source_slots.append(source.files[input_index])
+            else:
+                source_slots.append(None)
+        selected.append(source_slots)
     return selected
 
 
-def write_manifest_header(manifest) -> None:
-    manifest.write("output\tsource_index\tsource_dir\tinput_index\tinput\n")
+def flatten_selected_slots(selected_slots: list[list[Path | None]]) -> list[Path]:
+    return [
+        path
+        for source_slots in selected_slots
+        for path in source_slots
+        if path is not None
+    ]
 
 
-def write_manifest_rows(manifest, output_file: Path, sources: list[SourceSpec], selected) -> None:
-    source_dirs = {i: source.source_dir for i, source in enumerate(sources, start=1)}
-    for source_index, input_index, input_file in selected:
-        manifest.write(
-            f"{output_file}\t{source_index}\t{source_dirs[source_index]}\t"
-            f"{input_index}\t{input_file}\n"
+def write_manifest_header(manifest, sources: list[SourceSpec]) -> None:
+    columns = ["output"]
+    for source_index, source in enumerate(sources, start=1):
+        columns.extend(
+            f"source{source_index}_{slot_index}"
+            for slot_index in range(1, source.take + 1)
         )
+    manifest.write("\t".join(columns) + "\n")
+
+
+def write_manifest_row(
+    manifest,
+    output_file: Path,
+    selected_slots: list[list[Path | None]],
+) -> None:
+    columns = [str(output_file)]
+    columns.extend(
+        "" if path is None else str(path)
+        for source_slots in selected_slots
+        for path in source_slots
+    )
+    manifest.write("\t".join(columns) + "\n")
 
 
 def parse_args() -> argparse.Namespace:
@@ -196,15 +221,16 @@ def main() -> None:
     manifest = None
     if not args.no_manifest:
         manifest = manifest_path.open("w", encoding="utf-8", newline="")
-        write_manifest_header(manifest)
+        write_manifest_header(manifest, sources)
 
     try:
         for output_index, output_file in enumerate(output_files):
-            selected = selected_files_for_output(sources, output_index)
-            concat_files([path for _, _, path in selected], output_file)
+            selected_slots = selected_slots_for_output(sources, output_index)
+            selected_files = flatten_selected_slots(selected_slots)
+            concat_files(selected_files, output_file)
             if manifest is not None:
-                write_manifest_rows(manifest, output_file, sources, selected)
-            print(output_file, len(selected))
+                write_manifest_row(manifest, output_file, selected_slots)
+            print(output_file, len(selected_files))
     finally:
         if manifest is not None:
             manifest.close()
