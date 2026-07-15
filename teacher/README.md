@@ -134,6 +134,56 @@ python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle --seed
 - 入力ファイルサイズがレコードサイズで割り切れない場合は、壊れたファイルとしてエラーにします。
 - `psv` と `hcpe` を同時に指定することはできません。
 
+### HCPE3フォルダを指定比率で結合する
+
+HCPE3は棋譜単位の可変長形式なので、PSV/HCPEのような局面単位シャッフルには向きません。
+複数の方法で生成したHCPE3教師フォルダを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各フォルダから指定個数ずつ取り出して結合します。
+
+たとえば `teacher1/` から1個、`teacher2/` から2個、`teacher3/` から1個ずつ取り出して、1つのHCPE3ファイルにまとめる場合:
+
+```bash
+python teacher/concat_hcpe3_round_robin.py \
+  --output mixed_teacher \
+  --source teacher1 1 \
+  --source teacher2 2 \
+  --source teacher3 1
+```
+
+出力は以下のようになる。
+
+```text
+mixed_teacher/mixed-00001.hcpe3
+mixed_teacher/mixed-00002.hcpe3
+...
+mixed_teacher/mixed-manifest.tsv
+```
+
+`mixed-00001.hcpe3` には、辞書順で列挙した各フォルダの先頭から `teacher1` 1個、`teacher2` 2個、`teacher3` 1個の順で単純結合される。
+`mixed-00002.hcpe3` には、その次の `teacher1` 1個、`teacher2` 2個、`teacher3` 1個が入る。
+HCPE3にはファイル全体のヘッダがないため、完全なHCPE3ファイル同士のバイナリ結合として扱います。
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---:|---|
+| `--output` | 必須 | 出力フォルダ。 |
+| `--source DIR COUNT` | 必須 | 入力フォルダと、1出力ファイルあたりに取り出すHCPE3ファイル数。複数回指定できる。 |
+| `--pattern` | `*.hcpe3` | 入力ファイル名のglob pattern。 |
+| `--recursive` | off | 各入力フォルダを再帰的に探索する。 |
+| `--prefix` | `mixed` | 出力ファイル名のprefix。 |
+| `--digits` | `5` | 出力ファイル番号のゼロ埋め桁数。 |
+| `--max-outputs` | なし | 出力ファイル数の上限。 |
+| `--allow-partial-last` | off | 最後に指定個数へ満たない余りがある場合、端数の1ファイルを追加で出力する。 |
+| `--no-manifest` | off | manifest TSVを出力しない。 |
+| `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
+
+注意点:
+
+- 入力ファイルは各フォルダ内でファイル名の辞書順に処理します。
+- デフォルトでは、すべての `--source` が指定個数を満たす完全な出力だけを書きます。余りは使いません。
+- `mixed-manifest.tsv` には、各出力ファイルにどの入力ファイルを結合したかを記録します。
+- 1フォルダ内のHCPE3を5個ずつまとめたい場合も、`--source src_teacher 5` のように1つのsourceだけ指定すれば同じ処理になります。
+
 ## 教師データのフォーマット変換
 
 `pack` / `psv` / `hcpe` / `hcpe3` はすべて教師データとして使えますが、形式の性質が違うため、すべての方向に可逆変換できるわけではありません。
