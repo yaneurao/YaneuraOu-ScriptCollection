@@ -12,7 +12,9 @@ import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
+import sys
 import struct
+import time
 
 
 HCPE3_HEADER_SIZE = 36
@@ -175,6 +177,31 @@ class SmoothWeightedSelector:
         return best_index
 
 
+class ProgressReporter:
+    def __init__(self, enabled: bool, interval: float):
+        self.enabled = enabled
+        self.interval = interval
+        self.last_report = 0.0
+
+    def report(self, message: str, *, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        if force or self.last_report == 0.0 or now - self.last_report >= self.interval:
+            print(message, file=sys.stderr, flush=True)
+            self.last_report = now
+
+
+def format_bytes(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024.0 or unit == "TiB":
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            return f"{value:.1f}{unit}"
+        value /= 1024.0
+
+
 def is_relative_to(path: Path, base: Path) -> bool:
     try:
         path.relative_to(base)
@@ -193,9 +220,16 @@ def collect_files(src_dir: Path, output_dir: Path, pattern: str, recursive: bool
     )
 
 
-def parse_sources(source_args: list[str], output_dir: Path, pattern: str, recursive: bool) -> list[SourceSpec]:
+def parse_sources(
+    source_args: list[str],
+    output_dir: Path,
+    pattern: str,
+    recursive: bool,
+    progress: ProgressReporter,
+) -> list[SourceSpec]:
     sources = []
-    for source_dir_text in source_args:
+    source_count = len(source_args)
+    for source_index, source_dir_text in enumerate(source_args, start=1):
         source_dir = Path(source_dir_text)
         if not source_dir.is_dir():
             raise FileNotFoundError(f"source folder not found: {source_dir}")
@@ -205,10 +239,44 @@ def parse_sources(source_args: list[str], output_dir: Path, pattern: str, recurs
         files = collect_files(source_dir, output_dir, pattern, recursive)
         if not files:
             raise FileNotFoundError(f"no input files found in {source_dir}: {pattern}")
-        games = sum(count_hcpe3_games(path) for path in files)
+
+        source_bytes = sum(path.stat().st_size for path in files)
+        progress.report(
+            f"count start source {source_index}/{source_count} "
+            f"{source_dir} files={len(files)} bytes={format_bytes(source_bytes)}",
+            force=True,
+        )
+
+        games = 0
+        counted_bytes = 0
+        for file_index, path in enumerate(files, start=1):
+            file_size = path.stat().st_size
+            games_before_file = games
+            bytes_before_file = counted_bytes
+
+            def report_file_progress(file_pos: int, file_games: int, *, force: bool = False) -> None:
+                source_pos = bytes_before_file + file_pos
+                source_pct = source_pos * 100.0 / source_bytes if source_bytes > 0 else 100.0
+                file_pct = file_pos * 100.0 / file_size if file_size > 0 else 100.0
+                progress.report(
+                    f"count source {source_index}/{source_count} "
+                    f"{source_pct:5.1f}% {format_bytes(source_pos)}/{format_bytes(source_bytes)} "
+                    f"file {file_index}/{len(files)} {file_pct:5.1f}% {path.name} "
+                    f"games={games_before_file + file_games}",
+                    force=force,
+                )
+
+            file_games = count_hcpe3_games(path, report_file_progress)
+            games += file_games
+            counted_bytes += file_size
+
         if games <= 0:
             raise RuntimeError(f"no HCPE3 games found in {source_dir}: {pattern}")
-        print("count", source_dir, "files", len(files), "games", games)
+        progress.report(
+            f"count done source {source_index}/{source_count} "
+            f"{source_dir} files={len(files)} games={games} bytes={format_bytes(source_bytes)}",
+            force=True,
+        )
         sources.append(SourceSpec(source_dir=source_dir, files=files, games=games))
 
     return sources
@@ -260,8 +328,9 @@ def read_hcpe3_game(file, path: Path) -> bytes | None:
     return b"".join(parts)
 
 
-def count_hcpe3_games(path: Path) -> int:
+def count_hcpe3_games(path: Path, progress=None) -> int:
     games = 0
+    file_size = path.stat().st_size
     with path.open("rb") as file:
         while True:
             header = file.read(HCPE3_HEADER_SIZE)
@@ -281,7 +350,13 @@ def count_hcpe3_games(path: Path) -> int:
                     raise RuntimeError(f"invalid candidateNum {candidate_num}: {path}")
                 if candidate_num > 0:
                     file.seek(MOVE_VISITS_SIZE * candidate_num, 1)
+                    if file.tell() > file_size:
+                        raise RuntimeError(f"truncated HCPE3 MoveVisits: {path}")
             games += 1
+            if progress is not None and games % 100 == 0:
+                progress(file.tell(), games)
+        if progress is not None:
+            progress(file.tell(), games)
     return games
 
 
@@ -378,6 +453,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="allow overwriting existing output and manifest files",
     )
+    parser.add_argument(
+        "--progress-interval",
+        type=float,
+        default=5.0,
+        help="seconds between progress messages",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="disable progress messages",
+    )
     return parser.parse_args()
 
 
@@ -388,8 +474,11 @@ def main() -> None:
         raise ValueError("--digits must be positive")
     if args.max_outputs is not None and args.max_outputs <= 0:
         raise ValueError("--max-outputs must be positive")
+    if args.progress_interval < 0:
+        raise ValueError("--progress-interval must be non-negative")
 
-    sources = parse_sources(args.source, args.output, args.pattern, args.recursive)
+    progress = ProgressReporter(not args.no_progress, args.progress_interval)
+    sources = parse_sources(args.source, args.output, args.pattern, args.recursive, progress)
     selector = SmoothWeightedSelector(sources)
     readers = [
         SourceReader(source_index, source)
@@ -416,6 +505,8 @@ def main() -> None:
     output_stats = None
     output_index = 0
     outputs = 0
+    total_games = sum(source.games for source in sources)
+    written_games = 0
 
     def start_output():
         nonlocal output, output_stats, output_index
@@ -476,6 +567,13 @@ def main() -> None:
             source_used_games[source_pos] += 1
             source_used_bytes[source_pos] += len(record.data)
             source_used_files[source_pos].add(record.input_file)
+            written_games += 1
+            progress.report(
+                f"write {written_games}/{total_games} games "
+                f"({written_games * 100.0 / total_games:5.1f}%) "
+                f"current_output={output_stats.output_file.name} "
+                f"current_bytes={format_bytes(output_stats.bytes)}",
+            )
 
         finish_output()
     finally:

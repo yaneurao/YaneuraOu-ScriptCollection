@@ -203,6 +203,9 @@ mixed_teacher/mixed-manifest.tsv
 `--max-output-size` を指定した場合は、次の棋譜recordを追加すると上限を超えるタイミングで次の出力ファイルへ切り替える。
 HCPE3にはファイル全体のヘッダがないため、完全なHCPE3棋譜record同士のバイナリ結合として扱います。
 
+HCPE3は可変長record列なので、棋譜数を数えるときも各recordの `moveNum` と各手の `candidateNum` を読んで次のrecord位置まで進む必要があります。
+カウント中と出力中の進捗はstderrへ表示します。
+
 manifest TSVは、1つのmixedファイルにつき1行です。各sourceの `ranges` には、使用した入力HCPE3ファイルと、そのファイル内の棋譜番号範囲を記録します。
 
 ```text
@@ -226,6 +229,8 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 | `--max-outputs` | なし | 出力ファイル数の上限。 |
 | `--no-manifest` | off | manifest TSVを出力しない。 |
 | `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
+| `--progress-interval` | `5.0` | 進捗表示の間隔秒。 |
+| `--no-progress` | off | 進捗表示をしない。 |
 
 注意点:
 
