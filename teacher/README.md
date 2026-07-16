@@ -134,19 +134,20 @@ python teacher/split_teacher.py input.psv --output shuffled.psv --shuffle --seed
 - 入力ファイルサイズがレコードサイズで割り切れない場合は、壊れたファイルとしてエラーにします。
 - `psv` と `hcpe` を同時に指定することはできません。
 
-### HCPE3フォルダを指定比率で結合する
+### HCPE3フォルダを棋譜数比率で結合する
 
 HCPE3は棋譜単位の可変長形式なので、PSV/HCPEのような局面単位シャッフルには向きません。
-複数の方法で生成したHCPE3教師フォルダを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各フォルダから指定個数ずつ取り出して結合します。
+複数の方法で生成したHCPE3教師フォルダを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各フォルダの棋譜数比率で棋譜recordを取り出して結合します。
 
-たとえば `teacher1/` から1個、`teacher2/` から2個、`teacher3/` から1個ずつ取り出して、1つのHCPE3ファイルにまとめる場合:
+たとえば `teacher1/` と `teacher2/` と `teacher3/` のHCPE3を混ぜ、1出力ファイルを最大8GiB程度に抑える場合:
 
 ```bash
 python teacher/concat_hcpe3_round_robin.py \
   --output mixed_teacher \
-  --source teacher1 1 \
-  --source teacher2 2 \
-  --source teacher3 1
+  --source teacher1 \
+  --source teacher2 \
+  --source teacher3 \
+  --max-output-size 8G
 ```
 
 出力は以下のようになる。
@@ -158,39 +159,42 @@ mixed_teacher/mixed-00002.hcpe3
 mixed_teacher/mixed-manifest.tsv
 ```
 
-manifest TSVは、1つのmixedファイルにつき1行です。
+最初に各sourceのHCPE3を走査して棋譜数を数えます。
+たとえば `teacher1` が1000局、`teacher2` が100局なら、`1000:100`、つまり実質 `10:1` の比率で混ざるように、smooth weighted round-robinで1局ずつ出力します。
+`--max-output-size` を指定した場合は、次の棋譜recordを追加すると上限を超えるタイミングで次の出力ファイルへ切り替える。
+HCPE3にはファイル全体のヘッダがないため、完全なHCPE3棋譜record同士のバイナリ結合として扱います。
+
+manifest TSVは、1つのmixedファイルにつき1行です。各sourceの `ranges` には、使用した入力HCPE3ファイルと、そのファイル内の棋譜番号範囲を記録します。
 
 ```text
-output	source1_1	source2_1	source2_2	source3_1
-mixed_teacher/mixed-00001.hcpe3	teacher1/a.hcpe3	teacher2/a.hcpe3	teacher2/b.hcpe3	teacher3/a.hcpe3
-mixed_teacher/mixed-00002.hcpe3	teacher1/b.hcpe3	teacher2/c.hcpe3	teacher2/d.hcpe3	teacher3/b.hcpe3
+output	bytes	games	source1_games	source1_bytes	source1_ranges	source2_games	source2_bytes	source2_ranges
+mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hcpe3:1-40000	80000	5726620000	teacher2/a.hcpe3:1-50000;teacher2/b.hcpe3:1-30000
 ```
 
-`mixed-00001.hcpe3` には、辞書順で列挙した各フォルダの先頭から `teacher1` 1個、`teacher2` 2個、`teacher3` 1個の順で単純結合される。
-`mixed-00002.hcpe3` には、その次の `teacher1` 1個、`teacher2` 2個、`teacher3` 1個が入る。
-HCPE3にはファイル全体のヘッダがないため、完全なHCPE3ファイル同士のバイナリ結合として扱います。
+`--max-output-size` を指定しない場合は、すべてのsourceの棋譜を1つのHCPE3へ出力します。
 
 主なオプション:
 
 | オプション | デフォルト | 説明 |
 |---|---:|---|
 | `--output` | 必須 | 出力フォルダ。 |
-| `--source DIR COUNT` | 必須 | 入力フォルダと、1出力ファイルあたりに取り出すHCPE3ファイル数。複数回指定できる。 |
+| `--source DIR` | 必須 | 入力フォルダ。複数回指定できる。各sourceの棋譜数を数え、その比率で自動混合する。 |
 | `--pattern` | `*.hcpe3` | 入力ファイル名のglob pattern。 |
 | `--recursive` | off | 各入力フォルダを再帰的に探索する。 |
 | `--prefix` | `mixed` | 出力ファイル名のprefix。 |
 | `--digits` | `5` | 出力ファイル番号のゼロ埋め桁数。 |
+| `--max-output-size` | なし | 出力ファイルサイズの上限。`512M`, `8G`, byte数などで指定する。 |
 | `--max-outputs` | なし | 出力ファイル数の上限。 |
-| `--allow-partial-last` | off | 最後に指定個数へ満たない余りがある場合、端数の1ファイルを追加で出力する。 |
 | `--no-manifest` | off | manifest TSVを出力しない。 |
 | `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
 
 注意点:
 
 - 入力ファイルは各フォルダ内でファイル名の辞書順に処理します。
-- デフォルトでは、すべての `--source` が指定個数を満たす完全な出力だけを書きます。余りは使いません。
-- `mixed-manifest.tsv` には、各出力ファイルにどの入力ファイルを結合したかを、1出力1行で記録します。
-- 1フォルダ内のHCPE3を5個ずつまとめたい場合も、`--source src_teacher 5` のように1つのsourceだけ指定すれば同じ処理になります。
+- 入力HCPE3内の棋譜recordは先頭から順番に処理します。局面単位では分割しません。
+- すべてのsourceの棋譜を使い切ります。`--max-outputs` を指定した場合は、その出力数に達したところで停止します。
+- `--max-output-size` は棋譜record境界で判定します。1棋譜record自体が上限より大きい場合、そのrecordだけで上限を超えた出力ファイルを作ります。
+- `mixed-manifest.tsv` には、各出力ファイルにどの入力範囲を結合したかを、1出力1行で記録します。
 
 ## 教師データのフォーマット変換
 
