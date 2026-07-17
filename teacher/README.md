@@ -198,8 +198,9 @@ mixed_teacher/mixed-00002.hcpe3
 mixed_teacher/mixed-manifest.tsv
 ```
 
-最初に各sourceのHCPE3を走査して棋譜数を数えます。
-たとえば `teacher1` が1000局、`teacher2` が100局なら、`1000:100`、つまり実質 `10:1` の比率で混ざるように、smooth weighted round-robinで1局ずつ出力します。
+最初に各source内の各HCPE3ファイルを走査して、ファイルごとの棋譜数を数えます。
+たとえば `teacher1` が1000局、`teacher2` が100局なら、source間は `1000:100`、つまり実質 `10:1` の比率で混ざるようにします。
+さらに選ばれたsource内でも、各HCPE3ファイルを棋譜数比率で選ぶため、1つの出力HCPE3は複数の入力ファイルから集めた棋譜recordで構成されます。
 `--max-output-size` を指定した場合は、次の棋譜recordを追加すると上限を超えるタイミングで次の出力ファイルへ切り替える。
 HCPE3にはファイル全体のヘッダがないため、完全なHCPE3棋譜record同士のバイナリ結合として扱います。
 
@@ -207,6 +208,7 @@ HCPE3は可変長record列なので、棋譜数を数えるときも各recordの
 カウント中と出力中の進捗はstderrへ表示します。
 
 manifest TSVは、1つのmixedファイルにつき1行です。各sourceの `ranges` には、使用した入力HCPE3ファイルと、そのファイル内の棋譜番号範囲を記録します。
+同じ入力ファイルから連続番号で使われた棋譜は、出力上で隣接していなくても1つのrangeにまとめます。
 
 ```text
 output	bytes	games	source1_games	source1_bytes	source1_ranges	source2_games	source2_bytes	source2_ranges
@@ -231,10 +233,12 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 | `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
 | `--progress-interval` | `5.0` | 進捗表示の間隔秒。 |
 | `--no-progress` | off | 進捗表示をしない。 |
+| `--max-open-files` | `64` | n-way merge中に同時に開いたままにする入力HCPE3ファイル数。 |
 
 注意点:
 
-- 入力ファイルは各フォルダ内でファイル名の辞書順に処理します。
+- 入力ファイルは各フォルダ内でファイル名の辞書順に列挙し、同率時はこの順で選択します。
+- source内の複数入力HCPE3は、1ファイルずつ読み切るのではなく、棋譜record単位で混ぜます。
 - 入力HCPE3内の棋譜recordは先頭から順番に処理します。局面単位では分割しません。
 - すべてのsourceの棋譜を使い切ります。`--max-outputs` を指定した場合は、その出力数に達したところで停止します。
 - `--max-output-size` は棋譜record境界で判定します。1棋譜record自体が上限より大きい場合、そのrecordだけで上限を超えた出力ファイルを作ります。

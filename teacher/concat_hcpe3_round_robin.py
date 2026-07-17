@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+import heapq
 from pathlib import Path
 import re
 import sys
@@ -45,9 +46,17 @@ SIZE_UNITS = {
 
 
 @dataclass(frozen=True)
+class InputFileSpec:
+    source_index: int
+    source_dir: Path
+    path: Path
+    games: int
+
+
+@dataclass(frozen=True)
 class SourceSpec:
     source_dir: Path
-    files: list[Path]
+    files: list[InputFileSpec]
     games: int
 
 
@@ -73,21 +82,22 @@ class SourceOutputStats:
     games: int = 0
     bytes: int = 0
     ranges: list[GameRange] = field(default_factory=list)
+    last_range_by_file: dict[Path, GameRange] = field(default_factory=dict, repr=False)
 
     def add(self, record: GameRecord) -> None:
         self.games += 1
         self.bytes += len(record.data)
 
+        last_range = self.last_range_by_file.get(record.input_file)
         if (
-            self.ranges
-            and self.ranges[-1].input_file == record.input_file
-            and self.ranges[-1].end + 1 == record.file_game_index
+            last_range is not None
+            and last_range.end + 1 == record.file_game_index
         ):
-            self.ranges[-1].end = record.file_game_index
+            last_range.end = record.file_game_index
         else:
-            self.ranges.append(
-                GameRange(record.input_file, record.file_game_index, record.file_game_index)
-            )
+            new_range = GameRange(record.input_file, record.file_game_index, record.file_game_index)
+            self.ranges.append(new_range)
+            self.last_range_by_file[record.input_file] = new_range
 
 
 @dataclass
@@ -103,78 +113,113 @@ class OutputStats:
         self.source_stats[record.source_index - 1].add(record)
 
 
-class SourceReader:
-    def __init__(self, source_index: int, spec: SourceSpec):
-        self.source_index = source_index
+class InputFileReader:
+    def __init__(self, spec: InputFileSpec):
         self.spec = spec
-        self.file_index = 0
         self.current_file = None
-        self.current_path = None
         self.file_game_index = 0
-        self.source_game_index = 0
+        self.offset = 0
 
     def close(self) -> None:
         if self.current_file is not None:
+            self.offset = self.current_file.tell()
             self.current_file.close()
             self.current_file = None
-            self.current_path = None
 
-    def open_next_file(self) -> bool:
-        self.close()
-        if self.file_index >= len(self.spec.files):
-            return False
-        self.current_path = self.spec.files[self.file_index]
-        self.file_index += 1
-        self.file_game_index = 0
-        self.current_file = self.current_path.open("rb")
-        return True
+    def open(self):
+        if self.current_file is None:
+            self.current_file = self.spec.path.open("rb")
+            if self.offset:
+                self.current_file.seek(self.offset)
+        return self.current_file
 
-    def next_game(self) -> GameRecord | None:
-        while True:
-            if self.current_file is None and not self.open_next_file():
-                return None
-
-            data = read_hcpe3_game(self.current_file, self.current_path)
-            if data is None:
-                self.close()
-                continue
-
-            self.file_game_index += 1
-            self.source_game_index += 1
-            return GameRecord(
-                source_index=self.source_index,
-                source_dir=self.spec.source_dir,
-                input_file=self.current_path,
-                file_game_index=self.file_game_index,
-                source_game_index=self.source_game_index,
-                data=data,
-            )
-
-
-class SmoothWeightedSelector:
-    def __init__(self, sources: list[SourceSpec]):
-        self.weights = [source.games for source in sources]
-        self.remaining = [source.games for source in sources]
-        self.current = [0 for _ in sources]
-        self.total_weight = sum(self.weights)
-
-    def next_index(self) -> int | None:
-        best_index = None
-        best_weight = None
-        for i, remaining in enumerate(self.remaining):
-            if remaining <= 0:
-                continue
-            self.current[i] += self.weights[i]
-            if best_index is None or self.current[i] > best_weight:
-                best_index = i
-                best_weight = self.current[i]
-
-        if best_index is None:
+    def next_game(
+        self,
+        source_game_index: int,
+        open_readers: OpenReaderCache,
+    ) -> GameRecord | None:
+        file = open_readers.open(self)
+        data = read_hcpe3_game(file, self.spec.path)
+        self.offset = file.tell()
+        if data is None:
+            open_readers.close(self)
             return None
 
-        self.current[best_index] -= self.total_weight
-        self.remaining[best_index] -= 1
-        return best_index
+        self.file_game_index += 1
+        record = GameRecord(
+            source_index=self.spec.source_index,
+            source_dir=self.spec.source_dir,
+            input_file=self.spec.path,
+            file_game_index=self.file_game_index,
+            source_game_index=source_game_index,
+            data=data,
+        )
+
+        if self.file_game_index >= self.spec.games:
+            open_readers.close(self)
+
+        return record
+
+
+class OpenReaderCache:
+    def __init__(self, max_open_files: int):
+        self.max_open_files = max_open_files
+        self.readers = []
+
+    def open(self, reader: InputFileReader):
+        if reader.current_file is not None:
+            self._touch(reader)
+            return reader.current_file
+
+        while len(self.readers) >= self.max_open_files:
+            self.readers.pop(0).close()
+
+        file = reader.open()
+        self.readers.append(reader)
+        return file
+
+    def close(self, reader: InputFileReader) -> None:
+        if reader in self.readers:
+            self.readers.remove(reader)
+        reader.close()
+
+    def close_all(self) -> None:
+        for reader in list(self.readers):
+            reader.close()
+        self.readers = []
+
+    def _touch(self, reader: InputFileReader) -> None:
+        self.readers.remove(reader)
+        self.readers.append(reader)
+
+
+class WeightedSelector:
+    def __init__(self, weights: list[int]):
+        self.weights = weights
+        self.remaining = list(weights)
+        self.used = [0 for _ in weights]
+        self.heap = [
+            (0.0, index)
+            for index, weight in enumerate(weights)
+            if weight > 0
+        ]
+        heapq.heapify(self.heap)
+
+    def next_index(self) -> int | None:
+        if not self.heap:
+            return None
+
+        _, index = heapq.heappop(self.heap)
+        self.used[index] += 1
+        self.remaining[index] -= 1
+
+        if self.remaining[index] > 0:
+            heapq.heappush(
+                self.heap,
+                (self.used[index] / self.weights[index], index),
+            )
+
+        return index
 
 
 class ProgressReporter:
@@ -247,6 +292,7 @@ def parse_sources(
             force=True,
         )
 
+        file_specs = []
         games = 0
         counted_bytes = 0
         for file_index, path in enumerate(files, start=1):
@@ -267,6 +313,7 @@ def parse_sources(
                 )
 
             file_games = count_hcpe3_games(path, report_file_progress)
+            file_specs.append(InputFileSpec(source_index, source_dir, path, file_games))
             games += file_games
             counted_bytes += file_size
 
@@ -277,7 +324,7 @@ def parse_sources(
             f"{source_dir} files={len(files)} games={games} bytes={format_bytes(source_bytes)}",
             force=True,
         )
-        sources.append(SourceSpec(source_dir=source_dir, files=files, games=games))
+        sources.append(SourceSpec(source_dir=source_dir, files=file_specs, games=games))
 
     return sources
 
@@ -406,8 +453,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Concatenate HCPE3 game records from multiple folders. The script "
-            "first counts games in each --source and then mixes records by that "
-            "ratio using smooth weighted round-robin. Output files are split by "
+            "first counts games in each input file and then mixes records by "
+            "weighted round-robin across sources and across files within each "
+            "source. Output files are split by "
             "--max-output-size when specified."
         )
     )
@@ -464,6 +512,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="disable progress messages",
     )
+    parser.add_argument(
+        "--max-open-files",
+        type=int,
+        default=64,
+        help="maximum number of HCPE3 input files kept open while merging",
+    )
     return parser.parse_args()
 
 
@@ -476,14 +530,25 @@ def main() -> None:
         raise ValueError("--max-outputs must be positive")
     if args.progress_interval < 0:
         raise ValueError("--progress-interval must be non-negative")
+    if args.max_open_files <= 0:
+        raise ValueError("--max-open-files must be positive")
 
     progress = ProgressReporter(not args.no_progress, args.progress_interval)
     sources = parse_sources(args.source, args.output, args.pattern, args.recursive, progress)
-    selector = SmoothWeightedSelector(sources)
-    readers = [
-        SourceReader(source_index, source)
-        for source_index, source in enumerate(sources, start=1)
+    source_selector = WeightedSelector([source.games for source in sources])
+    files_by_source = [
+        [file_spec for file_spec in source.files if file_spec.games > 0]
+        for source in sources
     ]
+    file_selectors = [
+        WeightedSelector([file_spec.games for file_spec in file_specs])
+        for file_specs in files_by_source
+    ]
+    readers_by_source = [
+        [InputFileReader(file_spec) for file_spec in file_specs]
+        for file_specs in files_by_source
+    ]
+    open_readers = OpenReaderCache(args.max_open_files)
 
     manifest_path = args.output / f"{args.prefix}-manifest.tsv"
     if not args.no_manifest and manifest_path.exists() and not args.force:
@@ -501,6 +566,7 @@ def main() -> None:
     source_used_games = [0 for _ in sources]
     source_used_bytes = [0 for _ in sources]
     source_used_files = [set() for _ in sources]
+    source_read_games = [0 for _ in sources]
     output = None
     output_stats = None
     output_index = 0
@@ -540,14 +606,23 @@ def main() -> None:
 
     try:
         while True:
-            source_index = selector.next_index()
-            if source_index is None:
+            source_pos = source_selector.next_index()
+            if source_pos is None:
                 break
 
-            record = readers[source_index].next_game()
+            file_pos = file_selectors[source_pos].next_index()
+            if file_pos is None:
+                raise RuntimeError(
+                    f"source file selector ended earlier than counted: "
+                    f"{sources[source_pos].source_dir}"
+                )
+
+            reader = readers_by_source[source_pos][file_pos]
+            source_read_games[source_pos] += 1
+            record = reader.next_game(source_read_games[source_pos], open_readers)
             if record is None:
                 raise RuntimeError(
-                    f"source ended earlier than counted: {sources[source_index].source_dir}"
+                    f"input file ended earlier than counted: {reader.spec.path}"
                 )
 
             if (
@@ -563,10 +638,10 @@ def main() -> None:
 
             output.write(record.data)
             output_stats.add(record)
-            source_pos = record.source_index - 1
-            source_used_games[source_pos] += 1
-            source_used_bytes[source_pos] += len(record.data)
-            source_used_files[source_pos].add(record.input_file)
+            record_source_pos = record.source_index - 1
+            source_used_games[record_source_pos] += 1
+            source_used_bytes[record_source_pos] += len(record.data)
+            source_used_files[record_source_pos].add(record.input_file)
             written_games += 1
             progress.report(
                 f"write {written_games}/{total_games} games "
@@ -579,8 +654,7 @@ def main() -> None:
     finally:
         if manifest is not None:
             manifest.close()
-        for reader in readers:
-            reader.close()
+        open_readers.close_all()
 
     if outputs == 0:
         raise ValueError("no output files were written from the specified sources")
