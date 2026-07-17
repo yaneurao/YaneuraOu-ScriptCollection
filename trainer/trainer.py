@@ -479,6 +479,30 @@ def lightning_precision(no_amp: bool, amp_dtype: str) -> str:
     return "16-mixed"
 
 
+def cosine_scheduler_period(total_epochs: int) -> int:
+    # scheduler.step() runs after each teacher file, so file N uses t=N-1.
+    return max(1, total_epochs - 1)
+
+
+def cosine_scheduler_train_arg(total_epochs: int, lr_min: float) -> str:
+    period = cosine_scheduler_period(total_epochs)
+    return (
+        "dlshogi.lr_scheduler.CosineLRScheduler("
+        f"t_initial={period},lr_min={lr_min},cycle_limit=1)"
+    )
+
+
+def cosine_scheduler_config(total_epochs: int, lr_min: float) -> dict:
+    return {
+        "class_path": "dlshogi.lr_scheduler.CosineLRScheduler",
+        "init_args": {
+            "t_initial": cosine_scheduler_period(total_epochs),
+            "lr_min": lr_min,
+            "cycle_limit": 1,
+        },
+    }
+
+
 def inductor_subprocess_env(
     args: argparse.Namespace, out_dir: Path, checkpoint_number_for_file: int
 ) -> dict[str, str] | None:
@@ -731,13 +755,7 @@ def write_ptl_config(
                 "weight_decay": 0.0001,
             },
         },
-        "lr_scheduler": {
-            "class_path": "torch.optim.lr_scheduler.CosineAnnealingLR",
-            "init_args": {
-                "T_max": max(1, total_epochs),
-                "eta_min": args.eta_min,
-            },
-        },
+        "lr_scheduler": cosine_scheduler_config(total_epochs, args.lr_min),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -822,7 +840,7 @@ def run_one_round(
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
-    lr_scheduler = f"CosineAnnealingLR(T_max={total_epochs},eta_min={args.eta_min})"
+    lr_scheduler = cosine_scheduler_train_arg(total_epochs, args.lr_min)
 
     print(f"DeepLearningShogi: {dlshogi_dir}")
     print(f"teacher files: {len(teacher_files)}")
@@ -1033,7 +1051,12 @@ def main() -> None:
     parser.add_argument("--batchsize", type=int, default=1024)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument("--eta_min", type=float, default=1e-5)
+    parser.add_argument(
+        "--lr_min",
+        type=float,
+        default=1e-5,
+        help="Minimum learning rate for the cosine LR scheduler.",
+    )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
     parser.add_argument(

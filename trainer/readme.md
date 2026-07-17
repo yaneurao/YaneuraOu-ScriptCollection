@@ -14,13 +14,16 @@ network      = exp___i20x256
 model folder = C:\shogi\model\exp___i20x256
 batchsize    = 1024
 lr           = 0.03
-eta_min      = 1e-5
+lr_min       = 1e-5
 amp_dtype    = bfloat16
 val_lambda   = 1.0
 start_index  = 1
 use_swa      = True
 use_compile  = False
 ```
+
+LR scheduler は cosine です。`trainer.py` は教師ファイル1個を1 epochとして `dlshogi.train` / `dlshogi.ptl` を呼び出し、scheduler は各教師ファイルの学習後に1回進みます。
+そのため、最後の教師ファイルで `lr_min` に到達するように、cosine の周期は実質 `教師ファイル数 - 1` として扱います。
 
 `--network` の文字列はフォルダ名にそのまま使います。`exp___i20x256` を `exp_i20x256` に直すような置換はしません。
 
