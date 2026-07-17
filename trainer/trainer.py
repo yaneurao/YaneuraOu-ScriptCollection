@@ -134,6 +134,18 @@ def latest_checkpoint(directory: Path, suffix: str) -> Path | None:
     return max(checkpoints, key=lambda item: item[0])[1]
 
 
+def checkpoint_files_in_directory(directory: Path) -> list[Path]:
+    files = []
+    for suffix in (".pth", ".ckpt"):
+        for path in directory.glob(f"checkpoint-*{suffix}"):
+            try:
+                checkpoint_number(path)
+            except ValueError:
+                continue
+            files.append(path)
+    return sorted(files)
+
+
 def latest_round_checkpoint(base_dir: Path, suffix: str) -> tuple[int, int, Path, Path] | None:
     states: list[tuple[int, int, Path, Path]] = []
     for round_number, directory in round_directories(base_dir):
@@ -662,6 +674,33 @@ def ptl_model_checkpoint_from_lightning(source: Path, target: Path) -> Path:
     return target
 
 
+def model_state_from_checkpoint(checkpoint: dict, source: Path) -> dict:
+    if "model" in checkpoint:
+        return checkpoint["model"]
+
+    state_dict = checkpoint.get("state_dict")
+    if state_dict:
+        model_state = {
+            key.removeprefix("model."): value
+            for key, value in state_dict.items()
+            if key.startswith("model.")
+        }
+        if model_state:
+            return model_state
+
+    raise ValueError(f"checkpoint has no model weights: {source}")
+
+
+def init_model_checkpoint_from_checkpoint(source: Path, target: Path) -> Path:
+    import torch
+
+    checkpoint = torch.load(source, map_location="cpu")
+    model_state = model_state_from_checkpoint(checkpoint, source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"epoch": 0, "t": 0, "model": model_state}, target)
+    return target
+
+
 def write_ptl_config(
     path: Path,
     *,
@@ -796,11 +835,27 @@ def run_one_round(
         if use_explicit_state and args.resume_checkpoint
         else None
     )
+    init_checkpoint: Path | None = (
+        args.init_checkpoint.resolve()
+        if use_explicit_state and args.init_checkpoint
+        else None
+    )
     explicit_out_dir = (
         args.out_dir.resolve() if use_explicit_state and args.out_dir else None
     )
 
-    if explicit_out_dir:
+    if init_checkpoint:
+        if not init_checkpoint.exists():
+            raise FileNotFoundError(f"init checkpoint not found: {init_checkpoint}")
+        out_dir = explicit_out_dir if explicit_out_dir else make_out_dir(model_root, args.network)
+        existing_checkpoints = checkpoint_files_in_directory(out_dir)
+        if existing_checkpoints:
+            raise FileExistsError(
+                "--init_checkpoint starts a new run, but output already has checkpoints: "
+                + str(existing_checkpoints[0])
+            )
+        checkpoint_offset = 0
+    elif explicit_out_dir:
         out_dir = explicit_out_dir
         checkpoint_offset = checkpoint_number(resume_checkpoint) if resume_checkpoint else 0
     elif resume_checkpoint:
@@ -839,6 +894,11 @@ def run_one_round(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+    init_model_checkpoint = (
+        init_model_checkpoint_from_checkpoint(init_checkpoint, out_dir / "_init-model.pth")
+        if init_checkpoint
+        else None
+    )
 
     lr_scheduler = cosine_scheduler_train_arg(total_epochs, args.lr_min)
 
@@ -863,6 +923,9 @@ def run_one_round(
     if resume_checkpoint:
         print(f"initial checkpoint: {resume_checkpoint}")
         print(f"checkpoint offset: {checkpoint_offset}")
+    if init_checkpoint:
+        print(f"init checkpoint: {init_checkpoint}")
+        print("checkpoint offset: 0")
 
     for file_index, teacher_file in enumerate(teacher_files, start=1):
         if file_index < args.start_index:
@@ -918,6 +981,15 @@ def run_one_round(
 
             if previous_checkpoint.exists():
                 train_args.extend(["--resume", str(previous_checkpoint)])
+            elif file_index == args.start_index and init_model_checkpoint:
+                train_args.extend(
+                    [
+                        "--resume",
+                        str(init_model_checkpoint),
+                        "--reset_optimizer",
+                        "--reset_scheduler",
+                    ]
+                )
             elif file_index == args.start_index and resume_checkpoint:
                 train_args.extend(["--resume", str(resume_checkpoint)])
                 if args.reset_optimizer or auto_reset_optimizer:
@@ -969,6 +1041,8 @@ def run_one_round(
         model_resume_checkpoint: Path | None = None
         if previous_checkpoint.exists():
             ptl_ckpt_path = previous_checkpoint
+        elif file_index == args.start_index and init_model_checkpoint:
+            model_resume_checkpoint = init_model_checkpoint
         elif file_index == args.start_index and resume_checkpoint:
             if resume_checkpoint.suffix == ".ckpt" and not (
                 args.reset_optimizer
@@ -1099,7 +1173,15 @@ def main() -> None:
     parser.add_argument(
         "--resume_checkpoint",
         type=Path,
-        help="Checkpoint to initialize from before the first teacher file.",
+        help="Checkpoint to resume training state from before the first teacher file.",
+    )
+    parser.add_argument(
+        "--init_checkpoint",
+        type=Path,
+        help=(
+            "Checkpoint to load model weights from for a new run. Optimizer, "
+            "scheduler, checkpoint numbers, and teacher position start from scratch."
+        ),
     )
     parser.add_argument(
         "--reset_optimizer",
@@ -1118,13 +1200,15 @@ def main() -> None:
         help=(
             "Number of rounds (full passes over all teacher files) to run consecutively. "
             "Equivalent to invoking trainer.py this many times. "
-            "--out_dir / --resume_checkpoint apply to the first round only; "
+            "--out_dir / --resume_checkpoint / --init_checkpoint apply to the first round only; "
             "subsequent rounds use auto round detection from --model_root and --network."
         ),
     )
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error(f"--rounds must be >= 1 (got {args.rounds})")
+    if args.resume_checkpoint and args.init_checkpoint:
+        parser.error("--resume_checkpoint and --init_checkpoint cannot be used together")
 
     dlshogi_dir = args.dlshogi_dir.resolve()
     train_dir = args.train_dir.resolve()

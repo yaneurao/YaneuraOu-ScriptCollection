@@ -125,7 +125,7 @@ python .\trainer.py --rounds 3
 
 注意点:
 
-- `--out_dir` と `--resume_checkpoint` は **最初の round にだけ** 適用されます。2周目以降は `--model_root` と `--network` から自動検出した出力先 (`..._round{N+1}`) へ進みます
+- `--out_dir`、`--resume_checkpoint`、`--init_checkpoint` は **最初の round にだけ** 適用されます。2周目以降は `--model_root` と `--network` から自動検出した出力先 (`..._round{N+1}`) へ進みます
 - 途中で失敗した場合は、同じコマンドをもう一度実行すれば未完了の round / 教師ファイルから再開します
 
 ## train.py 版の1周目から PTL 版の2周目へ移る
@@ -140,7 +140,8 @@ python .\trainer.py --backend ptl
 
 ## 手動で checkpoint を指定する
 
-特定 checkpoint から新しい周を始めたい場合は `--resume_checkpoint` を使います。
+特定 checkpoint から学習状態ごと再開して新しい周を始めたい場合は `--resume_checkpoint` を使います。
+モデル重みだけでなく、optimizer / scheduler / checkpoint番号も再開対象です。
 
 ```powershell
 python .\trainer.py ^
@@ -158,6 +159,27 @@ python .\trainer.py ^
   --reset_optimizer ^
   --reset_scheduler
 ```
+
+## checkpointの重みだけ使って新規学習する
+
+既存checkpointの重みだけを初期値にして、optimizer / scheduler / checkpoint番号 / 教師ファイル位置を新規runとして始めたい場合は `--init_checkpoint` を使います。
+`--resume_checkpoint` とは同時に指定できません。
+
+```powershell
+python .\trainer.py ^
+  --network exp___i15x192 ^
+  --use_compile ^
+  --compile_backend inductor ^
+  --compile_mode reduce-overhead ^
+  --train_dir C:\shogi\teacher\aobazero\aobazero20260714hcpe3_mixed-selfplay ^
+  --rounds 100 ^
+  --val_lambda 0.33 ^
+  --init_checkpoint C:\shogi\model\old_exp_round11\checkpoint-XXXX.ckpt
+```
+
+この場合、出力先は通常通り `--model_root` と `--network` から決まり、最初のcheckpointは `checkpoint-0001.*` になります。
+`--rounds` を指定している場合でも、`--init_checkpoint` が使われるのは最初のroundだけです。2周目以降は直前roundのcheckpointから通常通り継続します。
+出力先フォルダに既存checkpointがある場合は、round1として新規開始できないためエラーになります。
 
 ## --start_index
 
