@@ -18,6 +18,7 @@ lr_min       = 1e-5
 amp_dtype    = bfloat16
 val_lambda   = 1.0
 start_index  = 1
+use_evalfix  = True
 use_swa      = True
 use_compile  = False
 ```
@@ -26,6 +27,8 @@ LR scheduler は cosine です。`trainer.py` は教師ファイル1個を1 epoc
 そのため、最後の教師ファイルで `lr_min` に到達するように、cosine の周期は実質 `教師ファイル数 - 1` として扱います。
 
 `--network` の文字列はフォルダ名にそのまま使います。`exp___i20x256` を `exp_i20x256` に直すような置換はしません。
+
+HCPE3教師データのeval係数推定は既定で有効です。無効にしたい場合だけ `--no_evalfix` を付けます。
 
 ## 基本の使い方
 

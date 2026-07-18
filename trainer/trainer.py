@@ -781,7 +781,7 @@ def write_ptl_config(
             "batch_size": args.batchsize,
             "val_batch_size": args.batchsize,
             "use_average": not args.no_average,
-            "use_evalfix": False,
+            "use_evalfix": not args.no_evalfix,
             "temperature": 1.0,
             "cache": None,
         },
@@ -907,6 +907,7 @@ def run_one_round(
     print(f"test data: {test_data}")
     print(f"out dir: {out_dir}")
     print(f"network: {args.network}")
+    print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
     print(f"lr scheduler: {lr_scheduler}")
     if args.use_compile:
         compile_options = []
@@ -1016,6 +1017,8 @@ def run_one_round(
                 train_args.extend(["--amp_dtype", args.amp_dtype])
             if not args.no_average:
                 train_args.append("--use_average")
+            if not args.no_evalfix:
+                train_args.append("--use_evalfix")
             if args.use_compile:
                 train_args.append("--use_compile")
                 if args.compile_backend:
@@ -1141,6 +1144,11 @@ def main() -> None:
     )
     parser.add_argument("--no_amp", action="store_true")
     parser.add_argument("--no_average", action="store_true")
+    parser.add_argument(
+        "--no_evalfix",
+        action="store_true",
+        help="Disable eval coefficient fitting for HCPE3 teacher data.",
+    )
     parser.add_argument("--use_swa", dest="use_swa", action="store_true", default=True)
     parser.add_argument("--no_swa", dest="use_swa", action="store_false")
     parser.add_argument("--swa_freq", type=int, default=250)
