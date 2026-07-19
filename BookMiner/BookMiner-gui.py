@@ -87,6 +87,11 @@ PETA_MAKEBOOK_LINE_RE = re.compile(
     r"retrograde analysis|read a book db|write a book db|makebook peta_shock",
     re.IGNORECASE,
 )
+PETA_COMMAND_LOG_MIRROR_RE = re.compile(
+    r"start (?:p|pl) command|\.\.(?:p|pl) command has done|"
+    r"read peta shocked book|reading the peta_book has done",
+    re.IGNORECASE,
+)
 YANEURAOU_PROGRESS_BAR_RE = re.compile(r"^\s*0%\s+\[.*\]\s+100%\s*$")
 STEP_BUTTON_WIDTH = 12
 DEFAULT_WINDOW_WIDTH = 1280
@@ -1167,10 +1172,25 @@ class BookMinerGui(ttk.Frame):
     def _handle_log_output_line(self, line: str) -> None:
         self._handle_progress_line(line)
         if not self._should_suppress_log_line(line):
-            self._append_log(self._classify_log_line(line), line)
+            key = self._classify_log_line(line)
+            self._append_log(key, line)
+            if self._should_mirror_to_command_log(key, line):
+                self._append_log("other", line)
 
     def _should_suppress_log_line(self, line: str) -> bool:
         return YANEURAOU_PROGRESS_BAR_RE.fullmatch(line.strip()) is not None
+
+    def _should_mirror_to_command_log(self, key: str, line: str) -> bool:
+        if key != "peta":
+            return False
+        return (
+            PETA_MAKEBOOK_START_RE.search(line) is not None
+            or PETA_MAKEBOOK_DONE_RE.search(line) is not None
+            or PETA_MAKEBOOK_LINE_RE.search(line) is not None
+            or PETA_COMMAND_DONE_RE.search(line) is not None
+            or PETA_READ_DONE_RE.search(line) is not None
+            or PETA_COMMAND_LOG_MIRROR_RE.search(line) is not None
+        )
 
     def _handle_progress_line(self, line: str) -> None:
         self._handle_peta_makebook_context_line(line)

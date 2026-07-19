@@ -133,6 +133,32 @@ python3 floodgate-kif-extractor.py \
 
 `--use-floodgate14-rating` を指定すると、実行日の `players-floodgate14-YYYYMMDD.html` を参照し、棋譜内 rating と2週間推定 rating の高い方をそのプレイヤーの rating として扱います。今日の日付のページは更新される可能性があるため、キャッシュとしては使わず毎回取得します。キャッシュフォルダは、将来の過去日参照と区別できるように `downloaded-kif/floodgate14-rating/` としています。
 
+## floodgate_stats.py
+
+解凍済みのfloodgate CSA棋譜から、指定プレイヤーの先手番・後手番ごとの戦績を集計します。
+デフォルトでは `KifManager/downloaded-kif/floodgate-daily` を再帰的に走査します。
+
+```bash
+python3 floodgate_stats.py --player TuyouraOu202607
+```
+
+入力フォルダを明示する場合:
+
+```bash
+python3 floodgate_stats.py downloaded-kif/floodgate --player TuyouraOu202607
+```
+
+出力例:
+
+```text
+black : 22-2-1
+white : 32-1-10
+```
+
+数字は `勝ち-引き分け-負け` の順です。
+プレイヤー名は大小文字を無視して完全一致で比較します。部分一致で集計したい場合は `--contains` を指定します。
+`--summary` を指定すると、走査ファイル数、parseできた対局数、対象プレイヤーが出現した対局数、parse失敗数も表示します。
+
 ## floodgate-kif-downloader.py
 
 floodgate の年別棋譜アーカイブをダウンロードします。
