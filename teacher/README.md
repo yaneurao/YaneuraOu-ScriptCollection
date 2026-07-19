@@ -173,6 +173,46 @@ merged_teacher/merged-manifest.tsv
 | `--no-manifest` | off | manifest TSVを出力しない。 |
 | `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
 
+### HCPE/HCPE3ファイルをtrainer向けに交互配置する
+
+HCPE3教師とHCPE教師を同じ `trainer/trainer.py` の学習に使いたい場合は、`teacher/interleave_teacher_files.py` を使って、複数フォルダ内の教師ファイルをround-robin順にコピーします。
+このスクリプトは教師データの変換やバイナリ結合はせず、ファイル名の先頭に連番を付けて、`trainer.py` が読む順番を制御します。
+
+たとえば `folderA/` からHCPE3を1ファイル、`folderB/` からHCPEを1ファイルずつ交互に並べる場合:
+
+```bash
+python teacher/interleave_teacher_files.py \
+  --output mixed_teacher \
+  --source folderA .hcpe3 \
+  --source folderB .hcpe
+```
+
+出力は以下のようになる。
+
+```text
+mixed_teacher/0001-a.hcpe3
+mixed_teacher/0002-b.hcpe
+mixed_teacher/0003-c.hcpe3
+mixed_teacher/0004-d.hcpe
+mixed_teacher/interleaved-manifest.tsv
+```
+
+`trainer.py` は入力フォルダ内の `.hcpe` と `.hcpe3` をファイル名順に処理するため、この出力フォルダを `--train_dir` に指定すれば、HCPE3とHCPEを交互に学習できます。
+片方のsourceを先に使い切った場合は、残ったsourceのファイルだけを続けて出力します。
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---:|---|
+| `--output` | 必須 | 出力フォルダ。 |
+| `--source DIR [PATTERN]` | 必須 | 入力フォルダ。複数回指定できる。`PATTERN` には `.hcpe`, `.hcpe3`, `*.hcpe` などを指定できる。省略時は `.hcpe` と `.hcpe3` の両方を対象にする。 |
+| `--recursive` | off | 入力フォルダを再帰的に探索する。 |
+| `--digits` | `4` | 出力ファイル番号のゼロ埋め桁数。 |
+| `--method` | `copy` | `copy` または `hardlink`。同一ドライブ上で容量を節約したい場合は `hardlink` が使える。 |
+| `--manifest` | `interleaved-manifest.tsv` | manifest TSVのファイル名。 |
+| `--no-manifest` | off | manifest TSVを出力しない。 |
+| `--force` | off | 既存の出力ファイルとmanifestの上書きを許可する。 |
+
 ### HCPE3フォルダを棋譜数比率で結合する
 
 HCPE3は棋譜単位の可変長形式なので、PSV/HCPEのような局面単位シャッフルには向きません。
