@@ -56,9 +56,11 @@ python3 kif-manager.py --from_bookminer
 
 この場合、棋譜抽出の出力ファイルが未設定またはデフォルト値なら、BookMiner が読む `BookMiner/book/think_sfens.txt` に自動設定されます。出力ファイル欄を手で変更した場合は、その値が `kif-manager-settings.pickle` に保存され、次回起動時も復元されます。
 
+`--shogidb` を指定して起動した場合だけ、shogidb用の抽出タブとダウンロードタブが表示されます。
+
 上位タブは `棋譜抽出` と `棋譜のダウンロード` に分かれています。
 
-`棋譜抽出` には、floodgate年次、floodgate日別、WCSC、電竜戦、その他の抽出タブがあります。各タブで入力フォルダと出力ファイルを指定し、必要ならプレイヤー名フィルタを指定して `抽出` を押します。出力ファイルは `think_sfens.txt` がデフォルトです。floodgate年次の入力フォルダは `downloaded-kif/floodgate`、floodgate日別の入力フォルダは `downloaded-kif/floodgate-daily`、WCSC の入力フォルダは `downloaded-kif/wcsc` がデフォルトです。
+`棋譜抽出` には、floodgate年次、floodgate日別、WCSC、電竜戦、unsolved、その他の抽出タブがあります。`--shogidb` 指定時は、shogidbタブがunsolvedの左に追加されます。各タブで入力フォルダと出力ファイルを指定し、必要ならプレイヤー名フィルタを指定して `抽出` を押します。出力ファイルは `think_sfens.txt` がデフォルトです。floodgate年次の入力フォルダは `downloaded-kif/floodgate`、floodgate日別の入力フォルダは `downloaded-kif/floodgate-daily`、WCSC の入力フォルダは `downloaded-kif/wcsc` がデフォルトです。shogidbの入力フォルダは `downloaded-kif/shogidb2`、unsolvedの入力フォルダは `downloaded-kif/unsolved`、unsolvedの出力ファイルは `BookMiner/book/think_unsolved_sfens.txt` がデフォルトです。
 
 floodgate年次では `開始年` / `終了年` を指定して、年別アーカイブ `wdoorYYYY.7z` から抽出します。floodgate日別では `開始日` / `終了日` を指定して、`downloaded-kif/floodgate-daily/YYYYMMDD/` に保存された日別棋譜から抽出します。日付は `2026/1/1` や `2026-1-1` のように月日を1桁で指定しても構いません。範囲の境界は、開始日の 0:00 より後から、終了日の翌日 0:00 までです。例えば開始日と終了日に `2025` を指定した場合は、`2025/01/01 00:00:00 < 対局時刻 <= 2026/01/01 00:00:00` として扱います。
 
@@ -105,7 +107,7 @@ PATH に `7z` を追加している場合も使用されます。
 startpos moves 7g7f 3c3d ...
 ```
 
-`その他` の抽出では、平手以外の初期局面も `sfen ... moves ...` 行として出力できます。
+shogidb、unsolved、その他の抽出では、平手以外の初期局面も `sfen ... moves ...` 行として出力できます。
 
 ```text
 sfen <initial-sfen> moves 7g7f 3c3d ...
@@ -123,7 +125,7 @@ sfen <initial-sfen> moves 7g7f 3c3d ...
 
 ### 駒落ちフィルタ
 
-`その他` の抽出タブでは、`駒落ちの棋譜を除く` がデフォルトで有効です。初期局面が平手ではなく、かつ盤上と持駒の合計が40枚未満の棋譜を駒落ちとして除外します。
+shogidb、unsolved、その他の抽出タブでは、`駒落ちの棋譜を除く` がデフォルトで有効です。初期局面が平手ではなく、かつ盤上と持駒の合計が40枚未満の棋譜を駒落ちとして除外します。
 
 ### 設定保存
 

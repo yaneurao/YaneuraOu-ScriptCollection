@@ -22,10 +22,14 @@ SETTINGS_VERSION = 1
 OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION = 2
 EXTRACT_DEFAULT_OUTPUT_FILE = "think_sfens.txt"
 BOOKMINER_EXTRACT_OUTPUT_FILE = str((BASE_DIR.parent / "BookMiner" / "book" / "think_sfens.txt").resolve())
+BOOKMINER_UNSOLVED_EXTRACT_OUTPUT_FILE = str(
+    (BASE_DIR.parent / "BookMiner" / "book" / "think_unsolved_sfens.txt").resolve()
+)
 WCSC_DEFAULT_OUTPUT_DIR = "downloaded-kif/wcsc"
 WCSC_OLD_DEFAULT_OUTPUT_DIR = "downloaded-kif"
 FLOODGATE_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate"
 FLOODGATE_DAILY_DEFAULT_OUTPUT_DIR = "downloaded-kif/floodgate-daily"
+UNSOLVED_DEFAULT_INPUT_DIR = "downloaded-kif/unsolved"
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -97,6 +101,7 @@ class ExtractorKind:
     year_source: str | None = None
     default_input_dir: str = ""
     default_min_rating: str = ""
+    default_output_path: str = EXTRACT_DEFAULT_OUTPUT_FILE
 
 
 @dataclass(frozen=True)
@@ -166,11 +171,27 @@ EXTRACTORS = (
         "電竜戦の棋譜ファイルが配置されているフォルダを指定してください。",
     ),
     ExtractorKind(
+        "unsolved",
+        "unsolved",
+        "unsolvedな棋譜ファイルから条件に該当する棋譜を抽出します。",
+        "unsolvedなkif/csa/csv/kifu形式の棋譜ファイルが配置されているフォルダを指定してください。",
+        default_input_dir=UNSOLVED_DEFAULT_INPUT_DIR,
+        default_output_path=BOOKMINER_UNSOLVED_EXTRACT_OUTPUT_FILE,
+    ),
+    ExtractorKind(
         "other",
         "その他",
         "任意の棋譜ファイルから条件に該当する棋譜を抽出します。",
         "kif/csa/csv/kifu形式の棋譜ファイルが配置されているフォルダを指定してください。",
     ),
+)
+
+SHOGIDB_EXTRACTOR = ExtractorKind(
+    "shogidb",
+    "shogidb",
+    "shogidbの棋譜ファイルから条件に該当する棋譜を抽出します。",
+    "shogidbからダウンロードしたkif/csa/csv/kifu形式の棋譜ファイルが配置されているフォルダを指定してください。",
+    default_input_dir=SHOGIDB2_DEFAULT_OUTPUT_DIR,
 )
 
 DOWNLOADERS = (
@@ -212,12 +233,34 @@ def is_floodgate_extractor_key(key: str) -> bool:
     return key in {"floodgate", "floodgate-daily"}
 
 
+def is_other_like_extractor_key(key: str) -> bool:
+    return key in {"shogidb", "unsolved", "other"}
+
+
 def extractor_source_kind(key: str) -> str | None:
     if is_floodgate_extractor_key(key):
         return "floodgate"
     if key in {"wcsc", "denryu"}:
         return key
     return None
+
+
+def extractors_for_mode(enable_shogidb: bool) -> tuple[ExtractorKind, ...]:
+    if not enable_shogidb:
+        return EXTRACTORS
+
+    extractors: list[ExtractorKind] = []
+    for kind in EXTRACTORS:
+        if kind.key == "unsolved":
+            extractors.append(SHOGIDB_EXTRACTOR)
+        extractors.append(kind)
+    return tuple(extractors)
+
+
+def bookminer_output_path_for_extractor(key: str) -> str:
+    if key == "unsolved":
+        return BOOKMINER_UNSOLVED_EXTRACT_OUTPUT_FILE
+    return BOOKMINER_EXTRACT_OUTPUT_FILE
 
 
 class QueueWriter:
@@ -293,7 +336,7 @@ class ExtractorPane(ttk.Frame):
         super().__init__(master, padding=12)
         self.kind = kind
         self.input_dir = tk.StringVar(value=kind.default_input_dir)
-        self.output_path = tk.StringVar(value=EXTRACT_DEFAULT_OUTPUT_FILE)
+        self.output_path = tk.StringVar(value=kind.default_output_path)
         self.both_player_list = tk.StringVar()
         self.either_player_list = tk.StringVar()
         self.min_rating = tk.StringVar(value=kind.default_min_rating)
@@ -305,7 +348,7 @@ class ExtractorPane(ttk.Frame):
         self.start_date = tk.StringVar()
         self.end_date = tk.StringVar()
         self.wcsc_finalists_only = tk.BooleanVar(value=False)
-        self.exclude_handicap = tk.BooleanVar(value=kind.key == "other")
+        self.exclude_handicap = tk.BooleanVar(value=is_other_like_extractor_key(kind.key))
 
         self.columnconfigure(1, weight=1)
         self._build()
@@ -427,7 +470,7 @@ class ExtractorPane(ttk.Frame):
             row = self._drawing_player_rating_row(row)
             row = self._floodgate14_rating_row(row)
 
-        if self.kind.key == "other":
+        if is_other_like_extractor_key(self.kind.key):
             row = self._exclude_handicap_row(row)
 
     def _path_row(
@@ -606,7 +649,7 @@ class ExtractorPane(ttk.Frame):
             start_date,
             end_date,
             self.wcsc_finalists_only.get(),
-            self.kind.key == "other" and self.exclude_handicap.get(),
+            is_other_like_extractor_key(self.kind.key) and self.exclude_handicap.get(),
             self.kind.has_rating and min_rating is not None,
             is_floodgate_extractor_key(self.kind.key) and self.use_floodgate14_rating.get(),
             log_target_files,
@@ -702,7 +745,7 @@ class ExtractorPane(ttk.Frame):
             "exclude_handicap": self.exclude_handicap.get(),
             "use_floodgate14_rating": self.use_floodgate14_rating.get(),
             "exclude_handicap_default_version": OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
-            if self.kind.key == "other"
+            if is_other_like_extractor_key(self.kind.key)
             else None,
         }
 
@@ -710,7 +753,9 @@ class ExtractorPane(ttk.Frame):
         if not isinstance(settings, dict):
             return
         self.input_dir.set(str(settings.get("input_dir", self.kind.default_input_dir) or self.kind.default_input_dir))
-        self.output_path.set(str(settings.get("output_path", EXTRACT_DEFAULT_OUTPUT_FILE) or EXTRACT_DEFAULT_OUTPUT_FILE))
+        self.output_path.set(
+            str(settings.get("output_path", self.kind.default_output_path) or self.kind.default_output_path)
+        )
         self.both_player_list.set(str(settings.get("both_player_list", settings.get("filtered_player_list", ""))))
         self.either_player_list.set(str(settings.get("either_player_list", "")))
         self.min_rating.set(str(settings.get("min_rating", self.kind.default_min_rating) or self.kind.default_min_rating))
@@ -730,9 +775,9 @@ class ExtractorPane(ttk.Frame):
         self.use_floodgate14_rating.set(
             bool(settings.get("use_floodgate14_rating", is_floodgate_extractor_key(self.kind.key)))
         )
-        default_exclude_handicap = self.kind.key == "other"
+        default_exclude_handicap = is_other_like_extractor_key(self.kind.key)
         if (
-            self.kind.key == "other"
+            is_other_like_extractor_key(self.kind.key)
             and settings.get("exclude_handicap_default_version") != OTHER_EXCLUDE_HANDICAP_DEFAULT_VERSION
         ):
             self.exclude_handicap.set(True)
@@ -1816,6 +1861,7 @@ class KifManager(tk.Tk):
             | DenryuDownloadPane
             | ShogiDb2DownloadPane,
         ] = {}
+        self.extract_kinds = extractors_for_mode(enable_shogidb)
         self.download_kinds = (*DOWNLOADERS, SHOGIDB2_DOWNLOADER) if enable_shogidb else DOWNLOADERS
 
         self._build()
@@ -1839,7 +1885,7 @@ class KifManager(tk.Tk):
         self.extract_notebook = ttk.Notebook(self.extract_tab)
         self.extract_notebook.grid(row=0, column=0, sticky="nsew")
 
-        for kind in EXTRACTORS:
+        for kind in self.extract_kinds:
             pane = ExtractorPane(self.extract_notebook, kind)
             self.extract_panes[kind.key] = pane
             self.extract_notebook.add(pane, text=kind.title)
@@ -2176,7 +2222,7 @@ class KifManager(tk.Tk):
                         wcsc_finalists_only=job.wcsc_finalists_only,
                         reversal_threshold=None,
                         exclude_handicap=job.exclude_handicap,
-                        allow_non_startpos=job.kind.key == "other",
+                        allow_non_startpos=is_other_like_extractor_key(job.kind.key),
                         require_rating=job.require_rating,
                         losing_player_min_rating=job.losing_player_min_rating,
                         drawing_player_min_rating=job.drawing_player_min_rating,
@@ -2529,8 +2575,12 @@ class KifManager(tk.Tk):
     def _apply_bookminer_output_path(self) -> None:
         for pane in self.extract_panes.values():
             output_path = pane.output_path.get().strip()
-            if not output_path or output_path == EXTRACT_DEFAULT_OUTPUT_FILE:
-                pane.output_path.set(BOOKMINER_EXTRACT_OUTPUT_FILE)
+            if (
+                not output_path
+                or output_path == EXTRACT_DEFAULT_OUTPUT_FILE
+                or output_path == pane.kind.default_output_path
+            ):
+                pane.output_path.set(bookminer_output_path_for_extractor(pane.kind.key))
 
     def _save_settings(self) -> None:
         selected_extract_pane = self._current_extract_pane()
