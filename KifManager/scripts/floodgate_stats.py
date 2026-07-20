@@ -4,16 +4,30 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
 from typing import Sequence
 
 import cshogi
 
-from kif_extractor_common import GameRecord, iter_kifu_files, normalize_player_name, parse_games
+from kif_extractor_common import (
+    CSA_BLACK_NAME_RE,
+    CSA_MOVE_LINE_RE,
+    CSA_WHITE_NAME_RE,
+    ParseError,
+    decode_lines,
+    iter_kifu_files,
+    normalize_player_name,
+)
 
 
 KIFMANAGER_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT_DIR = KIFMANAGER_DIR / "downloaded-kif" / "floodgate-daily"
 FLOODGATE_SUFFIXES = {".csa", ".csv"}
+DEFAULT_PROGRESS_INTERVAL = 1000
+DRAW_RESULTS = {"%SENNICHITE", "%JISHOGI", "%HIKIWAKE"}
+WIN_BY_OPPONENT_OF_SIDE_TO_MOVE_RESULTS = {"%TORYO", "%TIME_UP", "%ILLEGAL_MOVE"}
+WIN_BY_SIDE_TO_MOVE_RESULTS = {"%KACHI"}
+UNKNOWN_RESULTS = {"%CHUDAN", "%MATTA"}
 
 
 @dataclass
@@ -51,6 +65,40 @@ class AllPlayerStats:
     skipped_parse: int = 0
 
 
+@dataclass(frozen=True)
+class CsaGameSummary:
+    black: str
+    white: str
+    winner: int | None
+    draw: bool = False
+
+
+def log_progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def progress_enabled(progress_interval: int) -> bool:
+    return progress_interval > 0
+
+
+def collect_floodgate_files(input_dir: Path, *, progress_interval: int) -> list[Path]:
+    files: list[Path] = []
+    if progress_enabled(progress_interval):
+        log_progress(f"棋譜列挙開始: {input_dir}")
+
+    for path in iter_kifu_files(input_dir):
+        if path.suffix.lower() not in FLOODGATE_SUFFIXES:
+            continue
+        files.append(path)
+        if progress_enabled(progress_interval) and len(files) % progress_interval == 0:
+            log_progress(f"棋譜列挙中: files={len(files)}")
+
+    files.sort()
+    if progress_enabled(progress_interval):
+        log_progress(f"棋譜列挙完了: files={len(files)}")
+    return files
+
+
 def player_matches(player_name: str, target_name: str, *, contains: bool) -> bool:
     normalized_player = normalize_player_name(player_name)
     normalized_target = normalize_player_name(target_name)
@@ -59,7 +107,7 @@ def player_matches(player_name: str, target_name: str, *, contains: bool) -> boo
     return normalized_player == normalized_target
 
 
-def add_result(stats: RoleStats, game: GameRecord) -> None:
+def add_result(stats: RoleStats, game: CsaGameSummary) -> None:
     if game.draw:
         stats.draws += 1
     elif game.winner == cshogi.BLACK:
@@ -70,7 +118,7 @@ def add_result(stats: RoleStats, game: GameRecord) -> None:
         stats.unknown += 1
 
 
-def add_reverse_result(stats: RoleStats, game: GameRecord) -> None:
+def add_reverse_result(stats: RoleStats, game: CsaGameSummary) -> None:
     if game.draw:
         stats.draws += 1
     elif game.winner == cshogi.WHITE:
@@ -81,33 +129,125 @@ def add_reverse_result(stats: RoleStats, game: GameRecord) -> None:
         stats.unknown += 1
 
 
-def collect_player_stats(input_dir: Path, player: str, *, contains: bool = False) -> PlayerStats:
+def result_token(line: str) -> str | None:
+    token = line.split(",", 1)[0].strip()
+    if token.startswith("%"):
+        return token
+    return None
+
+
+def opponent(side: int | None) -> int | None:
+    if side is None:
+        return None
+    return side ^ 1
+
+
+def game_result_from_token(token: str, side_to_move: int | None) -> tuple[int | None, bool]:
+    if token in DRAW_RESULTS:
+        return None, True
+    if token in WIN_BY_OPPONENT_OF_SIDE_TO_MOVE_RESULTS:
+        return opponent(side_to_move), False
+    if token in WIN_BY_SIDE_TO_MOVE_RESULTS:
+        return side_to_move, False
+    if token in UNKNOWN_RESULTS:
+        return None, False
+    raise ParseError(f"unsupported result: {token}")
+
+
+def parse_csa_game_summary(path: Path) -> CsaGameSummary:
+    black = ""
+    white = ""
+    side_to_move: int | None = cshogi.BLACK
+    winner: int | None = None
+    draw = False
+    saw_result = False
+
+    with path.open("rb") as file:
+        for raw_line in decode_lines(file):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if match := CSA_BLACK_NAME_RE.match(line):
+                black = match.group(1).strip()
+                continue
+            if match := CSA_WHITE_NAME_RE.match(line):
+                white = match.group(1).strip()
+                continue
+            if line == "+":
+                side_to_move = cshogi.BLACK
+                continue
+            if line == "-":
+                side_to_move = cshogi.WHITE
+                continue
+            if match := CSA_MOVE_LINE_RE.match(line):
+                moved_side = cshogi.BLACK if match.group(1) == "+" else cshogi.WHITE
+                side_to_move = opponent(moved_side)
+                continue
+            if token := result_token(line):
+                winner, draw = game_result_from_token(token, side_to_move)
+                saw_result = True
+                break
+
+    if not black or not white:
+        raise ParseError(f"missing player name: {path}")
+    if not saw_result:
+        raise ParseError(f"missing game result: {path}")
+    return CsaGameSummary(black=black, white=white, winner=winner, draw=draw)
+
+
+def log_player_progress(index: int, total: int, stats: PlayerStats, progress_interval: int) -> None:
+    if not progress_enabled(progress_interval):
+        return
+    if index != total and index % progress_interval != 0:
+        return
+    log_progress(
+        f"解析中: {index}/{total} parsed={stats.parsed_games} "
+        f"matched={stats.matched_games} skipped_parse={stats.skipped_parse}"
+    )
+
+
+def log_all_players_progress(index: int, total: int, stats: AllPlayerStats, progress_interval: int) -> None:
+    if not progress_enabled(progress_interval):
+        return
+    if index != total and index % progress_interval != 0:
+        return
+    log_progress(
+        f"解析中: {index}/{total} parsed={stats.parsed_games} "
+        f"players={len(stats.players)} skipped_parse={stats.skipped_parse}"
+    )
+
+
+def collect_player_stats(
+    input_dir: Path,
+    player: str,
+    *,
+    contains: bool = False,
+    progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
+) -> PlayerStats:
     stats = PlayerStats()
-    paths = [
-        path
-        for path in iter_kifu_files(input_dir)
-        if path.suffix.lower() in FLOODGATE_SUFFIXES
-    ]
+    paths = collect_floodgate_files(input_dir, progress_interval=progress_interval)
 
-    for path in sorted(paths):
+    for index, path in enumerate(paths, start=1):
         stats.scanned_files += 1
         try:
-            games = parse_games(path, allow_non_startpos=True)
+            game = parse_csa_game_summary(path)
         except Exception:
             stats.skipped_parse += 1
+            log_player_progress(index, len(paths), stats, progress_interval)
             continue
 
-        for game in games:
-            stats.parsed_games += 1
-            matched = False
-            if player_matches(game.black, player, contains=contains):
-                add_result(stats.black, game)
-                matched = True
-            if player_matches(game.white, player, contains=contains):
-                add_reverse_result(stats.white, game)
-                matched = True
-            if matched:
-                stats.matched_games += 1
+        stats.parsed_games += 1
+        matched = False
+        if player_matches(game.black, player, contains=contains):
+            add_result(stats.black, game)
+            matched = True
+        if player_matches(game.white, player, contains=contains):
+            add_reverse_result(stats.white, game)
+            matched = True
+        if matched:
+            stats.matched_games += 1
+        log_player_progress(index, len(paths), stats, progress_interval)
 
     return stats
 
@@ -121,26 +261,27 @@ def get_player_entry(stats: AllPlayerStats, name: str) -> PlayerEntry:
     return entry
 
 
-def collect_all_player_stats(input_dir: Path) -> AllPlayerStats:
+def collect_all_player_stats(
+    input_dir: Path,
+    *,
+    progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
+) -> AllPlayerStats:
     stats = AllPlayerStats()
-    paths = [
-        path
-        for path in iter_kifu_files(input_dir)
-        if path.suffix.lower() in FLOODGATE_SUFFIXES
-    ]
+    paths = collect_floodgate_files(input_dir, progress_interval=progress_interval)
 
-    for path in sorted(paths):
+    for index, path in enumerate(paths, start=1):
         stats.scanned_files += 1
         try:
-            games = parse_games(path, allow_non_startpos=True)
+            game = parse_csa_game_summary(path)
         except Exception:
             stats.skipped_parse += 1
+            log_all_players_progress(index, len(paths), stats, progress_interval)
             continue
 
-        for game in games:
-            stats.parsed_games += 1
-            add_result(get_player_entry(stats, game.black).stats.black, game)
-            add_reverse_result(get_player_entry(stats, game.white).stats.white, game)
+        stats.parsed_games += 1
+        add_result(get_player_entry(stats, game.black).stats.black, game)
+        add_reverse_result(get_player_entry(stats, game.white).stats.white, game)
+        log_all_players_progress(index, len(paths), stats, progress_interval)
 
     return stats
 
@@ -194,9 +335,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="also print scanned/parsed/matched file counts",
     )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=DEFAULT_PROGRESS_INTERVAL,
+        metavar="N",
+        help=f"print progress to stderr every N files. Default: {DEFAULT_PROGRESS_INTERVAL}",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="do not print progress to stderr",
+    )
     args = parser.parse_args(argv)
     if args.contains and not args.player:
         parser.error("--contains requires --player")
+    if args.progress_interval < 0:
+        parser.error("--progress-interval must be non-negative")
+    if args.no_progress:
+        args.progress_interval = 0
     return args
 
 
@@ -206,10 +363,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit(f"input folder not found: {args.input_dir}")
 
     if args.player:
-        stats = collect_player_stats(args.input_dir, args.player, contains=args.contains)
+        stats = collect_player_stats(
+            args.input_dir,
+            args.player,
+            contains=args.contains,
+            progress_interval=args.progress_interval,
+        )
         print_player_stats(stats)
     else:
-        all_stats = collect_all_player_stats(args.input_dir)
+        all_stats = collect_all_player_stats(args.input_dir, progress_interval=args.progress_interval)
         print_all_player_stats(all_stats)
         stats = all_stats
 
