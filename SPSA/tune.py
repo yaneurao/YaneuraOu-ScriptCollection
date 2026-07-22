@@ -228,6 +228,7 @@ def parse_content_block(block:Block, prefix:str):
 
 NUMBER_WITH_AT_RE = re.compile(r'-?\d+(?:\.\d+)?@[A-Za-z0-9]*')
 NUMBER_CAPTURE_RE = r'(-?\d+(?:\.\d+)?)'
+PARAMETER_NAME_CHAR_RE = r'[A-Za-z0-9_]'
 
 
 def get_target_path(filename:str)->str:
@@ -260,6 +261,30 @@ def make_context_pattern(context:list[str])->str:
     add_literal(context_text[last:])
 
     return r'\s*'.join(tokens)
+
+
+def replace_parameter_names(lines:list[str], replacements:dict[str,str])->list[str]:
+    """
+    context内のSPSAパラメーター名を値に置換する。
+
+    `foo_1` と `foo_10` のように、一方が他方の接頭辞になっていても、
+    C/C++の識別子文字境界で区切られた完全なパラメーター名だけを置換する。
+    """
+
+    if not replacements:
+        return list(lines)
+
+    names = sorted(replacements, key=len, reverse=True)
+    pattern = re.compile(
+        rf'(?<!{PARAMETER_NAME_CHAR_RE})('
+        + '|'.join(re.escape(name) for name in names)
+        + rf')(?!{PARAMETER_NAME_CHAR_RE})'
+    )
+
+    return [
+        pattern.sub(lambda match: replacements[match.group(1)], line)
+        for line in lines
+    ]
 
 
 def get_context_matches(filename:str, context:list[str]):
@@ -374,7 +399,8 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
         if prefix:
             # contextをparamの実際の値で置き換えていく。
-            for param_name in params_name:
+            replacements:dict[str,str] = {}
+            for param_name in dict.fromkeys(params_name):
                 # このパラメーターの値
                 value , type = next(((e.v, e.type) for e in params if e.name == param_name), (None,None))
                 if value is None:
@@ -387,8 +413,9 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
                 if type == "int":
                     value = int(value + 0.5) # このときに値を丸める。
 
-                # in-place文字置換           
-                context_lines[:] = [line.replace(param_name, str(value)) for line in context_lines]
+                replacements[param_name] = str(value)
+
+            context_lines[:] = replace_parameter_names(context_lines, replacements)
 
         else:
             # 無名contextブロック
