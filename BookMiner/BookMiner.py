@@ -68,6 +68,7 @@ BOOK_READ_PROGRESS_INTERVAL = 10000
 BOOK_WRITE_PROGRESS_INTERVAL = 10000
 TASK_QUEUE_PROGRESS_INTERVAL = 10.0
 MINING_PROGRESS_INTERVAL = 60.0
+ENGINE_ALIVE_CHECK_INTERVAL = 5.0
 DEFAULT_EVAL_LIMIT = 400
 DEFAULT_EVAL_REFUTATION_MARGIN = 100
 PETA_DEFAULT_INF_EVAL_DIFF = 99999
@@ -993,6 +994,9 @@ class ThreadSettings:
     # エンジン側からreadyokを受け取ったか。(これが来るまで次のエンジンの起動をしない)
     readyok : bool
 
+    # エンジンprocessがまだ生きているか。
+    alive : bool = True
+
 
 class Engine:
     '''エンジン操作クラス'''
@@ -1086,6 +1090,12 @@ class Engine:
         # print_log(f"{self.thread_settings.thread_id} > {mes}")
 
         return mes
+
+    def is_process_alive(self)->bool:
+        return self.engine.poll() is None
+
+    def return_code(self)->int|None:
+        return self.engine.poll()
 
     def wait_usi(self,wait_text:str):
         ''' 指定したコマンドが来るまで待つ '''
@@ -1249,6 +1259,9 @@ class EngineManager:
         self.task_progress_reporter_thread.start()
         self.mining_progress_lock = Lock()
         self.mining_progress_last_report = 0.0
+        self.engine_alive_lock = Lock()
+        self.engine_alive_total = total_engines
+        self.engine_alive_last_reported = total_engines
 
         engines : list[Engine] = []
         last_started_count = 0
@@ -1306,6 +1319,41 @@ class EngineManager:
         print("all engines are ready.")
 
         self.engines = engines
+        print(f"[EngineAlive] {total_engines}/{total_engines}")
+        self.engine_alive_monitor_thread = Thread(target=self.engine_alive_monitor, daemon=True)
+        self.engine_alive_monitor_thread.start()
+
+    def engine_alive_count(self)->int:
+        return sum(1 for engine in self.engines if engine.thread_settings.alive)
+
+    def report_engine_alive(self, dead_engine:Engine|None = None):
+        details : list[str] = []
+        with self.engine_alive_lock:
+            for engine in self.engines:
+                if engine.thread_settings.alive and not engine.is_process_alive():
+                    engine.thread_settings.alive = False
+                    details.append(
+                        f"dead={engine.thread_settings.thread_id} "
+                        f"return_code={engine.return_code()}"
+                    )
+
+            alive = self.engine_alive_count()
+            if alive == self.engine_alive_last_reported and not details:
+                return
+            self.engine_alive_last_reported = alive
+
+        if dead_engine is not None and not details:
+            details.append(
+                f"dead={dead_engine.thread_settings.thread_id} "
+                f"return_code={dead_engine.return_code()}"
+            )
+        detail_text = "" if not details else " " + " ".join(details)
+        print(f"[EngineAlive] {alive}/{self.engine_alive_total}{detail_text}")
+
+    def engine_alive_monitor(self):
+        while not self.global_settings.quit:
+            self.report_engine_alive()
+            time.sleep(ENGINE_ALIVE_CHECK_INTERVAL)
 
     def reached_max_book_ply(self, ply:int, max_book_ply:int|None = None)->bool:
         limit = self.book_miner_settings.max_book_ply if max_book_ply is None else max_book_ply
@@ -1706,8 +1754,12 @@ class EngineManager:
 
             except Exception as e:
                 print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+                engine_dead = not engine.is_process_alive()
                 if task is not None:
                     self.report_task_queue_progress(task)
+                if engine_dead:
+                    self.report_engine_alive(engine)
+                    break
 
 
     def put_task(self, task:Task):

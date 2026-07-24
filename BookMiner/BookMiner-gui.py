@@ -69,6 +69,7 @@ MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
 STARTUP_STAGE_RE = re.compile(r"\[StartupStage\]\s+stage=(\S+)\s+message=(.*)")
 ENGINE_INIT_RE = re.compile(r"\[EngineInit(Start|Progress|Done)\]\s+(\d+)/(\d+)")
 ENGINE_READY_RE = re.compile(r"\[EngineReadyProgress\]\s+(\d+)/(\d+)")
+ENGINE_ALIVE_RE = re.compile(r"\[EngineAlive\]\s+(\d+)/(\d+)")
 BACKUP_STATUS_RE = re.compile(r"\[(BackupServiceStarted|BackupNext|BackupStart|BackupDone)\](.*)")
 COMMAND_READY_RE = re.compile(r"\[CommandReady\]")
 PETA_COMMAND_DONE_RE = re.compile(r"\[PetaCommandDone\]")
@@ -1248,6 +1249,23 @@ class BookMinerGui(ttk.Frame):
             self.progress_labels["engine"].set(f"エンジン応答待ち {count_text}/{total_text}")
             return
 
+        alive_match = ENGINE_ALIVE_RE.search(line)
+        if alive_match is not None:
+            alive_text, total_text = alive_match.groups()
+            alive = int(alive_text)
+            total = int(total_text)
+            self.progress_labels["engine"].set(f"稼働エンジン {alive}/{total}")
+            bar = self.progress_bars["engine"]
+            if total > 0:
+                bar.configure(maximum=total)
+                bar["value"] = min(alive, total)
+            else:
+                bar.configure(maximum=1)
+                bar["value"] = 0
+            if alive < total:
+                self.startup_status.set(f"状態: エンジン切断 {alive}/{total}")
+            return
+
         backup_match = BACKUP_STATUS_RE.search(line)
         if backup_match is not None:
             tag, rest = backup_match.groups()
@@ -1787,6 +1805,7 @@ class BookMinerGui(ttk.Frame):
             "[startupstage]" in lower
             or "[engineinit" in lower
             or "[enginereadyprogress]" in lower
+            or "[enginealive]" in lower
             or "[backupservice" in lower
             or "[backupnext]" in lower
             or "[backupstart]" in lower
