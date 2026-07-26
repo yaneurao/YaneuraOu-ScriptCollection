@@ -15,6 +15,7 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -51,6 +52,70 @@ FLOODGATE14_RATING_LINE_RE = re.compile(
 
 class ParseError(Exception):
     pass
+
+
+class Floodgate14RatingHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.ratings: dict[str, float] = {}
+        self.in_rating_table = False
+        self.table_depth = 0
+        self.current_row: list[str] | None = None
+        self.current_cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = {key.lower(): value or "" for key, value in attrs}
+        if tag == "table":
+            class_names = set(attrs_dict.get("class", "").split())
+            if self.in_rating_table:
+                self.table_depth += 1
+            elif "player-rating" in class_names:
+                self.in_rating_table = True
+                self.table_depth = 1
+            return
+
+        if not self.in_rating_table:
+            return
+        if tag == "tr":
+            self.current_row = []
+        elif tag == "td":
+            self.current_cell = []
+
+    def handle_data(self, data: str) -> None:
+        if self.current_cell is not None:
+            self.current_cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self.in_rating_table:
+            return
+
+        if tag == "td" and self.current_cell is not None:
+            if self.current_row is not None:
+                self.current_row.append(" ".join(part.strip() for part in self.current_cell).strip())
+            self.current_cell = None
+            return
+
+        if tag == "tr":
+            self._flush_current_row()
+            self.current_row = None
+            self.current_cell = None
+            return
+
+        if tag == "table":
+            self.table_depth -= 1
+            if self.table_depth <= 0:
+                self.in_rating_table = False
+                self.current_row = None
+                self.current_cell = None
+
+    def _flush_current_row(self) -> None:
+        if self.current_row is None or len(self.current_row) < 2:
+            return
+        name = self.current_row[0]
+        rating = optional_float(self.current_row[1])
+        if not name or rating is None:
+            return
+        self.ratings[normalize_player_name(name)] = rating
 
 
 @dataclass(frozen=True)
@@ -171,6 +236,11 @@ def floodgate14_rating_cache_path(cache_dir: Path, rating_date: date) -> Path:
 
 
 def parse_floodgate14_rating_text(text: str) -> dict[str, float]:
+    parser = Floodgate14RatingHtmlParser()
+    parser.feed(text)
+    if parser.ratings:
+        return parser.ratings
+
     ratings: dict[str, float] = {}
     for raw_line in text.splitlines():
         line = html.unescape(re.sub(r"<[^>]+>", " ", raw_line)).strip()
