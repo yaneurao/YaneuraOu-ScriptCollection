@@ -17,6 +17,8 @@ lr           = 0.03
 lr_min       = 1e-5
 amp_dtype    = bfloat16
 val_lambda   = 1.0
+hcpe_val_lambda  = val_lambda
+hcpe3_val_lambda = val_lambda
 start_index  = 1
 use_evalfix  = True
 use_swa      = True
@@ -29,6 +31,29 @@ LR scheduler は cosine です。`trainer.py` は教師ファイル1個を1 epoc
 `--network` の文字列はフォルダ名にそのまま使います。`exp___i20x256` を `exp_i20x256` に直すような置換はしません。
 
 HCPE3教師データのeval係数推定は既定で有効です。無効にしたい場合だけ `--no_evalfix` を付けます。
+
+## HCPE / HCPE3 混在教師データ
+
+`train_dir` に `*.hcpe` と `*.hcpe3` が混在している場合、通常は両方に `--val_lambda` が使われます。
+形式ごとにvalue lossの重みを変えたい場合は、`--hcpe_val_lambda` / `--hcpe3_val_lambda` で上書きできます。
+
+例えば、HCPEはvalueを使わず、HCPE3だけ `val_lambda=0.5` で学習する場合は以下のように指定します。
+
+```powershell
+python .\trainer.py ^
+  --train_dir C:\shogi\teacher\mixed ^
+  --val_lambda 0.5 ^
+  --hcpe_val_lambda 0
+```
+
+`--hcpe3_val_lambda` を省略しているので、HCPE3には `--val_lambda 0.5` が使われます。明示するなら以下でも同じです。
+
+```powershell
+python .\trainer.py ^
+  --train_dir C:\shogi\teacher\mixed ^
+  --hcpe_val_lambda 0 ^
+  --hcpe3_val_lambda 0.5
+```
 
 ## 基本の使い方
 

@@ -72,6 +72,15 @@ def collect_teacher_files(train_dir: Path) -> list[Path]:
     return sorted(files)
 
 
+def val_lambda_for_teacher_file(args: argparse.Namespace, teacher_file: Path) -> float:
+    suffix = teacher_file.suffix.lower()
+    if suffix == ".hcpe" and args.hcpe_val_lambda is not None:
+        return args.hcpe_val_lambda
+    if suffix == ".hcpe3" and args.hcpe3_val_lambda is not None:
+        return args.hcpe3_val_lambda
+    return args.val_lambda
+
+
 def checkpoint_path(out_dir: Path, epoch: int, suffix: str) -> Path:
     return out_dir / f"checkpoint-{epoch:04}{suffix}"
 
@@ -711,6 +720,7 @@ def write_ptl_config(
     max_epochs: int,
     total_epochs: int,
     checkpoint_number_for_file: int,
+    val_lambda: float,
     args: argparse.Namespace,
     model_resume_checkpoint: Path | None,
     export_model: bool,
@@ -760,7 +770,7 @@ def write_ptl_config(
         },
         "model": {
             "network": args.network,
-            "val_lambda": args.val_lambda,
+            "val_lambda": val_lambda,
             "use_ema": args.use_swa,
             "update_bn": args.use_swa and export_model,
             "ema_start_epoch": args.swa_start_epoch,
@@ -908,6 +918,11 @@ def run_one_round(
     print(f"out dir: {out_dir}")
     print(f"network: {args.network}")
     print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
+    print(f"val_lambda: {args.val_lambda}")
+    if args.hcpe_val_lambda is not None:
+        print(f"hcpe val_lambda: {args.hcpe_val_lambda}")
+    if args.hcpe3_val_lambda is not None:
+        print(f"hcpe3 val_lambda: {args.hcpe3_val_lambda}")
     print(f"lr scheduler: {lr_scheduler}")
     if args.use_compile:
         compile_options = []
@@ -943,8 +958,12 @@ def run_one_round(
         previous_checkpoint = checkpoint_path(
             out_dir, checkpoint_offset + file_index - 1, checkpoint_suffix
         )
+        current_val_lambda = val_lambda_for_teacher_file(args, teacher_file)
 
-        print(f"[{file_index:04}/{total_epochs:04}] train: {teacher_file}")
+        print(
+            f"[{file_index:04}/{total_epochs:04}] train: "
+            f"{teacher_file} (val_lambda={current_val_lambda})"
+        )
         if previous_checkpoint.exists():
             print(f"resume: {previous_checkpoint}")
 
@@ -973,7 +992,7 @@ def run_one_round(
                 "--weight_decay",
                 "0.0001",
                 "--val_lambda",
-                str(args.val_lambda),
+                str(current_val_lambda),
                 "--checkpoint",
                 str(out_dir / "checkpoint-{epoch:04}.pth"),
                 "--log",
@@ -1077,6 +1096,7 @@ def run_one_round(
             max_epochs=file_index if ptl_ckpt_path else 1,
             total_epochs=total_epochs,
             checkpoint_number_for_file=checkpoint_number_for_file,
+            val_lambda=current_val_lambda,
             args=args,
             model_resume_checkpoint=model_resume_checkpoint,
             export_model=file_index == total_epochs,
@@ -1136,6 +1156,16 @@ def main() -> None:
     )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--hcpe_val_lambda",
+        type=float,
+        help="Override --val_lambda for .hcpe teacher files.",
+    )
+    parser.add_argument(
+        "--hcpe3_val_lambda",
+        type=float,
+        help="Override --val_lambda for .hcpe3 teacher files.",
+    )
     parser.add_argument(
         "--amp_dtype",
         choices=("bfloat16", "float16"),
