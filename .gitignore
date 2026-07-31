@@ -42,7 +42,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-source/
 kif/
 log/
 old/
