@@ -2643,7 +2643,7 @@ def read_peta_book(peta_book_path:str|None = None):
     """
     peta_path = resolve_peta_book_path(peta_book_path)
 
-    print(f"read peta shocked book , path = {peta_path}")
+    print(f"prepare to read peta shocked book , path = {peta_path}")
     global peta_book, peta_book_probe_path
     peta_book = Book()
     read_regular_book_fast(peta_book, peta_path, "peta shocked book")
