@@ -793,7 +793,15 @@ public:
     {
         {
             std::scoped_lock lock(mutex_);
-            queue_.push_back(std::move(task));
+            const int job_id = task.job_id;
+            auto it = jobs_.find(job_id);
+            if (it == jobs_.end())
+            {
+                it = jobs_.emplace(job_id, std::deque<Task>{}).first;
+                job_order_.push_back(job_id);
+            }
+            it->second.push_back(std::move(task));
+            ++count_;
         }
         cv_.notify_one();
     }
@@ -807,20 +815,32 @@ public:
     {
         std::unique_lock lock(mutex_);
         cv_.wait(lock, [&] {
-            return stopping_ || !queue_.empty();
+            return stopping_ || count_ > 0;
         });
-        if (queue_.empty())
+        if (count_ == 0)
             return std::nullopt;
 
-        auto task = std::move(queue_.front());
-        queue_.pop_front();
+        const int job_id = job_order_.front();
+        job_order_.pop_front();
+
+        auto job_it = jobs_.find(job_id);
+        if (job_it == jobs_.end() || job_it->second.empty())
+            throw std::runtime_error("TaskQueue job order is inconsistent.");
+
+        auto task = std::move(job_it->second.front());
+        job_it->second.pop_front();
+        --count_;
+        if (job_it->second.empty())
+            jobs_.erase(job_it);
+        else
+            job_order_.push_back(job_id);
         return task;
     }
 
     std::size_t size() const
     {
         std::scoped_lock lock(mutex_);
-        return queue_.size();
+        return count_;
     }
 
     void stop(bool discard_pending)
@@ -829,7 +849,11 @@ public:
             std::scoped_lock lock(mutex_);
             stopping_ = true;
             if (discard_pending)
-                queue_.clear();
+            {
+                jobs_.clear();
+                job_order_.clear();
+                count_ = 0;
+            }
         }
         cv_.notify_all();
     }
@@ -837,7 +861,9 @@ public:
 private:
     mutable std::mutex mutex_;
     std::condition_variable cv_;
-    std::deque<Task> queue_;
+    std::unordered_map<int, std::deque<Task>> jobs_;
+    std::deque<int> job_order_;
+    std::size_t count_ = 0;
     bool stopping_ = false;
 };
 
