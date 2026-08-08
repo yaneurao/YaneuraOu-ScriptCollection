@@ -67,7 +67,6 @@ constexpr int DefaultStep2MaxStep = 99999;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
-constexpr int PetaOpponentDefaultEvalDiff = 0;
 constexpr const char* BookOpponentDir = "book/book_opponent";
 
 struct CommandDefaults {
