@@ -2524,7 +2524,7 @@ def main() -> int:
     use_cpp = args.cpp or BOOK_MINER_CPP_EXE.is_file()
 
     root = tk.Tk()
-    root.title("BookMiner GUI" + (" - C++" if use_cpp else ""))
+    root.title("BookMiner GUI with BookMiner C++" if use_cpp else "BookMiner GUI with BookMiner Python")
     root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
