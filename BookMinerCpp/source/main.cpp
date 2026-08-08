@@ -2408,10 +2408,20 @@ void ensure_supported_peta_book_path(const fs::path& path, const std::string& la
         throw std::runtime_error(label + " must be .db or .ybb : " + path.string());
 }
 
-fs::path make_backup_path(std::size_t position_count, std::optional<int> ply_limit)
+fs::path make_backup_path_with_timestamp(const std::string& timestamp, std::size_t position_count, std::optional<int> ply_limit)
 {
     fs::create_directories(BookBackupDir);
-    std::string filename = std::string(BookDbName) + "-" + make_time_stamp() + "_" + std::to_string(position_count);
+    std::string filename = std::string(BookDbName) + "-" + timestamp + "_" + std::to_string(position_count);
+    if (ply_limit.has_value())
+        filename += "_ply" + std::to_string(*ply_limit);
+    filename += ".ybb";
+    return fs::path(BookBackupDir) / filename;
+}
+
+fs::path make_backup_saving_path(const std::string& timestamp, std::optional<int> ply_limit)
+{
+    fs::create_directories(BookBackupDir);
+    std::string filename = "." + std::string(BookDbName) + "-" + timestamp + "_saving";
     if (ply_limit.has_value())
         filename += "_ply" + std::to_string(*ply_limit);
     filename += ".ybb";
@@ -2809,11 +2819,15 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
 fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> ply_limit)
 {
     std::scoped_lock save_lock(g_save_mutex);
-    const auto count = book.count_save_positions(ply_limit);
-    const auto path = make_backup_path(count, ply_limit);
-    log_line("start save_book_backup , path = " + path.string());
-    book.save_yaneuraou_book(path, ply_limit, book_write_progress, nullptr);
-    log_line("..save_book_backup has done, " + std::to_string(count) + " positions.");
+    const auto timestamp = make_time_stamp();
+    const auto saving_path = make_backup_saving_path(timestamp, ply_limit);
+    log_line("start save_book_backup , path = " + saving_path.string());
+    const auto written_count = book.save_yaneuraou_book(saving_path, ply_limit, book_write_progress, nullptr);
+    auto path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
+    std::error_code ec;
+    fs::remove(path, ec);
+    fs::rename(saving_path, path);
+    log_line("..save_book_backup has done, " + std::to_string(written_count) + " positions.");
     return path;
 }
 

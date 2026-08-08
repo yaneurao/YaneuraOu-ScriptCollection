@@ -440,22 +440,73 @@ void BookStore::compact_runs_locked()
 
 std::size_t BookStore::count_save_positions_locked(std::optional<int> ply_limit) const
 {
-    if (!ply_limit.has_value())
-        return size_;
+    std::vector<RunPtr> runs = runs_;
+    if (!memtable_.empty())
+        runs.push_back(std::make_shared<Run>(make_sorted_run_from_map(memtable_)));
 
-    Map latest;
-    latest.reserve(size_);
-    for (const auto& run : runs_)
-        for (const auto& entry : *run)
-            latest[entry.key] = entry.position;
-    for (const auto& [key, position] : memtable_)
-        latest[key] = position;
+    struct Cursor {
+        const Run* run = nullptr;
+        std::size_t index = 0;
+    };
+
+    std::vector<Cursor> cursors;
+    cursors.reserve(runs.size());
+    for (const auto& run : runs)
+        if (run != nullptr && !run->empty())
+            cursors.push_back(Cursor{run.get(), 0});
+
+    auto current_entry = [](const Cursor& cursor) -> const Entry& {
+        return (*cursor.run)[cursor.index];
+    };
+
+    auto advance_filtered = [&](Cursor& cursor) {
+        while (cursor.index < cursor.run->size())
+        {
+            const auto& position = current_entry(cursor).position;
+            if (!position.moves.empty() && (!ply_limit.has_value() || position.ply <= *ply_limit))
+                break;
+            ++cursor.index;
+        }
+    };
+
+    auto next_entry = [&]() -> const Entry* {
+        for (auto& cursor : cursors)
+            advance_filtered(cursor);
+
+        std::optional<std::size_t> selected;
+        for (std::size_t i = 0; i < cursors.size(); ++i)
+        {
+            if (cursors[i].index >= cursors[i].run->size())
+                continue;
+            if (!selected.has_value() || packed_sfen_less(current_entry(cursors[i]).key, current_entry(cursors[*selected]).key))
+                selected = i;
+        }
+        if (!selected.has_value())
+            return nullptr;
+
+        const PackedSfen selected_key = current_entry(cursors[*selected]).key;
+        std::size_t newest_same_key = *selected;
+        for (std::size_t i = 0; i < cursors.size(); ++i)
+        {
+            if (cursors[i].index >= cursors[i].run->size())
+                continue;
+            if (packed_sfen_equal(current_entry(cursors[i]).key, selected_key))
+                newest_same_key = i;
+        }
+
+        const Entry* result = &current_entry(cursors[newest_same_key]);
+        for (auto& cursor : cursors)
+        {
+            if (cursor.index < cursor.run->size() && packed_sfen_equal(current_entry(cursor).key, selected_key))
+                ++cursor.index;
+        }
+        return result;
+    };
 
     std::size_t count = 0;
-    for (const auto& [_, position] : latest)
+    while (next_entry() != nullptr)
     {
-        if (!position.moves.empty() && position.ply <= *ply_limit)
-            ++count;
+        ++count;
     }
     return count;
 }
