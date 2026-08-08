@@ -2520,11 +2520,6 @@ class BookMinerGui(ttk.Frame):
         command_enabled = command_state == "normal"
         enqueue_pending = getattr(self, "enqueue_pending", False)
         auto_enqueue_state = getattr(self, "auto_enqueue_state", AUTO_ENQUEUE_IDLE)
-        task_queue_busy = (
-            self.task_queue_remaining is not None
-            and self.task_queue_remaining > 0
-            and auto_enqueue_state == AUTO_ENQUEUE_IDLE
-        )
         command_busy = (
             self.busy_action is not None
             or enqueue_pending
@@ -2534,7 +2529,6 @@ class BookMinerGui(ttk.Frame):
         peta_book_busy = (
             self.peta_makebook_active
             or enqueue_pending
-            or task_queue_busy
             or self.busy_action in {
                 "manual_peta_shock",
                 "manual_peta_shock_latest",
@@ -2546,7 +2540,7 @@ class BookMinerGui(ttk.Frame):
                 "auto_enqueue",
             }
         )
-        any_busy = command_busy or task_queue_busy
+        any_busy = command_busy
         enqueue_allowed_during_peta = self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read"}
 
         def configure_state(name: str, state: str) -> None:
