@@ -81,7 +81,7 @@ public:
     bool empty() const;
     void clear();
 
-    PositionInfo* find_position(const std::string& sfen);
+    const PositionInfo* find_position(const std::string& sfen);
     const PositionInfo* find_position(const std::string& sfen) const;
     const PositionInfo* find_position(const PackedSfen& key) const;
     std::optional<PositionInfo> find_position_copy(const std::string& sfen) const;
@@ -108,8 +108,8 @@ public:
 private:
     using Entry = BookEntry;
     using Run = std::vector<Entry>;
+    using RunPtr = std::shared_ptr<const Run>;
 
-    PositionInfo* find_position_locked(const PackedSfen& key);
     const PositionInfo* find_position_locked(const PackedSfen& key) const;
     void flush_memtable_locked();
     void compact_runs_locked();
@@ -120,7 +120,7 @@ private:
     std::size_t size_ = 0;
     std::uint64_t revision_ = 0;
     Map memtable_;
-    std::vector<Run> runs_;
+    std::vector<RunPtr> runs_;
     std::unordered_set<PackedSfen, PackedSfenHash> searching_;
 };
 

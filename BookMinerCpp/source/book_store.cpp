@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 
@@ -381,20 +382,6 @@ void BookStore::clear()
     searching_.clear();
 }
 
-PositionInfo* BookStore::find_position_locked(const PackedSfen& key)
-{
-    if (auto it = memtable_.find(key); it != memtable_.end())
-        return &it->second;
-
-    for (auto run_it = runs_.rbegin(); run_it != runs_.rend(); ++run_it)
-    {
-        auto entry_it = find_entry_in_run(*run_it, key);
-        if (entry_it != run_it->end())
-            return &entry_it->position;
-    }
-    return nullptr;
-}
-
 const PositionInfo* BookStore::find_position_locked(const PackedSfen& key) const
 {
     if (auto it = memtable_.find(key); it != memtable_.end())
@@ -402,8 +389,9 @@ const PositionInfo* BookStore::find_position_locked(const PackedSfen& key) const
 
     for (auto run_it = runs_.rbegin(); run_it != runs_.rend(); ++run_it)
     {
-        auto entry_it = find_entry_in_run(*run_it, key);
-        if (entry_it != run_it->end())
+        const auto& run = **run_it;
+        auto entry_it = find_entry_in_run(run, key);
+        if (entry_it != run.end())
             return &entry_it->position;
     }
     return nullptr;
@@ -414,7 +402,7 @@ void BookStore::flush_memtable_locked()
     if (memtable_.empty())
         return;
 
-    runs_.push_back(make_sorted_run_from_map(memtable_));
+    runs_.push_back(std::make_shared<Run>(make_sorted_run_from_map(memtable_)));
     memtable_.clear();
     compact_runs_locked();
 }
@@ -429,7 +417,7 @@ void BookStore::compact_runs_locked()
         {
             for (std::size_t j = i + 1; j < runs_.size(); ++j)
             {
-                if (run_level(runs_[i].size()) == run_level(runs_[j].size()))
+                if (run_level(runs_[i]->size()) == run_level(runs_[j]->size()))
                 {
                     first = i;
                     second = j;
@@ -443,51 +431,55 @@ void BookStore::compact_runs_locked()
         if (!first.has_value() || !second.has_value())
             return;
 
-        auto merged = merge_sorted_runs(runs_[*first], runs_[*second]);
+        auto merged = merge_sorted_runs(*runs_[*first], *runs_[*second]);
         runs_.erase(runs_.begin() + static_cast<std::ptrdiff_t>(*second));
         runs_.erase(runs_.begin() + static_cast<std::ptrdiff_t>(*first));
-        runs_.push_back(std::move(merged));
+        runs_.push_back(std::make_shared<Run>(std::move(merged)));
     }
 }
 
 std::size_t BookStore::count_save_positions_locked(std::optional<int> ply_limit) const
 {
-    std::size_t count = 0;
-    auto count_position = [&](const PositionInfo& position) {
-        if (position.moves.empty())
-            return;
-        if (ply_limit.has_value() && position.ply > *ply_limit)
-            return;
-        ++count;
-    };
+    if (!ply_limit.has_value())
+        return size_;
 
+    Map latest;
+    latest.reserve(size_);
     for (const auto& run : runs_)
-        for (const auto& entry : run)
-            count_position(entry.position);
-    for (const auto& [_, position] : memtable_)
-        count_position(position);
+        for (const auto& entry : *run)
+            latest[entry.key] = entry.position;
+    for (const auto& [key, position] : memtable_)
+        latest[key] = position;
+
+    std::size_t count = 0;
+    for (const auto& [_, position] : latest)
+    {
+        if (!position.moves.empty() && position.ply <= *ply_limit)
+            ++count;
+    }
     return count;
 }
 
 std::vector<BookStore::Entry> BookStore::snapshot_save_entries_locked(std::optional<int> ply_limit) const
 {
-    std::vector<Entry> entries;
-    entries.reserve(size_);
-
-    auto append_entry = [&](const PackedSfen& key, const PositionInfo& position) {
-        if (position.moves.empty())
-            return;
-        if (ply_limit.has_value() && position.ply > *ply_limit)
-            return;
-        entries.push_back(Entry{key, position});
-    };
-
+    Map latest;
+    latest.reserve(size_);
     for (const auto& run : runs_)
-        for (const auto& entry : run)
-            append_entry(entry.key, entry.position);
+        for (const auto& entry : *run)
+            latest[entry.key] = entry.position;
     for (const auto& [key, position] : memtable_)
-        append_entry(key, position);
+        latest[key] = position;
 
+    std::vector<Entry> entries;
+    entries.reserve(latest.size());
+    for (const auto& [key, position] : latest)
+    {
+        if (position.moves.empty())
+            continue;
+        if (ply_limit.has_value() && position.ply > *ply_limit)
+            continue;
+        entries.push_back(Entry{key, position});
+    }
     return entries;
 }
 
@@ -672,7 +664,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
             memtable_.clear();
             runs_.clear();
             if (!run.empty())
-                runs_.push_back(std::move(run));
+                runs_.push_back(std::make_shared<Run>(std::move(run)));
             searching_.clear();
         }
         report_progress(progress, user, BookProgressKind::Done, static_cast<std::size_t>(record_count), static_cast<std::size_t>(record_count), path);
@@ -776,7 +768,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         memtable_.clear();
         runs_.clear();
         if (!run.empty())
-            runs_.push_back(std::move(run));
+            runs_.push_back(std::make_shared<Run>(std::move(run)));
         searching_.clear();
     }
     report_progress(progress, user, BookProgressKind::Done, sfen_line_count, total, path);
@@ -1020,7 +1012,7 @@ std::unique_ptr<BookProbe> open_book_probe(const std::filesystem::path& path, bo
     return std::make_unique<DbBookProbe>(path, normalize_eval);
 }
 
-PositionInfo* BookStore::find_position(const std::string& sfen)
+const PositionInfo* BookStore::find_position(const std::string& sfen)
 {
     const PackedSfen key = PackedSfen::from_sfen(sfen);
     std::scoped_lock lock(mutex_);
@@ -1115,7 +1107,19 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
 
     const PackedSfen key = PackedSfen::from_sfen(sfen);
     std::scoped_lock lock(mutex_);
-    PositionInfo* position = find_position_locked(key);
+    PositionInfo* position = nullptr;
+    bool inserted_overlay = false;
+    if (auto it = memtable_.find(key); it != memtable_.end())
+    {
+        position = &it->second;
+    }
+    else if (const auto* existing = find_position_locked(key))
+    {
+        auto [it, _] = memtable_.emplace(key, *existing);
+        position = &it->second;
+        inserted_overlay = true;
+    }
+
     bool changed = false;
     if (position == nullptr)
     {
@@ -1154,11 +1158,16 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
         return lhs.eval > rhs.eval;
     });
 
-    if (memtable_.size() >= LsmMemtableFlushThreshold)
-        flush_memtable_locked();
-
     if (changed)
+    {
         ++revision_;
+        if (memtable_.size() >= LsmMemtableFlushThreshold)
+            flush_memtable_locked();
+    }
+    else if (inserted_overlay)
+    {
+        memtable_.erase(key);
+    }
 }
 
 std::size_t BookStore::count_save_positions(std::optional<int> ply_limit) const
@@ -1174,7 +1183,7 @@ std::vector<BookEntry> BookStore::snapshot_entries() const
     Map latest;
     latest.reserve(size_);
     for (const auto& run : runs_)
-        for (const auto& entry : run)
+        for (const auto& entry : *run)
             latest[entry.key] = entry.position;
     for (const auto& [key, position] : memtable_)
         latest[key] = position;
@@ -1197,39 +1206,30 @@ std::size_t BookStore::save_yaneuraou_book(
         std::filesystem::create_directories(path.parent_path());
         const auto tmp_path = temp_book_path(path);
         std::size_t position_count = 0;
+        std::vector<RunPtr> runs;
 
         try
         {
-            std::scoped_lock lock(mutex_);
-            const Run memtable_run = make_sorted_run_from_map(memtable_);
-            std::vector<const Run*> runs;
-            runs.reserve(runs_.size() + (memtable_run.empty() ? 0 : 1));
-            for (const auto& run : runs_)
-                runs.push_back(&run);
-            if (!memtable_run.empty())
-                runs.push_back(&memtable_run);
-
-            position_count = count_save_positions_locked(ply_limit);
-            report_progress(progress, user, BookProgressKind::Start, 0, position_count, path);
-
-            std::fstream out(tmp_path, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
-            if (!out)
-                throw std::runtime_error("failed to open temp ybb book: " + tmp_path.string());
-
-            write_ybb_header(out, static_cast<std::uint64_t>(position_count), YaneBinBookFlagMoveDepth, tmp_path);
-            const std::uint64_t index_size = YaneBinBookHeaderSize
-                + static_cast<std::uint64_t>(position_count) * YaneBinBookIndexRecordSize;
-            std::uint64_t index_offset = YaneBinBookHeaderSize;
+            {
+                std::scoped_lock lock(mutex_);
+                runs = runs_;
+                if (!memtable_.empty())
+                    runs.push_back(std::make_shared<Run>(make_sorted_run_from_map(memtable_)));
+            }
 
             struct Cursor {
                 const Run* run = nullptr;
                 std::size_t index = 0;
             };
-            std::vector<Cursor> cursors;
-            cursors.reserve(runs.size());
-            for (const auto* run : runs)
-                if (run != nullptr && !run->empty())
-                    cursors.push_back(Cursor{run, 0});
+
+            auto make_cursors = [&]() {
+                std::vector<Cursor> cursors;
+                cursors.reserve(runs.size());
+                for (const auto& run : runs)
+                    if (run != nullptr && !run->empty())
+                        cursors.push_back(Cursor{run.get(), 0});
+                return cursors;
+            };
 
             auto current_entry = [](const Cursor& cursor) -> const Entry& {
                 return (*cursor.run)[cursor.index];
@@ -1245,7 +1245,7 @@ std::size_t BookStore::save_yaneuraou_book(
                 }
             };
 
-            auto next_entry = [&]() -> const Entry* {
+            auto next_entry = [&](std::vector<Cursor>& cursors) -> const Entry* {
                 for (auto& cursor : cursors)
                     advance_filtered(cursor);
 
@@ -1279,9 +1279,26 @@ std::size_t BookStore::save_yaneuraou_book(
                 return result;
             };
 
+            {
+                auto count_cursors = make_cursors();
+                while (next_entry(count_cursors) != nullptr)
+                    ++position_count;
+            }
+            report_progress(progress, user, BookProgressKind::Start, 0, position_count, path);
+
+            std::fstream out(tmp_path, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+            if (!out)
+                throw std::runtime_error("failed to open temp ybb book: " + tmp_path.string());
+
+            write_ybb_header(out, static_cast<std::uint64_t>(position_count), YaneBinBookFlagMoveDepth, tmp_path);
+            const std::uint64_t index_size = YaneBinBookHeaderSize
+                + static_cast<std::uint64_t>(position_count) * YaneBinBookIndexRecordSize;
+            std::uint64_t index_offset = YaneBinBookHeaderSize;
+
+            auto cursors = make_cursors();
             std::uint64_t moves_offset = 0;
             std::size_t count = 0;
-            while (const Entry* entry_source = next_entry())
+            while (const Entry* entry_source = next_entry(cursors))
             {
                 auto moves = entry_source->position.moves;
                 if (moves.size() > std::numeric_limits<std::uint16_t>::max())
@@ -1316,6 +1333,8 @@ std::size_t BookStore::save_yaneuraou_book(
                 if (count % BookWriteProgressInterval == 0)
                     report_progress(progress, user, BookProgressKind::Progress, count, position_count, path);
             }
+            if (count != position_count)
+                throw std::runtime_error("ybb save count mismatch: " + tmp_path.string());
 
             out.close();
             if (!out)
