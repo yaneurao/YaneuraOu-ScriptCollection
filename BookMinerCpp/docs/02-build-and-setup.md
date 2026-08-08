@@ -25,7 +25,7 @@ make CXX=clang++
 出力先は次の通りです。
 
 ```text
-BookMinerCpp/BookMinerCpp.exe
+BookMiner/BookMinerCpp.exe
 ```
 
 BookMinerCpp の `source/Makefile` は、BookMinerCpp 本体とは別に、やねうら王の一部を静的ライブラリとしてビルドします。
@@ -50,30 +50,31 @@ BookMiner/YO-MATERIAL.exe
 peta shock 化だけに使うので、探索用エンジンとは別です。
 
 Python版 BookMiner と同じ実行ファイルを使います。
-BookMinerCpp から見た相対パスでは `../BookMiner/YO-MATERIAL.exe` です。
+BookMinerCpp から見た相対パスでは `YO-MATERIAL.exe` です。
 `YO-MATERIAL.exe` は同梱していません。自分で MATERIAL 版のやねうら王をビルドするか、やねうら王News Letterで頒布されている最新の MATERIAL 版を入手してください。
 入手した実行ファイルは `YO-MATERIAL.exe` という名前に変更して、`BookMiner/YO-MATERIAL.exe` に配置します。
 
 ## 設定ファイル
 
-`settings/` には sample ファイルを置きます。
+`BookMiner/settings/` には sample ファイルを置きます。
 実際に使うときは、sample をコピーして実設定ファイルを作ります。
 
 ```text
-settings/engine_settings-sample.json5
-settings/book_miner_settings-sample.json5
+BookMiner/settings/engine_settings-sample.json5
+BookMiner/settings/book_miner_settings-sample.json5
 ```
 
 コピー後:
 
 ```text
-settings/engine_settings.json5
-settings/book_miner_settings.json5
+BookMiner/settings/engine_settings.json5
+BookMiner/settings/book_miner_settings.json5
 ```
 
 Linux / MSYS2:
 
 ```bash
+cd YaneuraOu-ScriptCollection/BookMiner
 cp settings/engine_settings-sample.json5 settings/engine_settings.json5
 cp settings/book_miner_settings-sample.json5 settings/book_miner_settings.json5
 ```
@@ -81,21 +82,15 @@ cp settings/book_miner_settings-sample.json5 settings/book_miner_settings.json5
 PowerShell:
 
 ```powershell
+Set-Location YaneuraOu-ScriptCollection\BookMiner
 Copy-Item .\settings\engine_settings-sample.json5 .\settings\engine_settings.json5
 Copy-Item .\settings\book_miner_settings-sample.json5 .\settings\book_miner_settings.json5
 ```
 
 `engine_settings.json5` と `book_miner_settings.json5` は git 管理しない想定です。
 
-GUI から `BookMiner-gui.py --cpp` で起動する場合も、C++版のカレントフォルダは `BookMinerCpp/` になります。そのため、探索エンジン設定は Python 版の `BookMiner/settings/engine_settings.json5` ではなく、`BookMinerCpp/settings/engine_settings.json5` に置きます。
-
-Python 版 BookMiner で使っていた `engine_settings.json5` を流用する場合は、次のようにコピーします。
-
-```powershell
-Copy-Item ..\BookMiner\settings\engine_settings.json5 .\settings\engine_settings.json5
-```
-
-このとき、ローカルエンジンの相対パスも `BookMinerCpp/` 基準になります。Python 版で `BookMiner/engines/...` を指していた設定をそのまま使う場合は、`path` を `../BookMiner/engines/...` に直すか、エンジン一式を `BookMinerCpp/engines/...` に配置してください。`ssh ...` で始まる起動コマンドはそのまま使えます。
+C++版のカレントフォルダは Python 版と同じ `BookMiner/` です。そのため、探索エンジン設定は `BookMiner/settings/engine_settings.json5` をそのまま使います。
+ローカルエンジンの相対パスも Python 版と同じく `BookMiner/` 基準です。`ssh ...` で始まる起動コマンドもそのまま使えます。
 
 ## engine_settings.json5
 
@@ -144,7 +139,7 @@ BookMinerCpp 本体の動作設定です。
 CLI として直接起動する場合:
 
 ```bash
-cd YaneuraOu-ScriptCollection/BookMinerCpp
+cd YaneuraOu-ScriptCollection/BookMiner
 ./BookMinerCpp.exe
 ```
 
@@ -152,11 +147,11 @@ GUI から C++版を使う場合:
 
 ```bash
 cd YaneuraOu-ScriptCollection/BookMiner
-python3 BookMiner-gui.py --cpp
+python3 BookMiner-gui.py
 ```
 
 GUI から使う場合、`BookMiner-gui.py` は内部的に次を起動します。
 
 ```text
-../BookMinerCpp/BookMinerCpp.exe --from_gui
+BookMinerCpp.exe --from_gui
 ```

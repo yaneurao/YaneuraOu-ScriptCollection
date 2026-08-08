@@ -18,17 +18,17 @@ BookMinerCpp 独自のコマンド体系は作っていません。
 ## GUI から使う
 
 通常は GUI から使うのが楽です。
-Python 版 BookMiner のフォルダで、`--cpp` を付けて起動します。
+`BookMiner/BookMinerCpp.exe` が存在する場合、Python 版 BookMiner のフォルダで通常通り起動すると C++版を使います。
 
 ```bash
 cd YaneuraOu-ScriptCollection/BookMiner
-python3 BookMiner-gui.py --cpp
+python3 BookMiner-gui.py
 ```
 
 この場合、GUI は C++版を子プロセスとして起動します。
 
 ```text
-../BookMinerCpp/BookMinerCpp.exe --from_gui
+BookMinerCpp.exe --from_gui
 ```
 
 GUI 上の操作は Python 版と同じです。
@@ -47,10 +47,10 @@ BookMinerCpp は KifManager を直接実装しません。
 
 ## CLI から使う
 
-CLI として使う場合は、BookMinerCpp フォルダで起動します。
+CLI として使う場合も、Python 版 BookMiner と同じ `BookMiner/` フォルダで起動します。
 
 ```bash
-cd YaneuraOu-ScriptCollection/BookMinerCpp
+cd YaneuraOu-ScriptCollection/BookMiner
 ./BookMinerCpp.exe
 ```
 

@@ -59,10 +59,11 @@ BookMinerCpp は、`BookMiner.py` と同じ運用を C++ で再実装するた�
 ## GUI連携
 
 C++版も `BookMiner.py` と同じ stdin/stdout ベースのCLIとして動作します。
-既存の `BookMiner-gui.py` は、通常はPython版を起動しますが、`--cpp` を指定すると `../BookMinerCpp/BookMinerCpp.exe --from_gui` を起動します。
+既存の `BookMiner-gui.py` は、`BookMiner/BookMinerCpp.exe` が存在する場合に `BookMinerCpp.exe --from_gui` を起動します。
+`BookMinerCpp.exe` がない場合は Python 版の `BookMiner.py --from_gui` を起動します。
 
 ```bash
-python BookMiner-gui.py --cpp
+python BookMiner-gui.py
 ```
 
 GUIが解釈する進捗タグはPython版と揃えます。
@@ -239,12 +240,13 @@ USI指し手は `Position::to_move()` で `Move` に変換し、`pseudo_legal_s<
 ## ディレクトリ
 
 ```text
-BookMinerCpp/
+BookMiner/
   settings/              実設定と sample 設定
   book/                  通常DB、peta DB、think_sfens.txt
-  docs/                  C++版の設計メモ
   log/                   ログ
-  source/                C++ source と Makefile
   BookMinerCpp.exe       source/Makefile の出力先
+BookMinerCpp/
+  docs/                  C++版の設計メモ
+  source/                C++ source と Makefile
   README.md
 ```

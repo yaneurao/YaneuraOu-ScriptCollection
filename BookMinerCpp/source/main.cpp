@@ -2501,7 +2501,7 @@ std::string to_book_dir_relative_path(const fs::path& path)
 
 fs::path find_peta_shock_engine(const fs::path& app_dir)
 {
-    const fs::path engine_path = app_dir.parent_path() / "BookMiner" / PetaShockEngineName;
+    const fs::path engine_path = app_dir / PetaShockEngineName;
     if (fs::is_regular_file(engine_path))
         return engine_path;
     throw std::runtime_error("peta shock engine not found : " + engine_path.string());

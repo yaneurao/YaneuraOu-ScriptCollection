@@ -19,17 +19,18 @@ BookMinerCpp 固有の内容は次のドキュメントにまとめています�
 ## 概要
 
 BookMinerCpp は GUI を持ちません。
-既存の `BookMiner-gui.py` から `--cpp` を指定して起動するか、`BookMinerCpp.exe` を直接起動して CLI として使います。
+`BookMiner/BookMinerCpp.exe` として配置すると、既存の `BookMiner-gui.py` が自動的に C++版を起動します。
+直接起動して CLI として使う場合も、Python 版 BookMiner と同じ `BookMiner/` フォルダで起動します。
 
 ```bash
 cd ../BookMiner
-python3 BookMiner-gui.py --cpp
+python3 BookMiner-gui.py
 ```
 
 BookMinerCpp の通常バックアップは、やねうら王 バイナリ定跡DB (`.ybb`) として保存します。
 
 ```text
-BookMinerCpp/book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
+BookMiner/book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb
 ```
 
 内部の定跡DBは `PackedSfen` key、`Move16`、`int16_t eval` を使い、memtable と sorted run 群による LSM-tree 風の構造で保持します。

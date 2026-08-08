@@ -1,5 +1,5 @@
 APP_NAME := BookMinerCpp
-TARGET := ../$(APP_NAME).exe
+TARGET := ../../BookMiner/$(APP_NAME).exe
 BUILD_DIR := build
 YANEURAOU_ROOT := ../../../YaneuraOu/source
 YANEURAOU_LIB := $(BUILD_DIR)/yaneuraou/yaneuraou_core.lib

@@ -8,10 +8,10 @@ BookMiner のアルゴリズム上の意味や操作手順は、Python 版 BookM
 BookMinerCpp は GUI ではありません。
 stdin/stdout ベースの CLI として動作します。
 
-GUI から使う場合は、Python 版の `BookMiner-gui.py --cpp` が次を起動します。
+GUI から使う場合は、`BookMiner/BookMinerCpp.exe` が存在すると Python 版の `BookMiner-gui.py` が次を起動します。
 
 ```text
-../BookMinerCpp/BookMinerCpp.exe --from_gui
+BookMinerCpp.exe --from_gui
 ```
 
 `--from_gui` が指定されている場合、プロンプト表示は抑制し、GUI が解釈するタグ付きログを出力します。

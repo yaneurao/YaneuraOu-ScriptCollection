@@ -19,10 +19,11 @@ BookMiner の目的、用語、基本操作は Python 版と同じです。
 BookMinerCpp は、`BookMiner.py` と同じ stdin/stdout ベースの CLI として動作します。
 GUI は C++ で作り直しません。
 既存の `BookMiner-gui.py` から C++版を起動します。
+`BookMiner/BookMinerCpp.exe` が存在する場合、GUI は自動的に C++版を使います。
 
 ```bash
 cd ../BookMiner
-python3 BookMiner-gui.py --cpp
+python3 BookMiner-gui.py
 ```
 
 GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに起動される子プロセスです。
@@ -55,10 +56,8 @@ GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに
 ## フォルダ構成
 
 ```text
-BookMinerCpp/
+BookMiner/
   BookMinerCpp.exe
-  README.md
-  docs/
   settings/
     engine_settings-sample.json5
     book_miner_settings-sample.json5
@@ -67,6 +66,9 @@ BookMinerCpp/
   book/
     backup/
   log/
+BookMinerCpp/
+  README.md
+  docs/
   source/
     Makefile
 ```
