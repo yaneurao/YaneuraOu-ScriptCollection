@@ -2518,10 +2518,22 @@ void emit_output_chunk(std::string& pending, const char* data, std::size_t size)
 {
     pending.append(data, size);
     std::size_t pos = 0;
-    while ((pos = pending.find('\n')) != std::string::npos)
+    while (true)
     {
+        const auto newline_pos = pending.find('\n');
+        const auto carriage_pos = pending.find('\r');
+        if (newline_pos == std::string::npos && carriage_pos == std::string::npos)
+            break;
+
+        pos = newline_pos;
+        if (carriage_pos != std::string::npos && (pos == std::string::npos || carriage_pos < pos))
+            pos = carriage_pos;
+
+        const char separator = pending[pos];
         std::string line = pending.substr(0, pos);
         pending.erase(0, pos + 1);
+        if (separator == '\r' && !pending.empty() && pending.front() == '\n')
+            pending.erase(0, 1);
         emit_prefixed_output_line(std::move(line));
     }
 }
@@ -2544,6 +2556,8 @@ std::string quote_windows_arg(const fs::path& path)
 
 int run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
 {
+    constexpr int PetaShockProgressIntervalSeconds = 10;
+
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -2585,16 +2599,54 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
 
     std::string pending;
     char buffer[4096];
-    DWORD read_size = 0;
-    while (ReadFile(child_stdout_read, buffer, sizeof(buffer), &read_size, nullptr) && read_size > 0)
-        emit_output_chunk(pending, buffer, read_size);
+    DWORD exit_code = STILL_ACTIVE;
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_progress_time = start_time;
+
+    while (true)
+    {
+        DWORD available = 0;
+        if (!PeekNamedPipe(child_stdout_read, nullptr, 0, nullptr, &available, nullptr))
+            break;
+
+        while (available > 0)
+        {
+            const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(buffer)));
+            DWORD read_size = 0;
+            if (!ReadFile(child_stdout_read, buffer, to_read, &read_size, nullptr) || read_size == 0)
+                break;
+            emit_output_chunk(pending, buffer, read_size);
+            available -= std::min(available, read_size);
+        }
+
+        if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0)
+        {
+            GetExitCodeProcess(pi.hProcess, &exit_code);
+            DWORD remaining = 0;
+            if (!PeekNamedPipe(child_stdout_read, nullptr, 0, nullptr, &remaining, nullptr) || remaining == 0)
+                break;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_progress_time >= std::chrono::seconds(PetaShockProgressIntervalSeconds))
+        {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+            log_line("[peta_shock] running... elapsed " + std::to_string(elapsed) + "s");
+            last_progress_time = now;
+        }
+
+        WaitForSingleObject(pi.hProcess, 1000);
+    }
+
     if (!pending.empty())
         emit_prefixed_output_line(std::move(pending));
     CloseHandle(child_stdout_read);
 
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD exit_code = 1;
-    GetExitCodeProcess(pi.hProcess, &exit_code);
+    if (exit_code == STILL_ACTIVE)
+    {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+    }
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return static_cast<int>(exit_code);
@@ -2861,24 +2913,81 @@ void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::st
     log_line("reading the peta_book has done.");
 }
 
-void make_and_read_peta_book(
+fs::path make_peta_book(
     const fs::path& app_dir,
-    bookminer::BookStore& peta_book,
     const std::optional<std::string>& source_book_path)
 {
     const fs::path source = resolve_peta_source_book_path(source_book_path);
-    const fs::path peta_path = run_peta_shock_makebook(app_dir, source);
-    read_peta_book(peta_book, std::optional<std::string>{peta_path.string()});
+    return run_peta_shock_makebook(app_dir, source);
 }
 
-void write_and_read_peta_book(const fs::path& app_dir, bookminer::BookStore& peta_book, const fs::path& source_book_path)
-{
-    log_line("start p command : write backup, peta_shock, and read peta book.");
-    log_line("p command source book = " + source_book_path.string());
-    make_and_read_peta_book(app_dir, peta_book, std::optional<std::string>{source_book_path.string()});
-    log_line("..p command has done.");
-    log_line("[PetaCommandDone]");
-}
+class PetaBookReadJob {
+public:
+    explicit PetaBookReadJob(bookminer::BookStore& peta_book)
+        : peta_book_(peta_book)
+    {
+    }
+
+    ~PetaBookReadJob()
+    {
+        join();
+    }
+
+    bool running() const
+    {
+        return running_.load();
+    }
+
+    bool start(
+        std::optional<std::string> peta_book_path,
+        std::string done_message,
+        std::string done_tag)
+    {
+        if (running_.load())
+            return false;
+        if (thread_.joinable())
+            thread_.join();
+
+        running_ = true;
+        thread_ = std::thread([
+            this,
+            peta_book_path = std::move(peta_book_path),
+            done_message = std::move(done_message),
+            done_tag = std::move(done_tag)
+        ] {
+            bool succeeded = false;
+            try
+            {
+                read_peta_book(peta_book_, peta_book_path);
+                if (!done_message.empty())
+                    log_line(done_message);
+                succeeded = true;
+            }
+            catch (const std::exception& ex)
+            {
+                log_line(std::string("Exception : peta read failed: ") + ex.what());
+            }
+            running_ = false;
+            if (succeeded)
+            {
+                if (!done_tag.empty())
+                    log_line(done_tag);
+            }
+        });
+        return true;
+    }
+
+    void join()
+    {
+        if (thread_.joinable())
+            thread_.join();
+    }
+
+private:
+    bookminer::BookStore& peta_book_;
+    std::atomic<bool> running_{false};
+    std::thread thread_;
+};
 
 void print_help()
 {
@@ -2941,6 +3050,7 @@ int main(int argc, char* argv[])
 
     bookminer::BookStore book;
     bookminer::BookStore peta_book;
+    PetaBookReadJob peta_book_read_job(peta_book);
     std::vector<std::unique_ptr<bookminer::UsiEngine>> engines;
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
@@ -2985,6 +3095,13 @@ int main(int argc, char* argv[])
 
         log_line("[CommandReady] message=コマンド受付を開始しました。");
 
+        auto reject_if_peta_book_loading = [&]() {
+            if (!peta_book_read_job.running())
+                return false;
+            log_line("Error : peta book is loading. wait for peta read completion.");
+            return true;
+        };
+
         std::string line;
         while (true)
         {
@@ -3020,6 +3137,7 @@ int main(int argc, char* argv[])
                     auto_save_service->stop();
                 if (task_workers)
                     task_workers->stop(true);
+                peta_book_read_job.join();
                 break;
             }
             else if (command == "!")
@@ -3029,6 +3147,7 @@ int main(int argc, char* argv[])
                     auto_save_service->stop();
                 if (task_workers)
                     task_workers->stop(true);
+                peta_book_read_job.join();
                 break;
             }
             else if (command == "w")
@@ -3112,6 +3231,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "p")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 fs::path source_book_path;
                 const auto current_revision = book.revision();
                 if (clean_source_path.has_value()
@@ -3131,17 +3253,37 @@ int main(int argc, char* argv[])
                         clean_source_revision = before_revision;
                     }
                 }
-                write_and_read_peta_book(app_dir, peta_book, source_book_path);
+                log_line("start p command : write backup, peta_shock, and read peta book.");
+                log_line("p command source book = " + source_book_path.string());
+                const fs::path peta_path = make_peta_book(app_dir, std::optional<std::string>{source_book_path.string()});
+                if (!peta_book_read_job.start(
+                        std::optional<std::string>{peta_path.string()},
+                        "..p command has done.",
+                        "[PetaCommandDone]"))
+                {
+                    log_line("Error : peta book is loading. wait for peta read completion.");
+                }
             }
             else if (command == "pl" || command == "peta_shock_latest")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 log_line("start pl command : peta_shock latest backup, and read peta book.");
-                make_and_read_peta_book(app_dir, peta_book, std::nullopt);
-                log_line("..pl command has done.");
-                log_line("[PetaCommandDone]");
+                const fs::path peta_path = make_peta_book(app_dir, std::nullopt);
+                if (!peta_book_read_job.start(
+                        std::optional<std::string>{peta_path.string()},
+                        "..pl command has done.",
+                        "[PetaCommandDone]"))
+                {
+                    log_line("Error : peta book is loading. wait for peta read completion.");
+                }
             }
             else if (command == "pn")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
                 const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
                 const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
@@ -3185,6 +3327,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "pnf")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 if (tokens.size() < 2)
                 {
                     log_line("Usage : pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
@@ -3219,6 +3364,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "pr")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
                 const int peta_eval_diff = parse_int_argument(tokens, 2, command_defaults.eval_diff);
                 const int max_step = parse_int_argument(tokens, 3, command_defaults.max_step);
@@ -3268,6 +3416,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "pf")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
                 std::optional<int> refutation_eval_limit = parse_optional_int_argument(tokens, 2);
                 const int command_max_book_ply = parse_int_argument(tokens, 3, max_book_ply);
@@ -3285,6 +3436,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "pu")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 const int eval_diff = parse_int_argument(tokens, 1, PetaDefaultInfEvalDiff);
                 const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
                 const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
@@ -3325,6 +3479,9 @@ int main(int argc, char* argv[])
             }
             else if (command == "po")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 const int eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
                 const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
                 const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
@@ -3365,11 +3522,14 @@ int main(int argc, char* argv[])
             }
             else if (command == "r")
             {
+                if (reject_if_peta_book_loading())
+                    continue;
+
                 std::optional<std::string> peta_book_path;
                 if (tokens.size() >= 2)
                     peta_book_path = tokens[1];
-                read_peta_book(peta_book, peta_book_path);
-                log_line("[PetaReadDone]");
+                if (!peta_book_read_job.start(std::move(peta_book_path), "", "[PetaReadDone]"))
+                    log_line("Error : peta book is loading. wait for peta read completion.");
             }
             else
             {

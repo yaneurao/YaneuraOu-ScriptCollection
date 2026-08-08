@@ -1187,7 +1187,6 @@ class BookMinerGui(ttk.Frame):
         return (
             PETA_MAKEBOOK_START_RE.search(line) is not None
             or PETA_MAKEBOOK_DONE_RE.search(line) is not None
-            or PETA_MAKEBOOK_LINE_RE.search(line) is not None
             or PETA_COMMAND_DONE_RE.search(line) is not None
             or PETA_READ_DONE_RE.search(line) is not None
             or PETA_COMMAND_LOG_MIRROR_RE.search(line) is not None
