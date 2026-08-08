@@ -2966,6 +2966,7 @@ int main(int argc, char* argv[])
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
         clean_source_path = load_latest_book_backup(book);
         clean_source_revision = book.revision();
+        log_line("[MiningProgress] positions=" + std::to_string(book.size()));
         log_line("[StartupStage] stage=book_read_done message=定跡DB読み込み完了");
 
         log_line("[StartupStage] stage=engine_init message=エンジン起動中");

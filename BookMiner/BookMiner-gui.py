@@ -18,7 +18,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
-BOOK_MINER_CPP_EXE = BASE_DIR.parent / "BookMinerCpp" / "BookMinerCpp.exe"
+BOOK_MINER_CPP_EXE = BASE_DIR / "BookMinerCpp.exe"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
 THINK_SFENS_COMMAND_PATH = "book/think_sfens.txt"
@@ -1341,6 +1341,7 @@ class BookMinerGui(ttk.Frame):
             bar.configure(maximum=1)
             bar["value"] = 0
 
+        previous_remaining = self.task_queue_remaining
         self.task_queue_remaining = remaining
 
         if self.busy_action == "manual_enqueue" and phase == "Start":
@@ -1360,6 +1361,9 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
             self._maybe_start_auto_enqueue()
             return
+
+        if previous_remaining != self.task_queue_remaining:
+            self._update_buttons()
 
         self._maybe_start_auto_enqueue()
 
@@ -1469,6 +1473,12 @@ class BookMinerGui(ttk.Frame):
             return
 
         positions = int(match.group(1))
+        self.progress_labels["read"].set(f"定跡局面数 {positions:,}")
+        read_bar = self.progress_bars.get("read")
+        if read_bar is not None:
+            read_bar.configure(maximum=max(positions, 1))
+            read_bar["value"] = positions
+
         if self.latest_mining_positions is not None and positions < self.latest_mining_positions:
             self.mining_samples.clear()
 
@@ -2445,9 +2455,21 @@ class BookMinerGui(ttk.Frame):
         command_enabled = command_state == "normal"
         enqueue_pending = getattr(self, "enqueue_pending", False)
         auto_enqueue_state = getattr(self, "auto_enqueue_state", AUTO_ENQUEUE_IDLE)
+        task_queue_busy = (
+            self.task_queue_remaining is not None
+            and self.task_queue_remaining > 0
+            and auto_enqueue_state == AUTO_ENQUEUE_IDLE
+        )
+        command_busy = (
+            self.busy_action is not None
+            or enqueue_pending
+            or self.peta_makebook_active
+            or auto_enqueue_state != AUTO_ENQUEUE_IDLE
+        )
         peta_book_busy = (
             self.peta_makebook_active
             or enqueue_pending
+            or task_queue_busy
             or self.busy_action in {
                 "manual_peta_shock",
                 "manual_peta_shock_latest",
@@ -2459,12 +2481,7 @@ class BookMinerGui(ttk.Frame):
                 "auto_enqueue",
             }
         )
-        any_busy = (
-            self.busy_action is not None
-            or enqueue_pending
-            or self.peta_makebook_active
-            or auto_enqueue_state != AUTO_ENQUEUE_IDLE
-        )
+        any_busy = command_busy or task_queue_busy
         enqueue_allowed_during_peta = self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read"}
 
         def configure_state(name: str, state: str) -> None:
@@ -2490,23 +2507,29 @@ class BookMinerGui(ttk.Frame):
                 else "disabled"
             ),
         )
-        configure_state("auto_check", "normal" if command_enabled and not any_busy else "disabled")
+        configure_state("auto_check", "normal" if command_enabled and not command_busy else "disabled")
         configure_state("write_button", "normal" if command_enabled and not any_busy else "disabled")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="BookMiner GUI")
     parser.add_argument("--shogidb", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--cpp", "--bookminer-cpp", action="store_true", help="use BookMinerCpp.exe instead of BookMiner.py")
+    parser.add_argument(
+        "--cpp",
+        "--bookminer-cpp",
+        action="store_true",
+        help="force BookMinerCpp.exe instead of BookMiner.py",
+    )
     args = parser.parse_args()
+    use_cpp = args.cpp or BOOK_MINER_CPP_EXE.is_file()
 
     root = tk.Tk()
-    root.title("BookMiner GUI" + (" - C++" if args.cpp else ""))
+    root.title("BookMiner GUI" + (" - C++" if use_cpp else ""))
     root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
-    gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=args.cpp)
+    gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=use_cpp)
     configure_initial_window_size(root)
 
     def on_close() -> None:
