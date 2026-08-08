@@ -14,6 +14,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -2989,6 +2990,51 @@ private:
     std::thread thread_;
 };
 
+class PetaCommandJob {
+public:
+    ~PetaCommandJob()
+    {
+        join();
+    }
+
+    bool running() const
+    {
+        return running_.load();
+    }
+
+    bool start(std::function<void()> command)
+    {
+        if (running_.load())
+            return false;
+        if (thread_.joinable())
+            thread_.join();
+
+        running_ = true;
+        thread_ = std::thread([this, command = std::move(command)] {
+            try
+            {
+                command();
+            }
+            catch (const std::exception& ex)
+            {
+                log_line(std::string("Exception : peta command failed: ") + ex.what());
+            }
+            running_ = false;
+        });
+        return true;
+    }
+
+    void join()
+    {
+        if (thread_.joinable())
+            thread_.join();
+    }
+
+private:
+    std::atomic<bool> running_{false};
+    std::thread thread_;
+};
+
 void print_help()
 {
     log_line("Help : ");
@@ -3051,6 +3097,7 @@ int main(int argc, char* argv[])
     bookminer::BookStore book;
     bookminer::BookStore peta_book;
     PetaBookReadJob peta_book_read_job(peta_book);
+    PetaCommandJob peta_command_job;
     std::vector<std::unique_ptr<bookminer::UsiEngine>> engines;
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
@@ -3095,11 +3142,18 @@ int main(int argc, char* argv[])
 
         log_line("[CommandReady] message=コマンド受付を開始しました。");
 
-        auto reject_if_peta_book_loading = [&]() {
-            if (!peta_book_read_job.running())
-                return false;
-            log_line("Error : peta book is loading. wait for peta read completion.");
-            return true;
+        auto reject_if_peta_busy = [&]() {
+            if (peta_book_read_job.running())
+            {
+                log_line("Error : peta book is loading. wait for peta read completion.");
+                return true;
+            }
+            if (peta_command_job.running())
+            {
+                log_line("Error : peta command is running. wait for peta command completion.");
+                return true;
+            }
+            return false;
         };
 
         std::string line;
@@ -3137,6 +3191,7 @@ int main(int argc, char* argv[])
                     auto_save_service->stop();
                 if (task_workers)
                     task_workers->stop(true);
+                peta_command_job.join();
                 peta_book_read_job.join();
                 break;
             }
@@ -3147,6 +3202,7 @@ int main(int argc, char* argv[])
                     auto_save_service->stop();
                 if (task_workers)
                     task_workers->stop(true);
+                peta_command_job.join();
                 peta_book_read_job.join();
                 break;
             }
@@ -3164,6 +3220,7 @@ int main(int argc, char* argv[])
                 }
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
+                log_line("[ManualBackupDone] path=" + path.string());
             }
             else if (command == "sd" || command == "set-default")
             {
@@ -3231,7 +3288,7 @@ int main(int argc, char* argv[])
             }
             else if (command == "p")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 fs::path source_book_path;
@@ -3266,7 +3323,7 @@ int main(int argc, char* argv[])
             }
             else if (command == "pl" || command == "peta_shock_latest")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 log_line("start pl command : peta_shock latest backup, and read peta book.");
@@ -3281,7 +3338,7 @@ int main(int argc, char* argv[])
             }
             else if (command == "pn")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
@@ -3314,20 +3371,34 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                peta_next(
-                    nullptr,
-                    peta_book,
-                    peta_eval_diff,
-                    max_step,
-                    command_max_book_ply,
-                    book_miner_settings.peta_next_start_sfens_path,
-                    std::nullopt,
-                    book_extend_ply,
-                    eval_limit);
+                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                if (!peta_command_job.start([
+                        &peta_book,
+                        peta_eval_diff,
+                        max_step,
+                        command_max_book_ply,
+                        start_sfens_path,
+                        book_extend_ply,
+                        eval_limit
+                    ] {
+                        peta_next(
+                            nullptr,
+                            peta_book,
+                            peta_eval_diff,
+                            max_step,
+                            command_max_book_ply,
+                            start_sfens_path,
+                            std::nullopt,
+                            book_extend_ply,
+                            eval_limit);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
             }
             else if (command == "pnf")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 if (tokens.size() < 2)
@@ -3350,21 +3421,35 @@ int main(int argc, char* argv[])
                         log_line("Error : max_step must be positive integer.");
                         continue;
                     }
-                    peta_next(
-                        &book,
-                        peta_book,
-                        peta_eval_diff,
-                        max_step,
-                        command_max_book_ply,
-                        book_miner_settings.peta_next_start_sfens_path,
-                        eval_refutation_margin,
-                        std::nullopt,
-                        std::nullopt);
+                    const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                    if (!peta_command_job.start([
+                            &book,
+                            &peta_book,
+                            peta_eval_diff,
+                            max_step,
+                            command_max_book_ply,
+                            start_sfens_path,
+                            eval_refutation_margin
+                        ] {
+                            peta_next(
+                                &book,
+                                peta_book,
+                                peta_eval_diff,
+                                max_step,
+                                command_max_book_ply,
+                                start_sfens_path,
+                                eval_refutation_margin,
+                                std::nullopt,
+                                std::nullopt);
+                        }))
+                    {
+                        log_line("Error : peta command is running. wait for peta command completion.");
+                    }
                 }
             }
             else if (command == "pr")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
@@ -3403,20 +3488,36 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                peta_next(
-                    &book,
-                    peta_book,
-                    peta_eval_diff,
-                    max_step,
-                    command_max_book_ply,
-                    book_miner_settings.peta_next_start_sfens_path,
-                    eval_refutation_margin,
-                    book_extend_ply,
-                    eval_limit);
+                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                if (!peta_command_job.start([
+                        &book,
+                        &peta_book,
+                        peta_eval_diff,
+                        max_step,
+                        command_max_book_ply,
+                        start_sfens_path,
+                        eval_refutation_margin,
+                        book_extend_ply,
+                        eval_limit
+                    ] {
+                        peta_next(
+                            &book,
+                            peta_book,
+                            peta_eval_diff,
+                            max_step,
+                            command_max_book_ply,
+                            start_sfens_path,
+                            eval_refutation_margin,
+                            book_extend_ply,
+                            eval_limit);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
             }
             else if (command == "pf")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
@@ -3427,16 +3528,27 @@ int main(int argc, char* argv[])
                     log_line("Error : max_book_ply must be positive integer.");
                     continue;
                 }
-                peta_refutation(
-                    book,
-                    peta_book,
-                    eval_refutation_margin,
-                    refutation_eval_limit,
-                    command_max_book_ply);
+                if (!peta_command_job.start([
+                        &book,
+                        &peta_book,
+                        eval_refutation_margin,
+                        refutation_eval_limit,
+                        command_max_book_ply
+                    ] {
+                        peta_refutation(
+                            book,
+                            peta_book,
+                            eval_refutation_margin,
+                            refutation_eval_limit,
+                            command_max_book_ply);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
             }
             else if (command == "pu")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 const int eval_diff = parse_int_argument(tokens, 1, PetaDefaultInfEvalDiff);
@@ -3469,17 +3581,29 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                peta_unsolved(
-                    peta_book,
-                    eval_diff,
-                    command_max_book_ply,
-                    max_step,
-                    book_extend_ply,
-                    eval_limit);
+                if (!peta_command_job.start([
+                        &peta_book,
+                        eval_diff,
+                        command_max_book_ply,
+                        max_step,
+                        book_extend_ply,
+                        eval_limit
+                    ] {
+                        peta_unsolved(
+                            peta_book,
+                            eval_diff,
+                            command_max_book_ply,
+                            max_step,
+                            book_extend_ply,
+                            eval_limit);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
             }
             else if (command == "po")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 const int eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
@@ -3512,17 +3636,29 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                peta_opponent(
-                    peta_book,
-                    eval_diff,
-                    command_max_book_ply,
-                    max_step,
-                    book_extend_ply,
-                    eval_limit);
+                if (!peta_command_job.start([
+                        &peta_book,
+                        eval_diff,
+                        command_max_book_ply,
+                        max_step,
+                        book_extend_ply,
+                        eval_limit
+                    ] {
+                        peta_opponent(
+                            peta_book,
+                            eval_diff,
+                            command_max_book_ply,
+                            max_step,
+                            book_extend_ply,
+                            eval_limit);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
             }
             else if (command == "r")
             {
-                if (reject_if_peta_book_loading())
+                if (reject_if_peta_busy())
                     continue;
 
                 std::optional<std::string> peta_book_path;
