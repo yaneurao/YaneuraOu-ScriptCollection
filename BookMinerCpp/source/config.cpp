@@ -163,7 +163,7 @@ std::vector<std::string> leaf_object_blocks(const std::string& text)
 
 std::string field_prefix(const std::string& name)
 {
-    return "(^|[\\s,{])" + name + "\\s*:\\s*";
+    return "(^|[\\s,{])\"?" + name + "\"?\\s*:\\s*";
 }
 
 std::optional<std::string> string_field(const std::string& object, const std::string& name)
