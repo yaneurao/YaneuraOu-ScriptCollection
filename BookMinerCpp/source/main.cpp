@@ -2832,10 +2832,15 @@ public:
 
     void start()
     {
-        if (started_)
-            return;
-        started_ = true;
-        const auto next = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+        std::chrono::system_clock::time_point next;
+        {
+            std::scoped_lock lock(mutex_);
+            if (started_)
+                return;
+            started_ = true;
+            next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+            next = next_backup_time_;
+        }
         log_line("[BackupServiceStarted] next=" + scheduled_time_text(next)
             + " interval=" + std::to_string(interval_seconds_));
         thread_ = std::thread([this] {
@@ -2854,18 +2859,37 @@ public:
             thread_.join();
     }
 
+    void reset_timer()
+    {
+        {
+            std::scoped_lock lock(mutex_);
+            if (!started_ || stopping_)
+                return;
+            next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+        }
+        cv_.notify_all();
+    }
+
 private:
     void run()
     {
         while (true)
         {
-            const auto next = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+            std::chrono::system_clock::time_point next;
+            {
+                std::scoped_lock lock(mutex_);
+                next = next_backup_time_;
+            }
             log_line("[BackupNext] next=" + scheduled_time_text(next)
                 + " interval=" + std::to_string(interval_seconds_));
 
             std::unique_lock lock(mutex_);
-            if (cv_.wait_until(lock, next, [&] { return stopping_; }))
-                return;
+            if (cv_.wait_until(lock, next, [&] { return stopping_ || next_backup_time_ != next; }))
+            {
+                if (stopping_)
+                    return;
+                continue;
+            }
             lock.unlock();
 
             try
@@ -2878,6 +2902,13 @@ private:
             {
                 log_line(std::string("Exception : auto save failed: ") + ex.what());
             }
+
+            {
+                std::scoped_lock next_lock(mutex_);
+                if (stopping_)
+                    return;
+                next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+            }
         }
     }
 
@@ -2886,6 +2917,7 @@ private:
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
+    std::chrono::system_clock::time_point next_backup_time_{};
     bool stopping_ = false;
     bool started_ = false;
 };
@@ -3218,6 +3250,8 @@ int main(int argc, char* argv[])
                     clean_source_path = path;
                     clean_source_revision = before_revision;
                 }
+                if (!ply_limit.has_value() && auto_save_service)
+                    auto_save_service->reset_timer();
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
                 log_line("[ManualBackupDone] path=" + path.string());

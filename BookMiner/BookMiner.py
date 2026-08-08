@@ -3702,21 +3702,43 @@ def user_input(from_gui:bool = False):
         nonlocal book
         save_book_backup(book, BOOK_BACKUP_DIR)
 
+    backup_condition = Condition()
+    next_backup_timestamp = time.time() + book_miner_settings.auto_save_interval_seconds
+
+    def reset_auto_backup_timer():
+        nonlocal next_backup_timestamp
+        with backup_condition:
+            next_backup_timestamp = time.time() + book_miner_settings.auto_save_interval_seconds
+            backup_condition.notify_all()
+
     def backup_worker():
+        nonlocal next_backup_timestamp
         print("start backup worker..")
         while True:
-            next_backup_time = scheduled_time_text(time.time() + book_miner_settings.auto_save_interval_seconds)
-            print(
-                f"[BackupNext] next={next_backup_time} "
-                f"interval={book_miner_settings.auto_save_interval_seconds}"
-            )
-            time.sleep(book_miner_settings.auto_save_interval_seconds)
+            with backup_condition:
+                next_backup_snapshot = next_backup_timestamp
+                next_backup_time = scheduled_time_text(next_backup_snapshot)
+                print(
+                    f"[BackupNext] next={next_backup_time} "
+                    f"interval={book_miner_settings.auto_save_interval_seconds}"
+                )
+                while True:
+                    wait_seconds = next_backup_snapshot - time.time()
+                    if wait_seconds <= 0:
+                        break
+                    backup_condition.wait(wait_seconds)
+                    if next_backup_timestamp != next_backup_snapshot:
+                        break
+                if next_backup_timestamp != next_backup_snapshot:
+                    continue
+
             print("[BackupStart]")
             save_book_backup(book, BOOK_BACKUP_DIR)
             print("[BackupDone]")
+            reset_auto_backup_timer()
 
     # backup用のタスクを開始。
-    next_backup_time = scheduled_time_text(time.time() + book_miner_settings.auto_save_interval_seconds)
+    next_backup_time = scheduled_time_text(next_backup_timestamp)
     print("[StartupStage] stage=backup_service message=自動保存サービス起動中")
     Thread(target=backup_worker, daemon=True).start()
     print(
@@ -3780,8 +3802,11 @@ def user_input(from_gui:bool = False):
                 else:
                     ply_limit = int(inp[1])
 
-                # 定跡を丸ごと書き出す。
-                write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
+                # 定跡を書き出す。フル保存は自動バックアップの起点として扱う。
+                path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
+                if ply_limit is None:
+                    reset_auto_backup_timer()
+                print(f"[ManualBackupDone] path={path}")
 
             elif i == 'sd' or i == 'set-default':
                 if len(inp) != 6:
