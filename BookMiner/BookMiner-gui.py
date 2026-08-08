@@ -1813,6 +1813,7 @@ class BookMinerGui(ttk.Frame):
         lower = line.lower()
         if (
             "[startupstage]" in lower
+            or "bookminer settings" in lower
             or "[engineinit" in lower
             or "[enginereadyprogress]" in lower
             or "[enginealive]" in lower
