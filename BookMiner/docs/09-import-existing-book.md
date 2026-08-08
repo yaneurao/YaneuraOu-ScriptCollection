@@ -10,13 +10,13 @@
 
 探索後に再度 peta shock 化すると、既存定跡内の局面評価も、新しく伸ばした先の評価値をもとに計算し直されます。
 
-ここでは手順を中心に説明します。peta shock 化そのものの意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) を参照してください。peta book から次に掘る局面を作る操作の詳細は [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) を参照してください。
+ここでは手順を中心に説明します。既存定跡全体の leaf の先を評価値で絞らずに掘る場合、peta shock 化は不要です。peta shock 化そのものの意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) を参照してください。peta book から次に掘る局面を作る操作の詳細は [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) を参照してください。
 
 ![定跡木と leaf からの延長](assets/book-tree-leaf-extension.svg)
 
 ## 既存定跡を配置する
 
-BookMiner.py を終了してから、既存のやねうら王標準定跡ファイルを次の名前で配置します。
+BookMiner.py を終了してから、既存のやねうら王標準定跡ファイルを配置します。もっとも簡単な方法は、次の名前で置くことです。
 
 ```text
 book/backup/book_miner.db
@@ -35,7 +35,8 @@ book/backup/book_miner.db
 - `book/backup/book_miner-YYYYMMDDHHMMSS_N.db` または既存の `.ybb` が存在する場合、BookMiner はそちらの最新ファイルを優先して読み込みます。
 - 既存定跡から開始したい場合は、`book/backup/` に既存の `book_miner-*` バックアップが無い状態にしてください。
 - `_plyN` 付きのファイルは部分書き出しなので、起動時の自動読み込み対象にはなりません。
-- 持ち込む既存定跡は、やねうら王標準定跡フォーマットの `.db` ファイルである必要があります。
+- 初回の読み込み入口として `book_miner.db` を使う場合、持ち込む既存定跡はやねうら王標準定跡フォーマットの `.db` ファイルである必要があります。
+- 既存の `.ybb` をそのまま使う場合は、`book/backup/book_miner-YYYYMMDDHHMMSS_N.ybb` のような通常バックアップ名で置いてください。`N` は局面数です。
 - `makebook peta_shock` に渡す定跡 DB は `sfen` 文字列で sort されている必要があります。BookMiner が `p` で書き出したあとの `book_miner-....db` は sort 済みです。
 
 ## BookMiner を起動する
@@ -52,9 +53,47 @@ GUI なら次のように起動します。
 python3 BookMiner-gui.py
 ```
 
-起動時に `book/backup/book_miner.db` が読み込まれます。
+起動時に `book/backup/` の通常バックアップが読み込まれます。通常バックアップが無い場合は、`book/backup/book_miner.db` が読み込まれます。
 
-## 手順1. peta_book を用意して読み込む
+## 手順1. 既存定跡の leaf の先を列挙する
+
+既存定跡全体の leaf の先を評価値で絞らずに掘る場合は、`makebook/book_to_think_sfens.py` を使います。
+
+このスクリプトは、やねうら王定跡DBのすべての候補手を辿り、その指し手の次局面が定跡DB内に存在しないとき、その局面までの手順を `book/think_sfens.txt` に書き出します。評価値を見ないので、入力DBが peta shock 化されている必要はありません。
+
+`YaneuraOu-ScriptCollection` をカレントフォルダにして実行します。
+
+```bash
+python3 makebook/book_to_think_sfens.py BookMiner/book/backup/book_miner.db BookMiner/book/think_sfens.txt
+```
+
+入力は `.db` / `.ybb` のどちらでも構いません。ただし、このスクリプトに渡す入力DBは、BookMinerが通常bookとして読み込んでいるものと同じ内容にしてください。BookMiner側が空bookや別bookを読んでいる状態で `enqueue` すると、`think_sfens.txt` の手順を既存定跡上で正しく辿れません。
+
+```bash
+python3 makebook/book_to_think_sfens.py BookMiner/book/backup/book_miner-20260809000000_123456.ybb BookMiner/book/think_sfens.txt
+```
+
+出力先を省略した場合は、`BookMiner/book/think_sfens.txt` に書き出します。
+
+```bash
+python3 makebook/book_to_think_sfens.py BookMiner/book/backup/book_miner.db
+```
+
+開始局面を限定したい場合は、`--roots` に `startpos moves ...` 形式または `sfen ... moves ...` 形式のファイルを指定します。
+
+```bash
+python3 makebook/book_to_think_sfens.py BookMiner/book/backup/book_miner.db --roots roots.txt
+```
+
+通常は同一局面への重複経路を1つにまとめ、180度反転した局面も同一視して定跡DBを引きます。反転局面を同一視したくない場合は `--no-flip-lookup` を指定します。
+
+出力先:
+
+```text
+BookMiner/book/think_sfens.txt
+```
+
+## 評価値で絞りたい場合: peta_book を用意して読み込む
 
 既存定跡を読み込んだら、まず peta shock 化した定跡を BookMiner の `peta_book` として読み込みます。
 
@@ -113,11 +152,11 @@ book/backup/peta_book-20260607103251_14505901.db
 
 この時点で、既存定跡は BookMiner の通常バックアップ形式に乗り、peta shock 化済みの `peta_book` も読み込まれています。
 
-## 手順2. peta next / peta refutation / peta unsolved / peta opponent で局面を列挙する
+## 評価値で絞りたい場合: peta next / peta refutation / peta unsolved / peta opponent で局面を列挙する
 
 次に、peta shock 化した定跡から leaf 局面を列挙します。
 
-既存定跡全体の leaf を広く取りたい場合は、`eval_diff` に大きな値を指定します。
+評価値を使って候補を絞りたい場合は、`peta next` などの peta 系コマンドを使います。
 
 CLI:
 
@@ -131,7 +170,7 @@ GUI:
 手順2. peta next  eval_diff 99999
 ```
 
-`99999` は、評価値差による枝刈りを実質的に無効化するための値です。これにより、既存定跡内で辿れる枝を広く辿り、末端の局面を `book/think_sfens.txt` に書き出します。
+`99999` は、評価値差による枝刈りをかなり広くするための値です。ただし `peta next` は手番側では bestmove だけを辿るため、これを指定しても定跡DBの全leaf列挙にはなりません。全候補手を評価値無視で辿りたい場合は、前節の `book_to_think_sfens.py` を使います。
 
 出力先:
 
@@ -143,13 +182,14 @@ book/think_sfens.txt
 
 `game ply limit` は `book/think_sfens.txt` の行末メタ情報としても残るため、その後の `enqueue` の探索workerにも効きます。候補列挙だけを浅くしたい場合は `game ply limit` ではなく `max step` を調整してください。`max step` は `book/think_sfens.txt` に書き出されません。
 
-## 手順3. enqueue する
+## 手順2. enqueue する
 
-`peta next`、`peta refutation`、`peta unsolved`、`peta opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
+`book_to_think_sfens.py`、または `peta next`、`peta refutation`、`peta unsolved`、`peta opponent` が書き出した `book/think_sfens.txt` を探索キューへ積みます。
 
 CLI:
 
 ```text
+sd 99999 99999 200 6 99999
 e
 ```
 
@@ -160,7 +200,9 @@ GUI:
 手順3. enqueue
 ```
 
-手順2の `eval_limit` も大きな値にしておくと、評価値が大きく傾いた leaf からも延長しやすくなります。
+`book_to_think_sfens.py` が出力する行には、`book_extend_ply=...` や `eval_limit=...` の行メタ情報は付きません。そのため、`enqueue` 時には `sd` のデフォルト値、または GUI の `デフォルト値` 行が使われます。
+
+デフォルト値または peta 系出力時の `eval_limit` を大きな値にしておくと、評価値が大きく傾いた leaf からも延長しやすくなります。
 
 ここは既存定跡から掘り始めるときの重要な注意点です。
 `peta next` の `eval_diff` と、手順2の行メタ情報として書き出す `eval_limit` は別の値です。

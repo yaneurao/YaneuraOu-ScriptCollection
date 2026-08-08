@@ -23,6 +23,7 @@ YaneuraOu の旧 `makebook` コマンドのうち、速度要求が比較的低�
 | [`sort_largebook.py`](sort_largebook.py) | `makebook sort` | 巨大なやねうら王定跡DBを、一時ファイルを使って正規化・ソートします。`.db` / `.ybb` 入出力に対応しています。 |
 | [`convert_db_to_ybb.py`](convert_db_to_ybb.py) | - | やねうら王定跡DB `.db` を やねうら王 バイナリ定跡DB `.ybb` へ、少ないメモリで変換します。 |
 | [`convert_ybb_to_db.py`](convert_ybb_to_db.py) | - | やねうら王 バイナリ定跡DB `.ybb` を やねうら王定跡DB `.db` へ、少ないメモリで変換します。 |
+| [`book_to_think_sfens.py`](book_to_think_sfens.py) | - | やねうら王定跡DBのleaf局面を、BookMiner用の `think_sfens.txt` 形式で列挙します。`.db` / `.ybb` 入力に対応しています。 |
 | [`convert_ybb_db-gui.py`](convert_ybb_db-gui.py) | - | GUI から `.db` と `.ybb` を相互変換します。 |
 | [`peta_shock-gui.py`](peta_shock-gui.py) | `makebook peta_shock` | GUI から `.db` / `.ybb` をペタショック化し、`.db` 入力の場合は続けて `.ybb` へ変換します。 |
 | [`convert_to_apery.py`](convert_to_apery.py) | `makebook convert_to_apery` | やねうら王定跡DBを Apery定跡へ変換します。`.db` / `.ybb` 入力に対応しています。 |
@@ -423,6 +424,50 @@ user_book.ybb
 | `--chunk-bytes N` | `536870912` | 1つの一時runに含める概算byte数の上限。 |
 | `--max-open-runs N` | `64` | k-way mergeで同時にopenするrun数の上限。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
+
+## book_to_think_sfens.py
+
+やねうら王定跡DBから、定跡ツリーの leaf 局面を BookMiner 用の `think_sfens.txt` 形式で書き出します。
+
+`peta next` と違い、このスクリプトは評価値を見ません。すべての候補手を辿り、その指し手の次局面が定跡DB内に存在しないとき、その局面までの手順を `startpos moves ...` 形式で出力します。そのため、入力DBが peta shock 化されている必要はありません。
+
+基本形:
+
+```bash
+python3 book_to_think_sfens.py user_book.db ../BookMiner/book/think_sfens.txt
+python3 book_to_think_sfens.py user_book.ybb ../BookMiner/book/think_sfens.txt
+```
+
+出力先を省略した場合は、`../BookMiner/book/think_sfens.txt` に書き出します。
+
+```bash
+python3 book_to_think_sfens.py user_book.db
+```
+
+開始局面を指定する場合は、`--roots` に `startpos moves ...` 形式または `sfen ... moves ...` 形式のファイルを渡します。
+
+```bash
+python3 book_to_think_sfens.py user_book.db --roots roots.txt
+```
+
+通常は同一局面への重複経路を1つにまとめ、180度反転した局面も同一視して定跡DBを引きます。反転局面を同一視したくない場合は `--no-flip-lookup` を指定します。
+
+既存の `think_sfens.txt` に追記する場合:
+
+```bash
+python3 book_to_think_sfens.py user_book.db --append
+```
+
+オプション:
+
+| オプション | 既定値 | 意味 |
+| --- | ---: | --- |
+| `--roots FILE` | なし | 開始局面ファイル。省略時は平手の `startpos` から辿ります。 |
+| `--append` | off | 出力ファイルを上書きせず、末尾へ追記します。 |
+| `--no-flip-lookup` | off | 180度反転したSFENでのDB lookupを行いません。 |
+| `--skip-illegal` | off | DB内に非合法手があっても停止せず、その指し手を無視します。 |
+| `--sfen-output FILE` | なし | leaf の ply付きSFENも別ファイルへ書き出します。 |
+| `--progress-interval N` | `10000` | N局面展開ごとに進捗を表示します。`0` で無効です。 |
 
 ## convert_to_apery.py
 
