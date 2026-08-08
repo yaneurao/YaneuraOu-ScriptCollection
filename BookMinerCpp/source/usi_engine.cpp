@@ -4,10 +4,13 @@
 #include "sfen_position.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -447,8 +450,14 @@ std::vector<std::unique_ptr<UsiEngine>> initialize_engines(
     std::vector<std::unique_ptr<UsiEngine>> engines;
     engines.reserve(static_cast<std::size_t>(total));
 
+    std::vector<std::thread> ready_threads;
+    ready_threads.reserve(static_cast<std::size_t>(total));
+
+    std::atomic<int> ready{0};
+    std::mutex error_mutex;
+    std::exception_ptr first_error;
+
     int id = 0;
-    int ready = 0;
     for (const auto& config : configs)
     {
         for (int i = 0; i < std::max(1, config.multi); ++i)
@@ -456,21 +465,39 @@ std::vector<std::unique_ptr<UsiEngine>> initialize_engines(
             log("  engine " + std::to_string(id + 1) + " , start .. path = " + config.path);
             auto engine = std::make_unique<UsiEngine>(id, config, app_dir);
             engine->start(log);
+            auto* engine_ptr = engine.get();
             engines.push_back(std::move(engine));
 
             log("[EngineInitProgress] " + std::to_string(static_cast<int>(engines.size())) + "/" + std::to_string(total)
-                + " ready=" + std::to_string(ready));
+                + " ready=" + std::to_string(ready.load()));
 
-            engines.back()->isready(log);
-            ++ready;
-            log("[EngineReadyProgress] " + std::to_string(ready) + "/" + std::to_string(total));
+            ready_threads.emplace_back([engine_ptr, log, total, &ready, &error_mutex, &first_error] {
+                try
+                {
+                    engine_ptr->isready(log);
+                    const int ready_count = ++ready;
+                    log("[EngineReadyProgress] " + std::to_string(ready_count) + "/" + std::to_string(total));
+                }
+                catch (...)
+                {
+                    std::lock_guard<std::mutex> lock(error_mutex);
+                    if (!first_error)
+                        first_error = std::current_exception();
+                }
+            });
 
             ++id;
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
         }
     }
 
-    log("[EngineInitDone] " + std::to_string(ready) + "/" + std::to_string(total));
+    for (auto& thread : ready_threads)
+        thread.join();
+
+    if (first_error)
+        std::rethrow_exception(first_error);
+
+    log("[EngineInitDone] " + std::to_string(ready.load()) + "/" + std::to_string(total));
     return engines;
 }
 
