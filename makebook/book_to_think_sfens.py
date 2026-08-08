@@ -194,6 +194,7 @@ def enumerate_leafs(
     book: dict[str, list[BookMove]],
     roots: list[RootPosition],
     *,
+    include_leaf_moves: bool,
     flip_lookup: bool,
     skip_illegal: bool,
     progress_interval: int,
@@ -205,6 +206,7 @@ def enumerate_leafs(
     expanded = 0
     skipped_illegal = 0
     skipped_terminal = 0
+    leaf_move_outputs = 0
 
     while queue:
         node = queue.popleft()
@@ -227,6 +229,7 @@ def enumerate_leafs(
 
         expanded += 1
         traversed = 0
+        child_book_nodes = 0
 
         for book_move in moves:
             if book_move.move in NON_BOARD_MOVES:
@@ -250,17 +253,21 @@ def enumerate_leafs(
             next_moves, _ = lookup_book(book, next_key, flip_lookup=flip_lookup)
 
             if next_moves is None:
-                add_leaf(
+                if include_leaf_moves and add_leaf(
                     leafs,
                     leaf_seen,
                     next_position_cmd,
                     next_sfen_with_ply,
                     flip_lookup=flip_lookup,
-                )
-            elif not already_seen(visited, next_key, flip_lookup=flip_lookup):
+                ):
+                    leaf_move_outputs += 1
+                continue
+
+            child_book_nodes += 1
+            if not already_seen(visited, next_key, flip_lookup=flip_lookup):
                 queue.append(RootPosition(next_position_cmd, next_sfen_with_ply))
 
-        if traversed == 0:
+        if traversed == 0 or (not include_leaf_moves and child_book_nodes == 0):
             add_leaf(
                 leafs,
                 leaf_seen,
@@ -282,6 +289,7 @@ def enumerate_leafs(
         "leafs": len(leafs),
         "skipped_illegal": skipped_illegal,
         "skipped_terminal": skipped_terminal,
+        "leaf_move_outputs": leaf_move_outputs,
     }
     return leafs, stats
 
@@ -331,6 +339,14 @@ def parse_args() -> argparse.Namespace:
         help="append to output instead of overwriting it",
     )
     parser.add_argument(
+        "--include-leaf-moves",
+        action="store_true",
+        help=(
+            "write positions after book moves that leave the DB. "
+            "By default, the script writes book leaf nodes themselves."
+        ),
+    )
+    parser.add_argument(
         "--no-flip-lookup",
         action="store_true",
         help="do not look up 180-degree flipped SFENs in the book",
@@ -363,6 +379,7 @@ def main() -> None:
     print(f"output     : {output_path}")
     print(f"roots      : {args.roots if args.roots else 'startpos'}")
     print(f"flip lookup: {'enabled' if flip_lookup else 'disabled'}")
+    print(f"leaf moves : {'included' if args.include_leaf_moves else 'excluded'}")
 
     print("read book...")
     book = load_book(args.book)
@@ -376,6 +393,7 @@ def main() -> None:
     leafs, stats = enumerate_leafs(
         book,
         roots,
+        include_leaf_moves=args.include_leaf_moves,
         flip_lookup=flip_lookup,
         skip_illegal=args.skip_illegal,
         progress_interval=args.progress_interval,
@@ -388,6 +406,7 @@ def main() -> None:
     print(f"expanded         = {stats['expanded']:,}")
     print(f"visited          = {stats['visited']:,}")
     print(f"leafs            = {stats['leafs']:,}")
+    print(f"leaf move outputs= {stats['leaf_move_outputs']:,}")
     print(f"skipped terminal = {stats['skipped_terminal']:,}")
     print(f"skipped illegal  = {stats['skipped_illegal']:,}")
     print(f"wrote            = {output_path}")

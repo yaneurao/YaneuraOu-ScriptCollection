@@ -429,7 +429,9 @@ user_book.ybb
 
 やねうら王定跡DBから、定跡ツリーの leaf 局面を BookMiner 用の `think_sfens.txt` 形式で書き出します。
 
-`peta next` と違い、このスクリプトは評価値を見ません。すべての候補手を辿り、その指し手の次局面が定跡DB内に存在しないとき、その局面までの手順を `startpos moves ...` 形式で出力します。そのため、入力DBが peta shock 化されている必要はありません。
+`peta next` と違い、このスクリプトは評価値を見ません。定跡DB内の全候補手を辿り、子局面が定跡DB内に1つも存在しない book leaf 局面を `startpos moves ...` 形式で出力します。そのため、入力DBが peta shock 化されている必要はありません。
+
+デフォルトでは、leaf 局面に登録されている指し手は出力手順に含めません。leaf の各候補手を1手指した先、つまり定跡DBの外へ出た局面まで出力したい場合だけ `--include-leaf-moves` を指定します。
 
 基本形:
 
@@ -458,12 +460,19 @@ python3 book_to_think_sfens.py user_book.db --roots roots.txt
 python3 book_to_think_sfens.py user_book.db --append
 ```
 
+leaf 局面の候補手まで使う場合:
+
+```bash
+python3 book_to_think_sfens.py user_book.db --include-leaf-moves
+```
+
 オプション:
 
 | オプション | 既定値 | 意味 |
 | --- | ---: | --- |
 | `--roots FILE` | なし | 開始局面ファイル。省略時は平手の `startpos` から辿ります。 |
 | `--append` | off | 出力ファイルを上書きせず、末尾へ追記します。 |
+| `--include-leaf-moves` | off | book leaf 局面の候補手を1手指した先の局面まで出力します。 |
 | `--no-flip-lookup` | off | 180度反転したSFENでのDB lookupを行いません。 |
 | `--skip-illegal` | off | DB内に非合法手があっても停止せず、その指し手を無視します。 |
 | `--sfen-output FILE` | なし | leaf の ply付きSFENも別ファイルへ書き出します。 |

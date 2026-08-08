@@ -59,7 +59,9 @@ python3 BookMiner-gui.py
 
 既存定跡全体の leaf の先を評価値で絞らずに掘る場合は、`makebook/book_to_think_sfens.py` を使います。
 
-このスクリプトは、やねうら王定跡DBのすべての候補手を辿り、その指し手の次局面が定跡DB内に存在しないとき、その局面までの手順を `book/think_sfens.txt` に書き出します。評価値を見ないので、入力DBが peta shock 化されている必要はありません。
+このスクリプトは、やねうら王定跡DBの候補手を辿り、子局面が定跡DB内に1つも存在しない book leaf 局面までの手順を `book/think_sfens.txt` に書き出します。評価値を見ないので、入力DBが peta shock 化されている必要はありません。
+
+デフォルトでは、leaf 局面に登録されている指し手は出力手順に含めません。leaf の各候補手を1手指した先、つまり定跡DBの外へ出た局面まで出力したい場合だけ `--include-leaf-moves` を指定します。
 
 `YaneuraOu-ScriptCollection` をカレントフォルダにして実行します。
 
