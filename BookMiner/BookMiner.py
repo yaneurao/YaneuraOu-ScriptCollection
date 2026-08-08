@@ -2660,7 +2660,7 @@ def make_and_read_peta_book(source_book_path:str|None = None):
     read_peta_book(peta_path)
 
 
-def write_and_read_peta_book(book:Book):
+def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None):
     """
     現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
     周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
@@ -2673,6 +2673,8 @@ def write_and_read_peta_book(book:Book):
         source_book_path = clean_source_path
         print(f"p command source book reused = {source_book_path}")
     else:
+        if reset_auto_backup_timer is not None:
+            reset_auto_backup_timer()
         source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
     print(f"p command source book = {source_book_path}")
     make_and_read_peta_book(source_book_path)
@@ -3803,9 +3805,9 @@ def user_input(from_gui:bool = False):
                     ply_limit = int(inp[1])
 
                 # 定跡を書き出す。フル保存は自動バックアップの起点として扱う。
-                path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
                 if ply_limit is None:
                     reset_auto_backup_timer()
+                path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
                 print(f"[ManualBackupDone] path={path}")
 
             elif i == 'sd' or i == 'set-default':
@@ -3882,7 +3884,7 @@ def user_input(from_gui:bool = False):
 
             elif i == 'p':
                 # write and peta_read
-                write_and_read_peta_book(book)
+                write_and_read_peta_book(book, reset_auto_backup_timer)
 
             elif i == 'pl' or i == 'peta_shock_latest':
                 # latest regular backup -> peta_read

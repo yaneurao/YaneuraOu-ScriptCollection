@@ -3283,6 +3283,8 @@ int main(int argc, char* argv[])
                 std::optional<int> ply_limit;
                 if (tokens.size() >= 2)
                     ply_limit = std::stoi(tokens[1]);
+                if (!ply_limit.has_value() && auto_save_service)
+                    auto_save_service->reset_timer();
                 const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, ply_limit);
                 if (!ply_limit.has_value() && book.revision() == before_revision)
@@ -3290,8 +3292,6 @@ int main(int argc, char* argv[])
                     clean_source_path = path;
                     clean_source_revision = before_revision;
                 }
-                if (!ply_limit.has_value() && auto_save_service)
-                    auto_save_service->reset_timer();
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
                 log_line("[ManualBackupDone] path=" + path.string());
@@ -3377,6 +3377,8 @@ int main(int argc, char* argv[])
                 else
                 {
                     const auto before_revision = book.revision();
+                    if (auto_save_service)
+                        auto_save_service->reset_timer();
                     source_book_path = save_book_backup(book, std::nullopt);
                     if (book.revision() == before_revision)
                     {
