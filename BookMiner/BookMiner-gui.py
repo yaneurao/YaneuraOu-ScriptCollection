@@ -1342,17 +1342,28 @@ class BookMinerGui(ttk.Frame):
             bar["value"] = 0
 
         previous_remaining = self.task_queue_remaining
+        if phase == "Done":
+            remaining = 0
         self.task_queue_remaining = remaining
+        state_changed = previous_remaining != self.task_queue_remaining
+        if phase == "Done" or remaining == 0:
+            state_changed = True
 
         if self.busy_action == "manual_enqueue" and phase == "Start":
             self.busy_action = None
-            self._update_buttons()
-            return
+            state_changed = True
 
         if self.enqueue_pending and phase == "Start":
             self.enqueue_pending = False
-            self._update_buttons()
-            return
+            state_changed = True
+
+        if phase == "Done":
+            if self.busy_action == "manual_enqueue":
+                self.busy_action = None
+                state_changed = True
+            if self.enqueue_pending:
+                self.enqueue_pending = False
+                state_changed = True
 
         if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and phase == "Start":
             self._append_log("task", "[GUI] auto enqueue sequence completed.\n")
@@ -1362,7 +1373,7 @@ class BookMinerGui(ttk.Frame):
             self._maybe_start_auto_enqueue()
             return
 
-        if previous_remaining != self.task_queue_remaining:
+        if state_changed:
             self._update_buttons()
 
         self._maybe_start_auto_enqueue()
@@ -1374,32 +1385,68 @@ class BookMinerGui(ttk.Frame):
 
         phase, _count_text, _total_text, rest = match.groups()
         fields = dict(TASK_QUEUE_FIELD_RE.findall(rest))
+        state_changed = False
+        remaining_text = fields.get("remaining")
+        if phase == "Done":
+            remaining = 0
+        elif remaining_text is not None:
+            remaining = self._parse_task_job_deferred(remaining_text)
+        else:
+            remaining = None
+        if remaining is not None and remaining != self.task_queue_remaining:
+            self.task_queue_remaining = remaining
+            state_changed = True
 
         if phase == "Done":
             self.task_job_items.clear()
             self._refresh_task_job_views()
+            if self.busy_action == "manual_enqueue":
+                self.busy_action = None
+                state_changed = True
+            if self.enqueue_pending:
+                self.enqueue_pending = False
+                state_changed = True
+            if state_changed:
+                self._update_buttons()
             return
 
         job_text = fields.get("job")
         if job_text is None:
+            if state_changed:
+                self._update_buttons()
             return
 
         try:
             job_id = int(job_text)
         except ValueError:
+            if state_changed:
+                self._update_buttons()
             return
 
         if phase == "JobDone":
             self.task_job_items.pop(job_id, None)
             self._refresh_task_job_views()
+            if self.task_queue_remaining == 0:
+                if self.busy_action == "manual_enqueue":
+                    self.busy_action = None
+                    state_changed = True
+                if self.enqueue_pending:
+                    self.enqueue_pending = False
+                    state_changed = True
+            if state_changed:
+                self._update_buttons()
             return
 
         progress_text = fields.get("job_progress")
         if progress_text is None:
+            if state_changed:
+                self._update_buttons()
             return
 
         progress_match = re.fullmatch(r"(\d+)/(\d+|\?)", progress_text)
         if progress_match is None:
+            if state_changed:
+                self._update_buttons()
             return
 
         taken_text, total_text = progress_match.groups()
@@ -1423,6 +1470,8 @@ class BookMinerGui(ttk.Frame):
 
         if total == 0 or remaining == 0 or (total is not None and taken >= total):
             self.task_job_items.pop(job_id, None)
+            if remaining == 0:
+                state_changed = True
         else:
             self.task_job_items[job_id] = TaskJobListItem(
                 job_id=job_id,
@@ -1435,6 +1484,8 @@ class BookMinerGui(ttk.Frame):
                 remaining=remaining,
             )
         self._refresh_task_job_views()
+        if state_changed:
+            self._update_buttons()
 
     def _parse_task_job_eval_limit(self, eval_limit_text: str | None) -> int | str | None:
         if eval_limit_text is None:
@@ -1528,6 +1579,19 @@ class BookMinerGui(ttk.Frame):
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
+        lower = line.lower()
+        if self.busy_action == "manual_enqueue" and (
+            "put position commands error" in lower
+            or "error : task workers are not running" in lower
+            or "usage : e" in lower
+        ):
+            self._append_log("other", "[GUI] enqueue failed. manual busy state was cleared.\n")
+            self.busy_action = None
+            self.enqueue_pending = False
+            self.task_queue_remaining = 0
+            self._update_buttons()
+            return
+
         if "Exception :" in line and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
             return
