@@ -24,6 +24,11 @@ struct EngineMoveInfo {
     int eval = 0;
 };
 
+struct EngineGoResult {
+    std::vector<EngineMoveInfo> moves;
+    std::uint64_t searched_nodes = 0;
+};
+
 class UsiEngine {
 public:
     using LogCallback = std::function<void(const std::string&)>;
@@ -41,7 +46,7 @@ public:
     void isready(const LogCallback& log);
     void usinewgame(const LogCallback& log);
 
-    std::vector<EngineMoveInfo> go(const std::string& position_command, double node_ratio, const LogCallback& log);
+    EngineGoResult go(const std::string& position_command, double node_ratio, const LogCallback& log);
 
     int thread_id() const noexcept { return thread_id_; }
     const EngineConfig& config() const noexcept { return config_; }

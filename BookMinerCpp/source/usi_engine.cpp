@@ -14,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 #ifdef _WIN32
 #include <io.h>
@@ -246,7 +247,7 @@ void UsiEngine::usinewgame(const LogCallback& log)
     wait_usi("readyok", log);
 }
 
-std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, double node_ratio, const LogCallback& log)
+EngineGoResult UsiEngine::go(const std::string& position_command, double node_ratio, const LogCallback& log)
 {
     const int multipv_step = std::max(1, config_.multipv);
     const int multipv_limit = std::max(1, legal_move_count_for_position_command(position_command));
@@ -259,7 +260,13 @@ std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, d
     const auto base_nodes = static_cast<std::uint64_t>(std::llround(static_cast<double>(config_.nodes) * node_ratio));
     std::uint64_t nodes = std::max<std::uint64_t>(1, base_nodes);
     const std::uint64_t half_nodes = std::max<std::uint64_t>(1, nodes / 2);
-    send_line("go nodes " + std::to_string(nodes));
+    std::uint64_t searched_nodes = 0;
+    std::uint64_t current_go_requested_nodes = nodes;
+    auto send_go = [&](std::uint64_t search_nodes) {
+        current_go_requested_nodes = std::max<std::uint64_t>(1, search_nodes);
+        send_line("go nodes " + std::to_string(current_go_requested_nodes));
+    };
+    send_go(nodes);
 
     std::map<int, EngineMoveInfo> moves;
 
@@ -278,6 +285,8 @@ std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, d
 
         if (tokens[0] == "bestmove")
         {
+            searched_nodes += current_go_requested_nodes;
+
             std::vector<EngineMoveInfo> node;
             for (int i = 1;; ++i)
             {
@@ -291,16 +300,16 @@ std::vector<EngineMoveInfo> UsiEngine::go(const std::string& position_command, d
                 && std::abs(node.front().eval - node.back().eval) <= multipv_delta)
             {
                 if (multipv >= multipv_limit)
-                    return node;
+                    return EngineGoResult{std::move(node), searched_nodes};
 
                 multipv = std::min(multipv + multipv_step, multipv_limit);
                 nodes = half_nodes;
                 send_line("multipv " + std::to_string(multipv));
-                send_line("go nodes " + std::to_string(nodes));
+                send_go(nodes);
                 continue;
             }
 
-            return node;
+            return EngineGoResult{std::move(node), searched_nodes};
         }
 
         if (tokens[0] != "info")

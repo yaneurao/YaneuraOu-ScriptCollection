@@ -182,6 +182,43 @@ void log_line(const std::string& message)
         std::cout << message << std::endl;
 }
 
+class MiningStats {
+public:
+    void report(std::size_t position_count, std::uint64_t searched_nodes = 0)
+    {
+        std::uint64_t searched_positions = 0;
+        std::uint64_t total_nodes = 0;
+        {
+            std::scoped_lock lock(mutex_);
+            if (searched_nodes > 0)
+            {
+                ++searched_positions_;
+                total_nodes_ += searched_nodes;
+            }
+            searched_positions = searched_positions_;
+            total_nodes = total_nodes_;
+        }
+
+        std::ostringstream oss;
+        oss << "[MiningProgress] positions=" << position_count;
+        if (searched_positions > 0)
+        {
+            const auto avg_nodes = (total_nodes + searched_positions / 2) / searched_positions;
+            oss << " searched_positions=" << searched_positions
+                << " nodes=" << total_nodes
+                << " avg_nodes=" << avg_nodes;
+        }
+        log_line(oss.str());
+    }
+
+private:
+    std::mutex mutex_;
+    std::uint64_t searched_positions_ = 0;
+    std::uint64_t total_nodes_ = 0;
+};
+
+MiningStats g_mining_stats;
+
 std::vector<std::string> split_ws(const std::string& line)
 {
     std::istringstream iss(line);
@@ -423,13 +460,13 @@ ThinkOnceResult think_sfen_once(
         log_line(oss.str());
     }
 
-    const auto engine_moves = engine.go(lease.sfen, node_ratio, [](const std::string& message) {
+    const auto engine_result = engine.go(lease.sfen, node_ratio, [](const std::string& message) {
         log_line(message);
     });
     last_thinking_ply = ply;
 
-    book.merge_position(lease.sfen, static_cast<std::uint16_t>(std::max(0, ply)), to_book_moves(engine_moves));
-    log_line("[MiningProgress] positions=" + std::to_string(book.size()));
+    book.merge_position(lease.sfen, static_cast<std::uint16_t>(std::max(0, ply)), to_book_moves(engine_result.moves));
+    g_mining_stats.report(book.size(), engine_result.searched_nodes);
 
     auto position = book.find_position_copy(lease.sfen);
     if (has_considered(position))
@@ -3194,7 +3231,7 @@ int main(int argc, char* argv[])
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
         clean_source_path = load_latest_book_backup(book);
         clean_source_revision = book.revision();
-        log_line("[MiningProgress] positions=" + std::to_string(book.size()));
+        g_mining_stats.report(book.size());
         log_line("[StartupStage] stage=book_read_done message=定跡DB読み込み完了");
 
         log_line("[StartupStage] stage=engine_init message=エンジン起動中");

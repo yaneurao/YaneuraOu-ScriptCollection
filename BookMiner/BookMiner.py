@@ -1010,6 +1010,7 @@ class Engine:
 
         # 探索中のsfen
         self.search_sfen = ""
+        self.last_go_searched_nodes = 0
 
         path : str = thread_settings.engine_path
 
@@ -1133,6 +1134,7 @@ class Engine:
 
             この形式に対応する。
         '''
+        self.last_go_searched_nodes = 0
         multipv_step = max(1, self.global_settings.multipv)
         multipv_limit = max(1, legal_move_count_for_position(sfen))
 
@@ -1148,11 +1150,18 @@ class Engine:
         self.send_usi(f"position {sfen}")
 
         # 探索ノード数
-        nodes = int(self.thread_settings.engine_nodes * node_ratio)
-        half_nodes = nodes // 2
+        nodes = max(1, int(self.thread_settings.engine_nodes * node_ratio))
+        half_nodes = max(1, nodes // 2)
+        searched_nodes = 0
+        current_go_requested_nodes = nodes
 
         # "go"コマンドを思考エンジンに送信する。
-        self.send_usi(f"go nodes {nodes}")
+        def send_go(search_nodes:int):
+            nonlocal current_go_requested_nodes
+            current_go_requested_nodes = max(1, search_nodes)
+            self.send_usi(f"go nodes {current_go_requested_nodes}")
+
+        send_go(nodes)
 
         # "bestmove"は必ず返ってくるはずなのでそれを待つ。
         # 読み筋(PV)の初手と最終的な評価値とbestmoveをparseして返す。
@@ -1164,6 +1173,7 @@ class Engine:
             rets = ret.split()
             # これはUSIプロトコルでエンジン側から送られてくる文字列の"bestmove"
             if "bestmove" in ret:
+                searched_nodes += current_go_requested_nodes
                 # この直前にPVが返ってきているはず…。
                 node : list[MoveInfo] = []
                 # multipvの指し手を1番目から列挙
@@ -1177,15 +1187,17 @@ class Engine:
                 # nodesは初期値の半分にする。
                 if len(node) == multipv and abs(node[0].eval - node[-1].eval) <= multipv_delta: # type:ignore
                     if multipv >= multipv_limit:
+                        self.last_go_searched_nodes = searched_nodes
                         return node
 
                     # multipvの範囲を広げて再度"go"コマンドを思考エンジンに送信する。
                     multipv = min(multipv + multipv_step, multipv_limit)
                     nodes = half_nodes
                     self.send_usi(f"multipv {multipv}")
-                    self.send_usi(f"go nodes {nodes}")
+                    send_go(nodes)
                     continue
 
+                self.last_go_searched_nodes = searched_nodes
                 return node
 
             else:
@@ -1196,7 +1208,7 @@ class Engine:
                 if not rets or rets[0]!='info':
                     # infoと違う。何か関係ないメッセージっぽい。
                     continue
-                
+
                 mpv_index = index_of(rets,'multipv')
                 # ⇑ one replyだと'multipv'の文字は見つからない。その場合は -1 が返るので注意。
                 mpv = 1 if mpv_index == -1 else int(rets[mpv_index + 1])
@@ -1259,6 +1271,8 @@ class EngineManager:
         self.task_progress_reporter_thread.start()
         self.mining_progress_lock = Lock()
         self.mining_progress_last_report = 0.0
+        self.mining_searched_positions = 0
+        self.mining_total_nodes = 0
         self.engine_alive_lock = Lock()
         self.engine_alive_total = total_engines
         self.engine_alive_last_reported = total_engines
@@ -1421,6 +1435,7 @@ class EngineManager:
                 print(f"[{engine.thread_settings.thread_id}] {current_sfen} {ply} , {node_ratio}")
 
                 position_info_new = engine.go(current_sfen, node_ratio)
+                searched_nodes = engine.last_go_searched_nodes
                 last_thinking_ply = ply # この局面で思考したので更新する。
                 book_position_count = None
 
@@ -1462,7 +1477,7 @@ class EngineManager:
                             LAST_REPORT = now
 
                 if self.global_settings.from_gui and book_position_count is not None:
-                    self.report_mining_progress(book_position_count)
+                    self.report_mining_progress(book_position_count, searched_nodes=searched_nodes)
 
             return position_info, current_sfen, last_thinking_ply, TASK_RESULT_DONE
 
@@ -1967,14 +1982,26 @@ class EngineManager:
                 f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
             )
 
-    def report_mining_progress(self, position_count:int, force:bool = False):
+    def report_mining_progress(self, position_count:int, searched_nodes:int = 0, force:bool = False):
         now = time.time()
         with self.mining_progress_lock:
+            if searched_nodes > 0:
+                self.mining_searched_positions += 1
+                self.mining_total_nodes += searched_nodes
+            searched_positions = self.mining_searched_positions
+            total_nodes = self.mining_total_nodes
             if not force and now - self.mining_progress_last_report < MINING_PROGRESS_INTERVAL:
                 return
             self.mining_progress_last_report = now
 
-        print(f"[MiningProgress] positions={position_count}")
+        if searched_positions > 0:
+            avg_nodes = round(total_nodes / searched_positions)
+            print(
+                f"[MiningProgress] positions={position_count} "
+                f"searched_positions={searched_positions} nodes={total_nodes} avg_nodes={avg_nodes}"
+            )
+        else:
+            print(f"[MiningProgress] positions={position_count}")
 
 # ============================================================
 #                     helper functions

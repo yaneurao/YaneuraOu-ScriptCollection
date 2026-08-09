@@ -65,7 +65,7 @@ BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_JOB_STATUS_RE = re.compile(r"\[TaskQueue(Start|Progress|JobDone|Done)\]\s+(\d+)/(\d+|\?)(.*)")
 TASK_QUEUE_FIELD_RE = re.compile(r"\b([A-Za-z_]+)=([^\s]+)")
-MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]\s+positions=(\d+)")
+MINING_PROGRESS_RE = re.compile(r"\[MiningProgress\]")
 STARTUP_STAGE_RE = re.compile(r"\[StartupStage\]\s+stage=(\S+)\s+message=(.*)")
 ENGINE_INIT_RE = re.compile(r"\[EngineInit(Start|Progress|Done)\]\s+(\d+)/(\d+)")
 ENGINE_READY_RE = re.compile(r"\[EngineReadyProgress\]\s+(\d+)/(\d+)")
@@ -104,7 +104,7 @@ WINDOW_SCREEN_MARGIN = 48
 LOG_MAX_LINES = 1000
 LOG_TRIM_THRESHOLD = 1200
 MINING_STATS_SAMPLE_INTERVAL_MS = 60 * 1000
-MINING_STATS_WINDOW_SECONDS = 60 * 60
+MINING_STATS_WINDOW_SECONDS = 10 * 60
 AUTO_ENQUEUE_IDLE = "idle"
 AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
@@ -146,6 +146,14 @@ class TaskJobListItem:
     taken: int
     total: int | None
     remaining: int | None
+
+
+@dataclass
+class MiningSample:
+    timestamp: float
+    positions: int
+    searched_positions: int | None
+    nodes: int | None
 
 
 @dataclass(frozen=True)
@@ -354,9 +362,11 @@ class BookMinerGui(ttk.Frame):
         self.progress_bars: dict[str, ttk.Progressbar] = {}
         self.startup_status = tk.StringVar(value="状態: 停止中")
         self.backup_status = tk.StringVar(value="次回自動保存 -")
-        self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日")
+        self.mining_status = tk.StringVar(value="現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
         self.latest_mining_positions: int | None = None
-        self.mining_samples: list[tuple[float, int]] = []
+        self.latest_mining_searched_positions: int | None = None
+        self.latest_mining_nodes: int | None = None
+        self.mining_samples: list[MiningSample] = []
         self.command_ready = False
         self.command_buttons: list[ttk.Widget] = []
         self.auto_enqueue_enabled = tk.BooleanVar(value=False)
@@ -817,8 +827,10 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
         self.backup_status.set("次回自動保存 -")
-        self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
+        self.mining_status.set("現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
         self.latest_mining_positions = None
+        self.latest_mining_searched_positions = None
+        self.latest_mining_nodes = None
         self.mining_samples.clear()
         self.task_queue_remaining = None
         self.task_job_items.clear()
@@ -1522,7 +1534,31 @@ class BookMinerGui(ttk.Frame):
         if match is None:
             return
 
-        positions = int(match.group(1))
+        fields = dict(TASK_QUEUE_FIELD_RE.findall(line))
+        positions_text = fields.get("positions")
+        if positions_text is None:
+            return
+
+        try:
+            positions = int(positions_text)
+        except ValueError:
+            return
+
+        searched_positions = self._parse_optional_int_field(fields, "searched_positions")
+        nodes = self._parse_optional_int_field(fields, "nodes")
+        if (
+            searched_positions is None
+            and nodes is None
+            and self.latest_mining_searched_positions is None
+            and self.latest_mining_nodes is None
+            and not self.mining_samples
+        ):
+            searched_positions = 0
+            nodes = 0
+        if searched_positions is not None:
+            self.latest_mining_searched_positions = searched_positions
+        if nodes is not None:
+            self.latest_mining_nodes = nodes
         self.progress_labels["read"].set(f"定跡局面数 {positions:,}")
         read_bar = self.progress_bars.get("read")
         if read_bar is not None:
@@ -1533,48 +1569,85 @@ class BookMinerGui(ttk.Frame):
             self.mining_samples.clear()
 
         self.latest_mining_positions = positions
-        if not self.mining_samples:
-            self._record_mining_sample(time.time(), positions)
-        else:
-            self._update_mining_status()
+        self._record_mining_sample(time.time())
+
+    def _parse_optional_int_field(self, fields: dict[str, str], key: str) -> int | None:
+        value = fields.get(key)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
 
     def _poll_mining_stats(self) -> None:
         if self.is_running() and self.latest_mining_positions is not None:
-            self._record_mining_sample(time.time(), self.latest_mining_positions)
+            self._record_mining_sample(time.time())
         self.after(MINING_STATS_SAMPLE_INTERVAL_MS, self._poll_mining_stats)
 
-    def _record_mining_sample(self, now: float, positions: int) -> None:
-        if self.mining_samples and positions < self.mining_samples[-1][1]:
-            self.mining_samples.clear()
-
-        self.mining_samples.append((now, positions))
-        cutoff = now - MINING_STATS_WINDOW_SECONDS
-        while len(self.mining_samples) > 1 and self.mining_samples[0][0] < cutoff:
-            self.mining_samples.pop(0)
-
-        self._update_mining_status(now, positions)
-
-    def _update_mining_status(self, now: float | None = None, positions: int | None = None) -> None:
-        if positions is None:
-            positions = self.latest_mining_positions
-        if positions is None:
-            self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日")
+    def _record_mining_sample(self, now: float) -> None:
+        if self.latest_mining_positions is None:
             return
 
-        if now is None:
-            now = time.time()
+        sample = MiningSample(
+            timestamp=now,
+            positions=self.latest_mining_positions,
+            searched_positions=self.latest_mining_searched_positions,
+            nodes=self.latest_mining_nodes,
+        )
+        if self.mining_samples and self._mining_sample_went_backwards(sample, self.mining_samples[-1]):
+            self.mining_samples.clear()
+
+        self.mining_samples.append(sample)
+        cutoff = now - MINING_STATS_WINDOW_SECONDS
+        while len(self.mining_samples) > 1 and self.mining_samples[0].timestamp < cutoff:
+            self.mining_samples.pop(0)
+
+        self._update_mining_status()
+
+    def _mining_sample_went_backwards(self, current: MiningSample, previous: MiningSample) -> bool:
+        if current.positions < previous.positions:
+            return True
+        if (
+            current.searched_positions is not None
+            and previous.searched_positions is not None
+            and current.searched_positions < previous.searched_positions
+        ):
+            return True
+        if current.nodes is not None and previous.nodes is not None and current.nodes < previous.nodes:
+            return True
+        return False
+
+    def _update_mining_status(self) -> None:
+        if self.latest_mining_positions is None:
+            self.mining_status.set("現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
+            return
 
         speed_text = "-"
+        avg_nodes_text = "-"
         if len(self.mining_samples) >= 2:
-            start_time, start_positions = self.mining_samples[0]
-            elapsed = now - start_time
+            start_sample = self.mining_samples[0]
+            end_sample = self.mining_samples[-1]
+            elapsed = end_sample.timestamp - start_sample.timestamp
             if elapsed > 0:
-                added_positions = max(positions - start_positions, 0)
+                added_positions = max(end_sample.positions - start_sample.positions, 0)
                 speed = round(added_positions * 24 * 60 * 60 / elapsed)
                 speed_text = f"{speed:,}"
 
+                if (
+                    start_sample.searched_positions is not None
+                    and start_sample.nodes is not None
+                    and end_sample.searched_positions is not None
+                    and end_sample.nodes is not None
+                ):
+                    searched_positions = end_sample.searched_positions - start_sample.searched_positions
+                    nodes = end_sample.nodes - start_sample.nodes
+                    if searched_positions > 0 and nodes >= 0:
+                        avg_nodes_text = f"{round(nodes / searched_positions):,}"
+
         self.mining_status.set(
-            f"現在 {positions:,} 局面    現在の採掘速度 {speed_text} 局面/日"
+            f"現在 {self.latest_mining_positions:,} 局面    直近10分の採掘速度 {speed_text} 局面/日    "
+            f"平均探索nodes(直近10分) {avg_nodes_text}"
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
