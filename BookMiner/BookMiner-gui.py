@@ -362,7 +362,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_bars: dict[str, ttk.Progressbar] = {}
         self.startup_status = tk.StringVar(value="状態: 停止中")
         self.backup_status = tk.StringVar(value="次回自動保存 -")
-        self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
+        self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -    探索NPS -")
         self.latest_mining_positions: int | None = None
         self.latest_mining_searched_positions: int | None = None
         self.latest_mining_nodes: int | None = None
@@ -827,7 +827,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
         self.backup_status.set("次回自動保存 -")
-        self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
+        self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -    探索NPS -")
         self.latest_mining_positions = None
         self.latest_mining_searched_positions = None
         self.latest_mining_nodes = None
@@ -1620,11 +1620,12 @@ class BookMinerGui(ttk.Frame):
 
     def _update_mining_status(self) -> None:
         if self.latest_mining_positions is None:
-            self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
+            self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -    探索NPS -")
             return
 
         speed_text = "-"
         avg_nodes_text = "-"
+        nps_text = "-"
         if len(self.mining_samples) >= 2:
             start_sample = self.mining_samples[0]
             end_sample = self.mining_samples[-1]
@@ -1644,10 +1645,12 @@ class BookMinerGui(ttk.Frame):
                     nodes = end_sample.nodes - start_sample.nodes
                     if searched_positions > 0 and nodes >= 0:
                         avg_nodes_text = f"{round(nodes / searched_positions):,}"
+                    if nodes >= 0:
+                        nps_text = f"{round(nodes / elapsed):,}"
 
         self.mining_status.set(
             f"現在 {self.latest_mining_positions:,} 局面    現在の採掘速度 {speed_text} 局面/日    "
-            f"平均探索nodes {avg_nodes_text}"
+            f"平均探索nodes {avg_nodes_text}    探索NPS {nps_text}"
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
