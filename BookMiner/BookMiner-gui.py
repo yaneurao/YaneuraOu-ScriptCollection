@@ -362,7 +362,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_bars: dict[str, ttk.Progressbar] = {}
         self.startup_status = tk.StringVar(value="状態: 停止中")
         self.backup_status = tk.StringVar(value="次回自動保存 -")
-        self.mining_status = tk.StringVar(value="現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
+        self.mining_status = tk.StringVar(value="現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
         self.latest_mining_positions: int | None = None
         self.latest_mining_searched_positions: int | None = None
         self.latest_mining_nodes: int | None = None
@@ -827,7 +827,7 @@ class BookMinerGui(ttk.Frame):
         self.progress_labels["write"].set("定跡書込: 待機中")
         self.progress_labels["task"].set("enqueue進捗: 待機中")
         self.backup_status.set("次回自動保存 -")
-        self.mining_status.set("現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
+        self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
         self.latest_mining_positions = None
         self.latest_mining_searched_positions = None
         self.latest_mining_nodes = None
@@ -1620,7 +1620,7 @@ class BookMinerGui(ttk.Frame):
 
     def _update_mining_status(self) -> None:
         if self.latest_mining_positions is None:
-            self.mining_status.set("現在 - 局面    直近10分の採掘速度 - 局面/日    平均探索nodes(直近10分) -")
+            self.mining_status.set("現在 - 局面    現在の採掘速度 - 局面/日    平均探索nodes -")
             return
 
         speed_text = "-"
@@ -1646,8 +1646,8 @@ class BookMinerGui(ttk.Frame):
                         avg_nodes_text = f"{round(nodes / searched_positions):,}"
 
         self.mining_status.set(
-            f"現在 {self.latest_mining_positions:,} 局面    直近10分の採掘速度 {speed_text} 局面/日    "
-            f"平均探索nodes(直近10分) {avg_nodes_text}"
+            f"現在 {self.latest_mining_positions:,} 局面    現在の採掘速度 {speed_text} 局面/日    "
+            f"平均探索nodes {avg_nodes_text}"
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
