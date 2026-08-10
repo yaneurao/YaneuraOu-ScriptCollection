@@ -27,6 +27,10 @@ ROUND_SUFFIX_RE = re.compile(r"_round(\d+)$")
 INFO_PREFIX_RE = re.compile(r"^[^\t]*\tINFO\t(.*)$")
 TRAIN_LOG_INDEX_RE = re.compile(r"train-(\d+)\.log$")
 TRAIN_LOG_ROUND_DIR_RE = re.compile(r"^(?P<base>.+)_round(?P<round>\d+)$")
+TEACHER_LOG_PATH_RE = re.compile(
+    r"(?P<path>(?:[A-Za-z]:[\\/][^,\t]*?|\\\\[^,\t]*?|/[^,\t]*?|[^,\s,]+)\.hcpe3?)\b",
+    re.IGNORECASE,
+)
 
 FLOAT_RE = r"[-+]?[\d.]+(?:[eE][-+]?\d+)?|nan|inf|-inf"
 FOUR_FLOATS_RE = rf"({FLOAT_RE}), ({FLOAT_RE}), ({FLOAT_RE}), ({FLOAT_RE})"
@@ -258,6 +262,11 @@ def relative_teacher(path_text: str, teacher_root: Path | None) -> str:
         return path_text
 
 
+def teacher_path_from_log_message(message: str) -> str | None:
+    match = TEACHER_LOG_PATH_RE.search(message)
+    return match.group("path") if match else None
+
+
 def parse_train_log(path: Path, teacher_root: Path | None) -> list[TrainLogRow]:
     rows: list[TrainLogRow] = []
     rows_by_epoch: dict[int, TrainLogRow] = {}
@@ -291,11 +300,9 @@ def parse_train_log(path: Path, teacher_root: Path | None) -> list[TrainLogRow]:
             state.position_num = int(message.rsplit("=", 1)[1])
             continue
 
-        if (
-            (message.endswith(".hcpe") or message.endswith(".hcpe3"))
-            and "teacher" in message.lower()
-        ):
-            state.teacher = relative_teacher(message, teacher_root)
+        teacher_path = teacher_path_from_log_message(message)
+        if teacher_path:
+            state.teacher = relative_teacher(teacher_path, teacher_root)
             state.position_num = None
             continue
 
