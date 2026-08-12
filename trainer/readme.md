@@ -13,7 +13,7 @@ model_root   = C:\shogi\model
 network      = exp___i20x256
 model folder = C:\shogi\model\exp___i20x256
 batchsize    = 1024
-grad_accum_batches = 1
+batches_per_update = 1
 lr           = 0.03
 lr_min       = 1e-5
 amp_dtype    = bfloat16
@@ -35,17 +35,17 @@ HCPE3教師データのeval係数推定は既定で有効です。無効にし�
 
 ## 勾配蓄積
 
-`--grad-accum-batches` を指定すると、従来 backend の `dlshogi.train` に同名オプションを渡します。
+`--batches-per-update` を指定すると、従来 backend の `dlshogi.train` に同名オプションを渡します。
 
 ```powershell
 python .\trainer.py ^
   --batchsize 1024 ^
-  --grad-accum-batches 4
+  --batches-per-update 4
 ```
 
 この場合、GPUに載せるmini batchは1024のまま、4 batch分の勾配を蓄積してから1回optimizerを更新します。実効batchsizeは4096相当です。
 
-`--grad-accum-batches` の既定値は1です。1のときは `dlshogi.train` にこの引数を渡さないので、従来のDeepLearningShogiでも従来どおり動きます。2以上を使うには、`dlshogi.train` 側が `--grad-accum-batches` に対応している必要があります。
+`--batches-per-update` の既定値は1です。1のときは `dlshogi.train` にこの引数を渡さないので、従来のDeepLearningShogiでも従来どおり動きます。2以上を使うには、`dlshogi.train` 側が `--batches-per-update` に対応している必要があります。
 
 この指定は `--backend train` 専用です。`--backend ptl` では使えません。
 
