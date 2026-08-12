@@ -925,11 +925,11 @@ def run_one_round(
     print(f"out dir: {out_dir}")
     print(f"network: {args.network}")
     print(f"batchsize: {args.batchsize}")
-    if args.grad_accum_batches > 1:
+    if args.batches_per_update > 1:
         print(
-            "grad accum batches: "
-            f"{args.grad_accum_batches} "
-            f"(effective batchsize={args.batchsize * args.grad_accum_batches})"
+            "batches per update: "
+            f"{args.batches_per_update} "
+            f"(effective batchsize={args.batchsize * args.batches_per_update})"
         )
     print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
     print(f"val_lambda: {args.val_lambda}")
@@ -1012,9 +1012,9 @@ def run_one_round(
                 "--log",
                 str(out_dir / f"train-{checkpoint_number_for_file:04}.log"),
             ]
-            if args.grad_accum_batches > 1:
+            if args.batches_per_update > 1:
                 train_args.extend(
-                    ["--grad-accum-batches", str(args.grad_accum_batches)]
+                    ["--batches-per-update", str(args.batches_per_update)]
                 )
 
             if previous_checkpoint.exists():
@@ -1165,7 +1165,7 @@ def main() -> None:
     )
     parser.add_argument("--batchsize", type=int, default=1024)
     parser.add_argument(
-        "--grad-accum-batches",
+        "--batches-per-update",
         type=int,
         default=1,
         help=(
@@ -1272,12 +1272,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error(f"--rounds must be >= 1 (got {args.rounds})")
-    if args.grad_accum_batches < 1:
+    if args.batches_per_update < 1:
         parser.error(
-            f"--grad-accum-batches must be >= 1 (got {args.grad_accum_batches})"
+            f"--batches-per-update must be >= 1 (got {args.batches_per_update})"
         )
-    if args.backend != "train" and args.grad_accum_batches != 1:
-        parser.error("--grad-accum-batches is supported only with --backend train")
+    if args.backend != "train" and args.batches_per_update != 1:
+        parser.error("--batches-per-update is supported only with --backend train")
     if args.resume_checkpoint and args.init_checkpoint:
         parser.error("--resume_checkpoint and --init_checkpoint cannot be used together")
 
