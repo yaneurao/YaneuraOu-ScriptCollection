@@ -924,6 +924,13 @@ def run_one_round(
     print(f"test data: {test_data}")
     print(f"out dir: {out_dir}")
     print(f"network: {args.network}")
+    print(f"batchsize: {args.batchsize}")
+    if args.grad_accum_batches > 1:
+        print(
+            "grad accum batches: "
+            f"{args.grad_accum_batches} "
+            f"(effective batchsize={args.batchsize * args.grad_accum_batches})"
+        )
     print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
     print(f"val_lambda: {args.val_lambda}")
     if args.hcpe_val_lambda is not None:
@@ -1005,6 +1012,10 @@ def run_one_round(
                 "--log",
                 str(out_dir / f"train-{checkpoint_number_for_file:04}.log"),
             ]
+            if args.grad_accum_batches > 1:
+                train_args.extend(
+                    ["--grad-accum-batches", str(args.grad_accum_batches)]
+                )
 
             if previous_checkpoint.exists():
                 train_args.extend(["--resume", str(previous_checkpoint)])
@@ -1153,6 +1164,15 @@ def main() -> None:
         help="Extract and print training log CSV for --out_dir or --model_root/--network, then exit.",
     )
     parser.add_argument("--batchsize", type=int, default=1024)
+    parser.add_argument(
+        "--grad-accum-batches",
+        type=int,
+        default=1,
+        help=(
+            "Accumulate this many dlshogi.train mini-batches before each "
+            "optimizer step. 1 keeps the legacy behavior."
+        ),
+    )
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument(
@@ -1252,6 +1272,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error(f"--rounds must be >= 1 (got {args.rounds})")
+    if args.grad_accum_batches < 1:
+        parser.error(
+            f"--grad-accum-batches must be >= 1 (got {args.grad_accum_batches})"
+        )
+    if args.backend != "train" and args.grad_accum_batches != 1:
+        parser.error("--grad-accum-batches is supported only with --backend train")
     if args.resume_checkpoint and args.init_checkpoint:
         parser.error("--resume_checkpoint and --init_checkpoint cannot be used together")
 

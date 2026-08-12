@@ -13,6 +13,7 @@ model_root   = C:\shogi\model
 network      = exp___i20x256
 model folder = C:\shogi\model\exp___i20x256
 batchsize    = 1024
+grad_accum_batches = 1
 lr           = 0.03
 lr_min       = 1e-5
 amp_dtype    = bfloat16
@@ -31,6 +32,22 @@ LR scheduler は cosine です。`trainer.py` は教師ファイル1個を1 epoc
 `--network` の文字列はフォルダ名にそのまま使います。`exp___i20x256` を `exp_i20x256` に直すような置換はしません。
 
 HCPE3教師データのeval係数推定は既定で有効です。無効にしたい場合だけ `--no_evalfix` を付けます。
+
+## 勾配蓄積
+
+`--grad-accum-batches` を指定すると、従来 backend の `dlshogi.train` に同名オプションを渡します。
+
+```powershell
+python .\trainer.py ^
+  --batchsize 1024 ^
+  --grad-accum-batches 4
+```
+
+この場合、GPUに載せるmini batchは1024のまま、4 batch分の勾配を蓄積してから1回optimizerを更新します。実効batchsizeは4096相当です。
+
+`--grad-accum-batches` の既定値は1です。1のときは `dlshogi.train` にこの引数を渡さないので、従来のDeepLearningShogiでも従来どおり動きます。2以上を使うには、`dlshogi.train` 側が `--grad-accum-batches` に対応している必要があります。
+
+この指定は `--backend train` 専用です。`--backend ptl` では使えません。
 
 ## HCPE / HCPE3 混在教師データ
 

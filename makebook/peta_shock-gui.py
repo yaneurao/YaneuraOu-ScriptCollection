@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import queue
 import shutil
 import subprocess
@@ -20,11 +21,30 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPT_COLLECTION_DIR = SCRIPT_DIR.parent
 DEFAULT_ENGINE_PATH = SCRIPT_COLLECTION_DIR / "BookMiner" / "YO-MATERIAL.exe"
 DEFAULT_CONVERTER_PATH = SCRIPT_DIR / "convert_db_to_ybb.py"
+GUI_SETTINGS_PATH = SCRIPT_DIR / "peta_shock-gui.pickle"
 PETA_PROGRESS_INTERVAL = 30
 
 
 class PetaShockError(RuntimeError):
     pass
+
+
+def load_gui_settings() -> dict[str, str]:
+    try:
+        with GUI_SETTINGS_PATH.open("rb") as f:
+            data = pickle.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key): str(value) for key, value in data.items() if value is not None}
+
+
+def save_gui_settings(settings: dict[str, str]) -> None:
+    with GUI_SETTINGS_PATH.open("wb") as f:
+        pickle.dump(settings, f)
 
 
 def default_output_path(input_path: Path) -> Path:
@@ -256,15 +276,17 @@ class PetaShockGui(tk.Tk):
         self.geometry("900x620")
         self.minsize(760, 520)
 
+        settings = load_gui_settings()
         self.input_var = tk.StringVar()
-        self.output_var = tk.StringVar()
-        self.engine_var = tk.StringVar(value=str(DEFAULT_ENGINE_PATH))
-        self.converter_var = tk.StringVar(value=str(DEFAULT_CONVERTER_PATH))
+        self.output_var = tk.StringVar(value=settings.get("output_path", ""))
+        self.engine_var = tk.StringVar(value=settings.get("engine_path", str(DEFAULT_ENGINE_PATH)))
+        self.converter_var = tk.StringVar(value=settings.get("converter_path", str(DEFAULT_CONVERTER_PATH)))
         self.status_var = tk.StringVar(value="ready")
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.worker: threading.Thread | None = None
 
         self._build_widgets()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll_messages)
 
     def _build_widgets(self) -> None:
@@ -375,6 +397,7 @@ class PetaShockGui(tk.Tk):
         self.log_text.delete("1.0", "end")
         self.convert_button.configure(state="disabled")
         self.status_var.set("running")
+        self._save_settings()
 
         def worker() -> None:
             try:
@@ -416,6 +439,23 @@ class PetaShockGui(tk.Tk):
     def _log(self, text: str) -> None:
         self.log_text.insert("end", text + "\n")
         self.log_text.see("end")
+
+    def _settings(self) -> dict[str, str]:
+        return {
+            "output_path": self.output_var.get(),
+            "engine_path": self.engine_var.get(),
+            "converter_path": self.converter_var.get(),
+        }
+
+    def _save_settings(self) -> None:
+        try:
+            save_gui_settings(self._settings())
+        except Exception as exc:
+            self._log(f"settings save failed: {exc}")
+
+    def _on_close(self) -> None:
+        self._save_settings()
+        self.destroy()
 
 
 def main() -> int:
