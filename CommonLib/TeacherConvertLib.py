@@ -35,43 +35,68 @@ def convert_pack_to_hcpe_file(
     batch_size: int = 65536,
     no_progress: bool = False,
 ) -> ConvertStats:
-    del batch_size, no_progress
+    del batch_size
 
     stats = ConvertStats(files=1)
+    file_size = input_path.stat().st_size
+    progress = make_progress(input_path, no_progress=no_progress)
     with input_path.open("rb") as f:
         data = f.read()
 
-    decoder = GameDataDecoder(bytearray(data))
-    while not decoder.eof():
-        sfen = decoder.get_sfen()
-        stats.games += 1
-        board = cshogi.Board(sfen)
-        game_records: list[tuple[int, int]] = []
-        game_result = 0
+    try:
+        decoder = GameDataDecoder(bytearray(data))
+        progress_pos = 0
+        progress_update_bytes = 1024 * 1024
 
-        while True:
-            move = decoder.read_uint16()
-            sq1 = move & 0x7F
-            sq2 = (move >> 7) & 0x7F
-            if sq1 == sq2:
-                game_result = sq1
-                decoder.read_uint8()
-                break
+        def update_progress(*, force: bool = False) -> None:
+            nonlocal progress_pos
+            if progress is None:
+                return
+            consumed = decoder.pos - progress_pos
+            if consumed > 0 and (force or consumed >= progress_update_bytes):
+                progress.update(consumed)
+                progress_pos = decoder.pos
 
-            eval16 = decoder.read_int16()
-            game_records.append((move, eval16))
+        while not decoder.eof():
+            sfen = decoder.get_sfen()
+            update_progress()
+            stats.games += 1
+            board = cshogi.Board(sfen)
+            game_records: list[tuple[int, int]] = []
+            game_result = 0
 
-        hcpe = np.zeros(1, dtype=HCPE)
-        for move, eval16 in game_records:
-            hcpe.fill(0)
-            board.to_hcp(hcpe["hcp"])
-            hcpe["eval"][0] = int(eval16)
-            hcpe["bestMove16"][0] = i16_from_u16(move)
-            hcpe["gameResult"][0] = int(game_result)
-            hcpe.tofile(output)
+            while True:
+                move = decoder.read_uint16()
+                sq1 = move & 0x7F
+                sq2 = (move >> 7) & 0x7F
+                if sq1 == sq2:
+                    game_result = sq1
+                    decoder.read_uint8()
+                    update_progress()
+                    break
 
-            board.push_move16(move)
-            stats.positions += 1
+                eval16 = decoder.read_int16()
+                update_progress()
+                game_records.append((move, eval16))
+
+            hcpe = np.zeros(1, dtype=HCPE)
+            for move, eval16 in game_records:
+                hcpe.fill(0)
+                board.to_hcp(hcpe["hcp"])
+                hcpe["eval"][0] = int(eval16)
+                hcpe["bestMove16"][0] = i16_from_u16(move)
+                hcpe["gameResult"][0] = int(game_result)
+                hcpe.tofile(output)
+
+                board.push_move16(move)
+                stats.positions += 1
+
+        update_progress(force=True)
+        if progress is not None and progress.n < file_size:
+            progress.update(file_size - progress.n)
+    finally:
+        if progress is not None:
+            progress.close()
 
     return stats
 

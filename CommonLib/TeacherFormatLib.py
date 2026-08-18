@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+import time
 from typing import BinaryIO
 
 import cshogi
@@ -179,8 +181,10 @@ def i16_from_u16(value: int) -> int:
 
 
 def make_progress(path: Path, *, no_progress: bool):
-    if tqdm is None or no_progress:
+    if no_progress:
         return None
+    if tqdm is None:
+        return SimpleByteProgress(path)
     return tqdm(
         total=path.stat().st_size,
         unit="B",
@@ -188,3 +192,43 @@ def make_progress(path: Path, *, no_progress: bool):
         desc=path.name,
         ncols=80,
     )
+
+
+class SimpleByteProgress:
+    def __init__(self, path: Path) -> None:
+        self.name = path.name
+        self.total = path.stat().st_size
+        self.n = 0
+        self.last_report = 0.0
+        self.last_reported_n = -1
+        self.closed = False
+        self._report(force=True)
+
+    def update(self, n: int) -> None:
+        if self.closed or n <= 0:
+            return
+        self.n += n
+        self._report()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        if self.last_reported_n != self.n:
+            self._report(force=True)
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+        self.closed = True
+
+    def _report(self, *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and self.n < self.total and now - self.last_report < 0.5:
+            return
+        self.last_report = now
+        if self.total > 0:
+            percent = min(self.n * 100.0 / self.total, 100.0)
+            message = f"\r{self.name}: {self.n:,}/{self.total:,} B ({percent:5.1f}%)"
+        else:
+            message = f"\r{self.name}: {self.n:,} B"
+        sys.stderr.write(message)
+        sys.stderr.flush()
+        self.last_reported_n = self.n
