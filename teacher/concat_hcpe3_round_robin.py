@@ -455,7 +455,7 @@ def parse_args() -> argparse.Namespace:
             "Concatenate HCPE3 game records from multiple folders. The script "
             "first counts games in each input file and then mixes records by "
             "weighted round-robin across sources and across files within each "
-            "source. Output files are split by "
+            "source. Output files are split by --split or "
             "--max-output-size when specified."
         )
     )
@@ -484,6 +484,11 @@ def parse_args() -> argparse.Namespace:
         "--max-outputs",
         type=int,
         help="maximum number of output files to write",
+    )
+    parser.add_argument(
+        "--split",
+        type=int,
+        help="number of output files to write",
     )
     parser.add_argument(
         "--max-output-size",
@@ -528,6 +533,12 @@ def main() -> None:
         raise ValueError("--digits must be positive")
     if args.max_outputs is not None and args.max_outputs <= 0:
         raise ValueError("--max-outputs must be positive")
+    if args.split is not None and args.split <= 0:
+        raise ValueError("--split must be positive")
+    if args.split is not None and args.max_output_size is not None:
+        raise ValueError("--split and --max-output-size cannot be specified together")
+    if args.split is not None and args.max_outputs is not None:
+        raise ValueError("--split and --max-outputs cannot be specified together")
     if args.progress_interval < 0:
         raise ValueError("--progress-interval must be non-negative")
     if args.max_open_files <= 0:
@@ -572,10 +583,24 @@ def main() -> None:
     output_index = 0
     outputs = 0
     total_games = sum(source.games for source in sources)
+    if args.split is not None and args.split > total_games:
+        raise ValueError(
+            f"--split cannot be greater than total games: "
+            f"split={args.split}, total_games={total_games}"
+        )
+    split_targets = None
+    if args.split is not None:
+        base_games, extra_outputs = divmod(total_games, args.split)
+        split_targets = [
+            base_games + (1 if output_pos < extra_outputs else 0)
+            for output_pos in range(args.split)
+        ]
     written_games = 0
 
     def start_output():
         nonlocal output, output_stats, output_index
+        if split_targets is not None and output_index >= len(split_targets):
+            return False
         if args.max_outputs is not None and output_index >= args.max_outputs:
             return False
         output_index += 1
@@ -630,6 +655,12 @@ def main() -> None:
                 and output_stats is not None
                 and output_stats.bytes > 0
                 and output_stats.bytes + len(record.data) > args.max_output_size
+            ):
+                finish_output()
+            if (
+                split_targets is not None
+                and output_stats is not None
+                and output_stats.games >= split_targets[output_index - 1]
             ):
                 finish_output()
 

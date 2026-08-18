@@ -229,6 +229,17 @@ python teacher/concat_hcpe3_round_robin.py \
   --max-output-size 8G
 ```
 
+出力ファイル数を直接指定したい場合は `--split` を使う。たとえば全体を100分割する場合:
+
+```bash
+python teacher/concat_hcpe3_round_robin.py \
+  --output mixed_teacher \
+  --source teacher1 \
+  --source teacher2 \
+  --source teacher3 \
+  --split 100
+```
+
 出力は以下のようになる。
 
 ```text
@@ -241,6 +252,7 @@ mixed_teacher/mixed-manifest.tsv
 最初に各source内の各HCPE3ファイルを走査して、ファイルごとの棋譜数を数えます。
 たとえば `teacher1` が1000局、`teacher2` が100局なら、source間は `1000:100`、つまり実質 `10:1` の比率で混ざるようにします。
 さらに選ばれたsource内でも、各HCPE3ファイルを棋譜数比率で選ぶため、1つの出力HCPE3は複数の入力ファイルから集めた棋譜recordで構成されます。
+`--split` を指定した場合は、全体の棋譜record数を指定数でほぼ均等に割って出力ファイルを切り替える。
 `--max-output-size` を指定した場合は、次の棋譜recordを追加すると上限を超えるタイミングで次の出力ファイルへ切り替える。
 HCPE3にはファイル全体のヘッダがないため、完全なHCPE3棋譜record同士のバイナリ結合として扱います。
 
@@ -255,7 +267,7 @@ output	bytes	games	source1_games	source1_bytes	source1_ranges	source2_games	sour
 mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hcpe3:1-40000	80000	5726620000	teacher2/a.hcpe3:1-50000;teacher2/b.hcpe3:1-30000
 ```
 
-`--max-output-size` を指定しない場合は、すべてのsourceの棋譜を1つのHCPE3へ出力します。
+`--split` と `--max-output-size` をどちらも指定しない場合は、すべてのsourceの棋譜を1つのHCPE3へ出力します。
 
 主なオプション:
 
@@ -267,6 +279,7 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 | `--recursive` | off | 各入力フォルダを再帰的に探索する。 |
 | `--prefix` | `mixed` | 出力ファイル名のprefix。 |
 | `--digits` | `5` | 出力ファイル番号のゼロ埋め桁数。 |
+| `--split` | なし | 出力ファイル数。全体の棋譜record数をほぼ均等に分割する。 |
 | `--max-output-size` | なし | 出力ファイルサイズの上限。`512M`, `8G`, byte数などで指定する。 |
 | `--max-outputs` | なし | 出力ファイル数の上限。 |
 | `--no-manifest` | off | manifest TSVを出力しない。 |
@@ -281,6 +294,8 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 - source内の複数入力HCPE3は、1ファイルずつ読み切るのではなく、棋譜record単位で混ぜます。
 - 入力HCPE3内の棋譜recordは先頭から順番に処理します。局面単位では分割しません。
 - すべてのsourceの棋譜を使い切ります。`--max-outputs` を指定した場合は、その出力数に達したところで停止します。
+- `--split` は `--max-output-size` / `--max-outputs` と同時指定できません。
+- `--split` に入力全体の棋譜record数より大きい数は指定できません。空のHCPE3出力は作りません。
 - `--max-output-size` は棋譜record境界で判定します。1棋譜record自体が上限より大きい場合、そのrecordだけで上限を超えた出力ファイルを作ります。
 - `mixed-manifest.tsv` には、各出力ファイルにどの入力範囲を結合したかを、1出力1行で記録します。
 
