@@ -1287,9 +1287,7 @@ class BookMinerGui(ttk.Frame):
             phase, count_text, total_text = engine_match.groups()
             count = int(count_text)
             total = int(total_text)
-            ready_match = re.search(r"\bready=(\d+)", line)
-            ready_suffix = f" ready={ready_match.group(1)}" if ready_match is not None and phase != "Done" else ""
-            self.engine_status_text = f"エンジン起動数 {count}/{total}{ready_suffix}"
+            self.engine_status_text = f"エンジン起動数 {count}/{total}"
             self._update_mining_status()
             return
 
