@@ -103,6 +103,8 @@ PETA_COMMAND_LOG_MIRROR_RE = re.compile(
 )
 YANEURAOU_PROGRESS_BAR_RE = re.compile(r"^\s*0%\s+\[.*\]\s+100%\s*$")
 STEP_BUTTON_WIDTH = 12
+PETA_STEP_BUTTON_WIDTH = 16
+PETA_BUTTON_STYLE = "PetaLeft.TButton"
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 720
 MIN_WINDOW_WIDTH = 760
@@ -580,6 +582,7 @@ class BookMinerGui(ttk.Frame):
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
+        ttk.Style(self).configure(PETA_BUTTON_STYLE, anchor="w")
 
         commands = ttk.Frame(self)
         commands.grid(row=0, column=0, sticky="ew")
@@ -603,6 +606,7 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="peta_shock",
             width=STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_shock,
         )
         self.peta_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
@@ -611,6 +615,7 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="peta_shock_latest",
             width=17,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_shock_latest,
         )
         self.peta_latest_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=3)
@@ -619,6 +624,7 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="peta_read",
             width=STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_read,
         )
         self.peta_read_button.grid(row=1, column=3, sticky="w", padx=(8, 0), pady=3)
@@ -647,7 +653,8 @@ class BookMinerGui(ttk.Frame):
         self.next_button = ttk.Button(
             commands,
             text="peta next",
-            width=STEP_BUTTON_WIDTH,
+            width=PETA_STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_next,
         )
         self.next_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
@@ -670,7 +677,8 @@ class BookMinerGui(ttk.Frame):
         self.refutation_button = ttk.Button(
             commands,
             text="peta refutation",
-            width=16,
+            width=PETA_STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_refutation,
         )
         self.refutation_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
@@ -698,7 +706,8 @@ class BookMinerGui(ttk.Frame):
         self.rejoin_button = ttk.Button(
             commands,
             text="peta rejoin",
-            width=16,
+            width=PETA_STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_rejoin,
         )
         self.rejoin_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
@@ -724,7 +733,8 @@ class BookMinerGui(ttk.Frame):
         self.unsolved_button = ttk.Button(
             commands,
             text="peta unsolved",
-            width=16,
+            width=PETA_STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_unsolved,
         )
         self.unsolved_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
@@ -750,7 +760,8 @@ class BookMinerGui(ttk.Frame):
         self.opponent_button = ttk.Button(
             commands,
             text="peta opponent",
-            width=16,
+            width=PETA_STEP_BUTTON_WIDTH,
+            style=PETA_BUTTON_STYLE,
             command=self.send_peta_opponent,
         )
         self.opponent_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
