@@ -125,9 +125,10 @@ AUTO_STEP2_PETA_UNSOLVED = "peta_unsolved"
 AUTO_STEP2_PETA_OPPONENT = "peta_opponent"
 AUTO_STEP2_ORDER = [
     AUTO_STEP2_PETA_NEXT,
+    AUTO_STEP2_PETA_REJOIN,
+    AUTO_STEP2_PETA_OPPONENT,
     AUTO_STEP2_PETA_REFUTATION,
     AUTO_STEP2_PETA_UNSOLVED,
-    AUTO_STEP2_PETA_OPPONENT,
 ]
 LOG_PANES = [
     ("other", "コマンドログ", "コマンド", 8),
@@ -673,7 +674,7 @@ class BookMinerGui(ttk.Frame):
             row=3, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
-        ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
             commands,
             text="peta refutation",
@@ -681,28 +682,28 @@ class BookMinerGui(ttk.Frame):
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_refutation,
         )
-        self.refutation_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.refutation_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.refutation_button,
             "`pr eval_refutation_margin eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta next のleafのうち、元DBでbestでなかった反駁leafだけを抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval refu.").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=4, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_diff").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_eval_diff, width=8).grid(row=4, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=4, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_max_step, width=8).grid(row=4, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=4, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=4, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=4, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_book_extend_ply, width=8).grid(row=4, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=4, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_refutation_eval_limit, width=8).grid(row=4, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval refu.").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_eval_refu, width=8).grid(row=6, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_diff").grid(row=6, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_eval_diff, width=8).grid(row=6, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_max_step, width=8).grid(row=6, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=6, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_ply_limit, width=8).grid(row=6, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=6, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_book_extend_ply, width=8).grid(row=6, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=6, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_refutation_eval_limit, width=8).grid(row=6, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_refutation_enabled).grid(
-            row=4, column=14, sticky="w", padx=(12, 12), pady=3
+            row=6, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
-        ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
         self.rejoin_button = ttk.Button(
             commands,
             text="peta rejoin",
@@ -710,26 +711,26 @@ class BookMinerGui(ttk.Frame):
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_rejoin,
         )
-        self.rejoin_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.rejoin_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.rejoin_button,
             "`pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta bookから抜けたleafのうち、合法手1手でpeta bookへ再合流する局面を抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval_diff").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_rejoin_eval_diff, width=8).grid(row=5, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=5, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_rejoin_max_step, width=8).grid(row=5, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=5, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_rejoin_ply_limit, width=8).grid(row=5, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=5, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_rejoin_book_extend_ply, width=8).grid(row=5, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=5, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_rejoin_eval_limit, width=8).grid(row=5, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_diff").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_eval_diff, width=8).grid(row=4, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=4, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_max_step, width=8).grid(row=4, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=4, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_ply_limit, width=8).grid(row=4, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=4, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_book_extend_ply, width=8).grid(row=4, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=4, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_eval_limit, width=8).grid(row=4, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_rejoin_enabled).grid(
-            row=5, column=14, sticky="w", padx=(12, 12), pady=3
+            row=4, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
-        ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=7, column=0, sticky="w", pady=3)
         self.unsolved_button = ttk.Button(
             commands,
             text="peta unsolved",
@@ -737,26 +738,26 @@ class BookMinerGui(ttk.Frame):
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_unsolved,
         )
-        self.unsolved_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.unsolved_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.unsolved_button,
             "`pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。book/think_unsolved_sfens.txt の棋譜prefixからpeta_book上のPV leafを抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval_drop_limit").grid(row=6, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_drop_limit, width=8).grid(row=6, column=3, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=6, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=6, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=6, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_ply_limit, width=8).grid(row=6, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=6, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_book_extend_ply, width=8).grid(row=6, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=6, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_limit, width=8).grid(row=6, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_drop_limit").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_drop_limit, width=8).grid(row=7, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=7, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=7, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=7, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_ply_limit, width=8).grid(row=7, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=7, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_book_extend_ply, width=8).grid(row=7, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=7, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_limit, width=8).grid(row=7, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_unsolved_enabled).grid(
-            row=6, column=14, sticky="w", padx=(12, 12), pady=3
+            row=7, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
-        ttk.Label(commands, text="").grid(row=7, column=0, sticky="w", pady=3)
+        ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
         self.opponent_button = ttk.Button(
             commands,
             text="peta opponent",
@@ -764,23 +765,23 @@ class BookMinerGui(ttk.Frame):
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_opponent,
         )
-        self.opponent_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
+        self.opponent_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.opponent_button,
             "`po eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。book/book_opponent/ の相手bookと現行peta_bookのbest進行から、対策候補leafを抽出します。空欄はデフォルト値行を使います。",
         )
-        ttk.Label(commands, text="eval_diff").grid(row=7, column=4, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_eval_diff, width=8).grid(row=7, column=5, sticky="w", pady=3)
-        ttk.Label(commands, text="max step").grid(row=7, column=6, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_max_step, width=8).grid(row=7, column=7, sticky="w", pady=3)
-        ttk.Label(commands, text="game ply limit").grid(row=7, column=8, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_ply_limit, width=8).grid(row=7, column=9, sticky="w", pady=3)
-        ttk.Label(commands, text="book extend ply").grid(row=7, column=10, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_book_extend_ply, width=8).grid(row=7, column=11, sticky="w", pady=3)
-        ttk.Label(commands, text="eval_limit").grid(row=7, column=12, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_opponent_eval_limit, width=8).grid(row=7, column=13, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_diff").grid(row=5, column=4, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_eval_diff, width=8).grid(row=5, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="max step").grid(row=5, column=6, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_max_step, width=8).grid(row=5, column=7, sticky="w", pady=3)
+        ttk.Label(commands, text="game ply limit").grid(row=5, column=8, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_ply_limit, width=8).grid(row=5, column=9, sticky="w", pady=3)
+        ttk.Label(commands, text="book extend ply").grid(row=5, column=10, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_book_extend_ply, width=8).grid(row=5, column=11, sticky="w", pady=3)
+        ttk.Label(commands, text="eval_limit").grid(row=5, column=12, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_opponent_eval_limit, width=8).grid(row=5, column=13, sticky="w", pady=3)
         ttk.Checkbutton(commands, text="自動", variable=self.auto_step2_peta_opponent_enabled).grid(
-            row=7, column=14, sticky="w", padx=(12, 12), pady=3
+            row=5, column=14, sticky="w", padx=(12, 12), pady=3
         )
 
         self.step2_widgets = [
@@ -1274,7 +1275,10 @@ class BookMinerGui(ttk.Frame):
                 self._append_log("other", line)
 
     def _should_suppress_log_line(self, line: str) -> bool:
-        return YANEURAOU_PROGRESS_BAR_RE.fullmatch(line.strip()) is not None
+        return (
+            YANEURAOU_PROGRESS_BAR_RE.fullmatch(line.strip()) is not None
+            or "rejoin progress" in line.lower()
+        )
 
     def _should_mirror_to_command_log(self, key: str, line: str) -> bool:
         if key != "peta":
@@ -1918,18 +1922,14 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
 
     def _selected_auto_step2_methods(self) -> list[str]:
-        methods: list[str] = []
-        if self.auto_step2_peta_next_enabled.get():
-            methods.append(AUTO_STEP2_PETA_NEXT)
-        if self.auto_step2_peta_refutation_enabled.get():
-            methods.append(AUTO_STEP2_PETA_REFUTATION)
-        if self.auto_step2_peta_rejoin_enabled.get():
-            methods.append(AUTO_STEP2_PETA_REJOIN)
-        if self.auto_step2_peta_unsolved_enabled.get():
-            methods.append(AUTO_STEP2_PETA_UNSOLVED)
-        if self.auto_step2_peta_opponent_enabled.get():
-            methods.append(AUTO_STEP2_PETA_OPPONENT)
-        return methods
+        enabled = {
+            AUTO_STEP2_PETA_NEXT: self.auto_step2_peta_next_enabled,
+            AUTO_STEP2_PETA_REJOIN: self.auto_step2_peta_rejoin_enabled,
+            AUTO_STEP2_PETA_OPPONENT: self.auto_step2_peta_opponent_enabled,
+            AUTO_STEP2_PETA_REFUTATION: self.auto_step2_peta_refutation_enabled,
+            AUTO_STEP2_PETA_UNSOLVED: self.auto_step2_peta_unsolved_enabled,
+        }
+        return [method for method in AUTO_STEP2_ORDER if enabled[method].get()]
 
     def _reset_auto_think_sfens_tmp(self) -> bool:
         try:
@@ -2118,7 +2118,6 @@ class BookMinerGui(ttk.Frame):
             or "peta_opponent" in lower
             or "refutation step" in lower
             or "refutation progress" in lower
-            or "rejoin progress" in lower
             or "unsolved progress" in lower
             or "opponent progress" in lower
             or "root sfen" in lower

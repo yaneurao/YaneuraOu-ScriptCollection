@@ -66,7 +66,6 @@ constexpr int PetaDefaultMaxStep = 9999;
 constexpr int DefaultStep2EvalDiff = 30;
 constexpr int DefaultStep2MaxStep = 99999;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
-constexpr std::size_t PetaRejoinProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
 constexpr const char* BookOpponentDir = "book/book_opponent";
@@ -1818,13 +1817,6 @@ std::vector<std::string> peta_rejoin_for_turn(
         for (const auto& position_command : current_positions.order())
         {
             ++stats.processed_nodes;
-            if (stats.processed_nodes % PetaRejoinProgressInterval == 0)
-            {
-                log_line("rejoin progress nodes = " + std::to_string(stats.processed_nodes)
-                    + " , leaf_nodes = " + std::to_string(stats.leaf_nodes)
-                    + " , rejoin_nodes = " + std::to_string(stats.rejoin_nodes)
-                    + " , think_sfens = " + std::to_string(think_sfens.size()));
-            }
 
             const auto& node = current_positions.at(position_command);
             auto [sfen, ply] = bookminer::trim_sfen_ply(node.sfen_with_ply);

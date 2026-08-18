@@ -75,7 +75,6 @@ PETA_DEFAULT_INF_EVAL_DIFF = 99999
 PETA_DEFAULT_MAX_STEP = 9999
 DEFAULT_STEP2_EVAL_DIFF = 30
 DEFAULT_STEP2_MAX_STEP = 99999
-PETA_REJOIN_PROGRESS_INTERVAL = 100000
 PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_DEFAULT_EVAL_DIFF = 0
@@ -3124,13 +3123,6 @@ def peta_rejoin(
 
             for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
                 total_processed_nodes += 1
-                if total_processed_nodes % PETA_REJOIN_PROGRESS_INTERVAL == 0:
-                    print(
-                        f"rejoin progress nodes = {total_processed_nodes} , "
-                        f"leaf_nodes = {total_leaf_nodes} , "
-                        f"rejoin_nodes = {total_rejoin_nodes} , "
-                        f"think_sfens = {len(think_sfens)}"
-                    )
 
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
 
