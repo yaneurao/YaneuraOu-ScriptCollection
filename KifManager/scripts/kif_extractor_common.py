@@ -295,10 +295,29 @@ def load_floodgate14_ratings(
     return parse_floodgate14_rating_text(text)
 
 
-def iter_kifu_files(root: Path) -> Iterable[Path]:
-    for path in root.rglob("*"):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES:
-            yield path
+def iter_kifu_files(
+    root: Path,
+    *,
+    source_kind: str | None = None,
+    date_filter: DateFilter | None = None,
+) -> Iterable[Path]:
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return
+
+    for path in children:
+        if path.is_dir():
+            if should_prune_kifu_directory(path, source_kind=source_kind, date_filter=date_filter):
+                continue
+            yield from iter_kifu_files(path, source_kind=source_kind, date_filter=date_filter)
+            continue
+
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            continue
+        if not path_may_pass_date_filter(path, date_filter):
+            continue
+        yield path
 
 
 def iter_archive_files(root: Path) -> Iterable[Path]:
@@ -309,6 +328,41 @@ def iter_archive_files(root: Path) -> Iterable[Path]:
 
 def is_floodgate_daily_folder_name(name: str) -> bool:
     return bool(re.fullmatch(r"\d{8}", name))
+
+
+def parse_floodgate_daily_folder_date(name: str) -> date | None:
+    if not is_floodgate_daily_folder_name(name):
+        return None
+    return make_date_from_parts(name[:4], name[4:6], name[6:8])
+
+
+def should_prune_kifu_directory(
+    path: Path,
+    *,
+    source_kind: str | None,
+    date_filter: DateFilter | None,
+) -> bool:
+    if source_kind != "floodgate" or date_filter is None:
+        return False
+
+    folder_date = parse_floodgate_daily_folder_date(path.name)
+    if folder_date is None:
+        return False
+    return not date_filter_passes(folder_date, date_filter)
+
+
+def path_may_pass_date_filter(path: Path, date_filter: DateFilter | None) -> bool:
+    if date_filter is None:
+        return True
+
+    game_datetime = infer_game_datetime_from_path(path)
+    if game_datetime is not None:
+        return date_filter_passes(game_datetime.date(), date_filter, game_datetime)
+
+    game_date = infer_game_date_from_path(path)
+    if game_date is None:
+        return True
+    return date_filter_passes(game_date, date_filter)
 
 
 def log_kifu_scan_sources(
@@ -1543,7 +1597,13 @@ def collect_games_from_roots(
     elif wcsc_finalists_only and source_kind == "denryu":
         finalists_by_event = collect_denryu_finalist_names(input_roots, year_filter, verbose=verbose)
 
-    paths_by_root = [(input_root, list(iter_kifu_files(input_root))) for input_root in input_roots]
+    paths_by_root = [
+        (
+            input_root,
+            list(iter_kifu_files(input_root, source_kind=source_kind, date_filter=date_filter)),
+        )
+        for input_root in input_roots
+    ]
     log_kifu_scan_sources(paths_by_root, source_kind=source_kind)
     paths = [path for _input_root, root_paths in paths_by_root for path in root_paths]
     parse_progress = CountProgress("解析中", len(paths))
