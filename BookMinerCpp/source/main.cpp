@@ -66,6 +66,7 @@ constexpr int PetaDefaultMaxStep = 9999;
 constexpr int DefaultStep2EvalDiff = 30;
 constexpr int DefaultStep2MaxStep = 99999;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
+constexpr std::size_t PetaRejoinProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
 constexpr const char* BookOpponentDir = "book/book_opponent";
@@ -1732,6 +1733,203 @@ void peta_next(
         + "] path=" + output_path.string() + " count=" + std::to_string(count));
 }
 
+bool peta_leaf_rejoins_peta_book(const bookminer::BookStore& peta_book, const std::string& sfen_with_ply)
+{
+    const auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
+    for (const auto& move : board.legal_moves())
+    {
+        auto next_board = board;
+        next_board.push_usi(move);
+        const auto [next_sfen, _next_ply] = bookminer::trim_sfen_ply(next_board.sfen_with_ply());
+        const auto hit = find_peta_position_with_flip(peta_book, next_sfen);
+        if (hit.position != nullptr)
+            return true;
+    }
+    return false;
+}
+
+struct PetaRejoinStats {
+    std::size_t processed_nodes = 0;
+    std::size_t leaf_nodes = 0;
+    std::size_t rejoin_nodes = 0;
+};
+
+std::vector<std::string> peta_rejoin_for_turn(
+    const bookminer::BookStore& peta_book,
+    int turn,
+    int peta_eval_diff,
+    int max_step,
+    int max_book_ply,
+    const std::filesystem::path& start_sfens_path,
+    PetaRejoinStats& stats)
+{
+    std::vector<std::string> think_sfens;
+    std::unordered_set<std::string> think_seen;
+
+    const std::string turn_str = turn == 1 ? "black" : "white";
+    log_line("--- peta_rejoin " + turn_str + " ---");
+
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    const auto root_positions = load_peta_next_root_positions(start_sfens_path);
+
+    OrderedPetaNextPositions current_positions;
+    for (const auto& [position_command, sfen_with_ply] : root_positions)
+    {
+        auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
+        if (ply >= max_book_ply)
+            continue;
+
+        const auto hit = find_peta_position_with_flip(peta_book, sfen);
+        if (hit.position == nullptr || hit.position->moves.empty())
+        {
+            ++stats.leaf_nodes;
+            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply))
+            {
+                append_unique_position_command(think_sfens, think_seen, position_command);
+                ++stats.rejoin_nodes;
+            }
+            continue;
+        }
+
+        const auto root_best = get_best(*hit.position);
+        if (!root_best.has_value())
+        {
+            ++stats.leaf_nodes;
+            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply))
+            {
+                append_unique_position_command(think_sfens, think_seen, position_command);
+                ++stats.rejoin_nodes;
+            }
+            continue;
+        }
+
+        current_positions.set(position_command, PetaNextNode{sfen_with_ply, root_best->first, peta_eval_diff});
+        log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first));
+    }
+
+    int step = 1;
+    while (!current_positions.empty())
+    {
+        if (step > max_step)
+            break;
+
+        OrderedPetaNextPositions next_positions;
+
+        for (const auto& position_command : current_positions.order())
+        {
+            ++stats.processed_nodes;
+            if (stats.processed_nodes % PetaRejoinProgressInterval == 0)
+            {
+                log_line("rejoin progress nodes = " + std::to_string(stats.processed_nodes)
+                    + " , leaf_nodes = " + std::to_string(stats.leaf_nodes)
+                    + " , rejoin_nodes = " + std::to_string(stats.rejoin_nodes)
+                    + " , think_sfens = " + std::to_string(think_sfens.size()));
+            }
+
+            const auto& node = current_positions.at(position_command);
+            auto [sfen, ply] = bookminer::trim_sfen_ply(node.sfen_with_ply);
+
+            if (ply >= max_book_ply)
+                continue;
+
+            if (visited_peta_position(visited, sfen))
+                continue;
+
+            visited.insert(bookminer::PackedSfen::from_sfen(sfen));
+
+            const auto hit = find_peta_position_with_flip(peta_book, sfen);
+            if (hit.position == nullptr || hit.position->moves.empty())
+            {
+                ++stats.leaf_nodes;
+                if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply))
+                {
+                    append_unique_position_command(think_sfens, think_seen, position_command);
+                    ++stats.rejoin_nodes;
+                }
+                continue;
+            }
+
+            const auto& moveinfos = hit.position->moves;
+            const int best_eval = static_cast<int>(moveinfos.front().eval);
+            const int eval_low = (ply % 2 == turn) ? best_eval : node.root_best_eval - node.eval_diff;
+
+            for (const auto& moveinfo : moveinfos)
+            {
+                if (static_cast<int>(moveinfo.eval) < eval_low)
+                    continue;
+
+                const std::uint16_t move16 = hit.flipped ? bookminer::flipped_move16(moveinfo.move16) : moveinfo.move16;
+                const std::string move = bookminer::move16_to_usi(move16);
+                if (move.empty())
+                    continue;
+
+                auto board = bookminer::SfenPosition::from_sfen(node.sfen_with_ply);
+                board.push_usi(move);
+
+                const std::string next_sfen_with_ply = board.sfen_with_ply();
+                const auto next_sfen_ply = bookminer::trim_sfen_ply(next_sfen_with_ply);
+                if (next_sfen_ply.second >= max_book_ply)
+                    continue;
+
+                const std::string next_position_command = append_position_move(position_command, move);
+                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff});
+            }
+        }
+
+        log_line("step = " + std::to_string(step)
+            + " , len(next_positions) = " + std::to_string(next_positions.order().size())
+            + ", think_sfens = " + std::to_string(think_sfens.size()));
+
+        current_positions = std::move(next_positions);
+        ++step;
+    }
+
+    return think_sfens;
+}
+
+void peta_rejoin(
+    const bookminer::BookStore& peta_book,
+    int peta_eval_diff,
+    int max_step,
+    int max_book_ply,
+    const std::filesystem::path& start_sfens_path,
+    std::optional<int> book_extend_ply,
+    std::optional<int> eval_limit)
+{
+    log_line(
+        "peta_rejoin, peta_eval_diff = " + std::to_string(peta_eval_diff)
+        + ", max_step = " + std::to_string(max_step)
+        + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
+        + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
+        + ", start_sfens_path = " + start_sfens_path.string());
+
+    PetaRejoinStats stats;
+    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, stats);
+    const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
+    log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
+    write_position_command_entries_file(
+        black_path,
+        make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
+
+    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, stats);
+    const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
+    log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
+    write_position_command_entries_file(
+        white_path,
+        make_position_command_entries(white, book_extend_ply, eval_limit, max_book_ply));
+
+    const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
+    const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path);
+
+    log_line("peta_rejoin done.");
+    log_line("[PetaRejoinDone] path=" + output_path.string()
+        + " count=" + std::to_string(count)
+        + " processed_nodes=" + std::to_string(stats.processed_nodes)
+        + " leaf_nodes=" + std::to_string(stats.leaf_nodes)
+        + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes));
+}
+
 std::optional<std::string> peta_pv_leaf_position_command(
     const bookminer::BookStore& peta_book,
     std::string position_command,
@@ -3158,6 +3356,7 @@ void print_help()
     log_line("  PL: make and read peta shocked book from latest backup");
     log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PJ : peta rejoin             , pj (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PU : peta unsolved           , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
@@ -3502,6 +3701,64 @@ int main(int argc, char* argv[])
                             command_max_book_ply,
                             start_sfens_path,
                             std::nullopt,
+                            book_extend_ply,
+                            eval_limit);
+                    }))
+                {
+                    log_line("Error : peta command is running. wait for peta command completion.");
+                }
+            }
+            else if (command == "pj" || command == "peta_rejoin" || command == "peta-rejoin")
+            {
+                if (reject_if_peta_busy())
+                    continue;
+
+                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
+                const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
+                if (peta_eval_diff < 0)
+                {
+                    log_line("Error : peta_eval_diff must be non-negative integer.");
+                    continue;
+                }
+                if (command_max_book_ply <= 0)
+                {
+                    log_line("Error : max_book_ply must be positive integer.");
+                    continue;
+                }
+                if (max_step <= 0)
+                {
+                    log_line("Error : max_step must be positive integer.");
+                    continue;
+                }
+                if (book_extend_ply < 0)
+                {
+                    log_line("Error : book_extend_ply must be non-negative integer.");
+                    continue;
+                }
+                if (eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer.");
+                    continue;
+                }
+                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                if (!peta_command_job.start([
+                        &peta_book,
+                        peta_eval_diff,
+                        max_step,
+                        command_max_book_ply,
+                        start_sfens_path,
+                        book_extend_ply,
+                        eval_limit
+                    ] {
+                        peta_rejoin(
+                            peta_book,
+                            peta_eval_diff,
+                            max_step,
+                            command_max_book_ply,
+                            start_sfens_path,
                             book_extend_ply,
                             eval_limit);
                     }))

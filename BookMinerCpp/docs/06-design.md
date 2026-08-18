@@ -43,6 +43,7 @@ BookMinerCpp は、`BookMiner.py` と同じ運用を C++ で再実装するた�
 - 棋譜上の局面、定跡木から外へ出る枝の `eval_limit` 判定、leaf からの best line 延長
 - `pn` による peta next
 - `pr` による peta refutation
+- `pj` による peta rejoin
 - `pu` による peta unsolved
 - `po` による peta opponent
 - `book/peta_start_sfens.txt` などの開始局面集合ファイル読み込み
@@ -153,6 +154,8 @@ flip hitした場合の指し手は、やねうら王の `flip_move(Move16)` で
 `pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`peta next` のleafのうち、定跡から抜ける最後の1手が通常book上ではbestではなかったものだけを書き出します。判定はPython版と同じく、peta_book上の `反駁候補手評価値 - 旧best手評価値 >= eval_refutation_margin` です。
 
 共通引数に `None` を指定した場合は `sd` の値を使います。
+
+`pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、peta bookから抜けたleafのうち、合法手1手でpeta bookに再合流するものだけを書き出します。再合流判定では、`SfenPosition::legal_moves()` で合法手を生成し、1手進めた局面をpeta book上でflip込みでprobeします。
 
 `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`book/think_unsolved_sfens.txt` の棋譜の各途中局面から peta_book 上の best PV leaf を書き出します。共通引数に `None` を指定した場合は `sd` の値を使います。
 

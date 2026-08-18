@@ -111,7 +111,7 @@ Python版 BookMiner.py が新しく書き出す `book_miner-....db` は、やね
 
 ## peta shock 化の詳細
 
-`makebook peta_shock` の意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) にまとめています。`peta next`、`peta refutation`、`peta unsolved`、`peta opponent` の使い分けは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) にまとめています。
+`makebook peta_shock` の意味、`peta_book` が必要な理由、`value` / `depth` の扱いは [10. peta shock 化](10-peta-shock.md) にまとめています。`peta next`、`peta refutation`、`peta rejoin`、`peta unsolved`、`peta opponent` の使い分けは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md) にまとめています。
 
 ここでは周回作業では次の流れになる、と覚えておけば十分です。
 
@@ -261,7 +261,7 @@ GUI では、初回に KifManager で作った `think_sfens.txt` を `enqueue` �
 
 ```text
 手順1. peta_shock または peta_shock_latest または peta_read
-手順2. peta next または peta refutation または peta unsolved または peta opponent
+手順2. peta next または peta refutation または peta rejoin または peta unsolved または peta opponent
 手順3. enqueue
 ```
 
@@ -271,6 +271,7 @@ GUI では、初回に KifManager で作った `think_sfens.txt` を `enqueue` �
 
 `peta next` は、その peta shock 化された定跡から、leaf の先へ伸ばす局面を探して `book/think_sfens.txt` に書き出します。
 `peta refutation` は、`peta next` の leaf のうち、反駁された leaf だけを `book/think_sfens.txt` に書き出します。
+`peta rejoin` は、peta book から抜けた leaf のうち、合法手1手で peta book に再合流する局面だけを `book/think_sfens.txt` に書き出します。
 `peta unsolved` は、`book/think_unsolved_sfens.txt` にある棋譜の各途中局面からpeta_book上のPV leafを `book/think_sfens.txt` に書き出します。
 `peta opponent` は、`book/book_opponent/` に置いた過去配布定跡などと現行peta_bookのbest進行を辿り、相手定跡が切れる周辺の対策候補leafを `book/think_sfens.txt` に書き出します。
 

@@ -27,6 +27,15 @@ RELEASE_EDITIONS = [
     ("YANEURAOU_ENGINE_NNUE", "YaneuraOu_NNUE_halfkp_256x2_32_32"),
     ("YANEURAOU_ENGINE_SFNN1536", "YaneuraOu_SFNN1536"),
     ("YANEURAOU_ENGINE_SFNN_halfka2_1024_7_64_k3k3", "YaneuraOu_SFNN_halfka2_1024_7_64_k3k3"),
+    ("YANEURAOU_ENGINE_SFNN_halfka2_1024_8_64_k3k3", "YaneuraOu_SFNN_halfka2_1024_8_64_k3k3"),
+    (
+        "YANEURAOU_ENGINE_SFNN_halfka2_1024_7_64_hand1024_k3k3_progress4",
+        "YaneuraOu_SFNN_halfka2_1024_7_64_hand1024_k3k3_progress4",
+    ),
+    (
+        "YANEURAOU_ENGINE_SFNN_halfka2_1024_8_64_hand1024_k3k3_progress4",
+        "YaneuraOu_SFNN_halfka2_1024_8_64_hand1024_k3k3_progress4",
+    ),
     ("YANEURAOU_ENGINE_NNUE_HALFKP_1024X2_8_32", "YaneuraOu_NNUE_halfkp_1024x2_8_32"),
     ("YANEURAOU_ENGINE_NNUE_HALFKP_1024X2_8_64", "YaneuraOu_NNUE_halfkp_1024x2_8_64"),
     ("YANEURAOU_ENGINE_NNUE_HALFKP_768X2_16_64", "YaneuraOu_NNUE_halfkp_768x2_16_64"),

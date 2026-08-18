@@ -13,7 +13,7 @@ peta 系コマンドは、読み込み済みの peta book を辿って `book/thi
 ```text
 peta_book を読む
   ↓
-peta next / peta refutation / peta unsolved / peta opponent
+peta next / peta refutation / peta rejoin / peta unsolved / peta opponent
   ↓
 book/think_sfens.txt を作る
   ↓
@@ -40,6 +40,7 @@ enqueue
 | `デフォルト値` | `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` | peta 系コマンドと `enqueue` が `None` や行メタ情報なしで使う共通デフォルト値を設定します。 |
 | `peta next` | `pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book を root から辿り、leaf の先へ伸ばす候補を `book/think_sfens.txt` に書き出します。 |
 | `peta refutation` | `pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、反駁された leaf だけを書き出します。 |
+| `peta rejoin` | `pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book から抜けた leaf のうち、合法手1手で peta book に再合流するものだけを書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜の各途中局面から、peta book 上の best PV leaf を書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta book を辿り、対策候補 leaf を書き出します。 |
 | `enqueue` | `e` | `book/think_sfens.txt` を探索 queue に積みます。 |
@@ -101,6 +102,22 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 ```
 
 通常の `peta next` では leaf が多すぎるが、反駁された leaf を優先して延長したい場合に使います。
+
+## peta rejoin
+
+`peta rejoin` は、peta book から抜けた leaf のうち、合法手1手で peta book に再合流する局面だけを書き出します。
+
+GUIでは `peta rejoin`、CLIでは `pj` コマンドです。
+
+```text
+pj 30 99999 200 6 400
+```
+
+引数は `eval_diff max_step game_ply_limit book_extend_ply eval_limit` の順です。
+
+処理は `peta next` と同じように root から peta book を辿ります。peta book の外に出た leaf 局面Xを見つけたら、Xで合法手を全生成し、どれか1手を指した局面が peta book に存在するか調べます。再合流する合法手が1つでもあれば、Xまでの棋譜を `book/think_sfens.txt` に書き出します。
+
+再合流先の評価値が leaf の評価値より下がっているかどうかは条件にしません。再合流できる時点で、その leaf 局面は既存 peta book と接続しているため、掘り直す価値があるものとして扱います。
 
 ## peta unsolved
 
@@ -201,7 +218,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 同じ局面が複数の手順2から出た場合、自動enqueueの集約ではより大きいメタ情報を持つ行を残します。
 
-`max_step` は `book/think_sfens.txt` には書き出されません。これは `peta next`、`peta refutation`、`peta unsolved`、`peta opponent` が leaf を探すときの範囲だけを絞る値です。
+`max_step` は `book/think_sfens.txt` には書き出されません。これは `peta next`、`peta refutation`、`peta rejoin`、`peta unsolved`、`peta opponent` が leaf を探すときの範囲だけを絞る値です。
 
 一方、`game_ply_limit` は leaf 抽出時にも使われ、さらに `game_ply_limit=...` として `book/think_sfens.txt` に書き出されます。そのため、その後に `enqueue` すると探索 worker 側の手数上限としても効きます。
 
@@ -211,7 +228,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 | 値 | 使う場所 | 意味 |
 |---|---|---|
-| `eval_diff` | `peta next` / `pn`、`peta refutation` / `pr`、`peta opponent` / `po` | peta book の中で、best move からどれくらい評価値が離れた枝まで辿るか。`peta opponent` では各局面で best に近い候補をどこまで候補に入れるか。 |
+| `eval_diff` | `peta next` / `pn`、`peta refutation` / `pr`、`peta rejoin` / `pj`、`peta opponent` / `po` | peta book の中で、best move からどれくらい評価値が離れた枝まで辿るか。`peta opponent` では各局面で best に近い候補をどこまで候補に入れるか。 |
 | `eval_drop_limit` | `peta unsolved` / `pu` | 棋譜の最初の局面から見て、途中局面の評価値がどれくらい悪化したら除外するか。 |
 | `eval_refutation_margin` | `peta refutation` / `pr` | peta shock後の反駁候補手と旧best手の評価値差がどれくらい以上なら抽出するか。 |
 | `max_step` | 手順2の各 peta 抽出コマンド | peta book の中で leaf を探す範囲を制限する値。`think_sfens.txt` には書き出されず、enqueue 後の探索条件にはならない。 |
@@ -223,7 +240,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 ## peta next の開始局面集合を変える
 
-通常、`pn`、`pr` は平手の初期局面、つまり `startpos` から peta book を辿ります。
+通常、`pn`、`pr`、`pj` は平手の初期局面、つまり `startpos` から peta book を辿ります。
 
 特定の局面から先だけを対象にしたい場合は、`settings/book_miner_settings.json5` の `peta_next_start_sfens_path` で指定されているファイルを作成します。
 

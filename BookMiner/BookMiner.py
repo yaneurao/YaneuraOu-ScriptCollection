@@ -75,6 +75,7 @@ PETA_DEFAULT_INF_EVAL_DIFF = 99999
 PETA_DEFAULT_MAX_STEP = 9999
 DEFAULT_STEP2_EVAL_DIFF = 30
 DEFAULT_STEP2_MAX_STEP = 99999
+PETA_REJOIN_PROGRESS_INTERVAL = 100000
 PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_DEFAULT_EVAL_DIFF = 0
@@ -3040,6 +3041,173 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
+def peta_leaf_rejoins_peta_book(sfen_with_ply:Sfen)->bool:
+    global peta_book
+
+    board = cshogi.Board(sfen_with_ply)
+    for move32 in list(board.legal_moves):
+        next_board = cshogi.Board(sfen_with_ply)
+        next_board.push(move32)
+        next_sfen, _ = trim_sfen_ply(next_board.sfen())
+        position_info, _ = find_book_position_with_flip(peta_book, next_sfen)
+        if position_info is not None:
+            return True
+    return False
+
+
+def peta_rejoin(
+    peta_eval_diff:int,
+    max_step:int,
+    max_book_ply:int,
+    start_sfens_path:str,
+    book_extend_ply:int|None = None,
+    eval_limit:int|None = None,
+):
+    """
+    peta_bookをrootから辿り、peta_book外へ抜けたleaf局面Xを見つける。
+    Xから合法手を1手進めてpeta_bookへ再合流できる場合、Xをthink_sfens.txtに書き出す。
+    """
+
+    global peta_book
+
+    print(
+        f"peta_rejoin, peta_eval_diff = {peta_eval_diff}, "
+        f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
+        f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
+        f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
+        f"start_sfens_path = {start_sfens_path}"
+    )
+
+    total_processed_nodes = 0
+    total_leaf_nodes = 0
+    total_rejoin_nodes = 0
+
+    for turn in [1, 0]:
+        think_sfens : dict[PositionStr, PositionCommandEntry] = {}
+        turn_str = ['white','black'][turn]
+        print(f"--- peta_rejoin {turn_str} ---")
+
+        visited : set[Sfen] = set()
+        current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
+
+        for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
+            sfen, ply = trim_sfen_ply(sfen_with_ply)
+
+            if ply >= max_book_ply:
+                continue
+
+            position_info, _ = find_book_position_with_flip(peta_book, sfen)
+            if position_info is None or not position_info.moveinfos:
+                total_leaf_nodes += 1
+                if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                    add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                    total_rejoin_nodes += 1
+                continue
+
+            root_best, _ = get_best(position_info)
+            if root_best is None:
+                total_leaf_nodes += 1
+                if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                    add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                    total_rejoin_nodes += 1
+                continue
+
+            current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff)
+            print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
+
+        step = 1
+        while current_positions:
+            if step > max_step:
+                break
+
+            next_positions : dict[PositionStr, tuple[Sfen, int, int]] = {}
+
+            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
+                total_processed_nodes += 1
+                if total_processed_nodes % PETA_REJOIN_PROGRESS_INTERVAL == 0:
+                    print(
+                        f"rejoin progress nodes = {total_processed_nodes} , "
+                        f"leaf_nodes = {total_leaf_nodes} , "
+                        f"rejoin_nodes = {total_rejoin_nodes} , "
+                        f"think_sfens = {len(think_sfens)}"
+                    )
+
+                sfen, ply = trim_sfen_ply(sfen_with_ply)
+
+                if ply >= max_book_ply:
+                    continue
+
+                if sfen in visited or flipped_sfen(sfen) in visited:
+                    continue
+
+                visited.add(sfen)
+
+                position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
+                if position_info is None or not position_info.moveinfos:
+                    total_leaf_nodes += 1
+                    if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                        add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                        total_rejoin_nodes += 1
+                    continue
+
+                moveinfos = position_info.moveinfos
+                besteval = moveinfos[0].eval
+                if not isinstance(besteval, int):
+                    continue
+
+                eval_low = besteval if ply % 2 == turn else root_best_eval - peta_eval_diff0
+
+                for moveinfo in moveinfos:
+                    if not isinstance(moveinfo.eval, int):
+                        continue
+
+                    if eval_low <= moveinfo.eval:
+                        board = cshogi.Board(sfen_with_ply)
+                        move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
+                        checked_push_usi(board, move, context=position_cmd)
+                        next_sfen = board.sfen()
+                        _, next_ply = trim_sfen_ply(next_sfen)
+                        if next_ply >= max_book_ply:
+                            continue
+
+                        next_position_cmd = append_position_move(position_cmd, move)
+                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0)
+
+            print(
+                f"step = {step} , len(next_positions) = {len(next_positions)}, "
+                f"think_sfens = {len(think_sfens)}"
+            )
+
+            current_positions = next_positions
+            step += 1
+
+        path = os.path.join(BOOK_DIR, f"think_sfens-{turn_str}.txt")
+        print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
+        write_position_command_entries(path, think_sfens)
+
+    bw_path = os.path.join(BOOK_DIR, f"think_sfens.txt")
+    b_path  = os.path.join(BOOK_DIR, f"think_sfens-black.txt")
+    w_path  = os.path.join(BOOK_DIR, f"think_sfens-white.txt")
+    bw_count = 0
+    with open(bw_path, 'w') as fbw,\
+        open(b_path, 'r') as fb, \
+        open(w_path, 'r') as fw:
+        for line_a, line_b in zip_longest(fb, fw, fillvalue=''):
+            if line_a:
+                fbw.write(line_a)
+                bw_count += 1
+            if line_b:
+                fbw.write(line_b)
+                bw_count += 1
+
+    print("peta_rejoin done.")
+    print(
+        f"[PetaRejoinDone] path={bw_path} count={bw_count} "
+        f"processed_nodes={total_processed_nodes} leaf_nodes={total_leaf_nodes} "
+        f"rejoin_nodes={total_rejoin_nodes}"
+    )
+
+
 def peta_pv_leaf_position_cmd(
     position_cmd:PositionStr,
     sfen_with_ply:Sfen,
@@ -3803,6 +3971,7 @@ def user_input(from_gui:bool = False):
                 print("  PL   : make and read peta shocked book from latest backup")
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PJ   : peta rejoin , pj (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PO   : peta opponent , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  H : Help")
@@ -3943,6 +4112,37 @@ def user_input(from_gui:bool = False):
                     print("Error : eval_limit must be non-negative integer.")
                     continue
                 peta_next(
+                    peta_eval_diff,
+                    max_step,
+                    max_book_ply,
+                    book_miner_settings.peta_next_start_sfens_path,
+                    book_extend_ply,
+                    eval_limit=eval_limit,
+                )
+
+            elif i == 'pj' or i == 'peta_rejoin':
+                # peta_rejoin
+                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
+                max_step = parse_int_argument(inp, 2, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
+                if peta_eval_diff < 0:
+                    print("Error : peta_eval_diff must be non-negative integer.")
+                    continue
+                if max_book_ply <= 0:
+                    print("Error : max_book_ply must be positive integer.")
+                    continue
+                if max_step <= 0:
+                    print("Error : max_step must be positive integer.")
+                    continue
+                if book_extend_ply < 0:
+                    print("Error : book_extend_ply must be non-negative integer.")
+                    continue
+                if eval_limit < 0:
+                    print("Error : eval_limit must be non-negative integer.")
+                    continue
+                peta_rejoin(
                     peta_eval_diff,
                     max_step,
                     max_book_ply,

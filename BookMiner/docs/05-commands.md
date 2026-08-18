@@ -21,7 +21,7 @@ sd 30 99999 200 6 400
 ```
 
 引数は順に `eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。
-GUI は `peta next`、`peta refutation`、`peta unsolved`、`peta opponent`、`enqueue` の直前にこのコマンドを送ります。
+GUI は `peta next`、`peta refutation`、`peta rejoin`、`peta unsolved`、`peta opponent`、`enqueue` の直前にこのコマンドを送ります。
 
 `book/think_sfens.txt` の行にメタ情報がない場合や、peta系コマンドの共通引数に `None` を指定した場合は、最後に設定した `sd` の値を使います。
 
@@ -166,6 +166,7 @@ r backup/peta_book-20260607071000_12345.db
 GUI の `peta_read` ボタンは引数なしの `r` を送るため、最新の `peta_book-....db` または `peta_book-....ybb` を読みます。外部で peta shock 化した結果を使う場合は、そのファイルを `book/backup/` に置いてから `peta_read` を押します。
 
 このあと `pn` コマンドを使うと、次に掘る局面を列挙できます。
+`pj` コマンドを使うと、peta book から抜けたあと合法手1手で peta book に再合流する leaf 局面を列挙できます。
 
 ## `pn`
 
@@ -235,6 +236,20 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 通常の `peta next` では leaf が多すぎる場合に、反駁された leaf だけを優先して掘るためのコマンドです。
 
 詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-refutation) を参照してください。
+
+## peta rejoin
+
+`peta next` と同じように peta_book を辿りますが、leaf として見つかった局面Xから合法手を1手指して peta_book に再合流できる場合だけ、Xを `book/think_sfens.txt` に書き出します。
+
+```text
+pj 30 9999 200 6 400
+```
+
+引数は順に `eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。GUIで空欄にした場合は手順2のデフォルト値行が使われ、明示的に `None` と入力した場合は `None` として送信します。
+
+再合流先の評価値が下がっているかどうかは条件にしません。再合流できる leaf は、既存 peta book と接続している未確定局面として掘る対象になります。
+
+詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-rejoin) を参照してください。
 
 ## peta unsolved
 
