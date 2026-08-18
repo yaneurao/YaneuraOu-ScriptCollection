@@ -106,7 +106,7 @@ STEP_BUTTON_WIDTH = 12
 PETA_STEP_BUTTON_WIDTH = 16
 PETA_BUTTON_STYLE = "PetaLeft.TButton"
 DEFAULT_WINDOW_WIDTH = 1280
-DEFAULT_WINDOW_HEIGHT = 720
+DEFAULT_WINDOW_HEIGHT = 640
 MIN_WINDOW_WIDTH = 760
 MIN_WINDOW_HEIGHT = 520
 WINDOW_SCREEN_MARGIN = 48
@@ -364,20 +364,16 @@ class BookMinerGui(ttk.Frame):
         )
         self.task_job_items: dict[int, TaskJobListItem] = {}
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
-        self.progress_labels = {
-            "read": tk.StringVar(value="定跡読込: 待機中"),
-            "engine": tk.StringVar(value="エンジン起動: 待機中"),
-            "write": tk.StringVar(value="定跡書込: 待機中"),
-            "task": tk.StringVar(value="enqueue進捗: 待機中"),
-        }
-        self.progress_bars: dict[str, ttk.Progressbar] = {}
-        self.startup_status = tk.StringVar(value="状態: 停止中")
         self.backup_status = tk.StringVar(value="次回自動保存 -")
-        self.mining_status = tk.StringVar(value="現在の採掘速度 - 局面/日    平均探索nodes -    現在のnps -")
+        self.book_positions_text = "定跡局面数 -"
+        self.engine_status_text = "エンジン起動数 -"
+        self.enqueue_status_text = "enqueue -"
+        self.mining_status = tk.StringVar(value="")
         self.latest_mining_positions: int | None = None
         self.latest_mining_searched_positions: int | None = None
         self.latest_mining_nodes: int | None = None
         self.mining_samples: list[MiningSample] = []
+        self._update_mining_status()
         self.command_ready = False
         self.command_buttons: list[ttk.Widget] = []
         self.auto_enqueue_enabled = tk.BooleanVar(value=False)
@@ -605,8 +601,8 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="手順1.").grid(row=1, column=0, sticky="w", pady=3)
         self.peta_button = ttk.Button(
             commands,
-            text="peta_shock",
-            width=STEP_BUTTON_WIDTH,
+            text=" peta_shock",
+            width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_shock,
         )
@@ -614,7 +610,7 @@ class BookMinerGui(ttk.Frame):
         Tooltip(self.peta_button, "`p` を送信します。未変更なら読み込み済みDBを再利用し、変更済みなら定跡DBを書き出して peta shock 化します。")
         self.peta_latest_button = ttk.Button(
             commands,
-            text="peta_shock_latest",
+            text=" peta_shock_latest",
             width=17,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_shock_latest,
@@ -623,7 +619,7 @@ class BookMinerGui(ttk.Frame):
         Tooltip(self.peta_latest_button, "`pl` を送信します。DBを保存せず、book/backup/ にある最新の通常bookを peta shock 化して読み込みます。")
         self.peta_read_button = ttk.Button(
             commands,
-            text="peta_read",
+            text=" peta_read",
             width=STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_read,
@@ -653,7 +649,7 @@ class BookMinerGui(ttk.Frame):
 
         self.next_button = ttk.Button(
             commands,
-            text="peta next",
+            text=" peta next",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_next,
@@ -677,7 +673,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="").grid(row=6, column=0, sticky="w", pady=3)
         self.refutation_button = ttk.Button(
             commands,
-            text="peta refutation",
+            text=" peta refutation",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_refutation,
@@ -706,7 +702,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="").grid(row=4, column=0, sticky="w", pady=3)
         self.rejoin_button = ttk.Button(
             commands,
-            text="peta rejoin",
+            text=" peta rejoin",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_rejoin,
@@ -733,7 +729,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="").grid(row=7, column=0, sticky="w", pady=3)
         self.unsolved_button = ttk.Button(
             commands,
-            text="peta unsolved",
+            text=" peta unsolved",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_unsolved,
@@ -760,7 +756,7 @@ class BookMinerGui(ttk.Frame):
         ttk.Label(commands, text="").grid(row=5, column=0, sticky="w", pady=3)
         self.opponent_button = ttk.Button(
             commands,
-            text="peta opponent",
+            text=" peta opponent",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
             command=self.send_peta_opponent,
@@ -854,29 +850,15 @@ class BookMinerGui(ttk.Frame):
         ]
 
         progress = ttk.Frame(self)
-        progress.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        progress.columnconfigure(1, weight=1)
-        ttk.Label(progress, textvariable=self.startup_status).grid(
+        progress.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        ttk.Label(progress, textvariable=self.mining_status).grid(
             row=0,
             column=0,
-            columnspan=2,
             sticky="w",
-            pady=(0, 4),
-        )
-        self._add_progress_row(progress, 1, "read")
-        self._add_progress_row(progress, 2, "engine")
-        self._add_progress_row(progress, 3, "write")
-        self._add_progress_row(progress, 4, "task")
-        ttk.Label(progress, textvariable=self.mining_status).grid(
-            row=5,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(5, 0),
         )
 
         log_area = ttk.Frame(self)
-        log_area.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        log_area.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
         log_area.columnconfigure(0, weight=1)
         log_area.rowconfigure(1, weight=1)
 
@@ -901,13 +883,10 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
 
     def _reset_progress(self) -> None:
-        self.startup_status.set("状態: 起動中")
-        self.progress_labels["read"].set("定跡読込: 待機中")
-        self.progress_labels["engine"].set("エンジン起動: 待機中")
-        self.progress_labels["write"].set("定跡書込: 待機中")
-        self.progress_labels["task"].set("enqueue進捗: 待機中")
         self.backup_status.set("次回自動保存 -")
-        self.mining_status.set("現在の採掘速度 - 局面/日    平均探索nodes -    現在のnps -")
+        self.book_positions_text = "定跡局面数 -"
+        self.engine_status_text = "エンジン起動数 -"
+        self.enqueue_status_text = "enqueue -"
         self.latest_mining_positions = None
         self.latest_mining_searched_positions = None
         self.latest_mining_nodes = None
@@ -919,20 +898,7 @@ class BookMinerGui(ttk.Frame):
         self.busy_action = None
         self.manual_backup_pending = False
         self.command_ready = False
-        for bar in self.progress_bars.values():
-            bar.configure(maximum=1)
-            bar["value"] = 0
-
-    def _add_progress_row(self, parent: ttk.Frame, row: int, key: str) -> None:
-        ttk.Label(parent, textvariable=self.progress_labels[key], width=36).grid(
-            row=row,
-            column=0,
-            sticky="w",
-            pady=2,
-        )
-        bar = ttk.Progressbar(parent, mode="determinate", maximum=1, value=0)
-        bar.grid(row=row, column=1, sticky="ew", pady=2)
-        self.progress_bars[key] = bar
+        self._update_mining_status()
 
     def _register_log_widget(self, key: str, text: scrolledtext.ScrolledText) -> None:
         self.log_widgets.setdefault(key, []).append(text)
@@ -1231,7 +1197,9 @@ class BookMinerGui(ttk.Frame):
         self.busy_action = None
         self.manual_backup_pending = False
         self.command_ready = False
-        self.startup_status.set("状態: 停止中")
+        self.engine_status_text = "エンジン起動数 -"
+        self.enqueue_status_text = "enqueue -"
+        self._update_mining_status()
         self._update_buttons()
 
     def _handle_output(self, text: str) -> None:
@@ -1312,8 +1280,6 @@ class BookMinerGui(ttk.Frame):
     def _handle_startup_line(self, line: str) -> None:
         stage_match = STARTUP_STAGE_RE.search(line)
         if stage_match is not None:
-            _stage, message = stage_match.groups()
-            self.startup_status.set(f"状態: {message}")
             return
 
         engine_match = ENGINE_INIT_RE.search(line)
@@ -1322,29 +1288,16 @@ class BookMinerGui(ttk.Frame):
             count = int(count_text)
             total = int(total_text)
             ready_match = re.search(r"\bready=(\d+)", line)
-            if phase == "Done":
-                label_text = f"エンジン起動完了 {count}/{total}"
-            elif ready_match is not None:
-                label_text = f"エンジン起動中 {count}/{total} ready={ready_match.group(1)}"
-            else:
-                label_text = f"エンジン起動中 {count}/{total}"
-            self.progress_labels["engine"].set(label_text)
-            bar = self.progress_bars["engine"]
-            if total > 0:
-                bar.configure(maximum=total)
-                bar["value"] = min(count, total)
-            else:
-                bar.configure(maximum=1)
-                bar["value"] = 1
-            if phase == "Done":
-                self.startup_status.set("状態: 自動保存サービス起動待ち")
+            ready_suffix = f" ready={ready_match.group(1)}" if ready_match is not None and phase != "Done" else ""
+            self.engine_status_text = f"エンジン起動数 {count}/{total}{ready_suffix}"
+            self._update_mining_status()
             return
 
         ready_match = ENGINE_READY_RE.search(line)
         if ready_match is not None:
             count_text, total_text = ready_match.groups()
-            self.startup_status.set(f"状態: エンジン応答待ち {count_text}/{total_text}")
-            self.progress_labels["engine"].set(f"エンジン応答待ち {count_text}/{total_text}")
+            self.engine_status_text = f"エンジン起動数 {count_text}/{total_text}"
+            self._update_mining_status()
             return
 
         alive_match = ENGINE_ALIVE_RE.search(line)
@@ -1352,16 +1305,8 @@ class BookMinerGui(ttk.Frame):
             alive_text, total_text = alive_match.groups()
             alive = int(alive_text)
             total = int(total_text)
-            self.progress_labels["engine"].set(f"稼働エンジン {alive}/{total}")
-            bar = self.progress_bars["engine"]
-            if total > 0:
-                bar.configure(maximum=total)
-                bar["value"] = min(alive, total)
-            else:
-                bar.configure(maximum=1)
-                bar["value"] = 0
-            if alive < total:
-                self.startup_status.set(f"状態: エンジン切断 {alive}/{total}")
+            self.engine_status_text = f"エンジン起動数 {alive}/{total}"
+            self._update_mining_status()
             return
 
         backup_match = BACKUP_STATUS_RE.search(line)
@@ -1371,14 +1316,12 @@ class BookMinerGui(ttk.Frame):
             if tag in ("BackupServiceStarted", "BackupNext") and next_match is not None:
                 next_time = next_match.group(1).replace("_", " ")
                 self.backup_status.set(f"次回自動保存 {next_time}")
-                if tag == "BackupServiceStarted":
-                    self.startup_status.set("状態: 自動保存サービス起動完了")
             return
 
         if COMMAND_READY_RE.search(line):
+            if not self.command_ready:
+                self._append_log("other", "[GUI] 状態: コマンド受付を開始しました。\n")
             self.command_ready = True
-            self.startup_status.set("状態: コマンド受付を開始しました。")
-            self._append_log("other", "[GUI] コマンド受付を開始しました。\n")
             self._update_buttons()
 
     def _handle_book_progress_line(self, line: str) -> None:
@@ -1387,28 +1330,16 @@ class BookMinerGui(ttk.Frame):
             return
         direction, phase, count_text, total_text = match.groups()
         key = "read" if direction == "Read" else "write"
-        base = "定跡読込" if key == "read" else "定跡書込"
         count = int(count_text)
         total = None if total_text == "?" else int(total_text)
 
-        if phase == "Done":
-            label = f"{base}完了"
-        else:
-            label = f"{base}中"
-
-        total_display = str(total) if total is not None else "?"
-        self.progress_labels[key].set(f"{label} {count}/{total_display}")
-
-        bar = self.progress_bars[key]
-        if total is not None and total > 0:
-            bar.configure(maximum=total)
-            bar["value"] = min(count, total)
-        elif phase == "Done":
-            bar.configure(maximum=1)
-            bar["value"] = 1
-        else:
-            bar.configure(maximum=1)
-            bar["value"] = 0
+        if key == "read":
+            if phase == "Done":
+                self.book_positions_text = f"定跡局面数 {count:,}"
+            else:
+                total_display = f"{total:,}" if total is not None else "?"
+                self.book_positions_text = f"定跡局面数 {count:,}/{total_display}"
+            self._update_mining_status()
 
     def _handle_task_queue_progress_line(self, line: str) -> None:
         match = TASK_QUEUE_PROGRESS_RE.search(line)
@@ -1420,20 +1351,9 @@ class BookMinerGui(ttk.Frame):
         total = None if total_text == "?" else int(total_text)
         remaining = None if total is None else max(total - count, 0)
 
-        label = "enqueue完了" if phase == "Done" else "enqueue進捗"
-        total_display = str(total) if total is not None else "?"
-        self.progress_labels["task"].set(f"{label} {count}/{total_display}")
-
-        bar = self.progress_bars["task"]
-        if total is not None and total > 0:
-            bar.configure(maximum=total)
-            bar["value"] = min(count, total)
-        elif phase == "Done":
-            bar.configure(maximum=1)
-            bar["value"] = 1
-        else:
-            bar.configure(maximum=1)
-            bar["value"] = 0
+        total_display = f"{total:,}" if total is not None else "?"
+        self.enqueue_status_text = f"enqueue {count:,}/{total_display}"
+        self._update_mining_status()
 
         previous_remaining = self.task_queue_remaining
         if phase == "Done":
@@ -1642,11 +1562,7 @@ class BookMinerGui(ttk.Frame):
             self.latest_mining_searched_positions = searched_positions
         if nodes is not None:
             self.latest_mining_nodes = nodes
-        self.progress_labels["read"].set(f"定跡局面数 {positions:,}")
-        read_bar = self.progress_bars.get("read")
-        if read_bar is not None:
-            read_bar.configure(maximum=max(positions, 1))
-            read_bar["value"] = positions
+        self.book_positions_text = f"定跡局面数 {positions:,}"
 
         if self.latest_mining_positions is not None and positions < self.latest_mining_positions:
             self.mining_samples.clear()
@@ -1702,14 +1618,10 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def _update_mining_status(self) -> None:
-        if self.latest_mining_positions is None:
-            self.mining_status.set("現在の採掘速度 - 局面/日    平均探索nodes -    現在のnps -")
-            return
-
         speed_text = "-"
         avg_nodes_text = "-"
         current_nps_text = "-"
-        if len(self.mining_samples) >= 2:
+        if self.latest_mining_positions is not None and len(self.mining_samples) >= 2:
             start_sample = self.mining_samples[0]
             end_sample = self.mining_samples[-1]
             elapsed = end_sample.timestamp - start_sample.timestamp
@@ -1733,6 +1645,7 @@ class BookMinerGui(ttk.Frame):
                         current_nps_text = f"{round(positions_per_second * avg_nodes):,}"
 
         self.mining_status.set(
+            f"{self.book_positions_text}    {self.engine_status_text}    {self.enqueue_status_text}    "
             f"現在の採掘速度 {speed_text} 局面/日    "
             f"平均探索nodes {avg_nodes_text}    現在のnps {current_nps_text}"
         )
@@ -2210,7 +2123,6 @@ class BookMinerGui(ttk.Frame):
             self._append_log("other", f"[GUI] settings save failed: {exc}\n")
             return False
 
-        self._append_log("other", f"[GUI] settings saved: {GUI_SETTINGS_PATH.name}\n")
         return True
 
     def send_peta_shock(self) -> bool:
