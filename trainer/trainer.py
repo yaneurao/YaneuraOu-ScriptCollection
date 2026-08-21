@@ -531,6 +531,38 @@ def cosine_scheduler_config(total_epochs: int, lr_min: float) -> dict:
     }
 
 
+def exponential_scheduler_gamma(total_epochs: int, lr: float, lr_min: float) -> float:
+    # scheduler.step() runs after each teacher file. Using total_epochs here makes
+    # the learning rate reach lr_min just after the last teacher file in the round.
+    return (lr_min / lr) ** (1.0 / max(1, total_epochs))
+
+
+def lr_scheduler_train_arg(args: argparse.Namespace, total_epochs: int) -> str:
+    scheduler = args.lr_scheduler
+    if scheduler == "cosine":
+        return cosine_scheduler_train_arg(total_epochs, args.lr_min)
+    if scheduler == "exponential":
+        gamma = exponential_scheduler_gamma(total_epochs, args.lr, args.lr_min)
+        return f"ExponentialLR(gamma={gamma:.17g})"
+    raise ValueError(f"unknown lr scheduler: {args.lr_scheduler}")
+
+
+def lr_scheduler_config(args: argparse.Namespace, total_epochs: int) -> dict:
+    scheduler = args.lr_scheduler
+    if scheduler == "cosine":
+        return cosine_scheduler_config(total_epochs, args.lr_min)
+    if scheduler == "exponential":
+        return {
+            "class_path": "torch.optim.lr_scheduler.ExponentialLR",
+            "init_args": {
+                "gamma": exponential_scheduler_gamma(
+                    total_epochs, args.lr, args.lr_min
+                ),
+            },
+        }
+    raise ValueError(f"unknown lr scheduler: {args.lr_scheduler}")
+
+
 def inductor_subprocess_env(
     args: argparse.Namespace, out_dir: Path, checkpoint_number_for_file: int
 ) -> dict[str, str] | None:
@@ -811,7 +843,7 @@ def write_ptl_config(
                 "weight_decay": 0.0001,
             },
         },
-        "lr_scheduler": cosine_scheduler_config(total_epochs, args.lr_min),
+        "lr_scheduler": lr_scheduler_config(args, total_epochs),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -917,7 +949,7 @@ def run_one_round(
         else None
     )
 
-    lr_scheduler = cosine_scheduler_train_arg(total_epochs, args.lr_min)
+    lr_scheduler = lr_scheduler_train_arg(args, total_epochs)
 
     print(f"DeepLearningShogi: {dlshogi_dir}")
     print(f"teacher files: {len(teacher_files)}")
@@ -1176,10 +1208,22 @@ def main() -> None:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument(
-        "--lr_min",
+        "--lr-min",
+        dest="lr_min",
         type=float,
         default=1e-5,
-        help="Minimum learning rate for the cosine LR scheduler.",
+        metavar="LR",
+        help="Minimum/end learning rate for the LR scheduler.",
+    )
+    parser.add_argument(
+        "--lr-scheduler",
+        dest="lr_scheduler",
+        choices=("cosine", "exponential"),
+        default="cosine",
+        help=(
+            "LR scheduler. cosine keeps the legacy behavior. exponential "
+            "uses --lr as the round start lr and --lr-min as the round end lr."
+        ),
     )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
@@ -1278,6 +1322,13 @@ def main() -> None:
         )
     if args.backend != "train" and args.batches_per_update != 1:
         parser.error("--batches-per-update is supported only with --backend train")
+    if args.lr_scheduler == "exponential":
+        if args.lr <= 0:
+            parser.error("--lr must be > 0 for --lr-scheduler exponential")
+        if args.lr_min <= 0:
+            parser.error("--lr-min must be > 0 for --lr-scheduler exponential")
+        if args.lr_min > args.lr:
+            parser.error("--lr-min must be <= --lr for --lr-scheduler exponential")
     if args.resume_checkpoint and args.init_checkpoint:
         parser.error("--resume_checkpoint and --init_checkpoint cannot be used together")
 
