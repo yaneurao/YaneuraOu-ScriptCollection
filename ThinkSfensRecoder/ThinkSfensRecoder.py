@@ -15,14 +15,8 @@ import threading
 from pathlib import Path
 
 
-def app_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
-
-
 def default_output_path() -> Path:
-    return app_dir().parent / "BookMiner" / "book" / "think_sfens.txt"
+    return Path.cwd() / "think_sfens.txt"
 
 
 def normalize_position_command(line: str) -> str | None:
@@ -98,13 +92,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-o",
         type=Path,
         default=default_output_path(),
-        help="output think_sfens.txt path",
+        help="output think_sfens.txt path; default is ./think_sfens.txt in the current working directory",
     )
     parser.add_argument(
         "--engine-cwd",
         type=Path,
         default=None,
         help="working directory for the real engine; default is the engine executable directory",
+    )
+    parser.add_argument(
+        "--engine-name",
+        default=None,
+        help="engine name reported to the GUI; replaces the real engine's 'id name ...' line",
     )
     parser.add_argument(
         "--no-dedupe",
@@ -126,9 +125,21 @@ def engine_command(engine_path: str, engine_args: list[str]) -> list[str]:
     return [engine_path, *args]
 
 
-def forward_stream(src, dst) -> None:
+def rewrite_engine_name(line: str, engine_name: str | None) -> str:
+    if engine_name is None:
+        return line
+
+    newline = "\n" if line.endswith("\n") else ""
+    body = line[:-1] if newline else line
+    if body.startswith("id name "):
+        return f"id name {engine_name}{newline}"
+    return line
+
+
+def forward_stream(src, dst, engine_name: str | None = None) -> None:
     try:
         for line in src:
+            line = rewrite_engine_name(line, engine_name)
             dst.write(line)
             dst.flush()
     except Exception as exc:
@@ -164,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     assert process.stdout is not None
     assert process.stderr is not None
 
-    stdout_thread = threading.Thread(target=forward_stream, args=(process.stdout, sys.stdout), daemon=True)
+    stdout_thread = threading.Thread(target=forward_stream, args=(process.stdout, sys.stdout, args.engine_name), daemon=True)
     stderr_thread = threading.Thread(target=forward_stream, args=(process.stderr, sys.stderr), daemon=True)
     stdout_thread.start()
     stderr_thread.start()
