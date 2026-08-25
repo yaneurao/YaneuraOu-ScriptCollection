@@ -21,6 +21,8 @@ python C:\shogi\YaneuraOu-ScriptCollection\ThinkSfensRecoder\ThinkSfensRecoder.p
 
 同じ局面はデフォルトで重複記録しません。重複も記録したい場合は `--no-dedupe` を指定します。
 
+保存先に既存の `think_sfens.txt` がある場合、ファイルは上書きせず末尾へ追記します。重複除去が有効な場合は、起動時に既存ファイルの内容も読み込み済み局面として扱うため、既存行と同じ局面は追加記録されません。
+
 将棋GUI上で表示されるエンジン名を変えたい場合は、`--engine-name` を指定します。これは実エンジンが `usi` コマンドに応答するときの `id name ...` 行だけを置き換えます。
 
 ```bat
