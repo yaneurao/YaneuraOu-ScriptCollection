@@ -1608,31 +1608,14 @@ class EngineManager:
             # 次の局面を辿る。
             # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
             # そのため、bestがeval_limitを超えていたら、ここで延長を止める。
-            besteval , _ = get_best(position_info)
-
-            if besteval is None:
-                # 思考したはずなのにbestevalがない。詰みの局面か？
-                return TASK_RESULT_DONE
-
-            if abs(besteval) > eval_limit:
-                return TASK_RESULT_DONE
-
             if branch_task and branch_depth <= 0:
                 return TASK_RESULT_DONE
 
-            moveinfos_to_consider = (
-                position_info.moveinfos[:branch_width]
-                if branch_task
-                else position_info.moveinfos
+            candidate_moves = self.get_thinking_candidate_moves(
+                position_info,
+                eval_limit,
+                branch_width if branch_task else None,
             )
-            candidate_moves : list[MoveStr] = []
-            for moveinfo in moveinfos_to_consider:
-
-                eval = moveinfo.eval
-                if eval is None or abs(eval) > eval_limit:
-                    continue
-
-                candidate_moves.append(moveinfo.move)
 
             if not candidate_moves:
                 # 条件に当てはまる指し手が見つからなかったので、これ以上掘り進めない。
@@ -1640,26 +1623,13 @@ class EngineManager:
 
             if branch_task:
                 next_branch_depth = branch_depth - 1
-                side_tasks : list[Task] = []
-                for move in candidate_moves[1:]:
-                    side_board = cshogi.Board(current_sfen)
-                    checked_push_usi(side_board, move, context=current_sfen)
-                    side_sfen = trim_sfen(side_board.sfen())
-                    side_tasks.append(
-                        Task(
-                            side_sfen,
-                            ply + 1,
-                            eval_limit,
-                            job_id=task.job_id,
-                            max_book_ply=max_book_ply,
-                            book_extend_ply=task.book_extend_ply,
-                            branch_width=branch_width,
-                            branch_depth=next_branch_depth,
-                        )
-                    )
-
-                for side_task in side_tasks:
-                    self.put_branch_task(task, side_task)
+                self.put_branch_tasks(
+                    task,
+                    current_sfen,
+                    ply,
+                    candidate_moves[1:],
+                    next_branch_depth,
+                )
 
                 move = candidate_moves[0]
                 board = cshogi.Board(current_sfen)
@@ -1698,6 +1668,9 @@ class EngineManager:
 
         eval_limit = task.eval_limit
         max_book_ply = task.max_book_ply
+        branch_width = task.branch_width
+        branch_depth = task.branch_depth
+        branch_task = branch_width > 0
         if self.position_command_hits_searching_sfen(book, task.position_cmd, max_book_ply):
             return TASK_RESULT_DEFERRED
 
@@ -1722,12 +1695,39 @@ class EngineManager:
 
             # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
             position_info, _ = self.get_book_position_info(book, current_sfen)
+            searched = False
+            branch_sfen = current_sfen
             if position_info is None or not has_considered(position_info):
-                position_info, _, last_thinking_ply, status, _searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+                position_info, branch_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
                 if status == TASK_RESULT_DEFERRED:
                     return TASK_RESULT_DEFERRED
                 if position_info is None:
                     return TASK_RESULT_DONE
+
+                if branch_task and searched and branch_depth > 0:
+                    candidate_moves = self.get_thinking_candidate_moves(
+                        position_info,
+                        eval_limit,
+                        branch_width,
+                    )
+                    if not candidate_moves:
+                        branch_depth = 0
+                    else:
+                        inline_move = flipped_move(move) if branch_sfen != current_sfen else move
+                        next_branch_depth = branch_depth - 1
+                        side_moves = [
+                            candidate_move
+                            for candidate_move in candidate_moves
+                            if candidate_move != inline_move
+                        ]
+                        self.put_branch_tasks(
+                            task,
+                            branch_sfen,
+                            ply,
+                            side_moves,
+                            next_branch_depth,
+                        )
+                        branch_depth = next_branch_depth if inline_move in candidate_moves else 0
 
             lookahead_board = cshogi.Board(board.sfen()) # type:ignore
             checked_push_usi(lookahead_board, move, context=task.position_cmd)
@@ -1757,9 +1757,60 @@ class EngineManager:
                 book_extend_ply=task.book_extend_ply,
                 job_id=task.job_id,
                 branch_width=task.branch_width,
-                branch_depth=task.branch_depth,
+                branch_depth=branch_depth,
             ),
         )
+
+    def get_thinking_candidate_moves(
+        self,
+        position_info:PositionInfo,
+        eval_limit:int,
+        move_limit:int | None = None,
+    )->list[MoveStr]:
+        """
+        best line/branchで辿ってよい候補手を、評価値条件つきで返す。
+        """
+        besteval, _ = get_best(position_info)
+        if besteval is None:
+            return []
+        if abs(besteval) > eval_limit:
+            return []
+
+        moveinfos = position_info.moveinfos if move_limit is None else position_info.moveinfos[:move_limit]
+        candidate_moves : list[MoveStr] = []
+        for moveinfo in moveinfos:
+            eval = moveinfo.eval
+            if eval is None or abs(eval) > eval_limit:
+                continue
+            candidate_moves.append(moveinfo.move)
+
+        return candidate_moves
+
+    def put_branch_tasks(
+        self,
+        parent:Task,
+        current_sfen:Sfen,
+        ply:int,
+        moves:list[MoveStr],
+        branch_depth:int,
+    ):
+        for move in moves:
+            side_board = cshogi.Board(current_sfen)
+            checked_push_usi(side_board, move, context=current_sfen)
+            side_sfen = trim_sfen(side_board.sfen())
+            self.put_branch_task(
+                parent,
+                Task(
+                    side_sfen,
+                    ply + 1,
+                    parent.eval_limit,
+                    job_id=parent.job_id,
+                    max_book_ply=parent.max_book_ply,
+                    book_extend_ply=parent.book_extend_ply,
+                    branch_width=parent.branch_width,
+                    branch_depth=branch_depth,
+                ),
+            )
 
     """
     def parallel_think(self, book:Book, think_sfens:list[Sfen]):

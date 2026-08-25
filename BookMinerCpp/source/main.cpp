@@ -487,6 +487,64 @@ struct BranchTaskSpec {
 
 using EnqueueBranchTask = std::function<void(BranchTaskSpec)>;
 
+std::vector<std::string> thinking_candidate_moves(
+    const bookminer::PositionInfo& position,
+    int eval_limit,
+    std::optional<std::size_t> move_limit)
+{
+    const auto best = get_best(position);
+    if (!best.has_value())
+        return {};
+    if (std::abs(best->first) > eval_limit)
+        return {};
+
+    const std::size_t limit = move_limit.has_value()
+        ? std::min<std::size_t>(*move_limit, position.moves.size())
+        : position.moves.size();
+    std::vector<std::string> candidate_moves;
+    for (std::size_t i = 0; i < limit; ++i)
+    {
+        const auto& move_info = position.moves[i];
+        if (std::abs(static_cast<int>(move_info.eval)) > eval_limit)
+            continue;
+        candidate_moves.push_back(bookminer::move16_to_usi(move_info.move16));
+    }
+    return candidate_moves;
+}
+
+void enqueue_branch_tasks(
+    const std::string& current_sfen,
+    int current_ply,
+    const std::vector<std::string>& moves,
+    int next_branch_depth,
+    int eval_limit,
+    int max_book_ply,
+    int think_command_ply,
+    int job_id,
+    int branch_width,
+    const EnqueueBranchTask& enqueue_branch_task)
+{
+    for (const auto& move : moves)
+    {
+        auto side_board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
+        side_board.push_usi(move);
+        enqueue_branch_task(BranchTaskSpec{
+            "sfen " + side_board.sfen_with_ply(),
+            eval_limit,
+            max_book_ply,
+            think_command_ply,
+            job_id,
+            branch_width,
+            next_branch_depth,
+        });
+    }
+}
+
+std::string flipped_usi_move(const std::string& move)
+{
+    return bookminer::move16_to_usi(bookminer::flipped_move16(bookminer::move16_from_usi(move)));
+}
+
 TaskResult start_thinking_best_line(
     bookminer::BookStore& book,
     bookminer::UsiEngine& engine,
@@ -522,26 +580,13 @@ TaskResult start_thinking_best_line(
         if (branch_task && !thought.searched)
             return TaskResult::Done;
 
-        const auto best = get_best(thought.position);
-        if (!best.has_value())
-            return TaskResult::Done;
-        if (std::abs(best->first) > eval_limit)
-            return TaskResult::Done;
-
         if (branch_task && rest_branch_depth <= 0)
             return TaskResult::Done;
 
-        const std::size_t move_limit = branch_task
-            ? std::min<std::size_t>(static_cast<std::size_t>(branch_width), thought.position.moves.size())
-            : thought.position.moves.size();
-        std::vector<std::string> candidate_moves;
-        for (std::size_t i = 0; i < move_limit; ++i)
-        {
-            const auto& move_info = thought.position.moves[i];
-            if (std::abs(static_cast<int>(move_info.eval)) > eval_limit)
-                continue;
-            candidate_moves.push_back(bookminer::move16_to_usi(move_info.move16));
-        }
+        const auto candidate_moves = thinking_candidate_moves(
+            thought.position,
+            eval_limit,
+            branch_task ? std::optional<std::size_t>(static_cast<std::size_t>(branch_width)) : std::nullopt);
 
         if (candidate_moves.empty())
             return TaskResult::Done;
@@ -549,20 +594,20 @@ TaskResult start_thinking_best_line(
         if (branch_task)
         {
             const int next_branch_depth = rest_branch_depth - 1;
-            for (std::size_t i = 1; i < candidate_moves.size(); ++i)
-            {
-                auto side_board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
-                side_board.push_usi(candidate_moves[i]);
-                enqueue_branch_task(BranchTaskSpec{
-                    "sfen " + side_board.sfen_with_ply(),
-                    eval_limit,
-                    max_book_ply,
-                    think_command_ply,
-                    job_id,
-                    branch_width,
-                    next_branch_depth,
-                });
-            }
+            std::vector<std::string> side_moves;
+            if (candidate_moves.size() > 1)
+                side_moves.assign(candidate_moves.begin() + 1, candidate_moves.end());
+            enqueue_branch_tasks(
+                current_sfen,
+                current_ply,
+                side_moves,
+                next_branch_depth,
+                eval_limit,
+                max_book_ply,
+                think_command_ply,
+                job_id,
+                branch_width,
+                enqueue_branch_task);
 
             auto board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
             board.push_usi(candidate_moves.front());
@@ -653,6 +698,8 @@ TaskResult process_position_command(
         log_line(message);
     });
 
+    int rest_branch_depth = branch_depth;
+    const bool branch_task = branch_width > 0;
     int last_thinking_ply = PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
 
@@ -671,6 +718,43 @@ TaskResult process_position_command(
                 return TaskResult::Done;
             current_lookup.position = thought.position;
             current_lookup.flipped = thought.sfen != current_sfen;
+
+            if (branch_task && thought.searched && rest_branch_depth > 0)
+            {
+                const auto candidate_moves = thinking_candidate_moves(
+                    thought.position,
+                    eval_limit,
+                    static_cast<std::size_t>(branch_width));
+                if (candidate_moves.empty())
+                {
+                    rest_branch_depth = 0;
+                }
+                else
+                {
+                    const std::string inline_move = current_lookup.flipped ? flipped_usi_move(move) : move;
+                    const int next_branch_depth = rest_branch_depth - 1;
+                    std::vector<std::string> side_moves;
+                    for (const auto& candidate_move : candidate_moves)
+                    {
+                        if (candidate_move != inline_move)
+                            side_moves.push_back(candidate_move);
+                    }
+                    enqueue_branch_tasks(
+                        thought.sfen,
+                        ply,
+                        side_moves,
+                        next_branch_depth,
+                        eval_limit,
+                        max_book_ply,
+                        think_command_ply,
+                        job_id,
+                        branch_width,
+                        enqueue_branch_task);
+                    rest_branch_depth = std::find(candidate_moves.begin(), candidate_moves.end(), inline_move) != candidate_moves.end()
+                        ? next_branch_depth
+                        : 0;
+                }
+            }
         }
 
         auto lookahead = board;
@@ -697,7 +781,7 @@ TaskResult process_position_command(
         max_book_ply,
         think_command_ply,
         branch_width,
-        branch_depth,
+        rest_branch_depth,
         job_id,
         enqueue_branch_task);
 }
