@@ -246,6 +246,9 @@ class TaskQueueJobProgress:
     # 最後にTaskQueueProgressへ出力した完了数。
     last_reported_taken : int = 0
 
+    # 最後にTaskQueueProgressへ出力したjob総数。
+    last_reported_total : int = 0
+
     # このjobで、他workerが探索中の局面に当たりqueue末尾へ戻した累計回数。
     deferred : int = 0
 
@@ -1901,6 +1904,7 @@ class EngineManager:
                 book_extend_ply=book_extend_ply,
                 branch=branch,
                 done_reported=added_count == 0,
+                last_reported_total=added_count,
             )
             total = self.task_progress_total
             taken = self.task_progress_taken
@@ -1982,6 +1986,7 @@ class EngineManager:
             if not should_report:
                 return
             job_progress.last_reported_taken = job_taken
+            job_progress.last_reported_total = job_total
             job_progress.last_reported_deferred = job_deferred
             self.task_progress_last_report = time.time()
 
@@ -2022,6 +2027,7 @@ class EngineManager:
                     continue
                 if (
                     job_progress.taken == job_progress.last_reported_taken
+                    and job_progress.total == job_progress.last_reported_total
                     and job_progress.deferred == job_progress.last_reported_deferred
                 ):
                     continue
@@ -2046,6 +2052,7 @@ class EngineManager:
                     )
                 )
                 job_progress.last_reported_taken = job_taken
+                job_progress.last_reported_total = job_total
                 job_progress.last_reported_deferred = job_deferred
             if reports:
                 self.task_progress_last_report = time.time()

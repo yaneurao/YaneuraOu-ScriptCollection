@@ -1046,6 +1046,7 @@ public:
             progress.game_ply_limit = job_game_ply_limit;
             progress.book_extend_ply = job_book_extend_ply;
             progress.branch = job_branch;
+            progress.last_reported_total = added;
             jobs_[job_id] = std::move(progress);
             total_enqueued_ += added;
             total_taken = total_taken_;
@@ -1115,6 +1116,7 @@ private:
         std::size_t total = 0;
         std::size_t taken = 0;
         std::size_t last_reported_taken = 0;
+        std::size_t last_reported_total = 0;
         std::size_t deferred = 0;
         std::size_t last_reported_deferred = 0;
         bool done_reported = false;
@@ -1283,6 +1285,7 @@ private:
             {
                 should_report = true;
                 job.last_reported_taken = job.taken;
+                job.last_reported_total = job.total;
                 job.last_reported_deferred = job.deferred;
                 last_task_progress_report_ = std::chrono::steady_clock::now();
             }
@@ -1343,7 +1346,9 @@ private:
             {
                 if (job.done_reported)
                     continue;
-                if (job.taken == job.last_reported_taken && job.deferred == job.last_reported_deferred)
+                if (job.taken == job.last_reported_taken
+                    && job.total == job.last_reported_total
+                    && job.deferred == job.last_reported_deferred)
                     continue;
 
                 ProgressReport report;
@@ -1361,6 +1366,7 @@ private:
                 report.branch = job.branch;
                 reports.push_back(std::move(report));
                 job.last_reported_taken = job.taken;
+                job.last_reported_total = job.total;
                 job.last_reported_deferred = job.deferred;
             }
             if (!reports.empty())
