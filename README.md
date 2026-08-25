@@ -16,6 +16,7 @@
 | 📁&nbsp;[makebook](/makebook) | 定跡 | やねうら王の定跡関連の操作スクリプト |
 | 📁&nbsp;[PetaNext](/PetaNext) | 定跡 | 定跡ファイルの次に掘ると良い局面をリストアップするスクリプト |
 | 📁&nbsp;[BookMiner](/BookMiner) | 定跡 | 定跡の採掘スクリプト |
+| 📁&nbsp;[ThinkSfensRecoder](/ThinkSfensRecoder) | 棋譜記録 | 将棋所、ShogiGUI、ShogiHomeなどから使える局面記録ツール |
 | 📁&nbsp;[YaneuraOu-Builder](/YaneuraOu-Builder) | ビルド | やねうら王本体・BookMinerCppのビルドGUI |
 | 📁&nbsp;[KifManager](/KifManager) | 棋譜管理 | floodgate、WCSC、電竜戦などの棋譜ダウンロード・抽出ツール |
 | 📁&nbsp;Bloodgate | 棋力計測 | 棋力計測用スクリプト |
