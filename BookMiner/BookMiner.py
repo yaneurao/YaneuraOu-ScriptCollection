@@ -1416,15 +1416,15 @@ class EngineManager:
 
         if self.reached_max_book_ply(ply, limit):
             self.print_reached_max_book_ply(current_sfen, ply, limit)
-            return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE
+            return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE, False
 
         with book.lock:
             if current_sfen in visited or current_sfen_f in visited:
-                return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE
+                return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE, False
 
             if current_sfen in book.searching_sfens or current_sfen_f in book.searching_sfens:
                 # 他のスレッドが探索中なので、このtaskはqueue末尾へ戻して後で再試行する。
-                return None, current_sfen, last_thinking_ply, TASK_RESULT_DEFERRED
+                return None, current_sfen, last_thinking_ply, TASK_RESULT_DEFERRED, False
 
             if current_sfen in book.body:
                 position_info = book.body[current_sfen]
@@ -1438,7 +1438,9 @@ class EngineManager:
             visited.add(current_sfen)
 
         try:
+            searched = False
             if not position_info or not has_considered(position_info):
+                searched = True
                 # 2つ目以降の局面では、1手前で探索しているので7掛けで良い。
                 # ⇨ 途中で合流した場合、1手前で探索してるとは限らない。last_thinking_plyを用いるように変更する。
                 node_ratio = 0.7 if last_thinking_ply + 1 == ply else 1.0
@@ -1491,7 +1493,7 @@ class EngineManager:
                 if self.global_settings.from_gui and book_position_count is not None:
                     self.report_mining_progress(book_position_count, searched_nodes=searched_nodes)
 
-            return position_info, current_sfen, last_thinking_ply, TASK_RESULT_DONE
+            return position_info, current_sfen, last_thinking_ply, TASK_RESULT_DONE, searched
 
         finally:
             with book.lock:
@@ -1595,10 +1597,12 @@ class EngineManager:
                 break
 
             # 現局面を必要なら思考する。
-            position_info, current_sfen, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+            position_info, current_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
             if status == TASK_RESULT_DEFERRED:
                 return TASK_RESULT_DEFERRED
             if position_info is None:
+                return TASK_RESULT_DONE
+            if branch_task and not searched:
                 return TASK_RESULT_DONE
 
             # 次の局面を辿る。
@@ -1719,7 +1723,7 @@ class EngineManager:
             # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
             position_info, _ = self.get_book_position_info(book, current_sfen)
             if position_info is None or not has_considered(position_info):
-                position_info, _, last_thinking_ply, status = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+                position_info, _, last_thinking_ply, status, _searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
                 if status == TASK_RESULT_DEFERRED:
                     return TASK_RESULT_DEFERRED
                 if position_info is None:

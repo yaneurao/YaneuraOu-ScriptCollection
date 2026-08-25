@@ -412,6 +412,7 @@ struct ThinkOnceResult {
     ThinkOnceStatus status = ThinkOnceStatus::Done;
     bookminer::PositionInfo position;
     std::string sfen;
+    bool searched = false;
 };
 
 ThinkOnceResult think_sfen_once(
@@ -451,7 +452,7 @@ ThinkOnceResult think_sfen_once(
     } guard{book, lease};
 
     if (has_considered(lease.position))
-        return ThinkOnceResult{ThinkOnceStatus::Position, *lease.position, lease.sfen};
+        return ThinkOnceResult{ThinkOnceStatus::Position, *lease.position, lease.sfen, false};
 
     const double node_ratio = last_thinking_ply + 1 == ply ? 0.7 : 1.0;
     {
@@ -470,7 +471,7 @@ ThinkOnceResult think_sfen_once(
 
     auto position = book.find_position_copy(lease.sfen);
     if (has_considered(position))
-        return ThinkOnceResult{ThinkOnceStatus::Position, *position, lease.sfen};
+        return ThinkOnceResult{ThinkOnceStatus::Position, *position, lease.sfen, true};
     return {};
 }
 
@@ -518,6 +519,8 @@ TaskResult start_thinking_best_line(
         if (thought.status != ThinkOnceStatus::Position)
             return TaskResult::Done;
         current_sfen = thought.sfen;
+        if (branch_task && !thought.searched)
+            return TaskResult::Done;
 
         const auto best = get_best(thought.position);
         if (!best.has_value())
