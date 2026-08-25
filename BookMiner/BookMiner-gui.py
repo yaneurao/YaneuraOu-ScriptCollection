@@ -47,6 +47,8 @@ GUI_SETTING_DEFAULTS = {
     "eval_limit": "400",
     "game_ply_limit": "200",
     "enqueue_book_extend_ply": "6",
+    "enqueue_branch_width": "0",
+    "enqueue_branch_depth": "0",
     "peta_next_ply_limit": "",
     "peta_refutation_ply_limit": "",
     "peta_rejoin_ply_limit": "",
@@ -153,6 +155,7 @@ class TaskJobListItem:
     eval_limit: int | str | None
     game_ply_limit: int | str | None
     book_extend_ply: str | None
+    branch: str | None
     deferred: int
     taken: int
     total: int | None
@@ -500,6 +503,12 @@ class BookMinerGui(ttk.Frame):
         self.enqueue_book_extend_ply = tk.StringVar(
             value=gui_settings.get("enqueue_book_extend_ply", GUI_SETTING_DEFAULTS["enqueue_book_extend_ply"])
         )
+        self.enqueue_branch_width = tk.StringVar(
+            value=gui_settings.get("enqueue_branch_width", GUI_SETTING_DEFAULTS["enqueue_branch_width"])
+        )
+        self.enqueue_branch_depth = tk.StringVar(
+            value=gui_settings.get("enqueue_branch_depth", GUI_SETTING_DEFAULTS["enqueue_branch_depth"])
+        )
         self.peta_next_ply_limit = tk.StringVar(
             value=gui_settings.get("peta_next_ply_limit", GUI_SETTING_DEFAULTS["peta_next_ply_limit"])
         )
@@ -796,7 +805,12 @@ class BookMinerGui(ttk.Frame):
             command=self.send_enqueue,
         )
         self.enqueue_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`e` を送信し、book/think_sfens.txt の局面を行ごとのメタ情報に従って探索キューに積みます。")
+        Tooltip(self.enqueue_button, "`e` または `eb` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        ttk.Label(commands, text="上位").grid(row=8, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.enqueue_branch_width, width=6).grid(row=8, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="手").grid(row=8, column=4, sticky="w", padx=(4, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.enqueue_branch_depth, width=6).grid(row=8, column=5, sticky="w", pady=3)
+        ttk.Label(commands, text="手先まで").grid(row=8, column=6, sticky="w", padx=(4, 0), pady=3)
 
         ttk.Label(commands, text="手順4.").grid(row=9, column=0, sticky="w", pady=3)
         self.auto_check = ttk.Checkbutton(
@@ -935,7 +949,16 @@ class BookMinerGui(ttk.Frame):
 
         tree = ttk.Treeview(
             list_frame,
-            columns=("job", "remaining", "total", "deferred", "eval_limit", "game_ply_limit", "book_extend_ply"),
+            columns=(
+                "job",
+                "remaining",
+                "total",
+                "deferred",
+                "eval_limit",
+                "game_ply_limit",
+                "book_extend_ply",
+                "branch",
+            ),
             show="headings",
             height=height,
         )
@@ -946,13 +969,15 @@ class BookMinerGui(ttk.Frame):
         tree.heading("eval_limit", text="eval_limit")
         tree.heading("game_ply_limit", text="game_ply")
         tree.heading("book_extend_ply", text="extend_ply")
+        tree.heading("branch", text="branch")
         tree.column("job", width=58, minwidth=48, anchor="w", stretch=False)
         tree.column("remaining", width=64, minwidth=52, anchor="e", stretch=False)
         tree.column("total", width=64, minwidth=52, anchor="e", stretch=False)
         tree.column("deferred", width=56, minwidth=46, anchor="e", stretch=False)
         tree.column("eval_limit", width=76, minwidth=64, anchor="e", stretch=False)
         tree.column("game_ply_limit", width=78, minwidth=66, anchor="e", stretch=False)
-        tree.column("book_extend_ply", width=82, minwidth=70, anchor="e", stretch=True)
+        tree.column("book_extend_ply", width=82, minwidth=70, anchor="e", stretch=False)
+        tree.column("branch", width=64, minwidth=52, anchor="e", stretch=True)
 
         yscroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=yscroll.set)
@@ -1066,6 +1091,7 @@ class BookMinerGui(ttk.Frame):
             eval_limit_display = str(item.eval_limit) if item.eval_limit is not None else "-"
             game_ply_limit_display = str(item.game_ply_limit) if item.game_ply_limit is not None else "-"
             book_extend_ply_display = item.book_extend_ply if item.book_extend_ply else "-"
+            branch_display = item.branch if item.branch else "-"
             total_display = str(item.total) if item.total is not None else "?"
             remaining_display = str(item.remaining) if item.remaining is not None else "-"
             deferred_display = str(item.deferred)
@@ -1081,6 +1107,7 @@ class BookMinerGui(ttk.Frame):
                     eval_limit_display,
                     game_ply_limit_display,
                     book_extend_ply_display,
+                    branch_display,
                 ),
             )
 
@@ -1479,6 +1506,9 @@ class BookMinerGui(ttk.Frame):
         book_extend_ply = fields.get("book_extend_ply")
         if book_extend_ply is None and job_id in self.task_job_items:
             book_extend_ply = self.task_job_items[job_id].book_extend_ply
+        branch = fields.get("branch")
+        if branch is None and job_id in self.task_job_items:
+            branch = self.task_job_items[job_id].branch
 
         if total == 0 or remaining == 0 or (total is not None and taken >= total):
             self.task_job_items.pop(job_id, None)
@@ -1490,6 +1520,7 @@ class BookMinerGui(ttk.Frame):
                 eval_limit=eval_limit,
                 game_ply_limit=game_ply_limit,
                 book_extend_ply=book_extend_ply,
+                branch=branch,
                 deferred=deferred,
                 taken=taken,
                 total=total,
@@ -2094,6 +2125,8 @@ class BookMinerGui(ttk.Frame):
             "eval_limit": self.eval_limit.get(),
             "game_ply_limit": self.game_ply_limit.get(),
             "enqueue_book_extend_ply": self.enqueue_book_extend_ply.get(),
+            "enqueue_branch_width": self.enqueue_branch_width.get(),
+            "enqueue_branch_depth": self.enqueue_branch_depth.get(),
             "peta_next_ply_limit": self.peta_next_ply_limit.get(),
             "peta_refutation_ply_limit": self.peta_refutation_ply_limit.get(),
             "peta_rejoin_ply_limit": self.peta_rejoin_ply_limit.get(),
@@ -2165,6 +2198,9 @@ class BookMinerGui(ttk.Frame):
         default_command = self._build_default_settings_command(auto)
         if default_command is None:
             return False
+        enqueue_command = self._build_enqueue_command(auto)
+        if enqueue_command is None:
+            return False
         if not auto and not self._begin_manual_action("manual_enqueue"):
             return False
         origin = "AUTO" if auto else "GUI"
@@ -2176,7 +2212,7 @@ class BookMinerGui(ttk.Frame):
                     self.busy_action = None
                 self._update_buttons()
             return False
-        if self.send_command("e", origin=origin):
+        if self.send_command(enqueue_command, origin=origin):
             return True
         if not auto:
             if self.enqueue_pending:
@@ -2185,6 +2221,60 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
             self._update_buttons()
         return False
+
+    def _build_enqueue_command(self, auto: bool = False) -> str | None:
+        branch_width = self._get_enqueue_branch_int(
+            self.enqueue_branch_width,
+            "enqueue branch width",
+            auto,
+        )
+        if branch_width is None:
+            return None
+        branch_depth = self._get_enqueue_branch_int(
+            self.enqueue_branch_depth,
+            "enqueue branch depth",
+            auto,
+        )
+        if branch_depth is None:
+            return None
+
+        if branch_width == 0 and branch_depth == 0:
+            return "e"
+        if branch_width <= 0 or branch_depth <= 0:
+            if auto:
+                self._append_log("task", "[AUTO] enqueue branch width/depth must both be 0 or both be positive.\n")
+            else:
+                messagebox.showerror(
+                    "入力エラー",
+                    "branch指定は上位手数と手先までを両方0、または両方1以上にしてください。",
+                )
+            return None
+        return f"eb {branch_width} {branch_depth}"
+
+    def _get_enqueue_branch_int(
+        self,
+        variable: tk.StringVar,
+        label: str,
+        auto: bool = False,
+    ) -> int | None:
+        value = variable.get().strip()
+        if not value:
+            value = "0"
+        try:
+            parsed = int(value)
+        except ValueError:
+            if auto:
+                self._append_log("task", f"[AUTO] {label} must be a non-negative integer.\n")
+            else:
+                messagebox.showerror("入力エラー", f"{label} には0以上の整数を指定してください。")
+            return None
+        if parsed < 0:
+            if auto:
+                self._append_log("task", f"[AUTO] {label} must be non-negative.\n")
+            else:
+                messagebox.showerror("入力エラー", f"{label} には0以上の整数を指定してください。")
+            return None
+        return parsed
 
     def send_peta_next(self, auto: bool = False) -> bool:
         eval_diff = self._get_step2_int_token(

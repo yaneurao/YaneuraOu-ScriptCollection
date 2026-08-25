@@ -77,8 +77,9 @@ GUIが解釈する進捗タグはPython版と揃えます。
 
 ## worker queue
 
-`sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` は、手順2系コマンドと `e` が使う共通デフォルト値を更新します。
+`sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` は、手順2系コマンドと `e` / `eb` が使う共通デフォルト値を更新します。
 `e` は `book/think_sfens.txt` の `startpos moves ...` 形式の各行を `TaskQueue` に積み、起動済みUSIエンジンごとに1本のworker threadが処理します。
+`eb branch_width branch_depth` は同じ入力ファイルを読みますが、各入力局面を掘ったあと、MultiPV上位手を指定手数先まで展開します。最善手側は同じworkerが継続し、2番手以降は残りdepthを1つ減らしたtaskとしてqueue末尾へ積みます。
 各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` メタ情報がある場合、そのtaskだけ `sd` の値を上書きします。
 `TaskQueueProgress` は、おおむね10秒ごとに、前回出力時から完了数または `deferred` が変わっている job について出します。
 各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を即時に出します。

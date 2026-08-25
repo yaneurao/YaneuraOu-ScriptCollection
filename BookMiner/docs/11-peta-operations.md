@@ -43,7 +43,7 @@ enqueue
 | `peta rejoin` | `pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book から抜けた leaf のうち、合法手1手で peta book に再合流するものだけを書き出します。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜の各途中局面から、peta book 上の best PV leaf を書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta book を辿り、対策候補 leaf を書き出します。 |
-| `enqueue` | `e` | `book/think_sfens.txt` を探索 queue に積みます。 |
+| `enqueue` | `e` / `eb branch_width branch_depth` | `book/think_sfens.txt` を探索 queue に積みます。branch指定を使うと、掘った局面からMultiPV上位手を指定手数先まで展開します。 |
 
 通常は `peta_shock`、`peta_shock_latest`、または `peta_read` で peta book を読み込み、手順2のいずれかで `book/think_sfens.txt` を作り、`enqueue` します。
 
@@ -206,6 +206,8 @@ sd 30 99999 200 6 400
 
 KifManager の棋譜抽出で作った `think_sfens.txt` のように行末メタ情報がない場合も、`enqueue` 時にはこの `sd` の値で `game_ply_limit`、`book_extend_ply`、`eval_limit` が決まります。
 
+GUIの `enqueue` 右側にある `上位` / `手先まで` は enqueue 時だけのbranch指定です。両方0なら通常の `e`、両方1以上なら `eb branch_width branch_depth` を送ります。この値は `think_sfens.txt` の行メタ情報には書きません。
+
 ## 行メタ情報
 
 各 peta 抽出コマンドの `book_extend_ply`、`eval_limit`、`game_ply_limit` を数値で指定すると、書き出し行は次の形式になります。
@@ -235,6 +237,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 | `game_ply_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | この手数に到達したらそれ以上掘らない上限。 |
 | `book_extend_ply` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` の行ごとに、棋譜末端から best line を何手分延長するかを上書きする値。 |
 | `eval_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
+| `branch_width` / `branch_depth` | `enqueue` / `eb` | 入力局面を掘ったあと、MultiPV上位何手を何手先まで展開するか。`think_sfens.txt` には書き出されない enqueue 時設定。 |
 
 既存定跡から広く掘り始める初回は、`eval_diff 99999` と `eval_limit 99999` のように大きな値を使うと、評価値による枝刈りをほぼ無効化できます。通常運用では、目的に応じてこれらを小さくし、形勢が大きく傾いた枝を広げすぎないようにします。
 

@@ -474,6 +474,18 @@ ThinkOnceResult think_sfen_once(
     return {};
 }
 
+struct BranchTaskSpec {
+    std::string position_command;
+    int eval_limit = 0;
+    int max_book_ply = 0;
+    int think_command_ply = ThinkCommandPly;
+    int job_id = 0;
+    int branch_width = 0;
+    int branch_depth = 0;
+};
+
+using EnqueueBranchTask = std::function<void(BranchTaskSpec)>;
+
 TaskResult start_thinking_best_line(
     bookminer::BookStore& book,
     bookminer::UsiEngine& engine,
@@ -481,16 +493,25 @@ TaskResult start_thinking_best_line(
     int leaf_ply,
     int eval_limit,
     int max_book_ply,
-    int think_command_ply)
+    int think_command_ply,
+    int branch_width,
+    int branch_depth,
+    int job_id,
+    const EnqueueBranchTask& enqueue_branch_task)
 {
     std::string current_sfen = leaf_sfen;
     int current_ply = leaf_ply;
     int rest_ply = think_command_ply;
+    int rest_branch_depth = branch_depth;
+    const bool branch_task = branch_width > 0;
     int last_thinking_ply = PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
 
-    while (rest_ply > 0)
+    while (true)
     {
+        if (!branch_task && rest_ply <= 0)
+            break;
+
         auto thought = think_sfen_once(book, engine, current_sfen, current_ply, last_thinking_ply, max_book_ply, visited);
         if (thought.status == ThinkOnceStatus::Deferred)
             return TaskResult::Deferred;
@@ -504,21 +525,55 @@ TaskResult start_thinking_best_line(
         if (std::abs(best->first) > eval_limit)
             return TaskResult::Done;
 
-        bool moved = false;
-        auto board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
-        for (const auto& move_info : thought.position.moves)
+        if (branch_task && rest_branch_depth <= 0)
+            return TaskResult::Done;
+
+        const std::size_t move_limit = branch_task
+            ? std::min<std::size_t>(static_cast<std::size_t>(branch_width), thought.position.moves.size())
+            : thought.position.moves.size();
+        std::vector<std::string> candidate_moves;
+        for (std::size_t i = 0; i < move_limit; ++i)
         {
+            const auto& move_info = thought.position.moves[i];
             if (std::abs(static_cast<int>(move_info.eval)) > eval_limit)
                 continue;
-            board.push_usi(bookminer::move16_to_usi(move_info.move16));
+            candidate_moves.push_back(bookminer::move16_to_usi(move_info.move16));
+        }
+
+        if (candidate_moves.empty())
+            return TaskResult::Done;
+
+        if (branch_task)
+        {
+            const int next_branch_depth = rest_branch_depth - 1;
+            for (std::size_t i = 1; i < candidate_moves.size(); ++i)
+            {
+                auto side_board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
+                side_board.push_usi(candidate_moves[i]);
+                enqueue_branch_task(BranchTaskSpec{
+                    "sfen " + side_board.sfen_with_ply(),
+                    eval_limit,
+                    max_book_ply,
+                    think_command_ply,
+                    job_id,
+                    branch_width,
+                    next_branch_depth,
+                });
+            }
+
+            auto board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
+            board.push_usi(candidate_moves.front());
             current_sfen = board.sfen();
             current_ply = board.ply();
-            --rest_ply;
-            moved = true;
-            break;
+            rest_branch_depth = next_branch_depth;
+            continue;
         }
-        if (!moved)
-            return TaskResult::Done;
+
+        auto board = bookminer::SfenPosition::from_sfen(current_sfen + " " + std::to_string(current_ply));
+        board.push_usi(candidate_moves.front());
+        current_sfen = board.sfen();
+        current_ply = board.ply();
+        --rest_ply;
     }
     return TaskResult::Done;
 }
@@ -579,7 +634,11 @@ TaskResult process_position_command(
     const std::string& position_command,
     int eval_limit,
     int max_book_ply,
-    int think_command_ply)
+    int think_command_ply,
+    int branch_width,
+    int branch_depth,
+    int job_id,
+    const EnqueueBranchTask& enqueue_branch_task)
 {
     const auto parsed = bookminer::parse_position_command(position_command);
     if (position_command_hits_searching_position(book, parsed, max_book_ply))
@@ -626,7 +685,18 @@ TaskResult process_position_command(
         board.push_usi(move);
     }
 
-    return start_thinking_best_line(book, engine, board.sfen(), board.ply(), eval_limit, max_book_ply, think_command_ply);
+    return start_thinking_best_line(
+        book,
+        engine,
+        board.sfen(),
+        board.ply(),
+        eval_limit,
+        max_book_ply,
+        think_command_ply,
+        branch_width,
+        branch_depth,
+        job_id,
+        enqueue_branch_task);
 }
 
 struct PositionCommandEntry {
@@ -822,6 +892,8 @@ struct Task {
     int think_command_ply = ThinkCommandPly;
     int job_id = 0;
     int defer_count = 0;
+    int branch_width = 0;
+    int branch_depth = 0;
 };
 
 class TaskQueue {
@@ -933,7 +1005,13 @@ public:
         });
     }
 
-    int enqueue_position_commands(const std::filesystem::path& path, int eval_limit, int max_book_ply, int think_command_ply)
+    int enqueue_position_commands(
+        const std::filesystem::path& path,
+        int eval_limit,
+        int max_book_ply,
+        int think_command_ply,
+        int branch_width = 0,
+        int branch_depth = 0)
     {
         const auto commands = read_position_commands_file(path);
         const int job_id = next_job_id_.fetch_add(1);
@@ -956,6 +1034,7 @@ public:
             [](const PositionCommandEntry& command) {
                 return command.book_extend_ply;
             });
+        const std::string job_branch = std::to_string(branch_width) + "-" + std::to_string(branch_depth);
 
         std::size_t total_taken = 0;
         std::size_t total_enqueued = 0;
@@ -966,6 +1045,7 @@ public:
             progress.eval_limit = job_eval_limit;
             progress.game_ply_limit = job_game_ply_limit;
             progress.book_extend_ply = job_book_extend_ply;
+            progress.branch = job_branch;
             jobs_[job_id] = std::move(progress);
             total_enqueued_ += added;
             total_taken = total_taken_;
@@ -975,7 +1055,8 @@ public:
         log_line("(" + std::to_string(job_id) + ") put position commands , path = " + path.string()
             + " , eval_limit = " + std::to_string(eval_limit)
             + ", max_book_ply = " + std::to_string(max_book_ply)
-            + ", think_command_ply = " + std::to_string(think_command_ply));
+            + ", think_command_ply = " + std::to_string(think_command_ply)
+            + ", branch = " + job_branch);
         log_line("(" + std::to_string(job_id) + ") read " + std::to_string(added) + " position commands.");
         log_line("[TaskQueueStart] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
             + " job=" + std::to_string(job_id)
@@ -987,14 +1068,24 @@ public:
             + " deferred=0"
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
-            + " book_extend_ply=" + job_book_extend_ply);
+            + " book_extend_ply=" + job_book_extend_ply
+            + " branch=" + job_branch);
 
         for (const auto& command : commands)
         {
             const int task_eval_limit = command.eval_limit.value_or(eval_limit);
             const int task_max_book_ply = command.max_book_ply.value_or(max_book_ply);
             const int task_think_command_ply = command.book_extend_ply.value_or(think_command_ply);
-            queue_.push(Task{command.position_command, task_eval_limit, task_max_book_ply, task_think_command_ply, job_id});
+            queue_.push(Task{
+                command.position_command,
+                task_eval_limit,
+                task_max_book_ply,
+                task_think_command_ply,
+                job_id,
+                0,
+                branch_width,
+                branch_depth,
+            });
         }
 
         if (commands.empty())
@@ -1030,6 +1121,7 @@ private:
         std::string eval_limit;
         std::string game_ply_limit;
         std::string book_extend_ply;
+        std::string branch;
     };
 
     struct ProgressReport {
@@ -1044,7 +1136,30 @@ private:
         std::string eval_limit;
         std::string game_ply_limit;
         std::string book_extend_ply;
+        std::string branch;
     };
+
+    void enqueue_branch_task(BranchTaskSpec spec)
+    {
+        {
+            std::scoped_lock lock(progress_mutex_);
+            ++total_enqueued_;
+            auto it = jobs_.find(spec.job_id);
+            if (it != jobs_.end())
+                ++it->second.total;
+        }
+
+        queue_.push(Task{
+            std::move(spec.position_command),
+            spec.eval_limit,
+            spec.max_book_ply,
+            spec.think_command_ply,
+            spec.job_id,
+            0,
+            spec.branch_width,
+            spec.branch_depth,
+        });
+    }
 
     void worker_loop(bookminer::UsiEngine& engine)
     {
@@ -1063,7 +1178,13 @@ private:
                     task->position_command,
                     task->eval_limit,
                     task->max_book_ply,
-                    task->think_command_ply);
+                    task->think_command_ply,
+                    task->branch_width,
+                    task->branch_depth,
+                    task->job_id,
+                    [this](BranchTaskSpec spec) {
+                        enqueue_branch_task(std::move(spec));
+                    });
             }
             catch (const std::exception& ex)
             {
@@ -1127,6 +1248,7 @@ private:
         std::string job_eval_limit;
         std::string job_game_ply_limit;
         std::string job_book_extend_ply;
+        std::string job_branch;
         std::size_t job_deferred = 0;
 
         {
@@ -1142,12 +1264,15 @@ private:
                 job.game_ply_limit = std::to_string(task.max_book_ply);
             if (job.book_extend_ply.empty())
                 job.book_extend_ply = std::to_string(task.think_command_ply);
+            if (job.branch.empty())
+                job.branch = std::to_string(task.branch_width) + "-" + std::to_string(task.branch_depth);
             ++job.taken;
             job_taken = job.taken;
             job_total = job.total;
             job_eval_limit = job.eval_limit;
             job_game_ply_limit = job.game_ply_limit;
             job_book_extend_ply = job.book_extend_ply;
+            job_branch = job.branch;
             job_deferred = job.deferred;
             should_report_job_done = job.total > 0 && job.taken >= job.total && !job.done_reported;
             if (should_report_job_done)
@@ -1176,7 +1301,8 @@ private:
             + " deferred=" + std::to_string(job_deferred)
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
-            + " book_extend_ply=" + job_book_extend_ply);
+            + " book_extend_ply=" + job_book_extend_ply
+            + " branch=" + job_branch);
 
         if (should_report_job_done)
         {
@@ -1188,7 +1314,8 @@ private:
                 + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
-                + " book_extend_ply=" + job_book_extend_ply);
+                + " book_extend_ply=" + job_book_extend_ply
+                + " branch=" + job_branch);
         }
 
         if (remaining == 0)
@@ -1201,7 +1328,8 @@ private:
                 + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
-                + " book_extend_ply=" + job_book_extend_ply);
+                + " book_extend_ply=" + job_book_extend_ply
+                + " branch=" + job_branch);
         }
     }
 
@@ -1230,6 +1358,7 @@ private:
                 report.eval_limit = job.eval_limit;
                 report.game_ply_limit = job.game_ply_limit;
                 report.book_extend_ply = job.book_extend_ply;
+                report.branch = job.branch;
                 reports.push_back(std::move(report));
                 job.last_reported_taken = job.taken;
                 job.last_reported_deferred = job.deferred;
@@ -1248,7 +1377,8 @@ private:
                 + " deferred=" + std::to_string(report.deferred)
                 + " eval_limit=" + report.eval_limit
                 + " game_ply_limit=" + report.game_ply_limit
-                + " book_extend_ply=" + report.book_extend_ply);
+                + " book_extend_ply=" + report.book_extend_ply
+                + " branch=" + report.branch);
         }
     }
 
@@ -1259,6 +1389,7 @@ private:
         std::string job_eval_limit = "-";
         std::string job_game_ply_limit = "-";
         std::string job_book_extend_ply = "-";
+        std::string job_branch = "-";
         std::size_t job_deferred = 0;
         {
             std::scoped_lock lock(progress_mutex_);
@@ -1270,6 +1401,7 @@ private:
                 job_eval_limit = it->second.eval_limit.empty() ? "-" : it->second.eval_limit;
                 job_game_ply_limit = it->second.game_ply_limit.empty() ? "-" : it->second.game_ply_limit;
                 job_book_extend_ply = it->second.book_extend_ply.empty() ? "-" : it->second.book_extend_ply;
+                job_branch = it->second.branch.empty() ? "-" : it->second.branch;
                 job_deferred = it->second.deferred;
             }
         }
@@ -1279,7 +1411,8 @@ private:
             + " deferred=" + std::to_string(job_deferred)
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
-            + " book_extend_ply=" + job_book_extend_ply);
+            + " book_extend_ply=" + job_book_extend_ply
+            + " branch=" + job_branch);
         if (total_taken >= total_enqueued)
         {
             log_line("[TaskQueueDone] " + std::to_string(total_taken) + "/" + std::to_string(total_enqueued)
@@ -1288,7 +1421,8 @@ private:
                 + " deferred=" + std::to_string(job_deferred)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
-                + " book_extend_ply=" + job_book_extend_ply);
+                + " book_extend_ply=" + job_book_extend_ply
+                + " branch=" + job_branch);
         }
     }
 
@@ -3341,6 +3475,7 @@ void print_help()
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
     log_line("  E : enqueue positions        , e");
+    log_line("  EB: enqueue branch positions , eb branch_width branch_depth");
     log_line("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)");
     log_line("  SD: set defaults             , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit");
     log_line("  R : read peta shocked book , r (peta book path)");
@@ -3570,6 +3705,31 @@ int main(int argc, char* argv[])
                         command_defaults.eval_limit,
                         command_defaults.game_ply_limit,
                         command_defaults.book_extend_ply);
+            }
+            else if (command == "eb")
+            {
+                const std::string path = fs::path(BookDir).append(ThinkSfensName).string();
+                if (tokens.size() != 3)
+                {
+                    log_line("Usage : eb branch_width branch_depth");
+                    continue;
+                }
+                const int branch_width = std::stoi(tokens[1]);
+                const int branch_depth = std::stoi(tokens[2]);
+                if (!task_workers)
+                    log_line("Error : task workers are not running.");
+                else if (branch_width <= 0)
+                    log_line("Error : branch_width must be positive integer.");
+                else if (branch_depth <= 0)
+                    log_line("Error : branch_depth must be positive integer.");
+                else
+                    task_workers->enqueue_position_commands(
+                        path,
+                        command_defaults.eval_limit,
+                        command_defaults.game_ply_limit,
+                        command_defaults.book_extend_ply,
+                        branch_width,
+                        branch_depth);
             }
             else if (command == "t")
             {

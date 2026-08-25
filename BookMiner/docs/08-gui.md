@@ -43,7 +43,9 @@ GUI の `enqueue` は、固定で次のファイルを読みます。
 book/think_sfens.txt
 ```
 
-`enqueue` を押すと、引数なしの `e` を BookMiner.py に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
+`enqueue` を押すと、通常は引数なしの `e` を BookMiner.py / BookMinerCpp に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
+
+`enqueue` の右側にある `上位` と `手先まで` を両方0にすると従来通りの `e` です。両方を1以上にすると、`eb 上位手数 手先まで` を送信し、各入力局面を掘ったあとMultiPV上位手で枝分かれして掘ります。このbranch設定はenqueue時の指定で、`think_sfens.txt` には書き込みません。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -72,7 +74,7 @@ GUI 上でもこの手順が縦に並んでいます。
         [ peta rejoin     ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta unsolved   ] eval_drop_limit [ X ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta opponent   ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
-手順3. [ enqueue    ]
+手順3. [ enqueue    ]                    上位 [ 0 ] 手 [ 0 ] 手先まで
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順2の自動チェック分をまとめてenqueue
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
@@ -103,9 +105,11 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 手順2の各行の `game ply limit`、`book extend ply`、`eval_limit` を数値で指定すると、書き出す各行に `game_ply_limit=...`、`book_extend_ply=...`、`eval_limit=...` が付きます。その行を `enqueue` したときは、この行ごとの値で探索します。
 
-`enqueue` は、`sd ...` でデフォルト値を反映してから、引数なしの `e` を送信します。
+`enqueue` は、`sd ...` でデフォルト値を反映してから、branch指定が0-0なら引数なしの `e`、両方1以上なら `eb 上位手数 手先まで` を送信します。
 `eval_limit` は、定跡木の外へ出る枝を延長するかどうかの判定に使います。途中の局面が定跡木の内部ノードなら `eval_limit` では打ち切りませんが、DB外へ出る指し手の評価値が `eval_limit` を超えていれば、そこで停止します。既存定跡を広く延長する初回は `99999` のように十分大きな値を指定してください。
 `game ply limit` は、この手数に到達したらそれ以上掘らない上限です。`peta next` の候補書き出しと、`enqueue` 後の探索workerの両方に使われます。候補書き出しだけを絞りたい場合は、`game ply limit` ではなく `max step` を小さくしてください。`max step` は `book/think_sfens.txt` には書き出されないため、enqueue後の探索条件にはなりません。`book extend ply` は、入力棋譜の末端まで到達できたあと、best line を追加で何手分延長するかです。空欄または `None` はデフォルト値の `6` です。
+
+branch指定時は、入力局面を掘ることが確定してから上位手を展開します。最善手側は同じworkerがそのまま進め、2番手以降は残り手数を1つ減らしたtaskとしてqueue末尾へ積みます。branch指定時の展開深さは `手先まで` の値で決まり、`book_extend_ply` を追加で足して延長するわけではありません。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
 残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。
@@ -127,7 +131,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 - `peta rejoin`: peta book から抜けた leaf のうち、合法手1手で peta book に再合流する局面だけを `book/think_sfens.txt` に書き出します。
 - `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜の各途中局面からPV leafを `book/think_sfens.txt` に書き出します。
 - `peta opponent`: `book/book_opponent/` の相手定跡と現行 peta_book の best 進行から、対策候補leafを `book/think_sfens.txt` に書き出します。
-- `enqueue`: `book/think_sfens.txt` の行メタ情報に従って、棋譜上の局面を探索キューへ積みます。
+- `enqueue`: `book/think_sfens.txt` の行メタ情報に従って、棋譜上の局面を探索キューへ積みます。右側のbranch指定を使うと、掘った局面からMultiPV上位手を指定手数先まで展開します。
 - `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。
 - `DB手動保存`: 現在の定跡 DB を `book/backup/` に書き出します。
 
@@ -136,7 +140,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 ## GUI設定の保存
 
 GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは手順2のデフォルト値、各 `eval_diff`、`peta unsolved` の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。
@@ -218,10 +222,10 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `enqueue進捗` は、BookMiner.py が次のようなタグ付きログを出力すると更新されます。
 
 ```text
-[TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt deferred=0 eval_limit=400 game_ply_limit=200 book_extend_ply=6
-[TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6
-[TaskQueueJobDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6
-[TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6
+[TaskQueueStart] 0/50000 job=1 job_progress=0/50000 job_remaining=50000 added=50000 remaining=50000 path=book/think_sfens.txt deferred=0 eval_limit=400 game_ply_limit=200 book_extend_ply=6 branch=0-0
+[TaskQueueProgress] 30000/50000 job=1 job_progress=30000/50000 job_remaining=20000 remaining=20000 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6 branch=0-0
+[TaskQueueJobDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6 branch=0-0
+[TaskQueueDone] 50000/50000 job=1 job_progress=50000/50000 job_remaining=0 remaining=0 deferred=12 eval_limit=400 game_ply_limit=200 book_extend_ply=6 branch=0-0
 ```
 
 行頭の `30000/50000` は、BookMiner 起動後に enqueue した累計タスク数に対して、完了したタスク数です。
@@ -233,15 +237,15 @@ BookMiner.py が次のようなタグ付きログを出力すると、GUI がそ
 `[TaskQueueJobDone]` は、その `job` の全タスクが完了したときに出ます。`remaining` が 0 でなければ、他の job のタスクがまだ残っています。
 
 `タスク状況ログ` の `タスク一覧` チェックを入れると、ログ表示の代わりに現存 job の一覧を表示します。
-各行には `job`、`残り` (`job_remaining`)、`総数` (`job_progress` の総数)、`deferred`、`eval_limit`、`game_ply_limit`、`book_extend_ply` が表示されます。
-`eval_limit`、`game_ply_limit`、`book_extend_ply` が job 内で複数値に分かれている場合は `mixed` と表示されます。
+各行には `job`、`残り` (`job_remaining`)、`総数` (`job_progress` の総数)、`deferred`、`eval_limit`、`game_ply_limit`、`book_extend_ply`、`branch` が表示されます。
+`eval_limit`、`game_ply_limit`、`book_extend_ply` が job 内で複数値に分かれている場合は `mixed` と表示されます。通常enqueueの `branch` は `0-0`、branch enqueueは `2-3` のように表示されます。
 `[TaskQueueJobDone]` または `job_remaining=0` を受け取った job は一覧から削除されます。
 
 複数回 enqueue した場合、`[TaskQueueStart]` の総数は追加分だけ増えます。例えば 50000 タスク中 30000 タスクが完了した状態で 72462 行を追加 enqueue すると、次のように表示されます。
 
 ```text
-[TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt deferred=0 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
-[TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000 deferred=7 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed
+[TaskQueueStart] 30000/122462 job=4 job_progress=0/72462 job_remaining=72462 added=72462 remaining=92462 path=book/think_sfens.txt deferred=0 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed branch=2-3
+[TaskQueueJobDone] 102462/122462 job=4 job_progress=72462/72462 job_remaining=0 remaining=20000 deferred=7 eval_limit=400 game_ply_limit=mixed book_extend_ply=mixed branch=2-3
 ```
 
 `[TaskQueueProgress]` は、おおむね 10 秒ごとに、前回出力時から完了数または `deferred` が変わっている job について出力されます。

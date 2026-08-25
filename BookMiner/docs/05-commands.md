@@ -14,7 +14,7 @@ h
 
 ## `sd` / `set-default`
 
-手順2系コマンドと `e` が使う共通デフォルト値を設定します。
+手順2系コマンドと `e` / `eb` が使う共通デフォルト値を設定します。
 
 ```text
 sd 30 99999 200 6 400
@@ -68,6 +68,22 @@ GUI の `enqueue進捗` は、完了したタスク数をもとに表示され�
 `settings/book_miner_settings.json5` の `max_book_ply` に到達した局面は思考しません。`game_ply_limit` の行メタ情報を指定した場合は、その行だけ指定値を使います。`book_extend_ply` を指定した場合は、その行だけ棋譜末端からの best line 延長手数を変更します。`None` は省略時と同じ意味です。
 
 他workerが探索中の局面に当たった task は、その場で待たずに queue の末尾へ戻します。`startpos moves ...` の明示手順部分は開始前にも先読みし、手順中に探索中局面があれば何も掘らずに後回しにします。チェック後に別workerが探索開始する場合や、棋譜末端から `book_extend_ply` 分だけ延長する途中で衝突する場合があるため、到達時の判定も残しています。この後回し回数は job ごとに `deferred` として進捗ログとタスク一覧に表示されます。
+
+## `eb`
+
+`book/think_sfens.txt` の局面を、MultiPV上位手で枝分かれさせながら探索キューへ積みます。
+
+```text
+eb 2 3
+```
+
+引数は順に `branch_width`、`branch_depth` です。上の例では、各入力局面を掘ることが確定したあと、MultiPV上位2手を3手先まで辿ります。
+
+`eb` の枝分かれ設定は enqueue 時だけの設定です。`think_sfens.txt` には `branch_width` や `branch_depth` のメタ情報を書きません。
+
+branch探索では、まず従来通り `think_sfens.txt` の棋譜を再生し、`eval_limit` や `game_ply_limit` による従来の判定を通った局面だけを掘ります。その局面を掘ったあと、上位手を見て展開します。最善手側は同じworkerがそのまま進めるため、直線的な延長で使っていた探索nodes倍率を引き継げます。2番手以降は、残りbranch depthを1つ減らしたtaskとしてqueue末尾へ積みます。
+
+内部taskでは `branch_depth=0` が「その局面だけ掘る」という意味になります。CLIの `eb` は正の `branch_width` と `branch_depth` を指定します。GUIで上位手数と手先までを両方0にした場合は、`eb` ではなく従来の `e` を送信します。
 
 ## `w`
 

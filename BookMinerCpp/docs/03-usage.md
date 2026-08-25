@@ -71,6 +71,7 @@ pu None None 200 None 400
 po 0 9999 200 20 400
                   book/book_opponent/ の相手定跡への対策候補を作る
 e                 book/think_sfens.txt を探索キューへ積む
+eb 2 3            各入力局面を掘ったあと、MultiPV上位2手を3手先まで展開する
 w                 現在DBを手動保存する
 q                 保存して終了する
 !                 保存せず終了する

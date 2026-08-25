@@ -49,7 +49,7 @@ GUI から見ると、BookMinerCpp は `BookMiner.py --from_gui` の代わりに
 - `p` は「DB保存、peta shock 化、peta book 読み込み」をまとめて行います。
 - `pn` は peta book から次に掘る局面を `book/think_sfens.txt` に書き出します。
 - `pr` / `pj` / `pu` / `po` は条件を変えて次に掘る局面を `book/think_sfens.txt` に書き出します。
-- `e` は `book/think_sfens.txt` を読み、探索キューへ積みます。
+- `e` / `eb` は `book/think_sfens.txt` を読み、探索キューへ積みます。`eb` は掘った局面からMultiPV上位手を指定手数先まで展開します。
 - `eval_limit`、`eval_diff`、`game_ply_limit` の意味は Python 版と同じです。
 - KifManager は Python 版を使います。
 

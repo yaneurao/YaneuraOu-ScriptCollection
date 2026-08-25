@@ -213,6 +213,12 @@ class Task:
     # 棋譜末端からbest lineを延長して掘る手数。
     book_extend_ply : int = DEFAULT_BOOK_EXTEND_PLY
 
+    # MultiPV上位何手をbranch展開するか。
+    branch_width : int = 0
+
+    # branchを何手先まで展開するか。
+    branch_depth : int = 0
+
 
 @dataclass
 class TaskQueueJobProgress:
@@ -230,6 +236,9 @@ class TaskQueueJobProgress:
 
     # このjobのbook_extend_ply。複数値が混在する場合は"mixed"。
     book_extend_ply : str | None = None
+
+    # このjobのbranch設定。複数値が混在する場合は"mixed"。
+    branch : str | None = None
 
     # このjobの完了ログを出力済みか。
     done_reported : bool = False
@@ -1565,6 +1574,12 @@ class EngineManager:
         # `e`コマンドでbest lineを延長して掘る時の残り手数
         rest_ply = task.book_extend_ply
 
+        # `eb`コマンドでMultiPV上位手をbranch展開して掘る時の残り手数。
+        # branch_width > 0ならbranch_depth=0でも現在局面だけは掘る。
+        branch_width = task.branch_width
+        branch_depth = task.branch_depth
+        branch_task = branch_width > 0
+
         # 現在探索中の局面
         current_sfen = sfen
 
@@ -1573,7 +1588,7 @@ class EngineManager:
 
         while True:
 
-            if rest_ply == 0:
+            if not branch_task and rest_ply == 0:
                 break
 
             # 現局面を必要なら思考する。
@@ -1595,14 +1610,60 @@ class EngineManager:
             if abs(besteval) > eval_limit:
                 return TASK_RESULT_DONE
 
-            board = cshogi.Board(current_sfen)
-            for moveinfo in position_info.moveinfos:
+            if branch_task and branch_depth <= 0:
+                return TASK_RESULT_DONE
+
+            moveinfos_to_consider = (
+                position_info.moveinfos[:branch_width]
+                if branch_task
+                else position_info.moveinfos
+            )
+            candidate_moves : list[MoveStr] = []
+            for moveinfo in moveinfos_to_consider:
 
                 eval = moveinfo.eval
                 if eval is None or abs(eval) > eval_limit:
                     continue
 
-                move = moveinfo.move
+                candidate_moves.append(moveinfo.move)
+
+            if not candidate_moves:
+                # 条件に当てはまる指し手が見つからなかったので、これ以上掘り進めない。
+                return TASK_RESULT_DONE
+
+            if branch_task:
+                next_branch_depth = branch_depth - 1
+                side_tasks : list[Task] = []
+                for move in candidate_moves[1:]:
+                    side_board = cshogi.Board(current_sfen)
+                    checked_push_usi(side_board, move, context=current_sfen)
+                    side_sfen = trim_sfen(side_board.sfen())
+                    side_tasks.append(
+                        Task(
+                            side_sfen,
+                            ply + 1,
+                            eval_limit,
+                            job_id=task.job_id,
+                            max_book_ply=max_book_ply,
+                            book_extend_ply=task.book_extend_ply,
+                            branch_width=branch_width,
+                            branch_depth=next_branch_depth,
+                        )
+                    )
+
+                for side_task in side_tasks:
+                    self.put_branch_task(task, side_task)
+
+                move = candidate_moves[0]
+                board = cshogi.Board(current_sfen)
+                checked_push_usi(board, move, context=current_sfen)
+                current_sfen = trim_sfen(board.sfen())
+                branch_depth = next_branch_depth
+                ply += 1
+                continue
+
+            board = cshogi.Board(current_sfen)
+            for move in candidate_moves:
 
                 checked_push_usi(board, move, context=current_sfen)
                 next_sfen = trim_sfen(board.sfen())
@@ -1687,6 +1748,9 @@ class EngineManager:
                 eval_limit,
                 max_book_ply=max_book_ply,
                 book_extend_ply=task.book_extend_ply,
+                job_id=task.job_id,
+                branch_width=task.branch_width,
+                branch_depth=task.branch_depth,
             ),
         )
 
@@ -1781,6 +1845,19 @@ class EngineManager:
         # (taskがなければ)taskを積む
         self.task_queue.put(task)  # 満杯ならここでブロック
 
+    def add_task_queue_progress_total(self, task:Task, added_count:int):
+        if task.job_id <= 0 or added_count <= 0:
+            return
+        with self.task_progress_lock:
+            self.task_progress_total += added_count
+            job_progress = self.task_progress_jobs.get(task.job_id)
+            if job_progress is not None:
+                job_progress.total += added_count
+
+    def put_branch_task(self, parent:Task, child:Task):
+        self.add_task_queue_progress_total(parent, 1)
+        self.put_task(child)
+
     def defer_task(self, task:Task):
         task.defer_count += 1
         with self.task_progress_lock:
@@ -1812,6 +1889,7 @@ class EngineManager:
         eval_limit:int|str,
         game_ply_limit:int|str,
         book_extend_ply:str|int = DEFAULT_BOOK_EXTEND_PLY,
+        branch:str = "0-0",
     ):
         book_extend_ply = str(book_extend_ply)
         with self.task_progress_lock:
@@ -1821,6 +1899,7 @@ class EngineManager:
                 eval_limit=eval_limit,
                 game_ply_limit=game_ply_limit,
                 book_extend_ply=book_extend_ply,
+                branch=branch,
                 done_reported=added_count == 0,
             )
             total = self.task_progress_total
@@ -1833,21 +1912,24 @@ class EngineManager:
             f"job={job_id} job_progress=0/{added_count} job_remaining={added_count} "
             f"added={added_count} remaining={remaining} path={path} "
             f"deferred=0 eval_limit={eval_limit} "
-            f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+            f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply} "
+            f"branch={branch}"
         )
         if added_count == 0:
             print(
                 f"[TaskQueueJobDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/0 job_remaining=0 remaining={remaining} "
                 f"deferred=0 eval_limit={eval_limit} "
-                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply} "
+                f"branch={branch}"
             )
         if remaining == 0:
             print(
                 f"[TaskQueueDone] {taken}/{total} "
                 f"job={job_id} job_progress=0/{added_count} job_remaining=0 remaining=0 "
                 f"deferred=0 eval_limit={eval_limit} "
-                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply}"
+                f"game_ply_limit={game_ply_limit} book_extend_ply={book_extend_ply} "
+                f"branch={branch}"
             )
 
     def report_task_queue_progress(self, task:Task):
@@ -1868,6 +1950,7 @@ class EngineManager:
                     eval_limit=task.eval_limit,
                     game_ply_limit=task.max_book_ply,
                     book_extend_ply=str(task.book_extend_ply),
+                    branch=f"{task.branch_width}-{task.branch_depth}",
                 )
                 self.task_progress_jobs[task.job_id] = job_progress
             job_progress.taken += 1
@@ -1877,11 +1960,14 @@ class EngineManager:
                 job_progress.game_ply_limit = task.max_book_ply
             if job_progress.book_extend_ply is None:
                 job_progress.book_extend_ply = str(task.book_extend_ply)
+            if job_progress.branch is None:
+                job_progress.branch = f"{task.branch_width}-{task.branch_depth}"
             job_taken = job_progress.taken
             job_total = job_progress.total
             job_eval_limit = job_progress.eval_limit
             job_game_ply_limit = job_progress.game_ply_limit
             job_book_extend_ply = job_progress.book_extend_ply
+            job_branch = job_progress.branch
             job_deferred = job_progress.deferred
             remaining = max(total - taken, 0)
             job_remaining = max(job_total - job_taken, 0)
@@ -1905,7 +1991,8 @@ class EngineManager:
             f"job={task.job_id} job_progress={job_taken}/{job_total} "
             f"job_remaining={job_remaining} remaining={remaining} "
             f"deferred={job_deferred} eval_limit={job_eval_limit} "
-            f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+            f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply} "
+            f"branch={job_branch}"
         )
         if should_report_job_done:
             print(
@@ -1913,7 +2000,8 @@ class EngineManager:
                 f"job={task.job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining=0 remaining={remaining} "
                 f"deferred={job_deferred} eval_limit={job_eval_limit} "
-                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply} "
+                f"branch={job_branch}"
             )
 
     def task_queue_progress_reporter(self):
@@ -1924,7 +2012,7 @@ class EngineManager:
             self.report_periodic_task_queue_progress()
 
     def report_periodic_task_queue_progress(self):
-        reports : list[tuple[int, int, int, int, int, int, int, int, int|str|None, int|str|None, str|None]] = []
+        reports : list[tuple[int, int, int, int, int, int, int, int, int|str|None, int|str|None, str|None, str|None]] = []
         with self.task_progress_lock:
             total = self.task_progress_total
             taken = self.task_progress_taken
@@ -1954,6 +2042,7 @@ class EngineManager:
                         job_progress.eval_limit,
                         job_progress.game_ply_limit,
                         job_progress.book_extend_ply,
+                        job_progress.branch,
                     )
                 )
                 job_progress.last_reported_taken = job_taken
@@ -1973,13 +2062,15 @@ class EngineManager:
             job_eval_limit,
             job_game_ply_limit,
             job_book_extend_ply,
+            job_branch,
         ) in reports:
             print(
                 f"[TaskQueueProgress] {taken}/{total} "
                 f"job={job_id} job_progress={job_taken}/{job_total} "
                 f"job_remaining={job_remaining} remaining={remaining} "
                 f"deferred={job_deferred} eval_limit={job_eval_limit} "
-                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply}"
+                f"game_ply_limit={job_game_ply_limit} book_extend_ply={job_book_extend_ply} "
+                f"branch={job_branch}"
             )
 
     def report_mining_progress(self, position_count:int, searched_nodes:int = 0, force:bool = False):
@@ -3652,13 +3743,23 @@ def scheduled_time_text(timestamp:float)->str:
     return datetime.datetime.fromtimestamp(timestamp).strftime("%Y/%m/%d_%H:%M:%S")
 
 
-def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eval_limit:int, max_book_ply:int, book_extend_ply:int):
+def put_position_commands(
+    book:Book,
+    path:str,
+    engine_manager:EngineManager,
+    eval_limit:int,
+    max_book_ply:int,
+    book_extend_ply:int,
+    branch_width:int = 0,
+    branch_depth:int = 0,
+):
     job_counter_local = get_job_counter()
+    branch_text = f"{branch_width}-{branch_depth}"
 
     print(
         f"({job_counter_local}) put position commands , path = {path} , "
         f"eval_limit = {eval_limit}, max_book_ply = {max_book_ply}, "
-        f"book_extend_ply = {book_extend_ply}"
+        f"book_extend_ply = {book_extend_ply}, branch = {branch_text}"
     )
     if not os.path.exists(path):
         print(f"({job_counter_local}) put position commands Error : file not found, path = {path}")
@@ -3726,6 +3827,7 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
         job_eval_limit,
         job_game_ply_limit,
         job_book_extend_ply,
+        branch_text,
     )
 
     for entry in entries.values():
@@ -3741,6 +3843,8 @@ def put_position_commands(book:Book, path:str, engine_manager:EngineManager, eva
                 job_counter_local,
                 max_book_ply=task_max_book_ply,
                 book_extend_ply=task_book_extend_ply,
+                branch_width=branch_width,
+                branch_depth=branch_depth,
             )
         )
 
@@ -3954,6 +4058,7 @@ def user_input(from_gui:bool = False):
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
                 print("  E : enqueue positions        , e")
+                print("  EB : enqueue branch positions , eb branch_width branch_depth")
                 print("  SD  : set defaults           , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit")
                 print("  I : inquire                  , i [sfen]")
                 print("  M : merge flipped positions")
@@ -4049,6 +4154,36 @@ def user_input(from_gui:bool = False):
                         ),
                         daemon=True,
                     ).start()
+
+            elif i == 'eb':
+                path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
+                eval_limit = command_defaults.eval_limit
+                max_book_ply = command_defaults.game_ply_limit
+                book_extend_ply = command_defaults.book_extend_ply
+
+                if len(inp) != 3:
+                    print("Usage : eb branch_width branch_depth")
+                else:
+                    branch_width = int(inp[1])
+                    branch_depth = int(inp[2])
+                    if branch_width <= 0:
+                        print("Error : branch_width must be positive integer.")
+                    elif branch_depth <= 0:
+                        print("Error : branch_depth must be positive integer.")
+                    else:
+                        Thread(
+                            target=lambda: put_position_commands(
+                                book,
+                                path,
+                                engine_manager,
+                                eval_limit,
+                                max_book_ply,
+                                book_extend_ply,
+                                branch_width,
+                                branch_depth,
+                            ),
+                            daemon=True,
+                        ).start()
 
             elif i == 'i':
                 if len(inp) < 2:

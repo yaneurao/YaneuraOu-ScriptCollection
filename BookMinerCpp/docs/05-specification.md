@@ -34,11 +34,13 @@ pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 e
+eb branch_width branch_depth
 h
 ```
 
 `sd` は手順2系コマンドと `e` が使う共通デフォルト値を設定します。短縮名ではなく `set-default` と書いても同じです。
 `e` は固定で `book/think_sfens.txt` を読みます。コマンド自体には引数を取りません。
+`eb` も固定で `book/think_sfens.txt` を読み、各入力局面を掘ったあとMultiPV上位手を `branch_depth` 手先まで展開します。最善手側は同じworkerが継続し、2番手以降は残りdepthを1つ減らしたtaskとしてqueueへ戻します。branch指定は enqueue 時だけの設定で、`think_sfens.txt` の行メタ情報には書きません。
 `think_sfens.txt` の各行に `, book_extend_ply=20, eval_limit=400, game_ply_limit=200` のようなメタ情報がある場合、その行だけ `sd` の値よりメタ情報側を優先します。同じ局面が複数行にある場合は、各メタ情報の値が大きい行を採用します。メタ情報がない行、または値が `None` の行は `sd` の値を使います。
 `max_step` は peta系コマンドが leaf を探す範囲だけを制限し、`think_sfens.txt` には書き出されません。候補列挙だけを絞り、`e` 後の探索条件を変えたくない場合は `game_ply_limit` ではなく `max_step` を調整してください。
 
