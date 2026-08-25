@@ -45,7 +45,7 @@ book/think_sfens.txt
 
 `enqueue` を押すと、通常は引数なしの `e` を BookMiner.py / BookMinerCpp に送信します。探索条件は `book/think_sfens.txt` の各行に付いたメタ情報を使います。
 
-`enqueue` の右側にある `上位` と `手先まで` を両方0にすると従来通りの `e` です。両方を1以上にすると、`eb 上位手数 手先まで` を送信し、各入力局面を掘ったあとMultiPV上位手で枝分かれして掘ります。このbranch設定はenqueue時の指定で、`think_sfens.txt` には書き込みません。
+`enqueue` の右側にある `上位N手` と `M手先まで` を両方0にすると従来通りの `e` です。両方を1以上にすると、`eb 上位手数 手先まで` を送信し、各入力局面を掘ったあとMultiPV上位手で枝分かれして掘ります。このbranch設定はenqueue時の指定で、`think_sfens.txt` には書き込みません。
 
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
@@ -74,7 +74,7 @@ GUI 上でもこの手順が縦に並んでいます。
         [ peta rejoin     ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta unsolved   ] eval_drop_limit [ X ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta opponent   ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
-手順3. [ enqueue    ]                    上位 [ 0 ] 手 [ 0 ] 手先まで
+手順3. [ enqueue    ]                    上位N手 [ 0 ]  M手先まで [ 0 ]
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順2の自動チェック分をまとめてenqueue
 手順5. [ DB手動保存 ] 次回自動保存 YYYY/MM/DD HH:MM:SS
 ```
