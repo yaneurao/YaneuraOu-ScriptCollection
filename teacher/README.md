@@ -312,6 +312,7 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 | `psv` -> `hcpe` | `teacher/convert_teacher.py` | PSVをHCPEへ変換する。PSVの `gamePly` はHCPEには入らない。複数ファイルやフォルダ入力にも対応。 |
 | `hcpe3` -> `hcpe` | `teacher/convert_teacher.py` | HCPE3の各ゲームを局面列に展開してHCPEへ変換する。複数ファイルやフォルダ入力にも対応。 |
 | `hcpe3` -> `psv` | `teacher/convert_teacher.py` | HCPE3を局面列に展開してPSVへ変換する。複数ファイルやフォルダ入力にも対応。 |
+| `csa` -> `hcpe` | `teacher/csa_to_hcpe.py` | CSA棋譜をHCPEへ変換する。評価値コメントは不要で、実際に指された手と勝敗を教師にする。rating filterに対応。 |
 
 `pack` から `hcpe`:
 
@@ -351,6 +352,25 @@ python teacher/convert_teacher.py --input input.hcpe3 --output output.hcpe
 ```bash
 python teacher/convert_teacher.py --input input.hcpe3 --output output.psv
 ```
+
+CSA棋譜フォルダから `hcpe`:
+
+```bash
+python teacher/csa_to_hcpe.py --input floodgate_csa_dir --output floodgate3800.hcpe --filter_rating 3800
+```
+
+`--filter_rating 3800` は先手・後手のratingがともに3800以上の棋譜だけを出力します。CSA内に評価値コメントがなくても変換でき、HCPEの `eval` にはデフォルトで0を書きます。出力される各局面の `bestMove16` は実際に指された手、`gameResult` は棋譜の勝敗です。
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---:|---|
+| `--filter_rating` | `0` | 両対局者のrating下限。0ならratingで絞らない。`--filter-rating` でも指定できる。 |
+| `--filter_moves` | `1` | この手数未満の棋譜を除外する。 |
+| `--out_draw` | off | 千日手を出力に含める。 |
+| `--out_maxmove` | off | 持将棋/最大手数系の棋譜を出力に含める。 |
+| `--uniq` | off | 同じ初期局面・同じ指し手列の棋譜を重複除去する。 |
+| `--teacher-eval` | `0` | HCPEの `eval` に書く固定値。 |
 
 `convert_teacher.py` は入力形式を `--input` から推定します。入力がファイルなら拡張子で判定し、入力がフォルダなら、そのフォルダ内の教師ファイルの拡張子から判定します。出力が拡張子つきファイルなら、出力形式はその拡張子から判定します。出力がフォルダなら、将来変換先が増えたときに意味が変わらないように `--to` の指定を必須にしています。
 
