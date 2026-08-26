@@ -28,6 +28,7 @@ from TeacherFormatLib import HCPE  # noqa: E402
 
 CSA_BLACK_RATE_RE = re.compile(r"^'black_rate\s*:\s*(.+)$", re.IGNORECASE)
 CSA_WHITE_RATE_RE = re.compile(r"^'white_rate\s*:\s*(.+)$", re.IGNORECASE)
+CSA_ENCODINGS = ("utf-8-sig", "utf-8", "cp932", "shift_jis")
 
 
 @dataclass
@@ -111,6 +112,23 @@ def collect_csa_files(input_path: Path, recursive: bool) -> list[Path]:
     if not files:
         raise FileNotFoundError(f"no .csa files found in: {input_path}")
     return files
+
+
+def parse_csa_games(path: Path) -> list[object]:
+    last_decode_error: UnicodeDecodeError | None = None
+    for encoding in CSA_ENCODINGS:
+        try:
+            return CSA.Parser.parse_file(str(path), encoding=encoding)
+        except UnicodeDecodeError as exc:
+            last_decode_error = exc
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        return CSA.Parser.parse_str(text)
+    except Exception as exc:  # noqa: BLE001
+        if last_decode_error is not None:
+            raise RuntimeError(f"{last_decode_error}; fallback parse failed: {exc}") from exc
+        raise
 
 
 def duplicate_key(kif: object) -> str:
@@ -254,7 +272,7 @@ def main() -> None:
                 )
 
             try:
-                games = CSA.Parser.parse_file(str(path))
+                games = parse_csa_games(path)
             except Exception as exc:  # noqa: BLE001
                 stats.skipped_error += 1
                 print(f"skip parse error: {path}: {exc}", file=sys.stderr)

@@ -359,7 +359,7 @@ CSA棋譜フォルダから `hcpe`:
 python teacher/csa_to_hcpe.py --input floodgate_csa_dir --output floodgate3800.hcpe --filter_rating 3800
 ```
 
-`--filter_rating 3800` は先手・後手のratingがともに3800以上の棋譜だけを出力します。CSA内に評価値コメントがなくても変換でき、HCPEの `eval` にはデフォルトで0を書きます。出力される各局面の `bestMove16` は実際に指された手、`gameResult` は棋譜の勝敗です。投了、入玉宣言勝ち、千日手をデフォルトで出力対象にし、中断局など意味のない終了状態の棋譜は除外します。
+`--filter_rating 3800` は先手・後手のratingがともに3800以上の棋譜だけを出力します。CSA内に評価値コメントがなくても変換でき、HCPEの `eval` にはデフォルトで0を書きます。出力される各局面の `bestMove16` は実際に指された手、`gameResult` は棋譜の勝敗です。投了、入玉宣言勝ち、千日手をデフォルトで出力対象にし、中断局など意味のない終了状態の棋譜は除外します。CSA読み込みではUTF-8/CP932系の文字コードを順に試します。
 
 主なオプション:
 
