@@ -167,10 +167,24 @@ def parse_args() -> argparse.Namespace:
         "--filter_moves", "--filter-moves", "--min-moves",
         dest="filter_moves",
         type=int,
-        default=1,
+        default=16,
         help="skip games with fewer moves than this value",
     )
-    parser.add_argument("--out_draw", action="store_true", help="include senichite draw games")
+    draw_group = parser.add_mutually_exclusive_group()
+    draw_group.add_argument(
+        "--no-draw",
+        dest="include_draw",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="exclude senichite draw games; draw games are included by default",
+    )
+    draw_group.add_argument(
+        "--out_draw",
+        dest="include_draw",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--out_maxmove", action="store_true", help="include jishogi/max-move games")
     parser.add_argument("--uniq", action="store_true", help="skip duplicated game move sequences")
     parser.add_argument(
@@ -207,6 +221,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--filter_moves must be non-negative")
     if args.progress_interval < 0:
         parser.error("--progress-interval must be non-negative")
+    if not hasattr(args, "include_draw"):
+        args.include_draw = True
     return args
 
 
@@ -217,7 +233,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     endgames = {"%TORYO", "%KACHI"}
-    if args.out_draw:
+    if args.include_draw:
         endgames.add("%SENNICHITE")
     if args.out_maxmove:
         endgames.add("%JISHOGI")

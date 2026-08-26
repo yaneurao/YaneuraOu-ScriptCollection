@@ -359,15 +359,15 @@ CSA棋譜フォルダから `hcpe`:
 python teacher/csa_to_hcpe.py --input floodgate_csa_dir --output floodgate3800.hcpe --filter_rating 3800
 ```
 
-`--filter_rating 3800` は先手・後手のratingがともに3800以上の棋譜だけを出力します。CSA内に評価値コメントがなくても変換でき、HCPEの `eval` にはデフォルトで0を書きます。出力される各局面の `bestMove16` は実際に指された手、`gameResult` は棋譜の勝敗です。
+`--filter_rating 3800` は先手・後手のratingがともに3800以上の棋譜だけを出力します。CSA内に評価値コメントがなくても変換でき、HCPEの `eval` にはデフォルトで0を書きます。出力される各局面の `bestMove16` は実際に指された手、`gameResult` は棋譜の勝敗です。投了、入玉宣言勝ち、千日手をデフォルトで出力対象にし、中断局など意味のない終了状態の棋譜は除外します。
 
 主なオプション:
 
 | オプション | デフォルト | 説明 |
 |---|---:|---|
 | `--filter_rating` | `0` | 両対局者のrating下限。0ならratingで絞らない。`--filter-rating` でも指定できる。 |
-| `--filter_moves` | `1` | この手数未満の棋譜を除外する。 |
-| `--out_draw` | off | 千日手を出力に含める。 |
+| `--filter_moves` | `16` | この手数未満の棋譜を除外する。 |
+| `--no-draw` | off | 千日手を出力から除外する。 |
 | `--out_maxmove` | off | 持将棋/最大手数系の棋譜を出力に含める。 |
 | `--uniq` | off | 同じ初期局面・同じ指し手列の棋譜を重複除去する。 |
 | `--teacher-eval` | `0` | HCPEの `eval` に書く固定値。 |
