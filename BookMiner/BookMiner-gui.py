@@ -30,6 +30,7 @@ GUI_SETTING_DEFAULTS = {
     "default_max_step": "99999",
     "peta_next_eval_diff": "",
     "peta_refutation_eval_diff": "",
+    "peta_rejoin_eval_drop": "",
     "peta_rejoin_eval_diff": "",
     "peta_next_max_step": "",
     "peta_refutation_max_step": "",
@@ -418,6 +419,12 @@ class BookMinerGui(ttk.Frame):
                 gui_settings.get("eval_diff", GUI_SETTING_DEFAULTS["peta_rejoin_eval_diff"]),
             )
         )
+        self.peta_rejoin_eval_drop = tk.StringVar(
+            value=gui_settings.get(
+                "peta_rejoin_eval_drop",
+                GUI_SETTING_DEFAULTS["peta_rejoin_eval_drop"],
+            )
+        )
         self.peta_next_max_step = tk.StringVar(
             value=gui_settings.get(
                 "peta_next_max_step",
@@ -719,8 +726,10 @@ class BookMinerGui(ttk.Frame):
         self.rejoin_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.rejoin_button,
-            "`pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta bookから抜けたleafのうち、合法手1手でpeta bookへ再合流する局面を抽出します。空欄はデフォルト値行を使います。",
+            "`pj eval_drop eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。eval_dropが空欄なら従来通り `pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta bookから抜けたleafのうち、合法手1手でpeta bookへ再合流する局面を抽出します。",
         )
+        ttk.Label(commands, text="eval_drop").grid(row=4, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_rejoin_eval_drop, width=8).grid(row=4, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="eval_diff").grid(row=4, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_rejoin_eval_diff, width=8).grid(row=4, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=4, column=6, sticky="w", padx=(12, 6), pady=3)
@@ -2107,6 +2116,7 @@ class BookMinerGui(ttk.Frame):
             "default_max_step": self.default_max_step.get(),
             "peta_next_eval_diff": self.peta_next_eval_diff.get(),
             "peta_refutation_eval_diff": self.peta_refutation_eval_diff.get(),
+            "peta_rejoin_eval_drop": self.peta_rejoin_eval_drop.get(),
             "peta_rejoin_eval_diff": self.peta_rejoin_eval_diff.get(),
             "peta_next_max_step": self.peta_next_max_step.get(),
             "peta_refutation_max_step": self.peta_refutation_max_step.get(),
@@ -2415,6 +2425,17 @@ class BookMinerGui(ttk.Frame):
         return False
 
     def send_peta_rejoin(self, auto: bool = False) -> bool:
+        eval_drop = None
+        if self.peta_rejoin_eval_drop.get().strip():
+            eval_drop = self._get_optional_int_token(
+                self.peta_rejoin_eval_drop,
+                "peta rejoin eval_drop",
+                auto,
+            )
+            if eval_drop is None:
+                return False
+            if eval_drop == "None":
+                eval_drop = None
         eval_diff = self._get_step2_int_token(
             self.peta_rejoin_eval_diff,
             self.default_eval_diff,
@@ -2471,10 +2492,10 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
             return False
-        if self.send_command(
-            f"pj {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}",
-            origin=origin,
-        ):
+        command_args = [eval_diff, max_step, game_ply_limit, book_extend_ply, eval_limit]
+        if eval_drop is not None:
+            command_args.insert(0, eval_drop)
+        if self.send_command(f"pj {' '.join(command_args)}", origin=origin):
             return True
         if not auto:
             self.busy_action = None

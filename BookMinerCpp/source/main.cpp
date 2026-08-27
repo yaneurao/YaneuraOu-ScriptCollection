@@ -65,6 +65,7 @@ constexpr int PetaDefaultInfEvalDiff = 99999;
 constexpr int PetaDefaultMaxStep = 9999;
 constexpr int DefaultStep2EvalDiff = 30;
 constexpr int DefaultStep2MaxStep = 99999;
+constexpr int PetaRejoinEvalDropDisabled = -9999;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
 constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
@@ -1636,6 +1637,7 @@ struct PetaNextNode {
     std::string sfen_with_ply;
     int root_best_eval = 0;
     int eval_diff = 0;
+    std::optional<int> leaf_eval;
 };
 
 class OrderedPetaNextPositions {
@@ -1737,7 +1739,7 @@ std::vector<std::string> peta_next_for_turn(
             continue;
         }
 
-        current_positions.set(position_command, PetaNextNode{sfen_with_ply, root_best->first, peta_eval_diff});
+        current_positions.set(position_command, PetaNextNode{sfen_with_ply, root_best->first, peta_eval_diff, std::nullopt});
         log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first));
     }
 
@@ -1820,7 +1822,7 @@ std::vector<std::string> peta_next_for_turn(
                     }
                 }
 
-                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff});
+                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, std::nullopt});
             }
         }
 
@@ -1959,8 +1961,13 @@ void peta_next(
         + "] path=" + output_path.string() + " count=" + std::to_string(count));
 }
 
-bool peta_leaf_rejoins_peta_book(const bookminer::BookStore& peta_book, const std::string& sfen_with_ply)
+bool peta_leaf_rejoins_peta_book(
+    const bookminer::BookStore& peta_book,
+    const std::string& sfen_with_ply,
+    std::optional<int> leaf_eval = std::nullopt,
+    std::optional<int> eval_drop = std::nullopt)
 {
+    const bool filter_by_eval_drop = eval_drop.has_value() && *eval_drop > PetaRejoinEvalDropDisabled;
     const auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
     for (const auto& move : board.legal_moves())
     {
@@ -1968,7 +1975,20 @@ bool peta_leaf_rejoins_peta_book(const bookminer::BookStore& peta_book, const st
         next_board.push_usi(move);
         const auto [next_sfen, _next_ply] = bookminer::trim_sfen_ply(next_board.sfen_with_ply());
         const auto hit = find_peta_position_with_flip(peta_book, next_sfen);
-        if (hit.position != nullptr)
+        if (hit.position == nullptr)
+            continue;
+
+        if (!filter_by_eval_drop)
+            return true;
+
+        if (!leaf_eval.has_value())
+            continue;
+
+        const auto best = best_moveinfo_in_sfen_orientation(*hit.position, hit.flipped);
+        if (best.info == nullptr)
+            continue;
+
+        if (*leaf_eval - static_cast<int>(best.info->eval) >= *eval_drop)
             return true;
     }
     return false;
@@ -1987,6 +2007,7 @@ std::vector<std::string> peta_rejoin_for_turn(
     int max_step,
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
+    std::optional<int> eval_drop,
     PetaRejoinStats& stats)
 {
     std::vector<std::string> think_sfens;
@@ -2009,7 +2030,7 @@ std::vector<std::string> peta_rejoin_for_turn(
         if (hit.position == nullptr || hit.position->moves.empty())
         {
             ++stats.leaf_nodes;
-            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply))
+            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
                 append_unique_position_command(think_sfens, think_seen, position_command);
                 ++stats.rejoin_nodes;
@@ -2021,7 +2042,7 @@ std::vector<std::string> peta_rejoin_for_turn(
         if (!root_best.has_value())
         {
             ++stats.leaf_nodes;
-            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply))
+            if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
                 append_unique_position_command(think_sfens, think_seen, position_command);
                 ++stats.rejoin_nodes;
@@ -2029,7 +2050,7 @@ std::vector<std::string> peta_rejoin_for_turn(
             continue;
         }
 
-        current_positions.set(position_command, PetaNextNode{sfen_with_ply, root_best->first, peta_eval_diff});
+        current_positions.set(position_command, PetaNextNode{sfen_with_ply, root_best->first, peta_eval_diff, std::nullopt});
         log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first));
     }
 
@@ -2060,7 +2081,7 @@ std::vector<std::string> peta_rejoin_for_turn(
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++stats.leaf_nodes;
-                if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply))
+                if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply, node.leaf_eval, eval_drop))
                 {
                     append_unique_position_command(think_sfens, think_seen, position_command);
                     ++stats.rejoin_nodes;
@@ -2091,7 +2112,9 @@ std::vector<std::string> peta_rejoin_for_turn(
                     continue;
 
                 const std::string next_position_command = append_position_move(position_command, move);
-                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff});
+                next_positions.set(
+                    next_position_command,
+                    PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, static_cast<int>(moveinfo.eval)});
             }
         }
 
@@ -2113,25 +2136,27 @@ void peta_rejoin(
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
     std::optional<int> book_extend_ply,
-    std::optional<int> eval_limit)
+    std::optional<int> eval_limit,
+    std::optional<int> eval_drop = std::nullopt)
 {
     log_line(
         "peta_rejoin, peta_eval_diff = " + std::to_string(peta_eval_diff)
         + ", max_step = " + std::to_string(max_step)
         + ", max_book_ply = " + std::to_string(max_book_ply)
+        + ", eval_drop = " + (eval_drop.has_value() ? std::to_string(*eval_drop) : std::string("None"))
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", start_sfens_path = " + start_sfens_path.string());
 
     PetaRejoinStats stats;
-    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, stats);
+    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
-    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, stats);
+    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(
@@ -3576,7 +3601,7 @@ void print_help()
     log_line("  PL: make and read peta shocked book from latest backup");
     log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
-    log_line("  PJ : peta rejoin             , pj (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PJ : peta rejoin             , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
     log_line("  PF : peta refutation         , pf (eval_refutation_margin) (eval_limit) (max_book_ply)");
     log_line("  PU : peta unsolved           , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
@@ -3958,11 +3983,16 @@ int main(int argc, char* argv[])
                 if (reject_if_peta_busy())
                     continue;
 
-                const int peta_eval_diff = parse_int_argument(tokens, 1, command_defaults.eval_diff);
-                const int max_step = parse_int_argument(tokens, 2, command_defaults.max_step);
-                const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
-                const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
-                const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
+                const bool has_eval_drop = tokens.size() >= 7;
+                const std::optional<int> eval_drop = has_eval_drop
+                    ? std::optional<int>(parse_int_argument(tokens, 1, PetaRejoinEvalDropDisabled))
+                    : std::nullopt;
+                const std::size_t base_index = has_eval_drop ? 2 : 1;
+                const int peta_eval_diff = parse_int_argument(tokens, base_index, command_defaults.eval_diff);
+                const int max_step = parse_int_argument(tokens, base_index + 1, command_defaults.max_step);
+                const int command_max_book_ply = parse_int_argument(tokens, base_index + 2, command_defaults.game_ply_limit);
+                const int book_extend_ply = parse_int_argument(tokens, base_index + 3, command_defaults.book_extend_ply);
+                const int eval_limit = parse_int_argument(tokens, base_index + 4, command_defaults.eval_limit);
                 if (peta_eval_diff < 0)
                 {
                     log_line("Error : peta_eval_diff must be non-negative integer.");
@@ -3996,7 +4026,8 @@ int main(int argc, char* argv[])
                         command_max_book_ply,
                         start_sfens_path,
                         book_extend_ply,
-                        eval_limit
+                        eval_limit,
+                        eval_drop
                     ] {
                         peta_rejoin(
                             peta_book,
@@ -4005,7 +4036,8 @@ int main(int argc, char* argv[])
                             command_max_book_ply,
                             start_sfens_path,
                             book_extend_ply,
-                            eval_limit);
+                            eval_limit,
+                            eval_drop);
                     }))
                 {
                     log_line("Error : peta command is running. wait for peta command completion.");

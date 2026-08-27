@@ -78,6 +78,7 @@ DEFAULT_STEP2_MAX_STEP = 99999
 PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_DEFAULT_EVAL_DIFF = 0
+PETA_REJOIN_EVAL_DROP_DISABLED = -9999
 
 # think_sfens.txt のファイル名
 THINK_SFENS_NAME = "think_sfens.txt"
@@ -3193,17 +3194,38 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     return root_positions
 
 
-def peta_leaf_rejoins_peta_book(sfen_with_ply:Sfen)->bool:
+def peta_leaf_rejoins_peta_book(
+    sfen_with_ply:Sfen,
+    leaf_eval:int|None = None,
+    eval_drop:int|None = None,
+)->bool:
     global peta_book
 
+    filter_by_eval_drop = (
+        eval_drop is not None and eval_drop > PETA_REJOIN_EVAL_DROP_DISABLED
+    )
     board = cshogi.Board(sfen_with_ply)
     for move32 in list(board.legal_moves):
         next_board = cshogi.Board(sfen_with_ply)
         next_board.push(move32)
         next_sfen, _ = trim_sfen_ply(next_board.sfen())
-        position_info, _ = find_book_position_with_flip(peta_book, next_sfen)
-        if position_info is not None:
+        position_info, flipped_bookhit = find_book_position_with_flip(peta_book, next_sfen)
+        if position_info is None:
+            continue
+
+        if not filter_by_eval_drop:
             return True
+
+        if leaf_eval is None:
+            continue
+
+        best_info, _ = best_moveinfo_in_sfen_orientation(position_info, flipped_bookhit)
+        if best_info is None or not isinstance(best_info.eval, int):
+            continue
+
+        if leaf_eval - best_info.eval >= eval_drop:
+            return True
+
     return False
 
 
@@ -3214,6 +3236,7 @@ def peta_rejoin(
     start_sfens_path:str,
     book_extend_ply:int|None = None,
     eval_limit:int|None = None,
+    eval_drop:int|None = None,
 ):
     """
     peta_bookをrootから辿り、peta_book外へ抜けたleaf局面Xを見つける。
@@ -3225,6 +3248,7 @@ def peta_rejoin(
     print(
         f"peta_rejoin, peta_eval_diff = {peta_eval_diff}, "
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
+        f"eval_drop = {'None' if eval_drop is None else eval_drop}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
         f"start_sfens_path = {start_sfens_path}"
@@ -3240,7 +3264,7 @@ def peta_rejoin(
         print(f"--- peta_rejoin {turn_str} ---")
 
         visited : set[Sfen] = set()
-        current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
+        current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None]] = {}
 
         for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
             sfen, ply = trim_sfen_ply(sfen_with_ply)
@@ -3251,7 +3275,7 @@ def peta_rejoin(
             position_info, _ = find_book_position_with_flip(peta_book, sfen)
             if position_info is None or not position_info.moveinfos:
                 total_leaf_nodes += 1
-                if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop):
                     add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
                     total_rejoin_nodes += 1
                 continue
@@ -3259,12 +3283,12 @@ def peta_rejoin(
             root_best, _ = get_best(position_info)
             if root_best is None:
                 total_leaf_nodes += 1
-                if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop):
                     add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
                     total_rejoin_nodes += 1
                 continue
 
-            current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff)
+            current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff, None)
             print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
 
         step = 1
@@ -3272,9 +3296,9 @@ def peta_rejoin(
             if step > max_step:
                 break
 
-            next_positions : dict[PositionStr, tuple[Sfen, int, int]] = {}
+            next_positions : dict[PositionStr, tuple[Sfen, int, int, int|None]] = {}
 
-            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
+            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0, leaf_eval) in current_positions.items():
                 total_processed_nodes += 1
 
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
@@ -3290,7 +3314,7 @@ def peta_rejoin(
                 position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
                 if position_info is None or not position_info.moveinfos:
                     total_leaf_nodes += 1
-                    if peta_leaf_rejoins_peta_book(sfen_with_ply):
+                    if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop):
                         add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
                         total_rejoin_nodes += 1
                     continue
@@ -3316,7 +3340,7 @@ def peta_rejoin(
                             continue
 
                         next_position_cmd = append_position_move(position_cmd, move)
-                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0)
+                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0, moveinfo.eval)
 
             print(
                 f"step = {step} , len(next_positions) = {len(next_positions)}, "
@@ -4130,7 +4154,7 @@ def user_input(from_gui:bool = False):
                 print("  PL   : make and read peta shocked book from latest backup")
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
-                print("  PJ   : peta rejoin , pj (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PJ   : peta rejoin , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PO   : peta opponent , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  H : Help")
@@ -4311,11 +4335,18 @@ def user_input(from_gui:bool = False):
 
             elif i == 'pj' or i == 'peta_rejoin':
                 # peta_rejoin
-                peta_eval_diff = parse_int_argument(inp, 1, command_defaults.eval_diff)
-                max_step = parse_int_argument(inp, 2, command_defaults.max_step)
-                max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
-                book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
-                eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
+                has_eval_drop = len(inp) >= 7
+                eval_drop = (
+                    parse_int_argument(inp, 1, PETA_REJOIN_EVAL_DROP_DISABLED)
+                    if has_eval_drop
+                    else None
+                )
+                base_index = 2 if has_eval_drop else 1
+                peta_eval_diff = parse_int_argument(inp, base_index, command_defaults.eval_diff)
+                max_step = parse_int_argument(inp, base_index + 1, command_defaults.max_step)
+                max_book_ply = parse_int_argument(inp, base_index + 2, command_defaults.game_ply_limit)
+                book_extend_ply = parse_int_argument(inp, base_index + 3, command_defaults.book_extend_ply)
+                eval_limit = parse_int_argument(inp, base_index + 4, command_defaults.eval_limit)
                 if peta_eval_diff < 0:
                     print("Error : peta_eval_diff must be non-negative integer.")
                     continue
@@ -4338,6 +4369,7 @@ def user_input(from_gui:bool = False):
                     book_miner_settings.peta_next_start_sfens_path,
                     book_extend_ply,
                     eval_limit=eval_limit,
+                    eval_drop=eval_drop,
                 )
 
             elif i == 'pr':

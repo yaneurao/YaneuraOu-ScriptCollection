@@ -217,7 +217,7 @@ BookMiner の CLI では `pr eval_refutation_margin [eval_diff] [max_step] [game
 
 peta book から抜けた leaf 局面Xについて、Xから合法手を1手指すと peta book に再合流するものだけを抽出する処理です。
 
-BookMiner の CLI では `pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]`、GUI では `peta rejoin` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-rejoin) を参照してください。
+BookMiner の CLI では従来形式の `pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]`、または `eval_drop` つきの `pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]`、GUI では `peta rejoin` ボタンに対応します。抽出結果は `book/think_sfens.txt` に書き出されます。詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-rejoin) を参照してください。
 
 ## 反駁
 

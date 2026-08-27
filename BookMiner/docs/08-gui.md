@@ -71,7 +71,7 @@ GUI 上でもこの手順が縦に並んでいます。
 手順2. デフォルト値                            eval_diff [ 30 ] max step [ 99999 ] game ply limit [ 200 ] book extend ply [ 6 ] eval_limit [ 400 ]
         [ peta next       ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [✓]
         [ peta refutation ] eval refu. [ R ]   eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
-        [ peta rejoin     ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+        [ peta rejoin     ] eval_drop [ D ]    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta unsolved   ] eval_drop_limit [ X ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta opponent   ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
 手順3. [ enqueue    ]                    上位N手 [ 0 ]  M手先まで [ 0 ]
@@ -97,7 +97,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 `peta refutation` は `pr eval_refutation_margin eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。通常の `peta next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta next` とは別に指定できます。
 
-`peta rejoin` は `pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta book を root から辿り、peta book から抜けた leaf 局面Xについて、Xから合法手を1手指すと peta book に再合流するものだけを `book/think_sfens.txt` に書き出します。再合流先の評価値が下がっているかどうかは条件にしません。
+`peta rejoin` は、`eval_drop` が空欄なら `pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`eval_drop` を指定した場合は `pj eval_drop eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信し、leaf局面Xへ入った直前の枝の評価値 `X_eval` と、Xから合法手1手で再合流した局面Yのbestmove評価値 `Y_best_eval` について、`X_eval - Y_best_eval >= eval_drop` を満たすXだけを `book/think_sfens.txt` に書き出します。
 
 `peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各途中局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化した途中局面を除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
 

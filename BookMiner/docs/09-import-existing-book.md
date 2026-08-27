@@ -300,7 +300,7 @@ GUI:
 手順2. デフォルト値 eval_diff 99999 max step 99999 game ply limit 200 book extend ply 6 eval_limit 99999
         peta next
         または peta refutation eval_diff 99999 eval refu. 100
-        または peta rejoin eval_diff 99999
+        または peta rejoin eval_drop 空欄 eval_diff 99999
         または peta unsolved eval_drop_limit None
         または peta opponent eval_diff 0 book extend ply 20
 手順3. enqueue

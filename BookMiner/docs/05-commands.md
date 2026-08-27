@@ -261,9 +261,9 @@ peta shock後の反駁候補手評価値 - peta shock後の旧best手評価値 >
 pj 30 9999 200 6 400
 ```
 
-引数は順に `eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。GUIで空欄にした場合は手順2のデフォルト値行が使われ、明示的に `None` と入力した場合は `None` として送信します。
+従来形式の引数は順に `eval_diff`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。GUIで空欄にした場合は手順2のデフォルト値行が使われ、明示的に `None` と入力した場合は `None` として送信します。
 
-再合流先の評価値が下がっているかどうかは条件にしません。再合流できる leaf は、既存 peta book と接続している未確定局面として掘る対象になります。
+`eval_drop` で絞る場合は先頭に追加して、`pj eval_drop eval_diff max_step game_ply_limit book_extend_ply eval_limit` とします。leaf局面Xへ入った直前の枝の評価値を `X_eval`、Xから合法手1手で再合流した局面Yのbestmove評価値を `Y_best_eval` として、`X_eval - Y_best_eval >= eval_drop` を満たすXだけを書き出します。GUIの `eval_drop` が空欄の場合、またはCLIで従来形式を使った場合は条件なしです。`eval_drop=-9999` も従来動作です。
 
 詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-rejoin) を参照してください。
 

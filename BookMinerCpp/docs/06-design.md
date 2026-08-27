@@ -156,7 +156,7 @@ flip hitした場合の指し手は、やねうら王の `flip_move(Move16)` で
 
 共通引数に `None` を指定した場合は `sd` の値を使います。
 
-`pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、peta bookから抜けたleafのうち、合法手1手でpeta bookに再合流するものだけを書き出します。再合流判定では、`SfenPosition::legal_moves()` で合法手を生成し、1手進めた局面をpeta book上でflip込みでprobeします。
+`pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、peta bookから抜けたleafのうち、合法手1手でpeta bookに再合流するものだけを書き出します。`eval_drop` で絞る場合は `pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` とします。再合流判定では、`SfenPosition::legal_moves()` で合法手を生成し、1手進めた局面をpeta book上でflip込みでprobeします。`eval_drop` 指定時は、leafへ入った直前の枝の評価値 `X_eval` と再合流先Yのbestmove評価値 `Y_best_eval` について、`X_eval - Y_best_eval >= eval_drop` を満たすものだけを書き出します。
 
 `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`book/think_unsolved_sfens.txt` の棋譜の各途中局面から peta_book 上の best PV leaf を書き出します。共通引数に `None` を指定した場合は `sd` の値を使います。
 
