@@ -61,6 +61,14 @@ class SourceSpec:
 
 
 @dataclass(frozen=True)
+class SourceInput:
+    source_index: int
+    source_dir: Path
+    files: list[Path]
+    bytes: int
+
+
+@dataclass(frozen=True)
 class GameRecord:
     source_index: int
     source_dir: Path
@@ -265,27 +273,66 @@ def collect_files(src_dir: Path, output_dir: Path, pattern: str, recursive: bool
     )
 
 
-def parse_sources(
+def collect_source_inputs(
     source_args: list[str],
     output_dir: Path,
     pattern: str,
     recursive: bool,
+) -> list[SourceInput]:
+    source_dirs = [Path(source_dir_text) for source_dir_text in source_args]
+    missing_dirs = [source_dir for source_dir in source_dirs if not source_dir.is_dir()]
+    if missing_dirs:
+        missing_text = "\n  ".join(str(source_dir) for source_dir in missing_dirs)
+        raise FileNotFoundError(f"source folder not found:\n  {missing_text}")
+
+    resolved_output_dir = output_dir.resolve()
+    same_as_output = [
+        source_dir for source_dir in source_dirs
+        if source_dir.resolve() == resolved_output_dir
+    ]
+    if same_as_output:
+        source_text = "\n  ".join(str(source_dir) for source_dir in same_as_output)
+        raise ValueError(
+            "source folders and --output must be different folders:\n  "
+            + source_text
+        )
+
+    source_inputs = []
+    empty_sources = []
+    for source_index, source_dir in enumerate(source_dirs, start=1):
+        files = collect_files(source_dir, output_dir, pattern, recursive)
+        if not files:
+            empty_sources.append(source_dir)
+            continue
+        source_inputs.append(
+            SourceInput(
+                source_index=source_index,
+                source_dir=source_dir,
+                files=files,
+                bytes=sum(path.stat().st_size for path in files),
+            )
+        )
+
+    if empty_sources:
+        empty_text = "\n  ".join(str(source_dir) for source_dir in empty_sources)
+        raise FileNotFoundError(
+            f"no input files found for pattern {pattern}:\n  {empty_text}"
+        )
+
+    return source_inputs
+
+
+def parse_sources(
+    source_inputs: list[SourceInput],
     progress: ProgressReporter,
 ) -> list[SourceSpec]:
     sources = []
-    source_count = len(source_args)
-    for source_index, source_dir_text in enumerate(source_args, start=1):
-        source_dir = Path(source_dir_text)
-        if not source_dir.is_dir():
-            raise FileNotFoundError(f"source folder not found: {source_dir}")
-        if source_dir.resolve() == output_dir.resolve():
-            raise ValueError("source folders and --output must be different folders")
-
-        files = collect_files(source_dir, output_dir, pattern, recursive)
-        if not files:
-            raise FileNotFoundError(f"no input files found in {source_dir}: {pattern}")
-
-        source_bytes = sum(path.stat().st_size for path in files)
+    source_count = len(source_inputs)
+    for source_input in source_inputs:
+        source_index = source_input.source_index
+        source_dir = source_input.source_dir
+        files = source_input.files
+        source_bytes = source_input.bytes
         progress.report(
             f"count start source {source_index}/{source_count} "
             f"{source_dir} files={len(files)} bytes={format_bytes(source_bytes)}",
@@ -545,7 +592,13 @@ def main() -> None:
         raise ValueError("--max-open-files must be positive")
 
     progress = ProgressReporter(not args.no_progress, args.progress_interval)
-    sources = parse_sources(args.source, args.output, args.pattern, args.recursive, progress)
+    source_inputs = collect_source_inputs(
+        args.source,
+        args.output,
+        args.pattern,
+        args.recursive,
+    )
+    sources = parse_sources(source_inputs, progress)
     source_selector = WeightedSelector([source.games for source in sources])
     files_by_source = [
         [file_spec for file_spec in source.files if file_spec.games > 0]
@@ -709,4 +762,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
