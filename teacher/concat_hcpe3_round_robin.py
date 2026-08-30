@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Concatenate HCPE3 files from multiple folders in a round-robin pattern.
+Concatenate HCPE3 files from multiple sources in a round-robin pattern.
 
 HCPE3 files are sequences of game records and do not have a whole-file header,
 so concatenating complete HCPE3 game records is valid.
@@ -279,35 +279,52 @@ def collect_source_inputs(
     pattern: str,
     recursive: bool,
 ) -> list[SourceInput]:
-    source_dirs = [Path(source_dir_text) for source_dir_text in source_args]
-    missing_dirs = [source_dir for source_dir in source_dirs if not source_dir.is_dir()]
-    if missing_dirs:
-        missing_text = "\n  ".join(str(source_dir) for source_dir in missing_dirs)
-        raise FileNotFoundError(f"source folder not found:\n  {missing_text}")
+    source_paths = [Path(source_text) for source_text in source_args]
+    missing_sources = [
+        source_path for source_path in source_paths
+        if not source_path.is_dir() and not source_path.is_file()
+    ]
+    if missing_sources:
+        missing_text = "\n  ".join(str(source_path) for source_path in missing_sources)
+        raise FileNotFoundError(f"source not found:\n  {missing_text}")
 
     resolved_output_dir = output_dir.resolve()
     same_as_output = [
-        source_dir for source_dir in source_dirs
-        if source_dir.resolve() == resolved_output_dir
+        source_path for source_path in source_paths
+        if source_path.is_dir() and source_path.resolve() == resolved_output_dir
     ]
     if same_as_output:
-        source_text = "\n  ".join(str(source_dir) for source_dir in same_as_output)
+        source_text = "\n  ".join(str(source_path) for source_path in same_as_output)
         raise ValueError(
             "source folders and --output must be different folders:\n  "
+            + source_text
+        )
+    files_in_output = [
+        source_path for source_path in source_paths
+        if source_path.is_file() and is_relative_to(source_path.resolve(), resolved_output_dir)
+    ]
+    if files_in_output:
+        source_text = "\n  ".join(str(source_path) for source_path in files_in_output)
+        raise ValueError(
+            "source files must not be inside --output folder:\n  "
             + source_text
         )
 
     source_inputs = []
     empty_sources = []
-    for source_index, source_dir in enumerate(source_dirs, start=1):
-        files = collect_files(source_dir, output_dir, pattern, recursive)
+    for source_index, source_path in enumerate(source_paths, start=1):
+        if source_path.is_file():
+            files = [source_path]
+        else:
+            files = collect_files(source_path, output_dir, pattern, recursive)
+
         if not files:
-            empty_sources.append(source_dir)
+            empty_sources.append(source_path)
             continue
         source_inputs.append(
             SourceInput(
                 source_index=source_index,
-                source_dir=source_dir,
+                source_dir=source_path,
                 files=files,
                 bytes=sum(path.stat().st_size for path in files),
             )
@@ -499,7 +516,7 @@ def write_manifest_row(manifest, stats: OutputStats) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Concatenate HCPE3 game records from multiple folders. The script "
+            "Concatenate HCPE3 game records from multiple source folders or files. The script "
             "first counts games in each input file and then mixes records by "
             "weighted round-robin across sources and across files within each "
             "source. Output files are split by --split or "
@@ -510,11 +527,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         action="append",
-        metavar="DIR",
+        metavar="PATH",
         required=True,
-        help="source folder; can be specified multiple times",
+        help="source folder or HCPE3 file; can be specified multiple times",
     )
-    parser.add_argument("--pattern", default="*.hcpe3", help="input filename pattern")
+    parser.add_argument("--pattern", default="*.hcpe3", help="input filename pattern for source folders")
     parser.add_argument(
         "--recursive",
         action="store_true",

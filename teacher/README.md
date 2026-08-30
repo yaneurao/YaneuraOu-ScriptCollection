@@ -216,7 +216,7 @@ mixed_teacher/interleaved-manifest.tsv
 ### HCPE3フォルダを棋譜数比率で結合する
 
 HCPE3は棋譜単位の可変長形式なので、PSV/HCPEのような局面単位シャッフルには向きません。
-複数の方法で生成したHCPE3教師フォルダを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各フォルダの棋譜数比率で棋譜recordを取り出して結合します。
+複数の方法で生成したHCPE3教師フォルダまたはHCPE3ファイルを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各sourceの棋譜数比率で棋譜recordを取り出して結合します。
 
 たとえば `teacher1/` と `teacher2/` と `teacher3/` のHCPE3を混ぜ、1出力ファイルを最大8GiB程度に抑える場合:
 
@@ -226,6 +226,16 @@ python teacher/concat_hcpe3_round_robin.py \
   --source teacher1 \
   --source teacher2 \
   --source teacher3 \
+  --max-output-size 8G
+```
+
+フォルダではなくHCPE3ファイルを直接sourceにしたい場合:
+
+```bash
+python teacher/concat_hcpe3_round_robin.py \
+  --output mixed_teacher \
+  --source teacher1/a.hcpe3 \
+  --source teacher2/b.hcpe3 \
   --max-output-size 8G
 ```
 
@@ -251,7 +261,7 @@ mixed_teacher/mixed-manifest.tsv
 
 最初に各source内の各HCPE3ファイルを走査して、ファイルごとの棋譜数を数えます。
 たとえば `teacher1` が1000局、`teacher2` が100局なら、source間は `1000:100`、つまり実質 `10:1` の比率で混ざるようにします。
-さらに選ばれたsource内でも、各HCPE3ファイルを棋譜数比率で選ぶため、1つの出力HCPE3は複数の入力ファイルから集めた棋譜recordで構成されます。
+さらに選ばれたsourceがフォルダの場合は、そのsource内の各HCPE3ファイルも棋譜数比率で選ぶため、1つの出力HCPE3は複数の入力ファイルから集めた棋譜recordで構成されます。`--source` にHCPE3ファイルを直接指定した場合は、その1ファイルだけを持つsourceとして扱います。
 `--split` を指定した場合は、全体の棋譜record数を指定数でほぼ均等に割って出力ファイルを切り替える。
 `--max-output-size` を指定した場合は、次の棋譜recordを追加すると上限を超えるタイミングで次の出力ファイルへ切り替える。
 HCPE3にはファイル全体のヘッダがないため、完全なHCPE3棋譜record同士のバイナリ結合として扱います。
@@ -274,8 +284,8 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 | オプション | デフォルト | 説明 |
 |---|---:|---|
 | `--output` | 必須 | 出力フォルダ。 |
-| `--source DIR` | 必須 | 入力フォルダ。複数回指定できる。各sourceの棋譜数を数え、その比率で自動混合する。 |
-| `--pattern` | `*.hcpe3` | 入力ファイル名のglob pattern。 |
+| `--source PATH` | 必須 | 入力フォルダまたはHCPE3ファイル。複数回指定できる。各sourceの棋譜数を数え、その比率で自動混合する。 |
+| `--pattern` | `*.hcpe3` | 入力フォルダ内のファイル名glob pattern。`--source`がファイルの場合は使わない。 |
 | `--recursive` | off | 各入力フォルダを再帰的に探索する。 |
 | `--prefix` | `mixed` | 出力ファイル名のprefix。 |
 | `--digits` | `5` | 出力ファイル番号のゼロ埋め桁数。 |
@@ -290,8 +300,8 @@ mixed_teacher/mixed-00001.hcpe3	8589930000	120000	40000	2863310000	teacher1/a.hc
 
 注意点:
 
-- すべてのsourceフォルダの存在と、対象HCPE3ファイルが見つかることを、棋譜数カウント前に確認します。
-- 入力ファイルは各フォルダ内でファイル名の辞書順に列挙し、同率時はこの順で選択します。
+- すべてのsourceフォルダ/ファイルの存在と、フォルダsourceで対象HCPE3ファイルが見つかることを、棋譜数カウント前に確認します。
+- 入力ファイルは各フォルダ内でファイル名の辞書順に列挙し、同率時はこの順で選択します。ファイルsourceは、そのファイル1つだけを列挙したものとして扱います。
 - source内の複数入力HCPE3は、1ファイルずつ読み切るのではなく、棋譜record単位で混ぜます。
 - 入力HCPE3内の棋譜recordは先頭から順番に処理します。局面単位では分割しません。
 - すべてのsourceの棋譜を使い切ります。`--max-outputs` を指定した場合は、その出力数に達したところで停止します。
