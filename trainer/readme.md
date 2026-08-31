@@ -30,7 +30,7 @@ use_compile  = False
 LR scheduler の既定値は `cosine` です。`trainer.py` は教師ファイル1個を1 epochとして `dlshogi.train` / `dlshogi.ptl` を呼び出し、scheduler は各教師ファイルの学習後に1回進みます。
 cosine では、最後の教師ファイルで `lr-min` に到達するように、周期を実質 `教師ファイル数 - 1` として扱います。
 
-指数減衰を使う場合は `--lr-scheduler exponential` を指定します。この場合、`--lr` はround開始時のlr、`--lr-min` はround終了時のlrです。round開始時に確定している教師ファイル数から `gamma` を計算し、最後の教師ファイルを処理し終えた直後に `lr-min` に到達するようにします。
+指数減衰を使う場合は `--lr-scheduler exponential` を指定します。この場合、`--lr` はround開始時のlr、`--lr-min` はround終了時のlrです。round開始時に確定している教師ファイル数から `gamma` を計算し、最後の教師ファイルの学習に使うlrが `lr-min` になるようにします。
 
 ```powershell
 python .\trainer.py ^

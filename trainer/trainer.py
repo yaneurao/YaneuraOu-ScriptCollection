@@ -532,9 +532,9 @@ def cosine_scheduler_config(total_epochs: int, lr_min: float) -> dict:
 
 
 def exponential_scheduler_gamma(total_epochs: int, lr: float, lr_min: float) -> float:
-    # scheduler.step() runs after each teacher file. Using total_epochs here makes
-    # the learning rate reach lr_min just after the last teacher file in the round.
-    return (lr_min / lr) ** (1.0 / max(1, total_epochs))
+    # scheduler.step() runs after each teacher file, so file N uses gamma^(N-1).
+    # Match cosine: the last teacher file in the round should use lr_min.
+    return (lr_min / lr) ** (1.0 / max(1, total_epochs - 1))
 
 
 def lr_scheduler_train_arg(args: argparse.Namespace, total_epochs: int) -> str:
