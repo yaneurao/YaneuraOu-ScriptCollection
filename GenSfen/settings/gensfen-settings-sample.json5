@@ -1,0 +1,34 @@
+{
+    // 対局開始を行う互角局面集のファイルPATH。
+    "START_SFENS_PATH": "settings/startpos-sfens.txt",
+
+    // 対局の最大手数
+    "MAX_GAME_PLY" : 320,
+
+    // 棋譜を生成するときの探索ノード数
+    "NODES" : 1000000,
+
+    // hcpe3の生成を行うとき
+    // "OUTPUT_FORMAT": "hcpe3",
+    // "MULTIPV": 4,
+    // "HCPE3_POLICY_NODES": 500000,
+    // "HCPE3_POLICY_MULTIPV": 30,
+    // "HCPE3_TEMPERATURE": 161.0,
+
+    "ENGINE_SETTING":
+    [
+        {
+            "path":"C:/shogi/engine/YaneuraOu.exe",
+            "name":"YaneuraOu",
+            "multi":1
+        },
+        /* // SSHでの起動例
+        {
+            "path":"ssh -o ServerAliveInterval=15 worker01 YaneuraOu.bat",
+            "name":"remote-YaneuraOu",
+            "multi":32 // ssh越しに32個起動する
+        }
+        */
+    ],
+
+}

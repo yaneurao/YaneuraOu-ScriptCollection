@@ -24,6 +24,7 @@ SCRIPT_VERSION             = "V0.04"
 
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
+SETTING_SAMPLE_JSON_PATH   = "settings/gensfen-settings-sample.json5"
 
 # プログレスバーのフォーマット
 BAR_FORMAT = "{desc:<15}: {percentage:3.0f}%|{bar:40}| {n_fmt}/{total_fmt}"
@@ -559,6 +560,11 @@ def user_input():
     print_log(f"Loading setting JSON, SETTING_JSON_PATH = {SETTING_JSON_PATH}")
 
     # 設定ファイルの読み込み
+    if not Path(SETTING_JSON_PATH).exists():
+        raise FileNotFoundError(
+            f"{SETTING_JSON_PATH} not found. Copy {SETTING_SAMPLE_JSON_PATH} "
+            f"to {SETTING_JSON_PATH}, then edit it for your environment."
+        )
     with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
         settings = json5.load(f)
 

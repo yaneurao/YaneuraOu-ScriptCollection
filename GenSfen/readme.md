@@ -24,6 +24,8 @@ DL系の探索部(例えば、dlshogiやふかうら王)での教師生成は考
 
 `settings/gensfen-settings.json5`の設定に従って教師を生成します。
 
+最初に`settings/gensfen-settings-sample.json5`を`settings/gensfen-settings.json5`にコピーし、自分の環境に合わせて編集してください。`gensfen-settings.json5`はローカル実設定なのでGit管理対象外です。
+
 思考エンジンのPATHや、教師生成の時の探索ノード数などはここに書きます。
 
 思考エンジンのエンジンオプションは、(やねうら王系であるなら)思考エンジンの実行ファイルと同じフォルダに`engine_options.txt`を配置し、そこに書くことで済ませておいてください。
@@ -84,7 +86,7 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 出力形式は、`GenSfen/settings/gensfen-settings.json5`に書く`OUTPUT_FORMAT`で指定します。省略時は従来どおり`pack`です。
 
-`GenSfen/settings/gensfen-settings.json5`の例:
+`GenSfen/settings/gensfen-settings-sample.json5`の例:
 
 ```json5
 {
@@ -378,4 +380,3 @@ pack形式のデータ := 対局棋譜*
 - 13(byte) win try_rule : トライルールによる宣言勝ち。
 
 - それら以外(1byte) reserved : 予約
-
