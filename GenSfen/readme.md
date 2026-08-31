@@ -102,13 +102,17 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 `hcpe3`出力では、各局面でMultiPV探索を行い、候補手の評価値をsoftmaxしてHCPE3の`MoveVisits.visitNum`に変換します。1局が完了するごとに1局分のHCPE3 recordを書き出し、`flush()`と`fsync()`を行います。
 
+`HCPE3_POLICY_NODES`を指定すると、bestmoveとevalを決める通常探索とは別に、policy候補手生成用の追加MultiPV探索を行います。この場合、`NODES`側の探索結果を`selectedMove16`と`eval`に使い、追加探索のMultiPV結果を`MoveVisits`に使います。
+
 HCPE3直接出力に関係する設定項目:
 
 | 設定 | 既定値 | 説明 |
 |---|---:|---|
 | `MULTIPV` | `4` | HCPE3出力時に要求する候補手数。pack出力では無視され、1になる。 |
+| `HCPE3_POLICY_NODES` | `0` | 追加policy探索のノード数。0なら追加探索なしで、従来通り`NODES`の探索結果から`MoveVisits`を作る。 |
+| `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 追加policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
-| `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
+| `HCPE3_TEMPERATURE` | `161.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
 | `HCPE3_EVAL_DROP_THRESHOLD` | `500` | 最良評価値からこの値より悪い候補を捨てる。負値なら無効。 |
 | `HCPE3_MATE_SCORE` | `32000` | USIの`score mate N`を評価値へ写像するときの基準値。既定ではやねうら王本体と同じく`32000 - N`になる。 |
 | `HCPE3_RESIGN_EVAL` | 未指定 | 指定時、実着手側の評価値が`-abs(value)`以下なら、その手を記録したあと投了扱いにする。 |
@@ -123,8 +127,10 @@ HCPE3直接出力に関係する設定項目:
 
     "OUTPUT_FORMAT": "hcpe3",
     "MULTIPV": 4,
+    "HCPE3_POLICY_NODES": 500000,
+    "HCPE3_POLICY_MULTIPV": 30,
     "HCPE3_VISITS_SUM": 65535,
-    "HCPE3_TEMPERATURE": 100.0,
+    "HCPE3_TEMPERATURE": 161.0,
     "HCPE3_EVAL_DROP_THRESHOLD": 500,
     "HCPE3_MATE_SCORE": 32000,
     "HCPE3_RESIGN_EVAL": 1000,
@@ -191,6 +197,7 @@ HCPE3生成時の典型的な調整項目:
 
 - `MULTIPV`を増やすとpolicy候補は増えますが、探索は重くなります。
 - `NODES`を増やすと評価値と候補手の質は上がりやすいですが、生成速度は落ちます。
+- `HCPE3_POLICY_NODES`を指定すると、`NODES`の探索量でbestmove/evalを決めたあと、別ノード数・別MultiPV数でpolicy候補手だけを集められます。
 - `HCPE3_TEMPERATURE`を小さくすると最善候補にvisitが寄り、大きくすると候補間のvisitが平坦になります。
 - `HCPE3_EVAL_DROP_THRESHOLD`を小さくすると、最善候補から大きく悪い手を捨てやすくなります。
 - `HCPE3_RESIGN_EVAL`を指定すると、評価値が負側に大きく傾いた局面で投了扱いにできます。
@@ -371,5 +378,4 @@ pack形式のデータ := 対局棋譜*
 - 13(byte) win try_rule : トライルールによる宣言勝ち。
 
 - それら以外(1byte) reserved : 予約
-
 

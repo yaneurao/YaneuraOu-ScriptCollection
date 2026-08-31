@@ -20,7 +20,7 @@ from YaneShogiLib import *
 # ============================================================
 
 # このスクリプトのバージョン
-SCRIPT_VERSION             = "V0.03"
+SCRIPT_VERSION             = "V0.04"
 
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
@@ -54,9 +54,11 @@ class SharedState:
         if self.output_format == "pack":
             self.multipv = 1
         self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))
-        self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 100.0))
+        self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 161.0))
         self.hcpe3_eval_drop_threshold = int(settings.get("HCPE3_EVAL_DROP_THRESHOLD", 500))
         self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", VALUE_MATE))
+        self.hcpe3_policy_nodes = max(0, int(settings.get("HCPE3_POLICY_NODES", 0)))
+        self.hcpe3_policy_multipv = max(1, int(settings.get("HCPE3_POLICY_MULTIPV", self.multipv)))
         self.hcpe3_resign_eval = settings.get("HCPE3_RESIGN_EVAL", None)
         if self.hcpe3_resign_eval is not None:
             self.hcpe3_resign_eval = int(self.hcpe3_resign_eval)
@@ -164,7 +166,8 @@ class ShogiMatch:
         self.engines = [Engine(engine1.engine_path,engine1.thread_id), Engine(engine2.engine_path,engine2.thread_id)] 
 
         for engine in self.engines:
-            engine.send_usi(f"setoption name MultiPV value {self.shared.multipv}")
+            initial_multipv = 1 if self.shared.hcpe3_policy_nodes > 0 else self.shared.multipv
+            self.set_engine_multipv(engine, initial_multipv)
             engine.isready()
 
         self.quit = False
@@ -177,6 +180,13 @@ class ShogiMatch:
 
         self.match_thread = Thread(target=self.thread_worker)
         self.match_thread.start()
+
+    def set_engine_multipv(self, engine:Engine, multipv:int):
+        """必要なときだけエンジンのMultiPVを切り替える。"""
+        if getattr(engine, "gensfen_multipv", None) == multipv:
+            return
+        engine.send_usi(f"setoption name MultiPV value {multipv}")
+        engine.gensfen_multipv = multipv
 
     def thread_worker(self):
         """対局スレッドのメインループ"""
@@ -285,6 +295,7 @@ class ShogiMatch:
         selected_move:int,
         selected_eval:int,
         multipv_candidates:list[tuple[Move, Eval]],
+        max_candidates:int,
     )->tuple[int, list[tuple[int, int]]]:
         """
         USI MultiPV候補をHCPE3のMoveVisitsへ変換する。
@@ -309,14 +320,14 @@ class ShogiMatch:
             candidates.insert(0, (selected_move, fallback_score))
             seen_moves.add(selected_move)
 
-        if len(candidates) > self.shared.multipv:
-            truncated = candidates[:self.shared.multipv]
+        if len(candidates) > max_candidates:
+            truncated = candidates[:max_candidates]
             if selected_move not in [move for move, _score in truncated]:
                 selected_candidate = next(
                     ((move, score) for move, score in candidates if move == selected_move),
                     (selected_move, selected_eval),
                 )
-                truncated = truncated[:self.shared.multipv - 1] + [selected_candidate]
+                truncated = truncated[:max_candidates - 1] + [selected_candidate]
             candidates = truncated
 
         if self.shared.hcpe3_eval_drop_threshold >= 0 and candidates:
@@ -332,11 +343,6 @@ class ShogiMatch:
         scores = [score for _move, score in candidates]
         visits = visits_from_scores(scores, self.shared.hcpe3_visits_sum, self.shared.hcpe3_temperature)
         candidate_visits = [(move & 0xffff, visit) for (move, _score), visit in zip(candidates, visits)]
-
-        for move, score in candidates:
-            if move == selected_move:
-                selected_eval = score
-                break
 
         return selected_eval, candidate_visits
 
@@ -369,11 +375,22 @@ class ShogiMatch:
 
             sfen = board.sfen()
             engine = self.engines[board.turn]
-            usi_move, eval_int, multipv_candidates = engine.go_multipv(
-                sfen,
-                self.shared.nodes,
-                self.shared.hcpe3_mate_score,
-            )
+            if self.shared.hcpe3_policy_nodes > 0:
+                self.set_engine_multipv(engine, 1)
+                usi_move, eval_int, _ = engine.go_multipv(
+                    sfen,
+                    self.shared.nodes,
+                    self.shared.hcpe3_mate_score,
+                )
+                multipv_candidates = []
+                max_candidates = 1
+            else:
+                usi_move, eval_int, multipv_candidates = engine.go_multipv(
+                    sfen,
+                    self.shared.nodes,
+                    self.shared.hcpe3_mate_score,
+                )
+                max_candidates = self.shared.multipv
 
             if usi_move == "resign":
                 winner = board.turn ^ 1
@@ -397,11 +414,21 @@ class ShogiMatch:
                 game_data.set_result(self.hcpe3_result_from_winner(winner))
                 break
 
+            if self.shared.hcpe3_policy_nodes > 0:
+                self.set_engine_multipv(engine, self.shared.hcpe3_policy_multipv)
+                _policy_move, _policy_eval, multipv_candidates = engine.go_multipv(
+                    sfen,
+                    self.shared.hcpe3_policy_nodes,
+                    self.shared.hcpe3_mate_score,
+                )
+                max_candidates = self.shared.hcpe3_policy_multipv
+
             selected_eval, candidate_visits = self.make_hcpe3_candidate_visits(
                 board,
                 selected_move,
                 eval_int,
                 multipv_candidates,
+                max_candidates,
             )
             game_data.add_record(selected_move & 0xffff, selected_eval, candidate_visits)
 
@@ -558,7 +585,10 @@ def user_input():
             elif i == 'g':
                 # まだ対局が組まれていなければ開始する。
                 if not matcher.shogi_matches:
-                    print_log(f"Start GenSfen, OUTPUT_FORMAT = {shared.output_format}, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}, MULTIPV = {shared.multipv}")
+                    policy_suffix = ""
+                    if shared.output_format == "hcpe3" and shared.hcpe3_policy_nodes > 0:
+                        policy_suffix = f", HCPE3_POLICY_NODES = {shared.hcpe3_policy_nodes}, HCPE3_POLICY_MULTIPV = {shared.hcpe3_policy_multipv}"
+                    print_log(f"Start GenSfen, OUTPUT_FORMAT = {shared.output_format}, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}, MULTIPV = {shared.multipv}{policy_suffix}")
                     matcher.start_games()
 
             elif i == 'q' or i == '!':

@@ -13,6 +13,9 @@
     // hcpe3の生成を行うとき
     // "OUTPUT_FORMAT": "hcpe3",
     // "MULTIPV": 4,
+    // "HCPE3_POLICY_NODES": 500000,
+    // "HCPE3_POLICY_MULTIPV": 30,
+    // "HCPE3_TEMPERATURE": 161.0,
 
     "ENGINE_SETTING":
     [
