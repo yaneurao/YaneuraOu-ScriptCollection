@@ -8,12 +8,12 @@ GUIから見ると通常のUSIエンジンとして動作し、内部では実�
 
 | ツール | 用途 | 説明 |
 | -- | -- | -- |
-| `ThinkSfensRecoder.py` | 棋譜記録 | 検討画面で動かした局面を `think_sfens.txt` に記録し、BookMinerでそのまま掘れるようにします。 |
+| `ThinkSfensRecorder.py` | 棋譜記録 | 検討画面で動かした局面を `think_sfens.txt` に記録し、BookMinerでそのまま掘れるようにします。 |
 
-## ThinkSfensRecoder
+## ThinkSfensRecorder
 
 将棋所、ShogiGUI、ShogiHome などの検討画面で動かした局面を、BookMinerで掘りたいことがあります。
-`ThinkSfensRecoder.py` は、そのために将棋GUIと実エンジンの間に入るproxyとして動作し、GUIから送られてきた局面を `think_sfens.txt` に記録します。
+`ThinkSfensRecorder.py` は、そのために将棋GUIと実エンジンの間に入るproxyとして動作し、GUIから送られてきた局面を `think_sfens.txt` に記録します。
 
 実エンジンとの入出力はすべてそのまま通します。GUIから来た `position ...` コマンドだけを拾い、BookMiner がそのまま読める `startpos moves ...` / `sfen ... moves ...` 形式で保存します。
 
@@ -22,13 +22,13 @@ GUIから見ると通常のUSIエンジンとして動作し、内部では実�
 ## 使い方
 
 ```bat
-python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecoder.py --engine-path C:\shogi\YaneuraOu.exe
+python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecorder.py --engine-path C:\shogi\YaneuraOu.exe
 ```
 
 出力先を変える場合:
 
 ```bat
-python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecoder.py --engine-path C:\shogi\YaneuraOu.exe --output C:\shogi\YaneuraOu-ScriptCollection\BookMiner\book\think_sfens.txt
+python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecorder.py --engine-path C:\shogi\YaneuraOu.exe --output C:\shogi\YaneuraOu-ScriptCollection\BookMiner\book\think_sfens.txt
 ```
 
 同じ局面はデフォルトで重複記録しません。重複も記録したい場合は `--no-dedupe` を指定します。
@@ -38,7 +38,7 @@ python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecoder.py --eng
 将棋GUI上で表示されるエンジン名を変えたい場合は、`--engine-name` を指定します。これは実エンジンが `usi` コマンドに応答するときの `id name ...` 行だけを置き換えます。
 
 ```bat
-python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecoder.py --engine-path C:\shogi\YaneuraOu.exe --engine-name ThinkSfensRecoder
+python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecorder.py --engine-path C:\shogi\YaneuraOu.exe --engine-name ThinkSfensRecorder
 ```
 
 ## 将棋GUIへの登録例
@@ -48,7 +48,7 @@ Python を直接呼ぶ `.bat` を作り、その `.bat` を将棋GUIにエンジ
 ```bat
 @echo off
 cd /d C:\shogi\YaneuraOu-ScriptCollection\BookMiner\book
-python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecoder.py --engine-path C:\shogi\YaneuraOu.exe
+python C:\shogi\YaneuraOu-ScriptCollection\UsiAdaptor\ThinkSfensRecorder.py --engine-path C:\shogi\YaneuraOu.exe
 ```
 
 このツール自体は `cshogi` を使っていません。PyInstaller で実行ファイル化しやすいよう、Python 標準ライブラリだけで動作します。

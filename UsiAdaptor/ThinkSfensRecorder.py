@@ -36,7 +36,7 @@ def dedupe_key(line: str) -> str:
     return " ".join(command.strip().split())
 
 
-class ThinkSfensRecoder:
+class ThinkSfensRecorder:
     def __init__(self, output_path: Path, dedupe: bool) -> None:
         self.output_path = output_path
         self.dedupe = dedupe
@@ -143,22 +143,22 @@ def forward_stream(src, dst, engine_name: str | None = None) -> None:
             dst.write(line)
             dst.flush()
     except Exception as exc:
-        print(f"[ThinkSfensRecoder] stream forwarding stopped: {exc}", file=sys.stderr)
+        print(f"[ThinkSfensRecorder] stream forwarding stopped: {exc}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     engine_path = Path(args.engine_path).expanduser()
     if not engine_path.is_file():
-        print(f"[ThinkSfensRecoder] engine not found: {engine_path}", file=sys.stderr)
+        print(f"[ThinkSfensRecorder] engine not found: {engine_path}", file=sys.stderr)
         return 1
 
     cwd = args.engine_cwd
     if cwd is None:
         cwd = engine_path.resolve().parent
 
-    recoder = ThinkSfensRecoder(args.output.expanduser(), dedupe=not args.no_dedupe)
-    recoder.open()
+    recorder = ThinkSfensRecorder(args.output.expanduser(), dedupe=not args.no_dedupe)
+    recorder.open()
 
     process = subprocess.Popen(
         engine_command(str(engine_path), args.engine_args),
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         for raw_line in sys.stdin:
-            recoder.record_if_position(raw_line)
+            recorder.record_if_position(raw_line)
             process.stdin.write(raw_line)
             process.stdin.flush()
             if raw_line.strip() == "quit":
@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     except BrokenPipeError:
         pass
     finally:
-        recoder.close()
+        recorder.close()
         try:
             process.stdin.close()
         except Exception:
