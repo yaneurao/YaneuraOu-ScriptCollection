@@ -13,9 +13,14 @@ from dataclasses import dataclass, field
 import heapq
 from pathlib import Path
 import re
+import shutil
 import sys
 import struct
 import time
+import tempfile
+
+import cshogi
+import numpy as np
 
 
 HCPE3_HEADER_SIZE = 36
@@ -25,6 +30,9 @@ MOVE_NUM_OFFSET = 32
 CANDIDATE_NUM_OFFSET = 4
 MAX_MOVE_NUM = 513
 MAX_CANDIDATE_NUM = 593
+DEFAULT_POSITIONS_PER_OUTPUT = 10_000_000
+DEFAULT_BUCKET_COUNT = 1024
+UINT64_MASK = (1 << 64) - 1
 
 
 SIZE_UNITS = {
@@ -119,6 +127,17 @@ class OutputStats:
         self.games += 1
         self.bytes += len(record.data)
         self.source_stats[record.source_index - 1].add(record)
+
+
+@dataclass
+class PositionOutputStats:
+    output_file: Path
+    positions: int = 0
+    bytes: int = 0
+
+    def add(self, record_size: int) -> None:
+        self.positions += 1
+        self.bytes += record_size
 
 
 class InputFileReader:
@@ -439,6 +458,80 @@ def read_hcpe3_game(file, path: Path) -> bytes | None:
     return b"".join(parts)
 
 
+def iter_hcpe3_position_records(record: GameRecord):
+    board = cshogi.Board()
+    hcp = np.zeros(1, dtype=cshogi.dtypeHcp)
+    offset = 0
+    header = record.data[offset:offset + HCPE3_HEADER_SIZE]
+    offset += HCPE3_HEADER_SIZE
+    move_num = struct.unpack_from("<H", header, MOVE_NUM_OFFSET)[0]
+
+    board.set_hcp(np.frombuffer(header[:32], dtype=cshogi.dtypeHcp, count=1)[0])
+    if not board.is_ok():
+        raise RuntimeError(
+            f"invalid HCP: {record.input_file} game={record.file_game_index}"
+        )
+
+    for ply in range(move_num):
+        move_info = record.data[offset:offset + MOVE_INFO_SIZE]
+        offset += MOVE_INFO_SIZE
+        candidate_num = struct.unpack_from("<H", move_info, CANDIDATE_NUM_OFFSET)[0]
+        visits_size = MOVE_VISITS_SIZE * candidate_num
+        visits = record.data[offset:offset + visits_size]
+        offset += visits_size
+
+        board.to_hcp(hcp[0])
+        position_header = bytearray(header)
+        position_header[:32] = hcp[0].tobytes()
+        struct.pack_into("<H", position_header, MOVE_NUM_OFFSET, 1)
+        position_record = bytes(position_header) + move_info + visits
+        yield hcp[0].tobytes(), position_record
+
+        if ply + 1 < move_num:
+            selected_move16 = struct.unpack_from("<H", move_info, 0)[0]
+            try:
+                board.push_move16(selected_move16)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"illegal selectedMove16 {selected_move16:#06x}: "
+                    f"{record.input_file} game={record.file_game_index} ply={ply}"
+                ) from exc
+
+
+def packed_position_xor_key(hcp_bytes: bytes, seed: int) -> int:
+    words = struct.unpack("<QQQQ", hcp_bytes)
+    key = words[0] ^ words[1] ^ words[2] ^ words[3]
+    if seed:
+        key ^= seed & UINT64_MASK
+    return key
+
+
+def bucket_path(work_dir: Path, bucket: int) -> Path:
+    return work_dir / f"bucket-{bucket:06}.hcpe3"
+
+
+def write_length_prefixed(file, record: bytes) -> None:
+    file.write(struct.pack("<I", len(record)))
+    file.write(record)
+
+
+def read_length_prefixed_records(path: Path) -> list[bytes]:
+    records = []
+    with path.open("rb") as file:
+        while True:
+            size_bytes = file.read(4)
+            if not size_bytes:
+                break
+            if len(size_bytes) != 4:
+                raise RuntimeError(f"truncated bucket record header: {path}")
+            size = struct.unpack("<I", size_bytes)[0]
+            data = file.read(size)
+            if len(data) != size:
+                raise RuntimeError(f"truncated bucket record body: {path}")
+            records.append(data)
+    return records
+
+
 def count_hcpe3_games(path: Path, progress=None) -> int:
     games = 0
     file_size = path.stat().st_size
@@ -513,6 +606,17 @@ def write_manifest_row(manifest, stats: OutputStats) -> None:
     manifest.write("\t".join(columns) + "\n")
 
 
+def write_position_manifest_header(manifest) -> None:
+    manifest.write("output\tbytes\tpositions\n")
+
+
+def write_position_manifest_row(manifest, stats: PositionOutputStats) -> None:
+    manifest.write(
+        "\t".join([str(stats.output_file), str(stats.bytes), str(stats.positions)])
+        + "\n"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -561,6 +665,39 @@ def parse_args() -> argparse.Namespace:
         help="maximum output file size, such as 512M, 8G, or byte count",
     )
     parser.add_argument(
+        "--shuffle-positions",
+        action="store_true",
+        help=(
+            "expand HCPE3 games into one-position HCPE3 records, shuffle them "
+            "out-of-core, and split by --positions"
+        ),
+    )
+    parser.add_argument(
+        "--positions",
+        type=int,
+        default=DEFAULT_POSITIONS_PER_OUTPUT,
+        help=(
+            "positions per output file for --shuffle-positions "
+            f"(default: {DEFAULT_POSITIONS_PER_OUTPUT})"
+        ),
+    )
+    parser.add_argument(
+        "--bucket-count",
+        type=int,
+        default=DEFAULT_BUCKET_COUNT,
+        help=(
+            "temporary bucket count for --shuffle-positions "
+            f"(default: {DEFAULT_BUCKET_COUNT})"
+        ),
+    )
+    parser.add_argument("--seed", type=int, default=0, help="shuffle seed for --shuffle-positions")
+    parser.add_argument("--tmp-dir", type=Path, help="temporary directory root for --shuffle-positions")
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help="keep temporary bucket files for --shuffle-positions",
+    )
+    parser.add_argument(
         "--no-manifest",
         action="store_true",
         help="do not write the manifest TSV file",
@@ -590,6 +727,228 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class PositionSplitWriter:
+    def __init__(
+        self,
+        output_dir: Path,
+        prefix: str,
+        positions: int | None,
+        split_targets: list[int] | None,
+        digits: int,
+        manifest,
+    ):
+        self.output_dir = output_dir
+        self.prefix = prefix
+        self.positions = positions
+        self.split_targets = split_targets
+        self.digits = digits
+        self.manifest = manifest
+        self.output = None
+        self.stats = None
+        self.output_index = 0
+        self.outputs = 0
+
+    def close(self) -> None:
+        if self.output is not None:
+            self.output.close()
+            self.output = None
+            if self.stats.positions > 0:
+                if self.manifest is not None:
+                    write_position_manifest_row(self.manifest, self.stats)
+                print(self.stats.output_file, "positions", self.stats.positions, "bytes", self.stats.bytes)
+                self.outputs += 1
+            self.stats = None
+
+    def write(self, record: bytes) -> None:
+        if self.output is None or self.stats.positions >= self.current_target():
+            self.close()
+            self.output_index += 1
+            output_file = make_output_path(self.output_dir, self.prefix, self.output_index, self.digits)
+            self.output = output_file.open("wb")
+            self.stats = PositionOutputStats(output_file=output_file)
+
+        self.output.write(record)
+        self.stats.add(len(record))
+
+    def current_target(self) -> int:
+        if self.split_targets is not None:
+            return self.split_targets[self.output_index - 1]
+        return self.positions
+
+
+def build_round_robin_state(sources: list[SourceSpec], max_open_files: int):
+    source_selector = WeightedSelector([source.games for source in sources])
+    files_by_source = [
+        [file_spec for file_spec in source.files if file_spec.games > 0]
+        for source in sources
+    ]
+    file_selectors = [
+        WeightedSelector([file_spec.games for file_spec in file_specs])
+        for file_specs in files_by_source
+    ]
+    readers_by_source = [
+        [InputFileReader(file_spec) for file_spec in file_specs]
+        for file_specs in files_by_source
+    ]
+    open_readers = OpenReaderCache(max_open_files)
+    source_read_games = [0 for _ in sources]
+    return source_selector, file_selectors, readers_by_source, open_readers, source_read_games
+
+
+def iter_round_robin_records(sources: list[SourceSpec], max_open_files: int):
+    (
+        source_selector,
+        file_selectors,
+        readers_by_source,
+        open_readers,
+        source_read_games,
+    ) = build_round_robin_state(sources, max_open_files)
+    try:
+        while True:
+            source_pos = source_selector.next_index()
+            if source_pos is None:
+                break
+
+            file_pos = file_selectors[source_pos].next_index()
+            if file_pos is None:
+                raise RuntimeError(
+                    f"source file selector ended earlier than counted: "
+                    f"{sources[source_pos].source_dir}"
+                )
+
+            reader = readers_by_source[source_pos][file_pos]
+            source_read_games[source_pos] += 1
+            record = reader.next_game(source_read_games[source_pos], open_readers)
+            if record is None:
+                raise RuntimeError(
+                    f"input file ended earlier than counted: {reader.spec.path}"
+                )
+            yield record
+    finally:
+        open_readers.close_all()
+
+
+def run_shuffle_positions(args, sources: list[SourceSpec], progress: ProgressReporter) -> None:
+    manifest_path = args.output / f"{args.prefix}-manifest.tsv"
+    if args.max_output_size is not None:
+        raise ValueError("--max-output-size cannot be used with --shuffle-positions; use --positions")
+    if args.max_outputs is not None:
+        raise ValueError("--max-outputs cannot be used with --shuffle-positions")
+    if args.split is not None and args.split <= 0:
+        raise ValueError("--split must be positive")
+    if args.split is not None and args.positions != DEFAULT_POSITIONS_PER_OUTPUT:
+        raise ValueError("--split and --positions cannot be specified together")
+    if args.positions <= 0:
+        raise ValueError("--positions must be positive")
+    if args.bucket_count <= 0:
+        raise ValueError("--bucket-count must be positive")
+
+    args.output.mkdir(parents=True, exist_ok=True)
+    if not args.no_manifest and manifest_path.exists() and not args.force:
+        raise FileExistsError(
+            "manifest already exists; use --force to overwrite: " + str(manifest_path)
+        )
+
+    for output_file in args.output.glob(f"{args.prefix}-*.hcpe3"):
+        if output_file == manifest_path:
+            continue
+        if not args.force:
+            raise FileExistsError(
+                "output already exists; use --force to overwrite: " + str(output_file)
+            )
+        output_file.unlink()
+
+    tmp_root = args.tmp_dir if args.tmp_dir is not None else args.output
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    work_dir = Path(tempfile.mkdtemp(prefix=".concat_hcpe3_shuffle-", dir=tmp_root))
+    bucket_files = {}
+    total_games = sum(source.games for source in sources)
+    written_positions = 0
+    written_games = 0
+
+    try:
+        for record in iter_round_robin_records(sources, args.max_open_files):
+            written_games += 1
+            for hcp_bytes, position_record in iter_hcpe3_position_records(record):
+                bucket = packed_position_xor_key(hcp_bytes, args.seed) % args.bucket_count
+                out = bucket_files.get(bucket)
+                if out is None:
+                    out = bucket_path(work_dir, bucket).open("ab")
+                    bucket_files[bucket] = out
+                write_length_prefixed(out, position_record)
+                written_positions += 1
+
+            progress.report(
+                f"shard {written_games}/{total_games} games "
+                f"({written_games * 100.0 / total_games:5.1f}%) "
+                f"positions={written_positions}",
+            )
+
+        for out in bucket_files.values():
+            out.close()
+        bucket_files = {}
+
+        manifest = None
+        if not args.no_manifest:
+            manifest = manifest_path.open("w", encoding="utf-8", newline="")
+            write_position_manifest_header(manifest)
+
+        split_targets = None
+        if args.split is not None:
+            if args.split > written_positions:
+                raise ValueError(
+                    f"--split cannot be greater than total positions: "
+                    f"split={args.split}, total_positions={written_positions}"
+                )
+            base_positions, extra_outputs = divmod(written_positions, args.split)
+            split_targets = [
+                base_positions + (1 if output_pos < extra_outputs else 0)
+                for output_pos in range(args.split)
+            ]
+
+        rng = np.random.default_rng(args.seed)
+        writer = PositionSplitWriter(
+            args.output,
+            args.prefix,
+            None if split_targets is not None else args.positions,
+            split_targets,
+            args.digits,
+            manifest,
+        )
+        shuffled_positions = 0
+        try:
+            for bucket in range(args.bucket_count):
+                path = bucket_path(work_dir, bucket)
+                if not path.exists():
+                    continue
+                records = read_length_prefixed_records(path)
+                order = rng.permutation(len(records))
+                for index in order:
+                    writer.write(records[int(index)])
+                    shuffled_positions += 1
+                progress.report(
+                    f"write buckets {bucket + 1}/{args.bucket_count} "
+                    f"positions={shuffled_positions}/{written_positions}",
+                )
+            writer.close()
+        finally:
+            writer.close()
+            if manifest is not None:
+                manifest.close()
+
+        if writer.outputs == 0:
+            raise ValueError("no output files were written from the specified sources")
+        print("outputs", writer.outputs)
+        print("positions", shuffled_positions)
+    finally:
+        for out in bucket_files.values():
+            out.close()
+        if not args.keep_temp:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        else:
+            print("temp", work_dir)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -616,6 +975,10 @@ def main() -> None:
         args.recursive,
     )
     sources = parse_sources(source_inputs, progress)
+    if args.shuffle_positions:
+        run_shuffle_positions(args, sources, progress)
+        return
+
     source_selector = WeightedSelector([source.games for source in sources])
     files_by_source = [
         [file_spec for file_spec in source.files if file_spec.games > 0]

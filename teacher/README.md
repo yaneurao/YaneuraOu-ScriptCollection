@@ -25,7 +25,7 @@ git clone https://github.com/TadaoYamaoka/DeepLearningShogi.git
 | `psv` | `teacher/split_teacher.py --shuffle` を使う。40 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
 | `hcpe` | `teacher/split_teacher.py --shuffle` を使う。38 byte固定長の局面レコードなので局面単位でシャッフルできる。 |
 | `pack` | 棋譜形式なので、ファイル上のレコードを単純に局面単位シャッフルする用途には向かない。 |
-| `hcpe3` | 棋譜単位の可変長形式なので、単純な局面単位シャッフルには向かない。 |
+| `hcpe3` | 棋譜単位の可変長形式なので、そのままでは棋譜単位shuffleになる。局面単位shuffleしたい場合は `concat_hcpe3_round_robin.py --shuffle-positions` を使う。 |
 
 ### HCPE/PSVフォルダをオフメモリでシャッフルして分割する
 
@@ -80,6 +80,60 @@ python teacher/shuffle_split_teacher_external.py src_teacher_folder dst_teacher_
 - bucketごとのシャッフルなので、厳密な全体Fisher-Yates shuffleではない。棋譜内の連続局面による自己相関を壊す目的には十分実用的。
 - 一時ファイルとして入力とほぼ同じサイズの容量が追加で必要。
 - 出力フォルダに既存ファイルがある場合は、誤上書きを避けるためデフォルトではエラーにする。
+
+### HCPE3フォルダを局面単位でオフメモリshuffleする
+
+HCPE3は可変長の棋譜形式なので、ファイル上のrecordをそのままshuffleしても棋譜単位shuffleにしかならない。
+局面単位で混ぜたい場合は、各plyを `moveNum=1` の独立したHCPE3 recordへ展開してからshuffleする。
+
+```bash
+python teacher/concat_hcpe3_round_robin.py \
+  --output shuffled_hcpe3 \
+  --source src_hcpe3 \
+  --shuffle-positions \
+  --positions 10000000
+```
+
+複数sourceを混ぜる場合も同じです。まずsource間とsource内ファイル間を棋譜数比率のround-robinで読み、その各棋譜を局面単位HCPE3へ展開してbucketへ分配します。
+
+```bash
+python teacher/concat_hcpe3_round_robin.py \
+  --output shuffled_hcpe3 \
+  --source teacher1 \
+  --source teacher2 \
+  --source teacher3 \
+  --shuffle-positions \
+  --positions 10000000 \
+  --bucket-count 2048 \
+  --seed 1
+```
+
+出力は以下のようになる。
+
+```text
+shuffled_hcpe3/mixed-00001.hcpe3
+shuffled_hcpe3/mixed-00002.hcpe3
+...
+shuffled_hcpe3/mixed-manifest.tsv
+```
+
+`--shuffle-positions` 時の主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---:|---|
+| `--positions` | `10000000` | 1出力ファイルあたりの局面数。 |
+| `--bucket-count` | `1024` | 一時bucket数。大きいほどbucketごとのメモリ使用量は下がる。 |
+| `--seed` | `0` | bucket内shuffleのseed。 |
+| `--tmp-dir` | 出力フォルダ | 一時bucketファイルの作成先。 |
+| `--keep-temp` | off | 一時bucketファイルを削除せず残す。 |
+
+注意点:
+
+- 出力HCPE3は、各recordの `moveNum` が1の局面単位HCPE3です。DeepLearningShogiのHCPE3ローダからは通常のHCPE3として読めます。
+- 元の棋譜では開始局面を1回だけ持つのに対し、局面単位HCPE3では各局面がHCPを持つため、出力ファイルサイズは大きくなります。
+- 入力全体をメモリに載せず、一時bucketへ分散してからbucketごとにshuffleします。大きな教師では `--bucket-count` を増やしてください。
+- `--split N` を指定すると、shuffle後の総局面数をN分割します。`--positions` とは同時指定できません。
+- `--shuffle-positions` では出力単位が局面数になるため、byte数基準の `--max-output-size` と出力数打ち切りの `--max-outputs` は指定できません。
 
 ### 固定長教師ファイルをオンメモリでシャッフルする
 
@@ -215,7 +269,7 @@ mixed_teacher/interleaved-manifest.tsv
 
 ### HCPE3フォルダを棋譜数比率で結合する
 
-HCPE3は棋譜単位の可変長形式なので、PSV/HCPEのような局面単位シャッフルには向きません。
+HCPE3は棋譜単位の可変長形式なので、通常モードでは局面単位ではなく棋譜record単位で混ぜます。
 複数の方法で生成したHCPE3教師フォルダまたはHCPE3ファイルを混ぜたい場合は、`teacher/concat_hcpe3_round_robin.py` を使って、各sourceの棋譜数比率で棋譜recordを取り出して結合します。
 
 たとえば `teacher1/` と `teacher2/` と `teacher3/` のHCPE3を混ぜ、1出力ファイルを最大8GiB程度に抑える場合:
