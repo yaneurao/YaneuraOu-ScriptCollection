@@ -963,6 +963,8 @@ def run_one_round(
             f"{args.batches_per_update} "
             f"(effective batchsize={args.batchsize * args.batches_per_update})"
         )
+        if args.large_batch_bn:
+            print("large batch BN: enabled")
     print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
     print(f"val_lambda: {args.val_lambda}")
     if args.hcpe_val_lambda is not None:
@@ -1048,6 +1050,8 @@ def run_one_round(
                 train_args.extend(
                     ["--batches-per-update", str(args.batches_per_update)]
                 )
+                if args.large_batch_bn:
+                    train_args.append("--large-batch-bn")
 
             if previous_checkpoint.exists():
                 train_args.extend(["--resume", str(previous_checkpoint)])
@@ -1205,6 +1209,14 @@ def main() -> None:
             "optimizer step. 1 keeps the legacy behavior."
         ),
     )
+    parser.add_argument(
+        "--large-batch-bn",
+        action="store_true",
+        help=(
+            "With --batches-per-update, run a two-pass training step that "
+            "uses effective-batch BatchNorm statistics."
+        ),
+    )
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument(
@@ -1322,6 +1334,10 @@ def main() -> None:
         )
     if args.backend != "train" and args.batches_per_update != 1:
         parser.error("--batches-per-update is supported only with --backend train")
+    if args.large_batch_bn and args.batches_per_update == 1:
+        parser.error("--large-batch-bn requires --batches-per-update > 1")
+    if args.backend != "train" and args.large_batch_bn:
+        parser.error("--large-batch-bn is supported only with --backend train")
     if args.lr_scheduler == "exponential":
         if args.lr <= 0:
             parser.error("--lr must be > 0 for --lr-scheduler exponential")
