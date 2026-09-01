@@ -57,6 +57,20 @@ python .\trainer.py ^
 
 `--batches-per-update` の既定値は1です。1のときは `dlshogi.train` にこの引数を渡さないので、従来のDeepLearningShogiでも従来どおり動きます。2以上を使うには、`dlshogi.train` 側が `--batches-per-update` に対応している必要があります。
 
+BatchNormを含むnetworkでは、通常の勾配蓄積は「本当に大きなbatchsizeで学習した場合」と完全には一致しません。forward時のBatchNorm統計がmini batchごとに計算されるためです。GPUメモリは足りないが、学習時間を使って大batch寄りのBatchNormで試したい場合は `--large-batch-bn` を追加します。
+
+```powershell
+python .\trainer.py ^
+  --network exp___i15x192 ^
+  --batchsize 4096 ^
+  --batches-per-update 64 ^
+  --large-batch-bn
+```
+
+`--large-batch-bn` は、1回のoptimizer更新に使う複数mini batchを2回読みます。1回目でBatchNorm入力統計を集計し、2回目でその統計を使ってforward/backwardします。VRAMに実効batch全体を載せる必要はありませんが、通常の勾配蓄積よりかなり遅くなります。
+
+この機能を使うには、DeepLearningShogi側に `--large-batch-bn` 対応が必要です。対応ブランチは `feature/batches-for-update` です。
+
 この指定は `--backend train` 専用です。`--backend ptl` では使えません。
 
 ## HCPE / HCPE3 混在教師データ
