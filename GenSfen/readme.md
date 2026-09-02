@@ -104,14 +104,14 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 `hcpe3`出力では、各局面でMultiPV探索を行い、候補手の評価値をsoftmaxしてHCPE3の`MoveVisits.visitNum`に変換します。1局が完了するごとに1局分のHCPE3 recordを書き出し、`flush()`と`fsync()`を行います。
 
-`HCPE3_POLICY_NODES`を指定すると、bestmoveとevalを決める通常探索とは別に、policy候補手生成用の追加MultiPV探索を行います。この場合、`NODES`側の探索結果を`selectedMove16`と`eval`に使い、追加探索のMultiPV結果を`MoveVisits`に使います。
+`HCPE3_POLICY_NODES`を指定すると、bestmoveとevalを決める通常探索とは別に、policy候補手生成用の追加MultiPV探索を行います。この場合、先に追加MultiPV探索で`MoveVisits`用の候補手を集め、そのあと`NODES`側の通常探索で`selectedMove16`と`eval`を確定します。
 
 追加policy探索を使う場合の扱い:
 
 - 追加policy探索でbestmoveが通常探索と異なっても、`selectedMove16`は通常探索のbestmoveのままにする。
 - `eval`も通常探索のbestevalのままにする。
 - 追加policy探索のbestmove/evalは、`selectedMove16`や`eval`の更新には使わない。
-- 追加policy探索の2番目以降に通常探索のbestevalを上回る候補手があっても、`selectedMove16`と`eval`は変更しない。
+- 追加policy探索の候補手scoreは、通常探索のbestmoveなら通常探索のbestevalに差し替え、それ以外の手は最大でも`besteval - 1`にclipする。
 - 通常探索のbestmoveが追加policy探索の候補手に含まれていない場合は、`MoveVisits`の候補手集合に追加する。
 - `MoveVisits.visitNum`は、追加policy探索の候補手評価値から従来通りsoftmaxで作る。
 

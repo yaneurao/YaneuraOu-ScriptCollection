@@ -317,8 +317,7 @@ class ShogiMatch:
             candidates.append((move, score))
 
         if selected_move not in seen_moves:
-            fallback_score = candidates[0][1] if candidates else selected_eval
-            candidates.insert(0, (selected_move, fallback_score))
+            candidates.insert(0, (selected_move, selected_eval))
             seen_moves.add(selected_move)
 
         if len(candidates) > max_candidates:
@@ -330,6 +329,11 @@ class ShogiMatch:
                 )
                 truncated = truncated[:max_candidates - 1] + [selected_candidate]
             candidates = truncated
+
+        candidates = [
+            (move, selected_eval if move == selected_move else min(score, selected_eval - 1))
+            for move, score in candidates
+        ]
 
         if self.shared.hcpe3_eval_drop_threshold >= 0 and candidates:
             best_score = max(score for _move, score in candidates)
@@ -377,14 +381,19 @@ class ShogiMatch:
             sfen = board.sfen()
             engine = self.engines[board.turn]
             if self.shared.hcpe3_policy_nodes > 0:
+                self.set_engine_multipv(engine, self.shared.hcpe3_policy_multipv)
+                _policy_move, _policy_eval, multipv_candidates = engine.go_multipv(
+                    sfen,
+                    self.shared.hcpe3_policy_nodes,
+                    self.shared.hcpe3_mate_score,
+                )
+                max_candidates = self.shared.hcpe3_policy_multipv
                 self.set_engine_multipv(engine, 1)
                 usi_move, eval_int, _ = engine.go_multipv(
                     sfen,
                     self.shared.nodes,
                     self.shared.hcpe3_mate_score,
                 )
-                multipv_candidates = []
-                max_candidates = 1
             else:
                 usi_move, eval_int, multipv_candidates = engine.go_multipv(
                     sfen,
@@ -414,15 +423,6 @@ class ShogiMatch:
                 winner = board.turn ^ 1
                 game_data.set_result(self.hcpe3_result_from_winner(winner))
                 break
-
-            if self.shared.hcpe3_policy_nodes > 0:
-                self.set_engine_multipv(engine, self.shared.hcpe3_policy_multipv)
-                _policy_move, _policy_eval, multipv_candidates = engine.go_multipv(
-                    sfen,
-                    self.shared.hcpe3_policy_nodes,
-                    self.shared.hcpe3_mate_score,
-                )
-                max_candidates = self.shared.hcpe3_policy_multipv
 
             selected_eval, candidate_visits = self.make_hcpe3_candidate_visits(
                 board,
