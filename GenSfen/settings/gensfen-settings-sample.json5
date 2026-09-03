@@ -8,12 +8,17 @@
     // 棋譜を生成するときの探索ノード数
     "NODES" : 1000000,
 
-    // hcpe3の生成を行うとき
+    // hcpe3の生成を行うとき。
+    // MultiPV 4でNODES分探索して、その結果からMoveVisitsを作る場合:
     // "OUTPUT_FORMAT": "hcpe3",
     // "MULTIPV": 4,
+    // "HCPE3_TEMPERATURE": 100.0,
+
+    // 追加policy探索を使う場合:
+    // HCPE3_POLICY_NODES > 0 のとき、policy候補手は以下の追加探索で集め、
+    // 実着手とevalは NODES の MultiPV=1 探索で確定する。
     // "HCPE3_POLICY_NODES": 500000,
     // "HCPE3_POLICY_MULTIPV": 30,
-    // "HCPE3_TEMPERATURE": 100.0,
 
     "ENGINE_SETTING":
     [
