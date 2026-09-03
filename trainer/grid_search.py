@@ -69,8 +69,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
 
 
 def float_tag(value: float) -> str:
-    text = f"{value:.12g}"
-    return text.replace("-", "m").replace("+", "").replace(".", "p")
+    return f"{value:.12g}"
 
 
 def make_trials(args: argparse.Namespace) -> list[Trial]:

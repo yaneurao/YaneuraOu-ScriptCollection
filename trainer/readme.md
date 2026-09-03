@@ -293,8 +293,8 @@ python .\grid_search.py ^
 各試行の出力先は以下のように自動で分かれます。
 
 ```txt
-C:\shogi\model\grid_lr_val\exp___i15x192_lr0p001_val0p33
-C:\shogi\model\grid_lr_val\exp___i15x192_lr0p001_val0p5
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.5
 ...
 ```
 
