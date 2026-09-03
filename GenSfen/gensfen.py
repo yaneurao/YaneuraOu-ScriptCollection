@@ -68,8 +68,10 @@ class SharedState:
         # 教師保存用
         if self.output_format == "hcpe3":
             self.teacher_writer = Hcpe3Writer(self.nodes)
+            print_log(f"output hcpe3 file : {self.teacher_writer.get_hcpe3_filename()}")
         else:
             self.teacher_writer = KifWriter(self.nodes)
+            print_log(f"output pack file : {self.teacher_writer.get_kif_filename()}")
         self.kif_writer = self.teacher_writer
         
         # # 対局開始局面(互角局面集から読み込む)
