@@ -3,7 +3,7 @@
 Example:
   python trainer/grid_search.py --checkpoint C:\\model\\checkpoint-0839.pth \
     --train-dir C:\\teacher\\train --network exp___i15x192 \
-    --lrs 0.001 0.0007 --val-lambdas 0.33 0.5 \
+    --lrs 0.001 0.0007 --val-lambdas 0.33 0.5 --temperatures 1.0 0.8 \
     -- --use_compile --compile_backend inductor
 """
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -24,7 +25,14 @@ import trainer as trainer_module
 class Trial:
     lr: float
     val_lambda: float
+    temperature: float
     out_dir: Path
+
+
+TRIAL_DIR_RE = re.compile(
+    r"^(?P<network>.+)_lr(?P<lr>[^_]+)_val(?P<val_lambda>[^_]+)"
+    r"(?:_temp(?P<temperature>[^_]+))?$"
+)
 
 
 def parse_args() -> tuple[argparse.Namespace, list[str]]:
@@ -33,12 +41,13 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
             "Run YOSC trainer.py for every lr/val_lambda pair and summarize logs."
         )
     )
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--train-dir", type=Path, required=True)
-    parser.add_argument("--network", required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--train-dir", type=Path)
+    parser.add_argument("--network")
     parser.add_argument("--model-root", type=Path, required=True)
-    parser.add_argument("--lrs", type=float, nargs="+", required=True)
-    parser.add_argument("--val-lambdas", type=float, nargs="+", required=True)
+    parser.add_argument("--lrs", type=float, nargs="+")
+    parser.add_argument("--val-lambdas", type=float, nargs="+")
+    parser.add_argument("--temperatures", type=float, nargs="+", default=[1.0])
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--trainer", type=Path, default=Path(__file__).with_name("trainer.py"))
@@ -63,6 +72,17 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
     args, extra_args = parser.parse_known_args()
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
+    if not args.summary_only:
+        missing = [
+            name
+            for name in ("checkpoint", "train_dir", "network", "lrs", "val_lambdas")
+            if getattr(args, name) is None
+        ]
+        if missing:
+            parser.error(
+                "the following arguments are required unless --summary-only is used: "
+                + ", ".join("--" + name.replace("_", "-") for name in missing)
+            )
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     return args, extra_args
@@ -76,9 +96,53 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     trials: list[Trial] = []
     for lr in args.lrs:
         for val_lambda in args.val_lambdas:
-            name = f"{args.network}_lr{float_tag(lr)}_val{float_tag(val_lambda)}"
-            trials.append(Trial(lr=lr, val_lambda=val_lambda, out_dir=args.model_root / name))
+            for temperature in args.temperatures:
+                name = (
+                    f"{args.network}_lr{float_tag(lr)}"
+                    f"_val{float_tag(val_lambda)}"
+                    f"_temp{float_tag(temperature)}"
+                )
+                trials.append(
+                    Trial(
+                        lr=lr,
+                        val_lambda=val_lambda,
+                        temperature=temperature,
+                        out_dir=args.model_root / name,
+                    )
+                )
     return trials
+
+
+def trial_from_directory(path: Path) -> Trial | None:
+    match = TRIAL_DIR_RE.fullmatch(path.name)
+    if not match:
+        return None
+    try:
+        lr = float(match.group("lr"))
+        val_lambda = float(match.group("val_lambda"))
+        temperature = float(match.group("temperature") or "1.0")
+    except ValueError:
+        return None
+    return Trial(
+        lr=lr,
+        val_lambda=val_lambda,
+        temperature=temperature,
+        out_dir=path,
+    )
+
+
+def discover_trials(model_root: Path) -> list[Trial]:
+    if not model_root.is_dir():
+        raise FileNotFoundError(f"model root not found: {model_root}")
+
+    trials: list[Trial] = []
+    for child in model_root.iterdir():
+        if not child.is_dir():
+            continue
+        trial = trial_from_directory(child)
+        if trial is not None:
+            trials.append(trial)
+    return sorted(trials, key=lambda trial: (trial.lr, trial.val_lambda, trial.temperature, str(trial.out_dir)))
 
 
 def trainer_command(args: argparse.Namespace, trial: Trial, extra_args: list[str]) -> list[str]:
@@ -99,6 +163,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial, extra_args: list[str
         str(trial.lr),
         "--val_lambda",
         str(trial.val_lambda),
+        "--temperature",
+        str(trial.temperature),
         *extra_args,
     ]
 
@@ -138,12 +204,14 @@ def better_score(candidate: float, current: float, metric: str) -> bool:
 def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | int]:
     log_files = trainer_module.iter_train_log_files([trial.out_dir]) if trial.out_dir.exists() else []
     rows: list[trainer_module.TrainLogRow] = []
+    teacher_root = args.train_dir if args.train_dir is not None else None
     for log_file in log_files:
-        rows.extend(trainer_module.parse_train_log(log_file, args.train_dir))
+        rows.extend(trainer_module.parse_train_log(log_file, teacher_root))
 
     summary: dict[str, str | int] = {
         "lr": str(trial.lr),
         "val_lambda": str(trial.val_lambda),
+        "temperature": str(trial.temperature),
         "out_dir": str(trial.out_dir),
         "log_files": str(len(log_files)),
         "rows": str(len(rows)),
@@ -196,6 +264,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
     fieldnames = [
         "lr",
         "val_lambda",
+        "temperature",
         "out_dir",
         "status",
         "log_files",
@@ -220,13 +289,17 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
 
 def main() -> None:
     args, extra_args = parse_args()
-    trials = make_trials(args)
+    trials = discover_trials(args.model_root) if args.summary_only else make_trials(args)
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
 
     if not args.summary_only:
         for index, trial in enumerate(trials, start=1):
             command = trainer_command(args, trial, extra_args)
-            print(f"[{index}/{len(trials)}] lr={trial.lr} val_lambda={trial.val_lambda}")
+            print(
+                f"[{index}/{len(trials)}] "
+                f"lr={trial.lr} val_lambda={trial.val_lambda} "
+                f"temperature={trial.temperature}"
+            )
             print(" ".join(command))
             if args.dry_run:
                 summaries = [summarize_trial(args, item) for item in trials]

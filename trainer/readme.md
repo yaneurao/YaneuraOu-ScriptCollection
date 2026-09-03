@@ -274,7 +274,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 ## lr / val_lambda のgrid search
 
-`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` と `val_lambda` の全組み合わせを順に学習し、結果をCSVに集計できます。
+`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `val_lambda` / `temperature` の全組み合わせを順に学習し、結果をCSVに集計できます。
 
 ```powershell
 python .\grid_search.py ^
@@ -284,6 +284,7 @@ python .\grid_search.py ^
   --model-root C:\shogi\model\grid_lr_val ^
   --lrs 0.001 0.0007 0.0005 0.0003 ^
   --val-lambdas 0.33 0.5 0.67 1.0 ^
+  --temperatures 1.0 0.8 ^
   --rounds 1 ^
   -- --use_compile --compile_backend inductor --compile_mode reduce-overhead --batchsize 4096 --batches-per-update 64
 ```
@@ -293,8 +294,8 @@ python .\grid_search.py ^
 各試行の出力先は以下のように自動で分かれます。
 
 ```txt
-C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33
-C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.5
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp0.8
 ...
 ```
 
@@ -312,14 +313,13 @@ grid search実行中も、各試行が終わるたびにこのCSVを更新しま
 
 ```powershell
 python .\grid_search.py ^
-  --checkpoint C:\shogi\model\exp___i15x192\checkpoint-0839.pth ^
-  --train-dir C:\shogi\teacher\aoba-yanennue-20260831a ^
-  --network exp___i15x192 ^
   --model-root C:\shogi\model\grid_lr_val ^
-  --lrs 0.001 0.0007 0.0005 0.0003 ^
-  --val-lambdas 0.33 0.5 0.67 1.0 ^
   --summary-only
 ```
+
+`--summary-only` では `--model-root` 直下の試行フォルダを自動検出します。`*_lr0.001_val0.33_temp0.8` のようなフォルダ名から条件を復元します。古い `*_lr0.001_val0.33` 形式のフォルダは `temperature=1.0` として扱います。
+
+`--temperatures` を省略した場合は `1.0` だけを試します。
 
 ## SWA
 
