@@ -393,6 +393,10 @@ def main() -> None:
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
 
     if not args.summary_only:
+        summaries = [summarize_trial(args, item) for item in trials]
+        write_summary(summary_csv, summaries)
+        print(f"summary initialized: {summary_csv}")
+
         for index, trial in enumerate(trials, start=1):
             command = trainer_command(args, trial)
             print(
@@ -404,9 +408,6 @@ def main() -> None:
             )
             print(" ".join(command))
             if args.dry_run:
-                summaries = [summarize_trial(args, item) for item in trials]
-                write_summary(summary_csv, summaries)
-                print(f"summary updated (dry-run): {summary_csv}")
                 continue
             failed = False
             try:

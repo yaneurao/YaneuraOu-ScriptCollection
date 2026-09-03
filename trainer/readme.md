@@ -310,7 +310,7 @@ C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1_bs2048_bpu4
 C:\shogi\model\grid_lr_val\grid_summary.csv
 ```
 
-grid search実行中も、各試行が終わるたびにこのCSVを更新します。途中経過を確認したい場合は、このCSVを開いてください。
+grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各試行が終わるたびに更新します。途中経過を確認したい場合は、このCSVを開いてください。
 
 既存ログだけを再集計したい場合:
 
