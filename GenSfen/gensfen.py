@@ -25,6 +25,7 @@ SCRIPT_VERSION             = "V0.04"
 # 設定ファイル
 SETTING_JSON_PATH          = "settings/gensfen-settings.json5"
 SETTING_SAMPLE_JSON_PATH   = "settings/gensfen-settings-sample.json5"
+STARTPOS_SFENS_SAMPLE_PATH = "settings/startpos-sfens-sample.txt"
 
 # プログレスバーのフォーマット
 BAR_FORMAT = "{desc:<15}: {percentage:3.0f}%|{bar:40}| {n_fmt}/{total_fmt}"
@@ -93,6 +94,12 @@ class SharedState:
 
         # 対局開始局面の読み込み
         print_log(f"\nloading startpos sfens, PATH = {file_path}")
+
+        if not Path(file_path).exists():
+            raise FileNotFoundError(
+                f"{file_path} not found. Copy {STARTPOS_SFENS_SAMPLE_PATH} "
+                f"to settings/startpos-sfens.txt, then edit it for your environment."
+            )
 
         # ファイルサイズを取得して、進捗を出力する。
         file_size = os.path.getsize(file_path)

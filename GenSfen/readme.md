@@ -132,7 +132,7 @@ HCPE3直接出力に関係する設定項目:
 
 ```json5
 {
-    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+    "START_SFENS_PATH": "settings/startpos-sfens.txt",
     "MAX_GAME_PLY": 320,
     "NODES": 1000000,
 
@@ -184,7 +184,7 @@ python gensfen.py
 
 ```json5
 {
-    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+    "START_SFENS_PATH": "settings/startpos-sfens.txt",
     "MAX_GAME_PLY": 320,
     "NODES": 1000000,
 
@@ -218,6 +218,8 @@ HCPE3生成時の典型的な調整項目:
 ## 対局開始局面について
 
 教師生成時の対局開始局面は、`settings/gensfen-settings.json5`に`START_SFENS_PATH`で開始局面を書いたファイルのPATHを指定します。
+
+最初に`settings/startpos-sfens-sample.txt`を`settings/startpos-sfens.txt`にコピーし、開始局面集合を書き換えてください。`startpos-sfens.txt`はローカル実データなのでGit管理対象外です。
 
 このファイルは、USIプロトコルの`position`コマンドの文字列で書くことができます。つまり、SFEN形式や`startpos`などが使えます。
 
@@ -267,7 +269,7 @@ cmd.exe /c start /B /WAIT /NODE 1 YO900_AVX2.exe
 ```json5
 {
     // 対局開始を行う互角局面集のファイルPATH。
-    "START_SFENS_PATH": "settings/start_sfens_ply24.txt",
+    "START_SFENS_PATH": "settings/startpos-sfens.txt",
 
     // 対局の最大手数
     "MAX_GAME_PLY" : 320,
