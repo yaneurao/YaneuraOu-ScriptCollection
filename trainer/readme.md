@@ -285,8 +285,10 @@ python .\grid_search.py ^
   --lrs 0.001 0.0007 0.0005 0.0003 ^
   --val-lambdas 0.33 0.5 0.67 1.0 ^
   --temperatures 1.0 0.8 ^
+  --batchsizes 1024 2048 ^
+  --batches-per-updates 1 4 ^
   --rounds 1 ^
-  -- --use_compile --compile_backend inductor --compile_mode reduce-overhead --batchsize 4096 --batches-per-update 64
+  --use_compile --compile_backend inductor --compile_mode reduce-overhead
 ```
 
 `--checkpoint` は `trainer.py` へ `--init_checkpoint` として渡します。optimizer / scheduler は引き継がず、各試行は重みだけ同じcheckpointから開始します。
@@ -296,10 +298,11 @@ python .\grid_search.py ^
 ```txt
 C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1
 C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp0.8
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1_bs2048_bpu4
 ...
 ```
 
-学習オプションは `--` より後ろに書くと、そのまま `trainer.py` に渡されます。
+`batchsize` と `batches_per_update` も複数指定できます。grid searchの軸にせず固定値だけ指定したい場合は、`--batchsize 4096` / `--batches-per-update 64` を使います。
 
 集計CSVは既定では以下に出力されます。
 
