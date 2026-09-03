@@ -831,7 +831,7 @@ def write_ptl_config(
             "val_batch_size": args.batchsize,
             "use_average": not args.no_average,
             "use_evalfix": not args.no_evalfix,
-            "temperature": 1.0,
+            "temperature": args.temperature,
             "cache": None,
         },
         "optimizer": {
@@ -969,6 +969,7 @@ def run_one_round(
         print(f"hcpe val_lambda: {args.hcpe_val_lambda}")
     if args.hcpe3_val_lambda is not None:
         print(f"hcpe3 val_lambda: {args.hcpe3_val_lambda}")
+    print(f"temperature: {args.temperature}")
     print(f"lr scheduler: {lr_scheduler}")
     if args.use_compile:
         compile_options = []
@@ -1039,6 +1040,8 @@ def run_one_round(
                 "0.0001",
                 "--val_lambda",
                 str(current_val_lambda),
+                "--temperature",
+                str(args.temperature),
                 "--checkpoint",
                 str(out_dir / "checkpoint-{epoch:04}.pth"),
                 "--log",
@@ -1227,6 +1230,12 @@ def main() -> None:
     )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="Temperature used when loading HCPE3 MoveVisits as policy targets.",
+    )
     parser.add_argument(
         "--hcpe_val_lambda",
         type=float,

@@ -19,6 +19,7 @@ lr-min       = 1e-5
 lr_scheduler = cosine
 amp_dtype    = bfloat16
 val_lambda   = 1.0
+temperature  = 1.0
 hcpe_val_lambda  = val_lambda
 hcpe3_val_lambda = val_lambda
 start_index  = 1
@@ -42,6 +43,9 @@ python .\trainer.py ^
 `--network` の文字列はフォルダ名にそのまま使います。`exp___i20x256` を `exp_i20x256` に直すような置換はしません。
 
 HCPE3教師データのeval係数推定は既定で有効です。無効にしたい場合だけ `--no_evalfix` を付けます。
+
+HCPE3教師データのMoveVisitsからpolicy targetを作る温度は `--temperature` で指定できます。既定値はDeepLearningShogiと同じ `1.0` です。
+これはGenSfenの `HCPE3_TEMPERATURE` とは別で、GenSfen側は生成時、`trainer.py`側は学習時に効きます。
 
 ## 勾配蓄積
 
