@@ -600,10 +600,24 @@ def user_input():
             elif i == 'g':
                 # まだ対局が組まれていなければ開始する。
                 if not matcher.shogi_matches:
-                    policy_suffix = ""
                     if shared.output_format == "hcpe3" and shared.hcpe3_policy_nodes > 0:
-                        policy_suffix = f", HCPE3_POLICY_NODES = {shared.hcpe3_policy_nodes}, HCPE3_POLICY_MULTIPV = {shared.hcpe3_policy_multipv}"
-                    print_log(f"Start GenSfen, OUTPUT_FORMAT = {shared.output_format}, NODES = {shared.nodes}, MAX_GAME_PLY = {shared.max_game_ply}, MULTIPV = {shared.multipv}{policy_suffix}")
+                        print_log(
+                            "Start GenSfen, "
+                            f"OUTPUT_FORMAT = {shared.output_format}, "
+                            f"NODES = {shared.nodes}, "
+                            "BEST_MULTIPV = 1, "
+                            f"HCPE3_POLICY_NODES = {shared.hcpe3_policy_nodes}, "
+                            f"HCPE3_POLICY_MULTIPV = {shared.hcpe3_policy_multipv}, "
+                            f"MAX_GAME_PLY = {shared.max_game_ply}"
+                        )
+                    else:
+                        print_log(
+                            "Start GenSfen, "
+                            f"OUTPUT_FORMAT = {shared.output_format}, "
+                            f"NODES = {shared.nodes}, "
+                            f"MULTIPV = {shared.multipv}, "
+                            f"MAX_GAME_PLY = {shared.max_game_ply}"
+                        )
                     matcher.start_games()
 
             elif i == 'q' or i == '!':

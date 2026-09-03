@@ -80,7 +80,7 @@ option name FV_SCALE type spin default 36 min 1 max 128
 - `MaxMovesToDraw`は、0を指定。(手数による引き分けの判定はGenSfenのスクリプト側で行うため)
 - `NodesLimit`は、指定しても無視される。(USIプロトコルの`go nodes`コマンドを使うが、やねうら王では、`go`コマンドで`nodes`が指定されている時、NodesLimitを無視する)
 - `PvInterval`は、大きな値(例えば`10000000`)に設定して、出力されないように抑制したほうがスクリプトの負荷が下がって良い。
-- `MultiPV`は、`engine_options.txt`で設定してはならない。やねうら王V9.00以降では、このファイルで設定したオプション値はUSIプロトコルの`setoption`コマンドによって変更できないので、GenSfenのスクリプト側から`MultiPV`を変更できなくなる。pack出力では`MultiPV=1`、HCPE3直接出力では追加policy探索なしの場合に`settings/gensfen-settings.json5`の`MULTIPV`を使う。
+- `MultiPV`は、`engine_options.txt`で設定してはならない。やねうら王V9.00以降では、このファイルで設定したオプション値はUSIプロトコルの`setoption`コマンドによって変更できないので、GenSfenのスクリプト側から`MultiPV`を変更できなくなる。pack出力では`MultiPV=1`、HCPE3直接出力では事前policy探索なしの場合に`settings/gensfen-settings.json5`の`MULTIPV`を使う。
 
 ## 出力形式
 
@@ -104,31 +104,31 @@ option name FV_SCALE type spin default 36 min 1 max 128
 
 `hcpe3`出力では、各局面でMultiPV探索を行い、候補手の評価値をsoftmaxしてHCPE3の`MoveVisits.visitNum`に変換します。1局が完了するごとに1局分のHCPE3 recordを書き出し、`flush()`と`fsync()`を行います。
 
-`HCPE3_POLICY_NODES`を指定すると、bestmoveとevalを決める通常探索とは別に、policy候補手生成用の追加MultiPV探索を行います。この場合、先に追加MultiPV探索で`MoveVisits`用の候補手を集め、そのあと`NODES`側の通常探索で`selectedMove16`と`eval`を確定します。
+`HCPE3_POLICY_NODES`を指定すると、bestmoveとevalを決める通常探索とは別に、policy候補手生成用の事前MultiPV探索を行います。この場合、先に事前MultiPV探索で`MoveVisits`用の候補手を集め、そのあと`NODES`側の通常探索で`selectedMove16`と`eval`を確定します。
 
-追加policy探索を使う場合の扱い:
+事前policy探索を使う場合の扱い:
 
-- 追加policy探索でbestmoveが通常探索と異なっても、`selectedMove16`は通常探索のbestmoveのままにする。
+- 事前policy探索でbestmoveが通常探索と異なっても、`selectedMove16`は通常探索のbestmoveのままにする。
 - `eval`も通常探索のbestevalのままにする。
-- 追加policy探索のbestmove/evalは、`selectedMove16`や`eval`の更新には使わない。
-- 追加policy探索の候補手scoreは、通常探索のbestmoveなら通常探索のbestevalに差し替え、それ以外の手は最大でも`besteval - 1`にclipする。
-- 通常探索のbestmoveが追加policy探索の候補手に含まれていない場合は、`MoveVisits`の候補手集合に追加する。
-- `MoveVisits.visitNum`は、追加policy探索の候補手評価値から従来通りsoftmaxで作る。
+- 事前policy探索のbestmove/evalは、`selectedMove16`や`eval`の更新には使わない。
+- 事前policy探索の候補手scoreは、通常探索のbestmoveなら通常探索のbestevalに差し替え、それ以外の手は最大でも`besteval - 1`にclipする。
+- 通常探索のbestmoveが事前policy探索の候補手に含まれていない場合は、`MoveVisits`の候補手集合に追加する。
+- `MoveVisits.visitNum`は、事前policy探索の候補手評価値から従来通りsoftmaxで作る。
 
 HCPE3直接出力に関係する設定項目:
 
 | 設定 | 既定値 | 説明 |
 |---|---:|---|
-| `MULTIPV` | `4` | HCPE3出力時に要求する候補手数。pack出力では無視され、1になる。`HCPE3_POLICY_NODES > 0` の場合、`NODES`側の探索はMultiPV 1になり、この値は追加policy探索なしの場合だけ使う。 |
-| `HCPE3_POLICY_NODES` | `0` | 追加policy探索のノード数。0なら追加探索なしで、従来通り`NODES`の探索結果から`MoveVisits`を作る。 |
-| `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 追加policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
+| `MULTIPV` | `4` | HCPE3出力時に要求する候補手数。pack出力では無視され、1になる。`HCPE3_POLICY_NODES > 0` の場合、`NODES`側の探索はMultiPV 1になり、この値は事前policy探索なしの場合だけ使う。 |
+| `HCPE3_POLICY_NODES` | `0` | 事前policy探索のノード数。0なら事前policy探索なしで、従来通り`NODES`の探索結果から`MoveVisits`を作る。 |
+| `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 事前policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
 | `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
 | `HCPE3_EVAL_DROP_THRESHOLD` | `500` | 最良評価値からこの値より悪い候補を捨てる。負値なら無効。 |
 | `HCPE3_MATE_SCORE` | `32000` | USIの`score mate N`を評価値へ写像するときの基準値。既定ではやねうら王本体と同じく`32000 - N`になる。 |
 | `HCPE3_RESIGN_EVAL` | 未指定 | 指定時、実着手側の評価値が`-abs(value)`以下なら、その手を記録したあと投了扱いにする。 |
 
-追加policy探索を使う設定例:
+事前policy探索を使う設定例:
 
 ```json5
 {
@@ -205,7 +205,7 @@ python gensfen.py
 
 HCPE3生成時の典型的な調整項目:
 
-- 追加policy探索を使わない場合、`MULTIPV`を増やすとpolicy候補は増えますが、探索は重くなります。
+- 事前policy探索を使わない場合、`MULTIPV`を増やすとpolicy候補は増えますが、探索は重くなります。
 - `NODES`を増やすと評価値と候補手の質は上がりやすいですが、生成速度は落ちます。
 - `HCPE3_POLICY_NODES`を指定すると、先に別ノード数・別MultiPV数でpolicy候補手だけを集め、そのあと`NODES`のMultiPV 1探索でbestmove/evalを決めます。この場合、通常の`MULTIPV`は使いません。
 - `HCPE3_TEMPERATURE`を小さくすると最善候補にvisitが寄り、大きくすると候補間のvisitが平坦になります。
