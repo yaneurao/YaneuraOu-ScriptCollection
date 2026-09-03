@@ -71,9 +71,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--score",
-        choices=("swa_test_accuracy", "test_accuracy", "test_value_accuracy", "test_loss_total"),
-        default="swa_test_accuracy",
-        help="Metric used for best_* columns. Falls back to test_accuracy if SWA is absent.",
+        choices=(
+            "swa_test_policy_accuracy",
+            "test_policy_accuracy",
+            "test_value_accuracy",
+            "test_total_loss",
+        ),
+        default="swa_test_policy_accuracy",
+        help=(
+            "Metric used for best_* columns. Falls back to "
+            "test_policy_accuracy if SWA is absent."
+        ),
     )
     parser.add_argument("--batchsize", type=int)
     parser.add_argument("--batches-per-update", type=int)
@@ -273,16 +281,16 @@ def parse_float(text: str) -> float:
 
 
 def row_metric(row: trainer_module.TrainLogRow, metric: str) -> float:
-    if metric == "swa_test_accuracy":
+    if metric == "swa_test_policy_accuracy":
         value = parse_float(row.swa_test_accuracy[0])
         if not math.isnan(value):
             return value
         return parse_float(row.test_accuracy[0])
-    if metric == "test_accuracy":
+    if metric == "test_policy_accuracy":
         return parse_float(row.test_accuracy[0])
     if metric == "test_value_accuracy":
         return parse_float(row.test_accuracy[1])
-    if metric == "test_loss_total":
+    if metric == "test_total_loss":
         return parse_float(row.test_loss[3])
     raise ValueError(metric)
 
@@ -292,7 +300,7 @@ def better_score(candidate: float, current: float, metric: str) -> bool:
         return True
     if math.isnan(candidate):
         return False
-    if metric == "test_loss_total":
+    if metric == "test_total_loss":
         return candidate < current
     return candidate > current
 
@@ -314,7 +322,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "test_value_accuracy": "",
         "swa_test_policy_accuracy": "",
         "swa_test_value_accuracy": "",
-        "test_loss": "",
+        "test_total_loss": "",
         "best_metric": args.score,
         "best_score": "",
         "best_epoch": "",
@@ -336,7 +344,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
             "test_value_accuracy": final.test_accuracy[1],
             "swa_test_policy_accuracy": final.swa_test_accuracy[0],
             "swa_test_value_accuracy": final.swa_test_accuracy[1],
-            "test_loss": final.test_loss[3],
+            "test_total_loss": final.test_loss[3],
         }
     )
 
@@ -369,7 +377,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
         "test_value_accuracy",
         "swa_test_policy_accuracy",
         "swa_test_value_accuracy",
-        "test_loss",
+        "test_total_loss",
         "best_metric",
         "best_score",
         "best_epoch",

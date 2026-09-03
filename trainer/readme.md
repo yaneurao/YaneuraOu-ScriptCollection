@@ -312,6 +312,20 @@ C:\shogi\model\grid_lr_val\grid_summary.csv
 
 grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各試行が終わるたびに更新します。途中経過を確認したい場合は、このCSVを開いてください。
 
+主なCSV列の意味:
+
+- `test_policy_accuracy`: 通常モデルのpolicy accuracy
+- `test_value_accuracy`: 通常モデルのvalue / result binary accuracy
+- `swa_test_policy_accuracy`: SWAモデルのpolicy accuracy
+- `swa_test_value_accuracy`: SWAモデルのvalue / result binary accuracy
+- `test_total_loss`: `policy loss + (1 - val_lambda) * result loss + val_lambda * value loss`
+- `best_metric`: `best_score` / `best_epoch` を選ぶために使った指標名
+- `best_score`: `best_metric` の最良値
+
+dlshogiのログに出る `test loss` は `policy_loss, result_loss, value_loss, total_loss` の順です。`grid_summary.csv` にはこのうち `total_loss` を `test_total_loss` として出力します。
+
+`best_metric` は既定では `swa_test_policy_accuracy` です。変更する場合は `--score` で `swa_test_policy_accuracy`, `test_policy_accuracy`, `test_value_accuracy`, `test_total_loss` のいずれかを指定します。
+
 既存ログだけを再集計したい場合:
 
 ```powershell
