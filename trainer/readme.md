@@ -306,6 +306,8 @@ C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.5
 C:\shogi\model\grid_lr_val\grid_summary.csv
 ```
 
+grid search実行中も、各試行が終わるたびにこのCSVを更新します。途中経過を確認したい場合は、このCSVを開いてください。
+
 既存ログだけを再集計したい場合:
 
 ```powershell

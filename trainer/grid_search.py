@@ -229,13 +229,26 @@ def main() -> None:
             print(f"[{index}/{len(trials)}] lr={trial.lr} val_lambda={trial.val_lambda}")
             print(" ".join(command))
             if args.dry_run:
+                summaries = [summarize_trial(args, item) for item in trials]
+                write_summary(summary_csv, summaries)
+                print(f"summary updated (dry-run): {summary_csv}")
                 continue
+            failed = False
             try:
                 subprocess.run(command, check=True)
             except subprocess.CalledProcessError:
+                failed = True
                 if not args.continue_on_error:
+                    summaries = [summarize_trial(args, item) for item in trials]
+                    write_summary(summary_csv, summaries)
+                    print(f"summary: {summary_csv}")
                     raise
                 print(f"trial failed: {trial.out_dir}", file=sys.stderr)
+
+            summaries = [summarize_trial(args, item) for item in trials]
+            write_summary(summary_csv, summaries)
+            status = "failed" if failed else "done"
+            print(f"summary updated ({status}): {summary_csv}")
 
     summaries = [summarize_trial(args, trial) for trial in trials]
     write_summary(summary_csv, summaries)
