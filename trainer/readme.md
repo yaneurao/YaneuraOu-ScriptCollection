@@ -272,6 +272,53 @@ CSVは標準出力に出し、同じ内容をカレントディレクトリの `
 python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 ```
 
+## lr / val_lambda のgrid search
+
+`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` と `val_lambda` の全組み合わせを順に学習し、結果をCSVに集計できます。
+
+```powershell
+python .\grid_search.py ^
+  --checkpoint C:\shogi\model\exp___i15x192\checkpoint-0839.pth ^
+  --train-dir C:\shogi\teacher\aoba-yanennue-20260831a ^
+  --network exp___i15x192 ^
+  --model-root C:\shogi\model\grid_lr_val ^
+  --lrs 0.001 0.0007 0.0005 0.0003 ^
+  --val-lambdas 0.33 0.5 0.67 1.0 ^
+  --rounds 1 ^
+  -- --use_compile --compile_backend inductor --compile_mode reduce-overhead --batchsize 4096 --batches-per-update 64
+```
+
+`--checkpoint` は `trainer.py` へ `--init_checkpoint` として渡します。optimizer / scheduler は引き継がず、各試行は重みだけ同じcheckpointから開始します。
+
+各試行の出力先は以下のように自動で分かれます。
+
+```txt
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0p001_val0p33
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0p001_val0p5
+...
+```
+
+学習オプションは `--` より後ろに書くと、そのまま `trainer.py` に渡されます。
+
+集計CSVは既定では以下に出力されます。
+
+```txt
+C:\shogi\model\grid_lr_val\grid_summary.csv
+```
+
+既存ログだけを再集計したい場合:
+
+```powershell
+python .\grid_search.py ^
+  --checkpoint C:\shogi\model\exp___i15x192\checkpoint-0839.pth ^
+  --train-dir C:\shogi\teacher\aoba-yanennue-20260831a ^
+  --network exp___i15x192 ^
+  --model-root C:\shogi\model\grid_lr_val ^
+  --lrs 0.001 0.0007 0.0005 0.0003 ^
+  --val-lambdas 0.33 0.5 0.67 1.0 ^
+  --summary-only
+```
+
 ## SWA
 
 SWA は既定で ON です。最後に書き出される `model-*` は SWA 済みになります。checkpoint にも SWA/EMA 側の状態が保存されます。
