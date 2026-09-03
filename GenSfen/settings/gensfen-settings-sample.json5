@@ -13,7 +13,7 @@
     // "MULTIPV": 4,
     // "HCPE3_POLICY_NODES": 500000,
     // "HCPE3_POLICY_MULTIPV": 30,
-    // "HCPE3_TEMPERATURE": 161.0,
+    // "HCPE3_TEMPERATURE": 100.0,
 
     "ENGINE_SETTING":
     [
