@@ -14,8 +14,8 @@
     // "MULTIPV": 4,
     // "HCPE3_TEMPERATURE": 100.0,
 
-    // 追加policy探索を使う場合:
-    // HCPE3_POLICY_NODES > 0 のとき、policy候補手は以下の追加探索で集め、
+    // 事前policy探索を使う場合:
+    // HCPE3_POLICY_NODES > 0 のとき、policy候補手は以下の事前探索で集め、
     // 実着手とevalは NODES の MultiPV=1 探索で確定する。
     // "HCPE3_POLICY_NODES": 500000,
     // "HCPE3_POLICY_MULTIPV": 30,
