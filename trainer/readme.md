@@ -274,7 +274,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 ## lr / val_lambda のgrid search
 
-`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `val_lambda` / `temperature` の全組み合わせを順に学習し、結果をCSVに集計できます。
+`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
 ```powershell
 python .\grid_search.py ^
@@ -283,6 +283,7 @@ python .\grid_search.py ^
   --network exp___i15x192 ^
   --model-root C:\shogi\model\grid_lr_val ^
   --lrs 0.001 0.0007 0.0005 0.0003 ^
+  --lr-mins 0.00005 0.00001 ^
   --val-lambdas 0.33 0.5 0.67 1.0 ^
   --temperatures 1.0 0.8 ^
   --batchsizes 1024 2048 ^
@@ -297,12 +298,13 @@ python .\grid_search.py ^
 
 ```txt
 C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1
+C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_lrmin0.00005_val0.33_temp1
 C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp0.8
 C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1_bs2048_bpu4
 ...
 ```
 
-`batchsize` と `batches_per_update` も複数指定できます。grid searchの軸にせず固定値だけ指定したい場合は、`--batchsize 4096` / `--batches-per-update 64` を使います。
+`lr_min`, `batchsize`, `batches_per_update` も複数指定できます。grid searchの軸にせず固定値だけ指定したい場合は、`--lr-min 0.00005` / `--batchsize 4096` / `--batches-per-update 64` を使います。
 
 集計CSVは既定では以下に出力されます。
 

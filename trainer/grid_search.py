@@ -24,6 +24,7 @@ import trainer as trainer_module
 @dataclass(frozen=True)
 class Trial:
     lr: float
+    lr_min: float | None
     val_lambda: float
     temperature: float
     batchsize: int | None
@@ -32,7 +33,9 @@ class Trial:
 
 
 TRIAL_DIR_RE = re.compile(
-    r"^(?P<network>.+)_lr(?P<lr>[^_]+)_val(?P<val_lambda>[^_]+)"
+    r"^(?P<network>.+)_lr(?P<lr>[^_]+)"
+    r"(?:_lrmin(?P<lr_min>[^_]+))?"
+    r"_val(?P<val_lambda>[^_]+)"
     r"(?:_temp(?P<temperature>[^_]+))?"
     r"(?:_bs(?P<batchsize>\d+))?"
     r"(?:_bpu(?P<batches_per_update>\d+))?$"
@@ -50,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--network")
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--lrs", type=float, nargs="+")
+    parser.add_argument("--lr-mins", type=float, nargs="+")
     parser.add_argument("--val-lambdas", type=float, nargs="+")
     parser.add_argument("--temperatures", type=float, nargs="+", default=[1.0])
     parser.add_argument("--batchsizes", type=int, nargs="+")
@@ -122,6 +126,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--batchsizes and --batchsize cannot be used together")
     if args.batches_per_updates and args.batches_per_update is not None:
         parser.error("--batches-per-updates and --batches-per-update cannot be used together")
+    if args.lr_mins and args.lr_min is not None:
+        parser.error("--lr-mins and --lr-min cannot be used together")
     return args
 
 
@@ -131,32 +137,37 @@ def float_tag(value: float) -> str:
 
 def make_trials(args: argparse.Namespace) -> list[Trial]:
     trials: list[Trial] = []
+    lr_mins = args.lr_mins or [args.lr_min]
     batchsizes = args.batchsizes or [args.batchsize]
     batches_per_updates = args.batches_per_updates or [args.batches_per_update]
     for lr in args.lrs:
-        for val_lambda in args.val_lambdas:
-            for temperature in args.temperatures:
-                for batchsize in batchsizes:
-                    for batches_per_update in batches_per_updates:
-                        name = (
-                            f"{args.network}_lr{float_tag(lr)}"
-                            f"_val{float_tag(val_lambda)}"
-                            f"_temp{float_tag(temperature)}"
-                        )
-                        if batchsize is not None:
-                            name += f"_bs{batchsize}"
-                        if batches_per_update is not None:
-                            name += f"_bpu{batches_per_update}"
-                        trials.append(
-                            Trial(
-                                lr=lr,
-                                val_lambda=val_lambda,
-                                temperature=temperature,
-                                batchsize=batchsize,
-                                batches_per_update=batches_per_update,
-                                out_dir=args.model_root / name,
+        for lr_min in lr_mins:
+            for val_lambda in args.val_lambdas:
+                for temperature in args.temperatures:
+                    for batchsize in batchsizes:
+                        for batches_per_update in batches_per_updates:
+                            name = f"{args.network}_lr{float_tag(lr)}"
+                            if lr_min is not None:
+                                name += f"_lrmin{float_tag(lr_min)}"
+                            name += (
+                                f"_val{float_tag(val_lambda)}"
+                                f"_temp{float_tag(temperature)}"
                             )
-                        )
+                            if batchsize is not None:
+                                name += f"_bs{batchsize}"
+                            if batches_per_update is not None:
+                                name += f"_bpu{batches_per_update}"
+                            trials.append(
+                                Trial(
+                                    lr=lr,
+                                    lr_min=lr_min,
+                                    val_lambda=val_lambda,
+                                    temperature=temperature,
+                                    batchsize=batchsize,
+                                    batches_per_update=batches_per_update,
+                                    out_dir=args.model_root / name,
+                                )
+                            )
     return trials
 
 
@@ -166,6 +177,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         return None
     try:
         lr = float(match.group("lr"))
+        lr_min = float(match.group("lr_min")) if match.group("lr_min") else None
         val_lambda = float(match.group("val_lambda"))
         temperature = float(match.group("temperature") or "1.0")
         batchsize = int(match.group("batchsize")) if match.group("batchsize") else None
@@ -178,6 +190,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         return None
     return Trial(
         lr=lr,
+        lr_min=lr_min,
         val_lambda=val_lambda,
         temperature=temperature,
         batchsize=batchsize,
@@ -201,6 +214,7 @@ def discover_trials(model_root: Path) -> list[Trial]:
         trials,
         key=lambda trial: (
             trial.lr,
+            trial.lr_min if trial.lr_min is not None else -1,
             trial.val_lambda,
             trial.temperature,
             trial.batchsize or -1,
@@ -235,13 +249,14 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         command.extend(["--batchsize", str(trial.batchsize)])
     if trial.batches_per_update is not None:
         command.extend(["--batches-per-update", str(trial.batches_per_update)])
+    if trial.lr_min is not None:
+        command.extend(["--lr-min", str(trial.lr_min)])
     append_optional_trainer_args(args, command)
     return command
 
 
 def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -> None:
     value_options = [
-        ("lr_min", "--lr-min"),
         ("lr_scheduler", "--lr-scheduler"),
         ("hcpe_val_lambda", "--hcpe_val_lambda"),
         ("hcpe3_val_lambda", "--hcpe3_val_lambda"),
@@ -314,10 +329,15 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
 
     summary: dict[str, str | int] = {
         "lr": str(trial.lr),
+        "lr_min": str(trial.lr_min) if trial.lr_min is not None else "",
         "val_lambda": str(trial.val_lambda),
         "temperature": str(trial.temperature),
-        "batchsize": str(trial.batchsize or ""),
-        "batches_per_update": str(trial.batches_per_update or ""),
+        "batchsize": str(trial.batchsize) if trial.batchsize is not None else "",
+        "batches_per_update": (
+            str(trial.batches_per_update)
+            if trial.batches_per_update is not None
+            else ""
+        ),
         "test_policy_accuracy": "",
         "test_value_accuracy": "",
         "swa_test_policy_accuracy": "",
@@ -369,6 +389,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
 def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
     fieldnames = [
         "lr",
+        "lr_min",
         "val_lambda",
         "temperature",
         "batchsize",
@@ -409,10 +430,13 @@ def main() -> None:
             command = trainer_command(args, trial)
             print(
                 f"[{index}/{len(trials)}] "
-                f"lr={trial.lr} val_lambda={trial.val_lambda} "
+                f"lr={trial.lr} "
+                f"lr_min={trial.lr_min if trial.lr_min is not None else '-'} "
+                f"val_lambda={trial.val_lambda} "
                 f"temperature={trial.temperature} "
-                f"batchsize={trial.batchsize or '-'} "
-                f"batches_per_update={trial.batches_per_update or '-'}"
+                f"batchsize={trial.batchsize if trial.batchsize is not None else '-'} "
+                "batches_per_update="
+                f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"
             )
             print(" ".join(command))
             if args.dry_run:
