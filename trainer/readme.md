@@ -326,7 +326,7 @@ grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各�
 
 dlshogiのログに出る `test loss` は `policy_loss, result_loss, value_loss, total_loss` の順です。`grid_summary.csv` にはこのうち `total_loss` を `test_total_loss` として出力します。
 
-`best_metric` は既定では `swa_test_policy_accuracy` です。変更する場合は `--score` で `swa_test_policy_accuracy`, `test_policy_accuracy`, `test_value_accuracy`, `test_total_loss` のいずれかを指定します。
+`best_metric` は既定では `test_total_loss` です。変更する場合は `--score` で `swa_test_policy_accuracy`, `test_policy_accuracy`, `test_value_accuracy`, `test_total_loss` のいずれかを指定します。
 
 既存ログだけを再集計したい場合:
 

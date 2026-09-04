@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
             "test_value_accuracy",
             "test_total_loss",
         ),
-        default="swa_test_policy_accuracy",
+        default="test_total_loss",
         help=(
             "Metric used for best_* columns. Falls back to "
             "test_policy_accuracy if SWA is absent."
