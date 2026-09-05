@@ -365,14 +365,27 @@ class Engine:
             self.close()
             raise
 
-    def close(self):
-        """Release the local engine or SSH process and its pipes."""
+    def shutdown_process(self):
+        """Ask the remote engine to quit before terminating its local transport."""
         if self.engine.poll() is None:
             try:
-                self.engine.kill()
-            except ProcessLookupError:
+                self.send_usi("stop")
+                self.send_usi("quit")
+            except (OSError, ValueError):
                 pass
+            try:
+                self.engine.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print_log(f"Engine shutdown timed out: {self.engine_path}; remote exit is unconfirmed.")
+                try:
+                    self.engine.kill()
+                except ProcessLookupError:
+                    pass
         self.engine.wait()
+
+    def close(self):
+        """Release the engine and its pipes."""
+        self.shutdown_process()
         for stream in (self.engine.stdin, self.engine.stdout):
             if stream is not None:
                 try:
@@ -419,7 +432,8 @@ class Engine:
         # エンジンのprocessが死んでたら例外を出す。
         if not line or self.engine.poll() is not None:
             self.dump_engine_io_log("engine_terminated")
-            raise EngineConnectionError(f"Engine is disconnected. , search_sfen : {self.search_sfen}")
+            raise EngineConnectionError(
+                f"Engine is disconnected (exit code={self.engine.poll()}). , search_sfen : {self.search_sfen}")
         return mes
 
     def append_engine_io_log(self, direction:str, message:str):
