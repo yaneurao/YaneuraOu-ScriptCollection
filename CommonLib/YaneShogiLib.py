@@ -299,6 +299,10 @@ class KifManager:
             self.kif_file.write(kif + '\n')
             self.kif_file.flush()
 
+class EngineConnectionError(ConnectionError):
+    """The engine's USI transport was disconnected."""
+
+
 class Engine:
     """エンジン操作class"""
 
@@ -355,7 +359,26 @@ class Engine:
                                                 errors="replace")
 
         # "isready"を送信して"readyok"が返ってくるのを待つ。
-        self.isready()
+        try:
+            self.isready()
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        """Release the local engine or SSH process and its pipes."""
+        if self.engine.poll() is None:
+            try:
+                self.engine.kill()
+            except ProcessLookupError:
+                pass
+        self.engine.wait()
+        for stream in (self.engine.stdin, self.engine.stdout):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
 
 
     def isready(self):
@@ -374,12 +397,19 @@ class Engine:
         #     print_log(f'[{self.thread_settings.thread_id}]<{command}')
 
         self.append_engine_io_log("<", command)
-        self.engine.stdin.write(command+"\n") # type:ignore
-        self.engine.stdin.flush()             # type:ignore
+        try:
+            self.engine.stdin.write(command+"\n") # type:ignore
+            self.engine.stdin.flush()             # type:ignore
+        except OSError as e:
+            raise EngineConnectionError(f"Engine write failed: {e}") from e
 
     def receive_usi(self)->str:
         ''' 思考エンジンから1行もらう。改行は取り除いて返す。'''
-        mes = self.engine.stdout.readline().strip() # type:ignore
+        try:
+            line = self.engine.stdout.readline() # type:ignore
+        except OSError as e:
+            raise EngineConnectionError(f"Engine read failed: {e}") from e
+        mes = line.strip()
         self.append_engine_io_log(">", mes)
 
         # デバッグモードならエンジンへの入出力をすべて標準出力へ。
@@ -387,9 +417,9 @@ class Engine:
         #     print_log(f'[{self.thread_settings.thread_id}]>{mes}')
 
         # エンジンのprocessが死んでたら例外を出す。
-        if self.engine.poll() is not None:
+        if not line or self.engine.poll() is not None:
             self.dump_engine_io_log("engine_terminated")
-            self.raise_exception(f"Engine is terminated.")
+            raise EngineConnectionError(f"Engine is disconnected. , search_sfen : {self.search_sfen}")
         return mes
 
     def append_engine_io_log(self, direction:str, message:str):

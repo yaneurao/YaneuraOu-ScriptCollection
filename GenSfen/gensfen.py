@@ -195,17 +195,41 @@ class ShogiMatch:
 
         self.engine_settings = [engine1, engine2]
         self.shared  = shared
-        self.engines = [Engine(engine1.engine_path,engine1.thread_id), Engine(engine2.engine_path,engine2.thread_id)] 
-
-        for engine in self.engines:
-            initial_multipv = 1 if self.shared.hcpe3_policy_nodes > 0 else self.shared.multipv
-            self.set_engine_multipv(engine, initial_multipv)
-            engine.isready()
-
         self.quit = False
+        self.stop_event = threading.Event()
+        self.engines = []
+        self.open_engines()
 
         # 対局スレッド
         self.match_thread = None
+
+    def close_engines(self):
+        for engine in self.engines:
+            engine.close()
+        self.engines = []
+
+    def open_engines(self):
+        try:
+            for settings in self.engine_settings:
+                engine = Engine(settings.engine_path, settings.thread_id)
+                self.engines.append(engine)
+                initial_multipv = 1 if self.shared.hcpe3_policy_nodes > 0 else self.shared.multipv
+                self.set_engine_multipv(engine, initial_multipv)
+                engine.isready()
+        except Exception:
+            self.close_engines()
+            raise
+
+    def reconnect_engines(self):
+        self.close_engines()
+        while not self.stop_event.wait(5):
+            try:
+                self.open_engines()
+                print_log("Engine reconnect complete; starting a new game.")
+                return True
+            except OSError as e:
+                print_log(f"Engine reconnect failed; retrying in 5 seconds: {e}")
+        return False
 
     def start(self):
         """対局スレッドを開始させる"""
@@ -227,15 +251,25 @@ class ShogiMatch:
         # print_log(f"Game start between {self.engine_settings[0].engine_name} and {self.engine_settings[1].engine_name}")
 
         try:
-            while True:
+            while not self.quit:
                 # 対局処理1回分。
-                kif = self.start_game()
+                try:
+                    kif = self.start_game()
+                except EngineConnectionError as e:
+                    if self.quit:
+                        break
+                    print_log(f"Engine disconnected; discarding unfinished game: {e}")
+                    if not self.reconnect_engines():
+                        break
+                    continue
                 self.shared.teacher_writer.write_game(kif)
 
         except Exception as e:
             # quitするときの例外ではないならそれを出力する。
             if not self.quit:
                 print_log(f"Exception in game between {self.engine_settings[0].engine_name} and {self.engine_settings[1].engine_name} : {type(e).__name__}{e}\n{traceback.format_exc()}")
+        finally:
+            self.close_engines()
 
         # print_log(f"Game end between {self.engine1.engine_name} and {self.engine2.engine_name}")
 
@@ -483,6 +517,7 @@ class ShogiMatch:
         """対局スレッドの終了を待つ"""
 
         self.quit = True
+        self.stop_event.set()
         if self.match_thread:
             self.match_thread.join()
             self.match_thread = None

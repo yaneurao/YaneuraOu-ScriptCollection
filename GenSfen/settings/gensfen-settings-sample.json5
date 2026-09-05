@@ -13,6 +13,8 @@
     // "OUTPUT_FORMAT": "hcpe3",
     // "MULTIPV": 4,
     // "HCPE3_TEMPERATURE": 100.0,
+    // 全候補に最低1visitを与える処理は既定で無効。有効にする場合だけtrueにする。
+    // "HCPE3_VISIT_SMOOTHING": false,
 
     // 事前policy探索を使う場合:
     // HCPE3_POLICY_NODES > 0 のとき、policy候補手は以下の事前探索で集め、
