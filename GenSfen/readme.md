@@ -225,6 +225,8 @@ HCPE3生成時の典型的な調整項目:
 
 教師生成時の対局開始局面は、`settings/gensfen-settings.json5`に`START_SFENS_PATH`で開始局面を書いたファイルのPATHを指定します。
 
+BookMinerの`think_sfens.txt`も使用できます。各行のカンマ以降にある`book_extend_ply`、`eval_limit`、`game_ply_limit`などの付加情報は無視し、カンマより前の局面・手順だけを使用します。付加情報をエンジンに送信したり、教師生成の設定として適用したりはしません。
+
 最初に`settings/startpos-sfens-sample.txt`を`settings/startpos-sfens.txt`にコピーし、開始局面集合を書き換えてください。`startpos-sfens.txt`はローカル実データなのでGit管理対象外です。
 
 このファイルは、USIプロトコルの`position`コマンドの文字列で書くことができます。つまり、SFEN形式や`startpos`などが使えます。

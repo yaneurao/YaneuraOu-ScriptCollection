@@ -251,7 +251,8 @@ class ShogiMatch:
 
         # 対局開始局面を取得
         try:
-            startpos_sfen = self.shared.get_next_startpos_sfen()
+            # BookMiner's comma-separated options are not part of the USI position.
+            startpos_sfen = self.shared.get_next_startpos_sfen().split(",", 1)[0].strip()
             game_data.set_startsfen(startpos_sfen)
             board = game_data.board
             engine_position = engine_position_with_moves(startpos_sfen)
@@ -382,7 +383,8 @@ class ShogiMatch:
         game_data = Hcpe3GameData()
 
         try:
-            startpos_sfen = self.shared.get_next_startpos_sfen()
+            # Strip BookMiner options before both board decoding and engine commands.
+            startpos_sfen = self.shared.get_next_startpos_sfen().split(",", 1)[0].strip()
             board = board_from_position_string(startpos_sfen)
             game_data = Hcpe3GameData(board_to_hcp_bytes(board))
             engine_position = engine_position_with_moves(startpos_sfen)
