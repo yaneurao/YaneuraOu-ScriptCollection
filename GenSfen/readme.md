@@ -131,7 +131,8 @@ HCPE3直接出力に関係する設定項目:
 | `HCPE3_POLICY_NODES` | `0` | 事前policy探索のノード数。0なら事前policy探索なしで、従来通り`NODES`の探索結果から`MoveVisits`を作る。 |
 | `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 事前policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
-| `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
+| `HCPE3_VISIT_SMOOTHING` | `false` | `true`の場合だけ全候補に最低1visitを与える。既定では整数化で0visitになる候補もそのまま保存する。 |
+| `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へ全visitを寄せる。smoothing有効時は他候補の最低1visitを残す。 |
 | `HCPE3_MATE_SCORE` | `32000` | USIの`score mate N`を評価値へ写像するときの基準値。既定ではやねうら王本体と同じく`32000 - N`になる。 |
 | `HCPE3_RESIGN_EVAL` | 未指定 | 指定時、実着手側の評価値が`-abs(value)`以下なら、その手を記録したあと投了扱いにする。 |
 

@@ -78,6 +78,7 @@ class SharedState:
         if self.output_format == "pack":
             self.multipv = 1
         self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))
+        self.hcpe3_visit_smoothing = settings.get("HCPE3_VISIT_SMOOTHING", False)
         self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 100.0))
         self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", VALUE_MATE))
         self.hcpe3_policy_nodes = max(0, int(settings.get("HCPE3_POLICY_NODES", 0)))
@@ -365,7 +366,10 @@ class ShogiMatch:
         ]
 
         scores = [score for _move, score in candidates]
-        visits = visits_from_scores(scores, self.shared.hcpe3_visits_sum, self.shared.hcpe3_temperature)
+        visits = visits_from_scores(
+            scores, self.shared.hcpe3_visits_sum, self.shared.hcpe3_temperature,
+            smoothing=self.shared.hcpe3_visit_smoothing,
+        )
         candidate_visits = [(move & 0xffff, visit) for (move, _score), visit in zip(candidates, visits)]
 
         return selected_eval, candidate_visits
