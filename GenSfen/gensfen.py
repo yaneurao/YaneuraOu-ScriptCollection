@@ -1,4 +1,5 @@
 import time
+import argparse
 import json5
 import traceback
 import random
@@ -54,9 +55,33 @@ def repetition_game_result(board) -> int | None:
 
 # ============================================================
 
+class PositionLimitedWriter:
+    """Serialize the limit check with saving a complete game."""
+    def __init__(self, writer, limit):
+        self.writer = writer
+        self.limit = limit
+        self.reached = threading.Event()
+        self.lock = threading.Lock()
+
+    @property
+    def position_num(self):
+        return self.writer.position_num
+
+    def write_game(self, game):
+        with self.lock:
+            if self.reached.is_set():
+                return
+            self.writer.write_game(game)
+            if self.position_num >= self.limit:
+                self.reached.set()
+
+    def close(self):
+        self.writer.close()
+
+
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
 class SharedState:
-    def __init__(self, settings):
+    def __init__(self, settings, positions=None):
         # コンストラクタで渡された設定
         self.settings = settings
 
@@ -94,6 +119,8 @@ class SharedState:
         else:
             self.teacher_writer = KifWriter(self.nodes)
             print_log(f"output pack file : {self.teacher_writer.get_kif_filename()}")
+        if positions is not None:
+            self.teacher_writer = PositionLimitedWriter(self.teacher_writer, positions)
         self.kif_writer = self.teacher_writer
         
         # # 対局開始局面(互角局面集から読み込む)
@@ -569,7 +596,7 @@ class GameMatcher:
         # 並列対局数
         num = len(self.engine_threads)
 
-        shogi_matches = []
+        shogi_matches = self.shogi_matches
 
         max_instances = len(self.engine_threads)
         pbar = tqdm(total=max_instances, desc=f"{'Game Match':<12}", ncols=80, bar_format=BAR_FORMAT)
@@ -607,16 +634,48 @@ class GameMatcher:
 
         print()
 
+    def stop_all_threads(self):
+        """Stop unfinished games without waiting for their searches to complete."""
+        self.shared.pause_event.set()
+        for match in self.shogi_matches:
+            match.quit = True
+            match.stop_event.set()
+            for engine in list(match.engines):
+                try:
+                    if engine.engine.poll() is None:
+                        engine.engine.kill()
+                except ProcessLookupError:
+                    pass
+        self.wait_all_threads()
+        for match in self.shogi_matches:
+            if match.engines:
+                match.close_engines()
+
 
 # ============================================================
 #                             main
 # ============================================================
 
-def user_input():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Generate shogi teacher data.")
+    parser.add_argument("--positions", type=int,
+                        help="Automatically generate at least this many positions, then exit (whole games).")
+    parser.add_argument("--nodes", type=int, help="Override NODES in the settings file.")
+    parser.add_argument("--multipv", type=int, help="Override MULTIPV in the settings file.")
+    args = parser.parse_args(argv)
+    for name in ("positions", "nodes", "multipv"):
+        value = getattr(args, name)
+        if value is not None and value <= 0:
+            parser.error(f"--{name} must be a positive integer")
+    return args
+
+
+def user_input(argv=None):
     """
     ユーザーからの入力受付。
     """
 
+    args = parse_args(argv)
     # ログ記録を自動的に開始する。
     enable_print_log()
 
@@ -632,11 +691,32 @@ def user_input():
     with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
         settings = json5.load(f)
 
+    for name in ("nodes", "multipv"):
+        value = getattr(args, name)
+        if value is not None:
+            settings[name.upper()] = value
+            print_log(f"Command-line override: {name.upper()} = {value}")
+
     # これは全対局スレッドが同じものを指す。
-    shared = SharedState(settings)
+    shared = SharedState(settings, args.positions)
 
     # 並列対局管理用
     matcher = GameMatcher(shared)
+
+    if args.positions is not None:
+        try:
+            print_log(f"Automatic generation: target positions = {args.positions}")
+            matcher.start_games()
+            while not shared.teacher_writer.reached.wait(0.2):
+                if not any(m.match_thread and m.match_thread.is_alive() for m in matcher.shogi_matches):
+                    raise RuntimeError("All game workers stopped before the position target was reached.")
+            print_log(f"Position target reached: {shared.teacher_writer.position_num}")
+        finally:
+            try:
+                matcher.stop_all_threads()
+            finally:
+                shared.teacher_writer.close()
+        return
 
     while True:
         try:
