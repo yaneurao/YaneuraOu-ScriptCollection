@@ -30,6 +30,16 @@ STARTPOS_SFENS_SAMPLE_PATH = "settings/startpos-sfens-sample.txt"
 # プログレスバーのフォーマット
 BAR_FORMAT = "{desc:<15}: {percentage:3.0f}%|{bar:40}| {n_fmt}/{total_fmt}"
 
+
+def engine_position_with_moves(start_position: str) -> str:
+    """開始局面の手順を保持し、USI着手列を追記できる形にする。"""
+    tokens = start_position.split()
+    if tokens[0] not in ("startpos", "sfen"):
+        tokens.insert(0, "sfen")
+    if "moves" not in tokens:
+        tokens.append("moves")
+    return " ".join(tokens)
+
 # ============================================================
 
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
@@ -232,6 +242,7 @@ class ShogiMatch:
             startpos_sfen = self.shared.get_next_startpos_sfen()
             game_data.set_startsfen(startpos_sfen)
             board = game_data.board
+            engine_position = engine_position_with_moves(startpos_sfen)
 
         except Exception as e:
             print_log(f"Exception : {e}")
@@ -252,11 +263,8 @@ class ShogiMatch:
                 game_data.write_uint8(1) # 終局理由: draw
                 break
 
-            # 現在の局面をSFEN形式で取得
-            sfen = board.sfen()
-
             engine = self.engines[board.turn]  # 手番側のエンジンを取得
-            usi_move, eval_int = engine.go(sfen, self.shared.nodes)
+            usi_move, eval_int = engine.go(engine_position, self.shared.nodes)
 
             if usi_move == "resign":
                 # 投了
@@ -281,6 +289,7 @@ class ShogiMatch:
 
             # エンジンの指し手で局面を進める
             board.push_usi(usi_move)
+            engine_position += f" {usi_move}"
 
             if self.quit:
                 raise Exception("quit requested")
@@ -371,6 +380,7 @@ class ShogiMatch:
             startpos_sfen = self.shared.get_next_startpos_sfen()
             board = board_from_position_string(startpos_sfen)
             game_data = Hcpe3GameData(board_to_hcp_bytes(board))
+            engine_position = engine_position_with_moves(startpos_sfen)
 
         except Exception as e:
             print_log(f"Exception : {e}")
@@ -387,25 +397,24 @@ class ShogiMatch:
                 game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_REPETITION)
                 break
 
-            sfen = board.sfen()
             engine = self.engines[board.turn]
             if self.shared.hcpe3_policy_nodes > 0:
                 self.set_engine_multipv(engine, self.shared.hcpe3_policy_multipv)
                 _policy_move, _policy_eval, multipv_candidates = engine.go_multipv(
-                    sfen,
+                    engine_position,
                     self.shared.hcpe3_policy_nodes,
                     self.shared.hcpe3_mate_score,
                 )
                 max_candidates = self.shared.hcpe3_policy_multipv
                 self.set_engine_multipv(engine, 1)
                 usi_move, eval_int, _ = engine.go_multipv(
-                    sfen,
+                    engine_position,
                     self.shared.nodes,
                     self.shared.hcpe3_mate_score,
                 )
             else:
                 usi_move, eval_int, multipv_candidates = engine.go_multipv(
-                    sfen,
+                    engine_position,
                     self.shared.nodes,
                     self.shared.hcpe3_mate_score,
                 )
@@ -444,6 +453,7 @@ class ShogiMatch:
 
             mover = board.turn
             board.push_usi(usi_move)
+            engine_position += f" {usi_move}"
 
             if self.shared.hcpe3_resign_eval is not None and selected_eval <= -abs(self.shared.hcpe3_resign_eval):
                 winner = mover ^ 1
