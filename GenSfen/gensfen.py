@@ -79,7 +79,6 @@ class SharedState:
             self.multipv = 1
         self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))
         self.hcpe3_temperature = float(settings.get("HCPE3_TEMPERATURE", 100.0))
-        self.hcpe3_eval_drop_threshold = int(settings.get("HCPE3_EVAL_DROP_THRESHOLD", 500))
         self.hcpe3_mate_score = int(settings.get("HCPE3_MATE_SCORE", VALUE_MATE))
         self.hcpe3_policy_nodes = max(0, int(settings.get("HCPE3_POLICY_NODES", 0)))
         self.hcpe3_policy_multipv = max(1, int(settings.get("HCPE3_POLICY_MULTIPV", self.multipv)))
@@ -364,16 +363,6 @@ class ShogiMatch:
             (move, selected_eval if move == selected_move else min(score, selected_eval - 1))
             for move, score in candidates
         ]
-
-        if self.shared.hcpe3_eval_drop_threshold >= 0 and candidates:
-            best_score = max(score for _move, score in candidates)
-            filtered = [
-                (move, score)
-                for move, score in candidates
-                if best_score - score <= self.shared.hcpe3_eval_drop_threshold or move == selected_move
-            ]
-            if filtered:
-                candidates = filtered
 
         scores = [score for _move, score in candidates]
         visits = visits_from_scores(scores, self.shared.hcpe3_visits_sum, self.shared.hcpe3_temperature)

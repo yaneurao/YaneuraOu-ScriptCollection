@@ -132,7 +132,6 @@ HCPE3直接出力に関係する設定項目:
 | `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 事前policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
 | `HCPE3_TEMPERATURE` | `100.0` | 評価値softmaxの温度。0以下なら最良候補へほぼ全visitを寄せる。 |
-| `HCPE3_EVAL_DROP_THRESHOLD` | `500` | 最良評価値からこの値より悪い候補を捨てる。負値なら無効。 |
 | `HCPE3_MATE_SCORE` | `32000` | USIの`score mate N`を評価値へ写像するときの基準値。既定ではやねうら王本体と同じく`32000 - N`になる。 |
 | `HCPE3_RESIGN_EVAL` | 未指定 | 指定時、実着手側の評価値が`-abs(value)`以下なら、その手を記録したあと投了扱いにする。 |
 
@@ -149,7 +148,6 @@ HCPE3直接出力に関係する設定項目:
     "HCPE3_POLICY_MULTIPV": 30,
     "HCPE3_VISITS_SUM": 65535,
     "HCPE3_TEMPERATURE": 100.0,
-    "HCPE3_EVAL_DROP_THRESHOLD": 500,
     "HCPE3_MATE_SCORE": 32000,
     "HCPE3_RESIGN_EVAL": 1000,
 
@@ -217,7 +215,7 @@ HCPE3生成時の典型的な調整項目:
 - `NODES`を増やすと評価値と候補手の質は上がりやすいですが、生成速度は落ちます。
 - `HCPE3_POLICY_NODES`を指定すると、先に別ノード数・別MultiPV数でpolicy候補手だけを集め、そのあと`NODES`のMultiPV 1探索でbestmove/evalを決めます。この場合、通常の`MULTIPV`は使いません。
 - `HCPE3_TEMPERATURE`を小さくすると最善候補にvisitが寄り、大きくすると候補間のvisitが平坦になります。
-- `HCPE3_EVAL_DROP_THRESHOLD`を小さくすると、最善候補から大きく悪い手を捨てやすくなります。
+- 最善候補との評価値差による候補手の除外は行いません。
 - `HCPE3_RESIGN_EVAL`を指定すると、評価値が負側に大きく傾いた局面で投了扱いにできます。
 
 エンジン側の`engine_options.txt`には`MultiPV`を書かないでください。GenSfenが`OUTPUT_FORMAT`に応じて`setoption name MultiPV value ...`を送ります。
