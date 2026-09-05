@@ -40,6 +40,18 @@ def engine_position_with_moves(start_position: str) -> str:
         tokens.append("moves")
     return " ".join(tokens)
 
+
+def repetition_game_result(board) -> int | None:
+    """成立した千日手の結果を返す。0:引分、1:先手勝ち、2:後手勝ち。"""
+    repetition = board.is_draw()
+    if repetition == cshogi.REPETITION_DRAW:
+        return 0
+    if repetition == cshogi.REPETITION_WIN:
+        return board.turn + 1
+    if repetition == cshogi.REPETITION_LOSE:
+        return (board.turn ^ 1) + 1
+    return None
+
 # ============================================================
 
 # 全対局スレッドが共通で(同じものを参照で)持っている構造体
@@ -252,15 +264,20 @@ class ShogiMatch:
         for engine in self.engines:
             engine.send_usi('usinewgame')
 
-        while board.move_number <= self.shared.max_game_ply:
+        while True:
 
             # pauseの処理(手抜き)
             self.shared.pause_event.wait()
 
-            if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
-                # 千日手引き分け
+            repetition_result = repetition_game_result(board)
+            if repetition_result is not None:
+                game_data.write_game_result(repetition_result)
+                game_data.write_uint8(1 if repetition_result == 0 else 0)
+                break
+
+            if board.move_number > self.shared.max_game_ply:
                 game_data.write_game_result(0)
-                game_data.write_uint8(1) # 終局理由: draw
+                game_data.write_uint8(2) # 終局理由: draw by max moves
                 break
 
             engine = self.engines[board.turn]  # 手番側のエンジンを取得
@@ -293,11 +310,6 @@ class ShogiMatch:
 
             if self.quit:
                 raise Exception("quit requested")
-
-        else:
-            # 千日手引き分け
-            game_data.write_game_result(0)
-            game_data.write_uint8(2) # 終局理由: draw by max moves
 
         return game_data
 
@@ -389,12 +401,18 @@ class ShogiMatch:
         for engine in self.engines:
             engine.send_usi('usinewgame')
 
-        while board.move_number <= self.shared.max_game_ply:
+        while True:
 
             self.shared.pause_event.wait()
 
-            if board.is_draw() == cshogi.REPETITION_DRAW: # type: ignore
-                game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_REPETITION)
+            repetition_result = repetition_game_result(board)
+            if repetition_result is not None:
+                reason = HCPE3_RESULT_REPETITION if repetition_result == 0 else 0
+                game_data.set_result(repetition_result, reason)
+                break
+
+            if board.move_number > self.shared.max_game_ply:
+                game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_MAX_MOVES)
                 break
 
             engine = self.engines[board.turn]
@@ -462,9 +480,6 @@ class ShogiMatch:
 
             if self.quit:
                 raise Exception("quit requested")
-
-        else:
-            game_data.set_result(HCPE3_DRAW, HCPE3_RESULT_MAX_MOVES)
 
         return game_data
 
