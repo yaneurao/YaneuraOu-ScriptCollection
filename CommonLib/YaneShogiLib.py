@@ -235,32 +235,31 @@ def clamp_uint16(x:int)->int:
     """uint16に収まる範囲へ丸める。"""
     return min(65535, max(0, int(x)))
 
-def visits_from_scores(scores:list[int], visits_sum:int, temperature:float)->list[int]:
+def visits_from_scores(scores:list[int], visits_sum:int, temperature:float, smoothing:bool = False)->list[int]:
     """
     MultiPVの評価値をHCPE3のvisitNumへ変換する。
 
-    DeepLearningShogi/dlshogi/utils/usi_selfplay_multipv_to_hcpe3.py と同じ考え方で、
-    評価値softmaxから疑似訪問回数を作る。すべての候補に最低1visitを与える。
+    評価値softmaxから疑似訪問回数を作る。
+    smoothing=Trueの場合だけ、すべての候補に最低1visitを与える。
     """
     if not scores:
         return []
 
-    if visits_sum < len(scores):
-        visits_sum = len(scores)
-    visits_sum = min(visits_sum, 65535)
+    min_visit = 1 if smoothing else 0
+    visits_sum = min(max(visits_sum, 1, min_visit * len(scores)), 65535)
 
     if temperature <= 0:
-        visits = [1] * len(scores)
+        visits = [min_visit] * len(scores)
         best = max(range(len(scores)), key=lambda i: scores[i])
-        visits[best] += visits_sum - len(scores)
+        visits[best] += visits_sum - min_visit * len(scores)
         return visits
 
     max_score = max(scores)
     weights = [math.exp(max(-700.0, min(700.0, (score - max_score) / temperature))) for score in scores]
     total = sum(weights)
 
-    base = [1] * len(scores)
-    remaining = visits_sum - len(scores)
+    base = [min_visit] * len(scores)
+    remaining = visits_sum - min_visit * len(scores)
     raw = [weight / total * remaining for weight in weights]
     extra = [int(math.floor(x)) for x in raw]
     visits = [b + e for b, e in zip(base, extra)]
@@ -270,7 +269,7 @@ def visits_from_scores(scores:list[int], visits_sum:int, temperature:float)->lis
     for i in order[:residue]:
         visits[i] += 1
 
-    return [min(65535, max(1, v)) for v in visits]
+    return [min(65535, max(min_visit, v)) for v in visits]
 
 # ============================================================
 #                        Engine
