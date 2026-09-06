@@ -348,12 +348,13 @@ grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各�
 - `swa_test_policy_accuracy`: SWAモデルのpolicy accuracy
 - `swa_test_value_accuracy`: SWAモデルのvalue / result binary accuracy
 - `test_total_loss`: `policy loss + (1 - val_lambda) * result loss + val_lambda * value loss`
-- `best_metric`: `best_score` / `best_epoch` を選ぶために使った指標名
-- `best_score`: `best_metric` の最良値
+- `final_epoch`: 集計対象となった最後のepoch
 
 dlshogiのログに出る `test loss` は `policy_loss, result_loss, value_loss, total_loss` の順です。`grid_summary.csv` にはこのうち `total_loss` を `test_total_loss` として出力します。
 
-`best_metric` は既定では `test_total_loss` です。変更する場合は `--score` で `swa_test_policy_accuracy`, `test_policy_accuracy`, `test_value_accuracy`, `test_total_loss` のいずれかを指定します。
+各試行のaccuracy・lossは、常にログに記録された最後のepochの値を出力します。
+途中のepochの最良値は選びません。途中集計では、その時点で結果が記録されている最後のepochを使用します。
+最後のepochにSWAの値がない場合も、以前のepochの値では埋めません。
 
 既存ログだけを再集計したい場合:
 

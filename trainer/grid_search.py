@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import math
 import re
 import subprocess
 import sys
@@ -76,20 +75,6 @@ def parse_args() -> argparse.Namespace:
         "--continue-on-error",
         action="store_true",
         help="Run remaining trials even if one trainer.py invocation fails.",
-    )
-    parser.add_argument(
-        "--score",
-        choices=(
-            "swa_test_policy_accuracy",
-            "test_policy_accuracy",
-            "test_value_accuracy",
-            "test_total_loss",
-        ),
-        default="test_total_loss",
-        help=(
-            "Metric used for best_* columns. Falls back to "
-            "test_policy_accuracy if SWA is absent."
-        ),
     )
     parser.add_argument("--batchsize", type=int)
     parser.add_argument("--batches-per-update", type=int)
@@ -301,38 +286,6 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
             command.append(option)
 
 
-def parse_float(text: str) -> float:
-    try:
-        return float(text)
-    except (TypeError, ValueError):
-        return math.nan
-
-
-def row_metric(row: trainer_module.TrainLogRow, metric: str) -> float:
-    if metric == "swa_test_policy_accuracy":
-        value = parse_float(row.swa_test_accuracy[0])
-        if not math.isnan(value):
-            return value
-        return parse_float(row.test_accuracy[0])
-    if metric == "test_policy_accuracy":
-        return parse_float(row.test_accuracy[0])
-    if metric == "test_value_accuracy":
-        return parse_float(row.test_accuracy[1])
-    if metric == "test_total_loss":
-        return parse_float(row.test_loss[3])
-    raise ValueError(metric)
-
-
-def better_score(candidate: float, current: float, metric: str) -> bool:
-    if math.isnan(current):
-        return True
-    if math.isnan(candidate):
-        return False
-    if metric == "test_total_loss":
-        return candidate < current
-    return candidate > current
-
-
 def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | int]:
     log_files = trainer_module.iter_train_log_files([trial.out_dir]) if trial.out_dir.exists() else []
     rows: list[trainer_module.TrainLogRow] = []
@@ -357,10 +310,6 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "swa_test_policy_accuracy": "",
         "swa_test_value_accuracy": "",
         "test_total_loss": "",
-        "best_metric": args.score,
-        "best_score": "",
-        "best_epoch": "",
-        "best_source": "",
         "status": "done" if rows else "no_log",
         "log_files": str(len(log_files)),
         "rows": str(len(rows)),
@@ -382,21 +331,6 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         }
     )
 
-    best_row = rows[0]
-    best_value = row_metric(best_row, args.score)
-    for row in rows[1:]:
-        value = row_metric(row, args.score)
-        if better_score(value, best_value, args.score):
-            best_row = row
-            best_value = value
-
-    summary.update(
-        {
-            "best_score": "" if math.isnan(best_value) else f"{best_value:.7f}",
-            "best_epoch": best_row.epoch or "",
-            "best_source": best_row.source,
-        }
-    )
     return summary
 
 
@@ -414,10 +348,6 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
         "swa_test_policy_accuracy",
         "swa_test_value_accuracy",
         "test_total_loss",
-        "best_metric",
-        "best_score",
-        "best_epoch",
-        "best_source",
         "status",
         "log_files",
         "rows",
