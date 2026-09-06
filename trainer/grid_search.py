@@ -33,8 +33,9 @@ class Trial:
     out_dir: Path
 
 
+FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 TRIAL_DIR_RE = re.compile(
-    r"^(?P<network>.+)_lr(?P<lr>[^_]+)"
+    rf"^(?P<network>.+)_lr(?P<lr>{FLOAT_TAG_RE})"
     r"(?:_lrmin(?P<lr_min>[^_]+))?"
     r"_val(?P<val_lambda>[^_]+)"
     r"(?:_temp(?P<temperature>[^_]+))?"
@@ -364,6 +365,8 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
 def main() -> None:
     args = parse_args()
     trials = discover_trials(args.model_root) if args.summary_only else make_trials(args)
+    if args.summary_only and not trials:
+        raise ValueError(f"No trial folders found in {args.model_root}; summary CSV was not changed.")
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
 
     if not args.summary_only:
