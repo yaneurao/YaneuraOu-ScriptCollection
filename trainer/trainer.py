@@ -970,6 +970,7 @@ def run_one_round(
     if args.hcpe3_val_lambda is not None:
         print(f"hcpe3 val_lambda: {args.hcpe3_val_lambda}")
     print(f"temperature: {args.temperature}")
+    print(f"policy_mix: {args.policy_mix}")
     print(f"lr scheduler: {lr_scheduler}")
     if args.use_compile:
         compile_options = []
@@ -1042,6 +1043,8 @@ def run_one_round(
                 str(current_val_lambda),
                 "--temperature",
                 str(args.temperature),
+                "--policy-mix",
+                str(args.policy_mix),
                 "--checkpoint",
                 str(out_dir / "checkpoint-{epoch:04}.pth"),
                 "--log",
@@ -1230,6 +1233,8 @@ def main() -> None:
     )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
+    parser.add_argument("--policy-mix", type=float, default=1.0,
+                        help="Weight of visit-distribution policy targets versus the selected move (0 to 1).")
     parser.add_argument(
         "--temperature",
         type=float,
@@ -1323,6 +1328,10 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if not 0.0 <= args.policy_mix <= 1.0:
+        parser.error("--policy-mix must be between 0 and 1")
+    if args.backend != "train" and args.policy_mix != 1.0:
+        parser.error("--policy-mix other than 1 is supported only with --backend train")
     if args.rounds < 1:
         parser.error(f"--rounds must be >= 1 (got {args.rounds})")
     if args.batches_per_update < 1:

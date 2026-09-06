@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 
 import trainer as trainer_module
@@ -27,6 +28,7 @@ class Trial:
     lr_min: float | None
     val_lambda: float
     temperature: float
+    policy_mix: float
     batchsize: int | None
     batches_per_update: int | None
     out_dir: Path
@@ -37,6 +39,7 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_lrmin(?P<lr_min>[^_]+))?"
     r"_val(?P<val_lambda>[^_]+)"
     r"(?:_temp(?P<temperature>[^_]+))?"
+    r"(?:_pmix(?P<policy_mix>[^_]+))?"
     r"(?:_bs(?P<batchsize>\d+))?"
     r"(?:_bpu(?P<batches_per_update>\d+))?$"
 )
@@ -56,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr-mins", type=float, nargs="+")
     parser.add_argument("--val-lambdas", type=float, nargs="+")
     parser.add_argument("--temperatures", type=float, nargs="+", default=[1.0])
+    parser.add_argument("--policy-mixes", type=float, nargs="+", default=[1.0])
     parser.add_argument("--batchsizes", type=int, nargs="+")
     parser.add_argument("--batches-per-updates", type=int, nargs="+")
     parser.add_argument("--rounds", type=int, default=1)
@@ -109,6 +113,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile_fullgraph", action="store_true")
     parser.add_argument("--compile_dynamic", action="store_true")
     args = parser.parse_args()
+    if any(not 0.0 <= value <= 1.0 for value in args.policy_mixes):
+        parser.error("--policy-mixes values must be between 0 and 1")
     if not args.summary_only:
         missing = [
             name
@@ -143,7 +149,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     for lr in args.lrs:
         for lr_min in lr_mins:
             for val_lambda in args.val_lambdas:
-                for temperature in args.temperatures:
+                for temperature, policy_mix in product(args.temperatures, args.policy_mixes):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
@@ -152,6 +158,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                             name += (
                                 f"_val{float_tag(val_lambda)}"
                                 f"_temp{float_tag(temperature)}"
+                                f"_pmix{float_tag(policy_mix)}"
                             )
                             if batchsize is not None:
                                 name += f"_bs{batchsize}"
@@ -163,6 +170,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     lr_min=lr_min,
                                     val_lambda=val_lambda,
                                     temperature=temperature,
+                                    policy_mix=policy_mix,
                                     batchsize=batchsize,
                                     batches_per_update=batches_per_update,
                                     out_dir=args.model_root / name,
@@ -180,6 +188,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         lr_min = float(match.group("lr_min")) if match.group("lr_min") else None
         val_lambda = float(match.group("val_lambda"))
         temperature = float(match.group("temperature") or "1.0")
+        policy_mix = float(match.group("policy_mix") or "1.0")
         batchsize = int(match.group("batchsize")) if match.group("batchsize") else None
         batches_per_update = (
             int(match.group("batches_per_update"))
@@ -193,6 +202,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         lr_min=lr_min,
         val_lambda=val_lambda,
         temperature=temperature,
+        policy_mix=policy_mix,
         batchsize=batchsize,
         batches_per_update=batches_per_update,
         out_dir=path,
@@ -217,6 +227,7 @@ def discover_trials(model_root: Path) -> list[Trial]:
             trial.lr_min if trial.lr_min is not None else -1,
             trial.val_lambda,
             trial.temperature,
+            trial.policy_mix,
             trial.batchsize or -1,
             trial.batches_per_update or -1,
             str(trial.out_dir),
@@ -244,6 +255,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         str(trial.val_lambda),
         "--temperature",
         str(trial.temperature),
+        "--policy-mix",
+        str(trial.policy_mix),
     ]
     if trial.batchsize is not None:
         command.extend(["--batchsize", str(trial.batchsize)])
@@ -332,6 +345,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "lr_min": str(trial.lr_min) if trial.lr_min is not None else "",
         "val_lambda": str(trial.val_lambda),
         "temperature": str(trial.temperature),
+        "policy_mix": str(trial.policy_mix),
         "batchsize": str(trial.batchsize) if trial.batchsize is not None else "",
         "batches_per_update": (
             str(trial.batches_per_update)
@@ -392,6 +406,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
         "lr_min",
         "val_lambda",
         "temperature",
+        "policy_mix",
         "batchsize",
         "batches_per_update",
         "test_policy_accuracy",
@@ -434,6 +449,7 @@ def main() -> None:
                 f"lr_min={trial.lr_min if trial.lr_min is not None else '-'} "
                 f"val_lambda={trial.val_lambda} "
                 f"temperature={trial.temperature} "
+                f"policy_mix={trial.policy_mix} "
                 f"batchsize={trial.batchsize if trial.batchsize is not None else '-'} "
                 "batches_per_update="
                 f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"

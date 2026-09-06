@@ -47,6 +47,33 @@ HCPE3教師データのeval係数推定は既定で有効です。無効にし�
 HCPE3教師データのMoveVisitsからpolicy targetを作る温度は `--temperature` で指定できます。既定値はDeepLearningShogiと同じ `1.0` です。
 これはGenSfenの `HCPE3_TEMPERATURE` とは別で、GenSfen側は生成時、`trainer.py`側は学習時に効きます。
 
+### policy教師の混合
+
+`--policy-mix`で、HCPE3の選択手とvisitNum分布を混ぜる比率を指定できます。既定値は`1.0`（従来の挙動）、範囲は`0`から`1`です。
+
+```powershell
+python trainer/trainer.py --network exp___i15x192 --temperature 0.1 --policy-mix 0.1
+```
+
+まず`--temperature`を適用してvisitNumから確率分布を作り、その後で次のように混ぜます。
+
+```text
+policy教師 = (1 - policy_mix) × 選択手だけの正解分布 + policy_mix × visitNumの確率分布
+```
+
+`0`なら選択手だけ、`1`ならvisitNum分布だけです。`0.1`なら選択手だけの分布90%とvisitNum分布10%を混ぜます。
+選択手はHCPE3の`selectedMove16`を使用します。最大visitNumの手とは限らないため、一般には`--temperature 0`と`--policy-mix 0`は同義ではありません。
+重複局面は各レコードで混合した後に平均します。hcpeの正解手、value教師、policyとvalueの損失の重み、テストの採点方法は変更しません。
+既定の`--backend train`で使用できます。PTL backendでは`1`以外は未対応です。
+
+**DeepLearningShogi側の更新とC++拡張の再ビルドが必要です。** 使用するPython環境とC++ビルド環境で、DeepLearningShogiフォルダから実行してください。
+
+```powershell
+python setup.py build_ext --inplace --force
+```
+
+gensfenの更新・教師データの再生成は不要です。dlshogiの既存キャッシュは選択手を保持していないため、`policy-mix != 1`と`--cache`の併用はできません。
+
 ## 勾配蓄積
 
 `--batches-per-update` を指定すると、従来 backend の `dlshogi.train` に同名オプションを渡します。
@@ -339,6 +366,16 @@ python .\grid_search.py ^
 `--summary-only` では `--model-root` 直下の試行フォルダを自動検出します。`*_lr0.001_val0.33_temp0.8` のようなフォルダ名から条件を復元します。古い `*_lr0.001_val0.33` 形式のフォルダは `temperature=1.0` として扱います。
 
 `--temperatures` を省略した場合は `1.0` だけを試します。
+
+`--policy-mixes 0 0.05 0.1 0.25 1`でpolicyの混合比率も全組み合わせで比較できます。省略時は`1.0`だけです。
+例えば温度を固定し、次のように指定します（checkpoint等は自分のパスに置き換えてください）。
+
+```powershell
+python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_policy_mix --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 --temperatures 0.1 --policy-mixes 0 0.05 0.1 0.25 1
+```
+
+出力フォルダ名には`_pmix0.1`のように混合比率が入り、`grid_summary.csv`には`policy_mix`列が追加されます。
+`--summary-only`でも復元できます。`_pmix`のない従来の試行フォルダは、従来挙動の`policy_mix=1.0`として集計します。
 
 ## SWA
 
