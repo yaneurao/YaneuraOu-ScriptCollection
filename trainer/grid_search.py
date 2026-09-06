@@ -312,8 +312,6 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "swa_test_value_accuracy": "",
         "test_total_loss": "",
         "status": "done" if rows else "no_log",
-        "log_files": str(len(log_files)),
-        "rows": str(len(rows)),
         "final_epoch": "",
         "out_dir": str(trial.out_dir),
     }
@@ -350,8 +348,6 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
         "swa_test_value_accuracy",
         "test_total_loss",
         "status",
-        "log_files",
-        "rows",
         "final_epoch",
         "out_dir",
     ]
