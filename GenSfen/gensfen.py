@@ -132,7 +132,6 @@ class SharedState:
         # 対局開始局面の集合
         self.startpos_sfens : list[str] = []
         self.startpos_lock = Lock()
-        self.reconnect_lock = Lock()
 
         # pauseの設定
         # これがTrueだと生成を一時的にpauseする。
@@ -226,7 +225,6 @@ class ShogiMatch:
         self.quit = False
         self.stop_event = threading.Event()
         self.engines = []
-        self.reconnect_attempts = 0
         self.open_engines()
 
         # 対局スレッド
@@ -248,30 +246,6 @@ class ShogiMatch:
         except Exception:
             self.close_engines()
             raise
-
-    def reconnect_engines(self):
-        self.close_engines()
-        while self.reconnect_attempts < 3:
-            delay = 5 * (2 ** self.reconnect_attempts)
-            if self.stop_event.wait(delay):
-                return False
-            # Do not let all game workers relaunch remote engines simultaneously.
-            while not self.shared.reconnect_lock.acquire(timeout=0.2):
-                if self.stop_event.is_set():
-                    return False
-            try:
-                if self.stop_event.is_set():
-                    return False
-                self.reconnect_attempts += 1
-                self.open_engines()
-                print_log("Engine reconnect complete; starting a new game.")
-                return True
-            except OSError as e:
-                print_log(f"Engine reconnect attempt {self.reconnect_attempts}/3 failed: {e}")
-            finally:
-                self.shared.reconnect_lock.release()
-        print_log("Stopping game worker: 3 reconnect attempts without a completed game. Check engine/SSH logs.")
-        return False
 
     def start(self):
         """対局スレッドを開始させる"""
@@ -300,13 +274,9 @@ class ShogiMatch:
                 except EngineConnectionError as e:
                     if self.quit:
                         break
-                    print_log(f"Engine disconnected; discarding unfinished game: {e}")
-                    if not self.reconnect_engines():
-                        break
-                    continue
+                    print_log(f"Engine disconnected; discarding unfinished game and stopping worker (no restart): {e}")
+                    break
                 self.shared.teacher_writer.write_game(kif)
-                if kif.position_num > 0:
-                    self.reconnect_attempts = 0
 
         except Exception as e:
             # quitするときの例外ではないならそれを出力する。
