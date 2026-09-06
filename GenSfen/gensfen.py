@@ -99,7 +99,7 @@ class SharedState:
             raise Exception(f"Unknown OUTPUT_FORMAT: {self.output_format}")
 
         # HCPE3出力用設定
-        self.multipv = max(1, int(settings.get("MULTIPV", 4 if self.output_format == "hcpe3" else 1)))
+        self.multipv = max(1, int(settings.get("MULTIPV", 1)))
         if self.output_format == "pack":
             self.multipv = 1
         self.hcpe3_visits_sum = max(1, int(settings.get("HCPE3_VISITS_SUM", 65535)))

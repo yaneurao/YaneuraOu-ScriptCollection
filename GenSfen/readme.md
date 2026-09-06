@@ -168,7 +168,7 @@ HCPE3直接出力に関係する設定項目:
 
 | 設定 | 既定値 | 説明 |
 |---|---:|---|
-| `MULTIPV` | `4` | HCPE3出力時に要求する候補手数。pack出力では無視され、1になる。`HCPE3_POLICY_NODES > 0` の場合、`NODES`側の探索はMultiPV 1になり、この値は事前policy探索なしの場合だけ使う。 |
+| `MULTIPV` | `1` | HCPE3出力時に要求する候補手数。pack出力では無視され、1になる。`HCPE3_POLICY_NODES > 0` の場合、`NODES`側の探索はMultiPV 1になり、この値は事前policy探索なしの場合だけ使う。 |
 | `HCPE3_POLICY_NODES` | `0` | 事前policy探索のノード数。0なら事前policy探索なしで、従来通り`NODES`の探索結果から`MoveVisits`を作る。 |
 | `HCPE3_POLICY_MULTIPV` | `MULTIPV` | 事前policy探索時に要求する候補手数。`HCPE3_POLICY_NODES > 0` のときだけ使う。 |
 | `HCPE3_VISITS_SUM` | `65535` | 1局面の候補手visit数の合計。uint16上限の65535を超えない。 |
@@ -236,7 +236,7 @@ python gensfen.py
     "NODES": 1000000,
 
     "OUTPUT_FORMAT": "hcpe3",
-    "MULTIPV": 4,
+    "MULTIPV": 1,
 
     "ENGINE_SETTING":
     [

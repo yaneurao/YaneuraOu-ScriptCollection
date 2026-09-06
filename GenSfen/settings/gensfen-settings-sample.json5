@@ -9,9 +9,10 @@
     "NODES" : 1000000,
 
     // hcpe3の生成を行うとき。
-    // MultiPV 4でNODES分探索して、その結果からMoveVisitsを作る場合:
+    // MultiPV 1でNODES分探索する。MULTIPVを省略した場合も1。
+    // 複数候補を生成したい場合だけ、MULTIPVを4などに変更する。
     // "OUTPUT_FORMAT": "hcpe3",
-    // "MULTIPV": 4,
+    // "MULTIPV": 1,
     // "HCPE3_TEMPERATURE": 100.0,
     // 全候補に最低1visitを与える処理は既定で無効。有効にする場合だけtrueにする。
     // "HCPE3_VISIT_SMOOTHING": false,
