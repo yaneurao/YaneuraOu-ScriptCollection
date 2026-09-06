@@ -644,6 +644,8 @@ class GameMatcher:
             # 同じエンジンインスタンス同士で対局させる。
             shogi_match = ShogiMatch(t,t,self.shared)
             shogi_matches.append(shogi_match)
+            # Start this ready pair before initializing the next pair.
+            shogi_match.start()
 
             # ここで小さなsleepがないとネットワーク越しだと、その初期化に時間がかかり、
             # networkがtime outになる可能性がある。
@@ -653,9 +655,6 @@ class GameMatcher:
             pbar.update()
 
         self.shogi_matches = shogi_matches
-
-        for shogi_match in self.shogi_matches:
-            shogi_match.start()
 
         print_log("\nAll shogi games have started. Please wait.")
 
