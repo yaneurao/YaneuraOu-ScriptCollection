@@ -1,5 +1,6 @@
 import time
 import argparse
+import math
 import json5
 import traceback
 import random
@@ -62,6 +63,8 @@ class PositionLimitedWriter:
         self.limit = limit
         self.reached = threading.Event()
         self.lock = threading.Lock()
+        self.started_at = time.monotonic()
+        self.writer.progress_suffix = self.eta_suffix
 
     @property
     def position_num(self):
@@ -74,6 +77,18 @@ class PositionLimitedWriter:
             self.writer.write_game(game)
             if self.position_num >= self.limit:
                 self.reached.set()
+
+    def eta_suffix(self):
+        elapsed = time.monotonic() - self.started_at
+        remaining = max(0, self.limit - self.position_num)
+        if remaining == 0:
+            return ", ETA = 00:00:00"
+        if self.position_num <= 0 or elapsed <= 0:
+            return ", ETA = unknown"
+        seconds = math.ceil(remaining * elapsed / self.position_num)
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        return f", ETA = {hours:02d}:{minutes:02d}:{seconds:02d}"
 
     def close(self):
         self.writer.close()
