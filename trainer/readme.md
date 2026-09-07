@@ -370,6 +370,33 @@ python .\grid_search.py ^
 
 `--temperatures` を省略した場合は `1.0` だけを試します。
 
+### 互角付近のvalue lossを重くする
+
+`trainer.py --value-loss-min-weight 0.5`で、教師評価値から得た期待勝率`q`に対して
+`w = a + (1 - a) * 4 * q * (1 - q)`という重みを適用します。`a`は指定値で、
+範囲0～1、デフォルト1（従来通り）です。中央の重みは1、両端の重みは`a`です。
+勝敗由来・評価値由来の両value lossを重み付けし、policyとテスト指標は変更しません。
+evalfix有効時は補正後の教師valueを使います。対応backendは`train`です。
+
+```powershell
+python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth `
+  --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_value_weight `
+  --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 `
+  --value-loss-min-weights 0.25 0.5 0.75 1.0
+```
+
+明示指定時はフォルダ名に`_vlmw0.5`などを付け、CSVに`value_loss_min_weight`列を出力します。
+省略時はこの列を出力しません。`--summary-only`でも、列を表示するには
+`--value-loss-min-weights`を明示してください。値は各フォルダから復元し、対象の絞り込みには使いません。
+既存の`_vlmw`がない試行は1として扱います。
+
+勾配蓄積時は各ミニバッチで別々に正規化せず、更新1回分の重み合計で正規化します。
+`a<1`かつ勾配蓄積時はvalue勾配用の追加バッファと分離した逆伝播が必要なため、
+従来よりメモリと計算時間が増えます。`a=1`の計算経路は従来通りです。
+DeepLearningShogi側も対応する`dlshogi/train.py`と`dlshogi/value_loss.py`に更新してください。
+
+### CSVの条件列
+
 CSVの右端`out_dir`の直前に、教師フォルダを示す`train-dir`列を出力します。
 学習前は`--train-dir`の指定値、学習ログから教師ファイルを取得できる場合はその親フォルダを使用します。
 `--summary-only`でもログから復元します。ログにも引数にも情報がない場合は空欄です。

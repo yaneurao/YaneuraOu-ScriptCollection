@@ -31,6 +31,7 @@ class Trial:
     batchsize: int | None
     batches_per_update: int | None
     out_dir: Path
+    value_loss_min_weight: float = 1.0
 
 
 FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -41,7 +42,8 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_temp(?P<temperature>[^_]+))?"
     r"(?:_pmix(?P<policy_mix>[^_]+))?"
     r"(?:_bs(?P<batchsize>\d+))?"
-    r"(?:_bpu(?P<batches_per_update>\d+))?$"
+    r"(?:_bpu(?P<batches_per_update>\d+))?"
+    r"(?:_vlmw(?P<value_loss_min_weight>[^_]+))?$"
 )
 
 
@@ -60,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-lambdas", type=float, nargs="+")
     parser.add_argument("--temperatures", type=float, nargs="+")
     parser.add_argument("--policy-mixes", type=float, nargs="+")
+    parser.add_argument("--value-loss-min-weights", type=float, nargs="+")
     parser.add_argument("--batchsizes", type=int, nargs="+")
     parser.add_argument("--batches-per-updates", type=int, nargs="+")
     parser.add_argument("--rounds", type=int, default=1)
@@ -99,6 +102,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile_fullgraph", action="store_true")
     parser.add_argument("--compile_dynamic", action="store_true")
     args = parser.parse_args()
+    args.include_value_loss_min_weight = args.value_loss_min_weights is not None
+    if args.value_loss_min_weights is None:
+        args.value_loss_min_weights = [1.0]
+    if any(not 0.0 <= value <= 1.0 for value in args.value_loss_min_weights):
+        parser.error("--value-loss-min-weights values must be between 0 and 1")
     args.include_temperature = args.temperatures is not None
     args.include_policy_mix = args.policy_mixes is not None
     if args.temperatures is None:
@@ -141,7 +149,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     for lr in args.lrs:
         for lr_min in lr_mins:
             for val_lambda in args.val_lambdas:
-                for temperature, policy_mix in product(args.temperatures, args.policy_mixes):
+                for temperature, policy_mix, value_loss_min_weight in product(
+                        args.temperatures, args.policy_mixes, args.value_loss_min_weights):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
@@ -156,6 +165,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                 name += f"_bs{batchsize}"
                             if batches_per_update is not None:
                                 name += f"_bpu{batches_per_update}"
+                            if args.include_value_loss_min_weight:
+                                name += f"_vlmw{float_tag(value_loss_min_weight)}"
                             trials.append(
                                 Trial(
                                     lr=lr,
@@ -166,6 +177,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     batchsize=batchsize,
                                     batches_per_update=batches_per_update,
                                     out_dir=args.model_root / name,
+                                    value_loss_min_weight=value_loss_min_weight,
                                 )
                             )
     return trials
@@ -181,6 +193,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         val_lambda = float(match.group("val_lambda"))
         temperature = float(match.group("temperature") or "1.0")
         policy_mix = float(match.group("policy_mix") or "1.0")
+        value_loss_min_weight = float(match.group("value_loss_min_weight") or "1.0")
         batchsize = int(match.group("batchsize")) if match.group("batchsize") else None
         batches_per_update = (
             int(match.group("batches_per_update"))
@@ -198,6 +211,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         batchsize=batchsize,
         batches_per_update=batches_per_update,
         out_dir=path,
+        value_loss_min_weight=value_loss_min_weight,
     )
 
 
@@ -220,6 +234,7 @@ def discover_trials(model_root: Path) -> list[Trial]:
             trial.val_lambda,
             trial.temperature,
             trial.policy_mix,
+            trial.value_loss_min_weight,
             trial.batchsize or -1,
             trial.batches_per_update or -1,
             str(trial.out_dir),
@@ -249,6 +264,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         str(trial.temperature),
         "--policy-mix",
         str(trial.policy_mix),
+        "--value-loss-min-weight",
+        str(trial.value_loss_min_weight),
     ]
     if trial.batchsize is not None:
         command.extend(["--batchsize", str(trial.batchsize)])
@@ -312,6 +329,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "val_lambda": str(trial.val_lambda),
         "temperature": str(trial.temperature),
         "policy_mix": str(trial.policy_mix),
+        "value_loss_min_weight": str(trial.value_loss_min_weight),
         "batchsize": str(trial.batchsize) if trial.batchsize is not None else "",
         "batches_per_update": (
             str(trial.batches_per_update)
@@ -347,13 +365,15 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
 
 
 def write_summary(path: Path, rows: list[dict[str, str | int]], *,
-                  include_temperature: bool = True, include_policy_mix: bool = True) -> None:
+                  include_temperature: bool = True, include_policy_mix: bool = True,
+                  include_value_loss_min_weight: bool = False) -> None:
     fieldnames = [
         "lr",
         "lr_min",
         "val_lambda",
         "temperature",
         "policy_mix",
+        "value_loss_min_weight",
         "batchsize",
         "batches_per_update",
         "test_policy_accuracy",
@@ -370,6 +390,8 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         fieldnames.remove("temperature")
     if not include_policy_mix:
         fieldnames.remove("policy_mix")
+    if not include_value_loss_min_weight:
+        fieldnames.remove("value_loss_min_weight")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -384,7 +406,8 @@ def main() -> None:
         raise ValueError(f"No trial folders found in {args.model_root}; summary CSV was not changed.")
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
     summary_options = dict(include_temperature=args.include_temperature,
-                           include_policy_mix=args.include_policy_mix)
+                           include_policy_mix=args.include_policy_mix,
+                           include_value_loss_min_weight=args.include_value_loss_min_weight)
 
     if not args.summary_only:
         summaries = [summarize_trial(args, item) for item in trials]
@@ -400,6 +423,7 @@ def main() -> None:
                 f"val_lambda={trial.val_lambda} "
                 f"temperature={trial.temperature} "
                 f"policy_mix={trial.policy_mix} "
+                f"value_loss_min_weight={trial.value_loss_min_weight} "
                 f"batchsize={trial.batchsize if trial.batchsize is not None else '-'} "
                 "batches_per_update="
                 f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"

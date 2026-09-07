@@ -971,6 +971,7 @@ def run_one_round(
         print(f"hcpe3 val_lambda: {args.hcpe3_val_lambda}")
     print(f"temperature: {args.temperature}")
     print(f"policy_mix: {args.policy_mix}")
+    print(f"value_loss_min_weight: {args.value_loss_min_weight}")
     print(f"lr scheduler: {lr_scheduler}")
     if args.use_compile:
         compile_options = []
@@ -1045,6 +1046,8 @@ def run_one_round(
                 str(args.temperature),
                 "--policy-mix",
                 str(args.policy_mix),
+                "--value-loss-min-weight",
+                str(args.value_loss_min_weight),
                 "--checkpoint",
                 str(out_dir / "checkpoint-{epoch:04}.pth"),
                 "--log",
@@ -1233,6 +1236,7 @@ def main() -> None:
     )
     parser.add_argument("--network", default="exp___i20x256")
     parser.add_argument("--val_lambda", type=float, default=1.0)
+    parser.add_argument("--value-loss-min-weight", type=float, default=1.0)
     parser.add_argument("--policy-mix", type=float, default=1.0,
                         help="Weight of visit-distribution policy targets versus the selected move (0 to 1).")
     parser.add_argument(
@@ -1328,6 +1332,10 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if not 0.0 <= args.value_loss_min_weight <= 1.0:
+        parser.error("--value-loss-min-weight must be between 0 and 1")
+    if args.backend != "train" and args.value_loss_min_weight != 1.0:
+        parser.error("--value-loss-min-weight other than 1 is supported only with --backend train")
     if not 0.0 <= args.policy_mix <= 1.0:
         parser.error("--policy-mix must be between 0 and 1")
     if args.backend != "train" and args.policy_mix != 1.0:
