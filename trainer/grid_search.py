@@ -16,7 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from itertools import product
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import trainer as trainer_module
 
@@ -296,9 +296,15 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
 def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | int]:
     log_files = trainer_module.iter_train_log_files([trial.out_dir]) if trial.out_dir.exists() else []
     rows: list[trainer_module.TrainLogRow] = []
-    teacher_root = args.train_dir if args.train_dir is not None else None
     for log_file in log_files:
-        rows.extend(trainer_module.parse_train_log(log_file, teacher_root))
+        rows.extend(trainer_module.parse_train_log(log_file, None))
+
+    train_dir = str(args.train_dir) if args.train_dir is not None else ""
+    teachers = [row.teacher for row in rows if row.teacher]
+    if teachers:
+        teacher = teachers[-1]
+        teacher_path = PureWindowsPath(teacher) if "\\" in teacher else Path(teacher)
+        train_dir = str(teacher_path.parent)
 
     summary: dict[str, str | int] = {
         "lr": str(trial.lr),
@@ -319,6 +325,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "test_total_loss": "",
         "status": "done" if rows else "no_log",
         "final_epoch": "",
+        "train-dir": train_dir,
         "out_dir": str(trial.out_dir),
     }
     if not rows:
@@ -356,6 +363,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         "test_total_loss",
         "status",
         "final_epoch",
+        "train-dir",
         "out_dir",
     ]
     if not include_temperature:

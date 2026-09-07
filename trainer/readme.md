@@ -370,6 +370,10 @@ python .\grid_search.py ^
 
 `--temperatures` を省略した場合は `1.0` だけを試します。
 
+CSVの右端`out_dir`の直前に、教師フォルダを示す`train-dir`列を出力します。
+学習前は`--train-dir`の指定値、学習ログから教師ファイルを取得できる場合はその親フォルダを使用します。
+`--summary-only`でもログから復元します。ログにも引数にも情報がない場合は空欄です。
+
 CSVの`temperature`列は`--temperatures`を明示した場合だけ、`policy_mix`列は
 `--policy-mixes`を明示した場合だけ出力します。値が`1.0`だけでも明示すれば列が出ます。
 `--summary-only`でも同じ条件です。これらの指定は再集計対象を絞り込むものではなく、
