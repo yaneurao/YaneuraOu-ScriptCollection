@@ -370,6 +370,11 @@ python .\grid_search.py ^
 
 `--temperatures` を省略した場合は `1.0` だけを試します。
 
+CSVの`temperature`列は`--temperatures`を明示した場合だけ、`policy_mix`列は
+`--policy-mixes`を明示した場合だけ出力します。値が`1.0`だけでも明示すれば列が出ます。
+`--summary-only`でも同じ条件です。これらの指定は再集計対象を絞り込むものではなく、
+列の値には各試行フォルダから復元した実際の条件を使用します。
+
 `--policy-mixes 0 0.05 0.1 0.25 1`でpolicyの混合比率も全組み合わせで比較できます。省略時は`1.0`だけです。
 例えば温度を固定し、次のように指定します（checkpoint等は自分のパスに置き換えてください）。
 
@@ -377,7 +382,7 @@ python .\grid_search.py ^
 python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_policy_mix --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 --temperatures 0.1 --policy-mixes 0 0.05 0.1 0.25 1
 ```
 
-出力フォルダ名には`_pmix0.1`のように混合比率が入り、`grid_summary.csv`には`policy_mix`列が追加されます。
+出力フォルダ名には`_pmix0.1`のように混合比率が入り、`--policy-mixes`を明示した場合は`grid_summary.csv`に`policy_mix`列が出力されます。
 `--summary-only`でも復元できます。`_pmix`のない従来の試行フォルダは、従来挙動の`policy_mix=1.0`として集計します。
 
 ## SWA

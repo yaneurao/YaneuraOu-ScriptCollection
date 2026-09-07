@@ -58,8 +58,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lrs", type=float, nargs="+")
     parser.add_argument("--lr-mins", type=float, nargs="+")
     parser.add_argument("--val-lambdas", type=float, nargs="+")
-    parser.add_argument("--temperatures", type=float, nargs="+", default=[1.0])
-    parser.add_argument("--policy-mixes", type=float, nargs="+", default=[1.0])
+    parser.add_argument("--temperatures", type=float, nargs="+")
+    parser.add_argument("--policy-mixes", type=float, nargs="+")
     parser.add_argument("--batchsizes", type=int, nargs="+")
     parser.add_argument("--batches-per-updates", type=int, nargs="+")
     parser.add_argument("--rounds", type=int, default=1)
@@ -99,6 +99,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile_fullgraph", action="store_true")
     parser.add_argument("--compile_dynamic", action="store_true")
     args = parser.parse_args()
+    args.include_temperature = args.temperatures is not None
+    args.include_policy_mix = args.policy_mixes is not None
+    if args.temperatures is None:
+        args.temperatures = [1.0]
+    if args.policy_mixes is None:
+        args.policy_mixes = [1.0]
     if any(not 0.0 <= value <= 1.0 for value in args.policy_mixes):
         parser.error("--policy-mixes values must be between 0 and 1")
     if not args.summary_only:
@@ -333,7 +339,8 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
     return summary
 
 
-def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
+def write_summary(path: Path, rows: list[dict[str, str | int]], *,
+                  include_temperature: bool = True, include_policy_mix: bool = True) -> None:
     fieldnames = [
         "lr",
         "lr_min",
@@ -351,11 +358,15 @@ def write_summary(path: Path, rows: list[dict[str, str | int]]) -> None:
         "final_epoch",
         "out_dir",
     ]
+    if not include_temperature:
+        fieldnames.remove("temperature")
+    if not include_policy_mix:
+        fieldnames.remove("policy_mix")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
 
 
 def main() -> None:
@@ -364,10 +375,12 @@ def main() -> None:
     if args.summary_only and not trials:
         raise ValueError(f"No trial folders found in {args.model_root}; summary CSV was not changed.")
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
+    summary_options = dict(include_temperature=args.include_temperature,
+                           include_policy_mix=args.include_policy_mix)
 
     if not args.summary_only:
         summaries = [summarize_trial(args, item) for item in trials]
-        write_summary(summary_csv, summaries)
+        write_summary(summary_csv, summaries, **summary_options)
         print(f"summary initialized: {summary_csv}")
 
         for index, trial in enumerate(trials, start=1):
@@ -393,18 +406,18 @@ def main() -> None:
                 failed = True
                 if not args.continue_on_error:
                     summaries = [summarize_trial(args, item) for item in trials]
-                    write_summary(summary_csv, summaries)
+                    write_summary(summary_csv, summaries, **summary_options)
                     print(f"summary: {summary_csv}")
                     raise
                 print(f"trial failed: {trial.out_dir}", file=sys.stderr)
 
             summaries = [summarize_trial(args, item) for item in trials]
-            write_summary(summary_csv, summaries)
+            write_summary(summary_csv, summaries, **summary_options)
             status = "failed" if failed else "done"
             print(f"summary updated ({status}): {summary_csv}")
 
     summaries = [summarize_trial(args, trial) for trial in trials]
-    write_summary(summary_csv, summaries)
+    write_summary(summary_csv, summaries, **summary_options)
     print(f"summary: {summary_csv}")
 
 
