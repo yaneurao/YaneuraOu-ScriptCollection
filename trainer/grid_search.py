@@ -156,11 +156,11 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                             name = f"{args.network}_lr{float_tag(lr)}"
                             if lr_min is not None:
                                 name += f"_lrmin{float_tag(lr_min)}"
-                            name += (
-                                f"_val{float_tag(val_lambda)}"
-                                f"_temp{float_tag(temperature)}"
-                                f"_pmix{float_tag(policy_mix)}"
-                            )
+                            name += f"_val{float_tag(val_lambda)}"
+                            if args.include_temperature:
+                                name += f"_temp{float_tag(temperature)}"
+                            if args.include_policy_mix:
+                                name += f"_pmix{float_tag(policy_mix)}"
                             if batchsize is not None:
                                 name += f"_bs{batchsize}"
                             if batches_per_update is not None:

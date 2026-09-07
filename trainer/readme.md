@@ -370,6 +370,11 @@ python .\grid_search.py ^
 
 `--temperatures` を省略した場合は `1.0` だけを試します。
 
+フォルダ名の`_temp...`は`--temperatures`を明示した場合だけ、`_pmix...`は
+`--policy-mixes`を明示した場合だけ付けます。両方省略すれば、例えば`net_lr0.001_val0.5`となります。
+値が1でも明示すればタグを付けます。既存フォルダの名前は変更せず、`--summary-only`では
+タグあり・なしの両形式を読み取れます。省略時の学習値はどちらも1.0のままです。
+
 ### 互角付近のvalue lossを重くする
 
 `trainer.py --value-loss-min-weight 0.5`で、教師評価値から得た期待勝率`q`に対して
@@ -413,7 +418,7 @@ CSVの`temperature`列は`--temperatures`を明示した場合だけ、`policy_m
 python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_policy_mix --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 --temperatures 0.1 --policy-mixes 0 0.05 0.1 0.25 1
 ```
 
-出力フォルダ名には`_pmix0.1`のように混合比率が入り、`--policy-mixes`を明示した場合は`grid_summary.csv`に`policy_mix`列が出力されます。
+`--policy-mixes`を明示した場合だけ、出力フォルダ名に`_pmix0.1`のような混合比率を付け、`grid_summary.csv`に`policy_mix`列を出力します。
 `--summary-only`でも復元できます。`_pmix`のない従来の試行フォルダは、従来挙動の`policy_mix=1.0`として集計します。
 
 ## SWA
