@@ -951,7 +951,8 @@ class KifWriter:
             self.game_count += 1
             self.position_num += game_data.position_num
             if self.game_count % 100 == 0:
-                print_log(f"total games written: {self.game_count}, position_num = {self.position_num}")
+                suffix = self.progress_suffix() if getattr(self, "progress_suffix", None) else ""
+                print_log(f"total games written: {self.game_count}, position_num = {self.position_num}{suffix}")
 
     def close(self):
         """ファイルを閉じる"""
@@ -1004,7 +1005,8 @@ class Hcpe3Writer:
             self.game_count += 1
             self.position_num += game_data.position_num
             if self.game_count % 100 == 0:
-                print_log(f"total hcpe3 games written: {self.game_count}, position_num = {self.position_num}")
+                suffix = self.progress_suffix() if getattr(self, "progress_suffix", None) else ""
+                print_log(f"total hcpe3 games written: {self.game_count}, position_num = {self.position_num}{suffix}")
 
     def close(self):
         self.hcpe3_file.close()
