@@ -65,7 +65,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--value-loss-min-weights", type=float, nargs="+")
     parser.add_argument("--batchsizes", type=int, nargs="+")
     parser.add_argument("--batches-per-updates", type=int, nargs="+")
-    parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument("--rounds", type=int, nargs="+",
+                        help="Rounds to summarize; train once up to the largest (default: 1).")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--trainer", type=Path, default=Path(__file__).with_name("trainer.py"))
     parser.add_argument("--summary-csv", type=Path)
@@ -126,8 +127,12 @@ def parse_args() -> argparse.Namespace:
                 "the following arguments are required unless --summary-only is used: "
                 + ", ".join("--" + name.replace("_", "-") for name in missing)
             )
-    if args.rounds < 1:
+    if args.rounds is not None and any(value < 1 for value in args.rounds):
         parser.error("--rounds must be >= 1")
+    args.summary_rounds = sorted(set(args.rounds)) if args.rounds is not None else (
+        None if args.summary_only else [1]
+    )
+    args.rounds = max(args.summary_rounds) if args.summary_rounds else 1
     if args.batchsizes and args.batchsize is not None:
         parser.error("--batchsizes and --batchsize cannot be used together")
     if args.batches_per_updates and args.batches_per_update is not None:
@@ -310,8 +315,16 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
             command.append(option)
 
 
-def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | int]:
-    log_files = trainer_module.iter_train_log_files([trial.out_dir]) if trial.out_dir.exists() else []
+def summarize_trial(args: argparse.Namespace, trial: Trial,
+                    round_number: int | None = None) -> dict[str, str | int]:
+    out_dir = trial.out_dir if round_number in (None, 1) else trial.out_dir.with_name(
+        f"{trial.out_dir.name}_round{round_number}"
+    )
+    if round_number is None:
+        log_files = trainer_module.iter_train_log_files([out_dir]) if out_dir.exists() else []
+    else:
+        # Only this round: iter_train_log_files also includes sibling rounds.
+        log_files = sorted(out_dir.glob('train-*.log'), key=trainer_module.train_log_index)
     rows: list[trainer_module.TrainLogRow] = []
     for log_file in log_files:
         rows.extend(trainer_module.parse_train_log(log_file, None))
@@ -341,10 +354,14 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
         "swa_test_policy_accuracy": "",
         "swa_test_value_accuracy": "",
         "test_total_loss": "",
+        "round": round_number or (
+            trainer_module.split_train_log_round_dir_name(log_files[-1].parent.name)[1]
+            if log_files else 1
+        ),
         "status": "done" if rows else "no_log",
         "final_epoch": "",
         "train-dir": train_dir,
-        "out_dir": str(trial.out_dir),
+        "out_dir": str(out_dir),
     }
     if not rows:
         return summary
@@ -364,6 +381,11 @@ def summarize_trial(args: argparse.Namespace, trial: Trial) -> dict[str, str | i
     return summary
 
 
+def summarize_trials(args: argparse.Namespace, trials: list[Trial]) -> list[dict[str, str | int]]:
+    return [summarize_trial(args, trial, round_number)
+            for trial in trials for round_number in (args.summary_rounds or [None])]
+
+
 def write_summary(path: Path, rows: list[dict[str, str | int]], *,
                   include_temperature: bool = True, include_policy_mix: bool = True,
                   include_value_loss_min_weight: bool = False) -> None:
@@ -376,6 +398,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         "value_loss_min_weight",
         "batchsize",
         "batches_per_update",
+        "round",
         "test_policy_accuracy",
         "test_value_accuracy",
         "swa_test_policy_accuracy",
@@ -399,17 +422,17 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
 
 
-def trial_is_complete(args: argparse.Namespace, trial: Trial) -> bool:
+def completed_round_count(args: argparse.Namespace, trial: Trial) -> int:
     if not trainer_module.checkpoint_files_in_directory(trial.out_dir):
-        return False
+        return 0
     teacher_count = len(trainer_module.collect_teacher_files(args.train_dir))
     if not teacher_count:
-        return False
+        return 0
     directories = dict(trainer_module.round_directories(trial.out_dir))
     for round_number in range(1, args.rounds + 1):
         directory = directories.get(round_number)
         if directory is None:
-            return False
+            return round_number - 1
         epoch = teacher_count * round_number
         checkpoint = directory / f"checkpoint-{epoch:04}.pth"
         # The final checkpoint precedes SWA evaluation and model export.
@@ -418,14 +441,46 @@ def trial_is_complete(args: argparse.Namespace, trial: Trial) -> bool:
             path.is_file() and path.stat().st_size > 0
             for path in (model, model.with_suffix(".npz"))
         ):
-            return False
+            return round_number - 1
         log = directory / f"train-{epoch:04}.log"
         if not log.is_file():
-            return False
+            return round_number - 1
         rows = trainer_module.parse_train_log(log, None)
         if not rows or rows[-1].epoch != epoch or not rows[-1].test_loss[3]:
-            return False
-    return True
+            return round_number - 1
+    return args.rounds
+
+
+def trial_is_complete(args: argparse.Namespace, trial: Trial) -> bool:
+    return completed_round_count(args, trial) == args.rounds
+
+
+def remaining_trainer_commands(
+    args: argparse.Namespace, trial: Trial, completed: int,
+) -> list[list[str]]:
+    if completed == 0:
+        return [trainer_command(args, trial)]
+    teacher_count = len(trainer_module.collect_teacher_files(args.train_dir))
+    commands = []
+    for round_number in range(completed + 1, args.rounds + 1):
+        out_dir = trial.out_dir.with_name(f"{trial.out_dir.name}_round{round_number}")
+        if trainer_module.checkpoint_files_in_directory(out_dir):
+            raise FileExistsError(
+                f"Round {round_number} has incomplete checkpoints: {out_dir}. "
+                "Automatic continuation is supported only from completed rounds."
+            )
+        previous_dir = trial.out_dir if round_number == 2 else trial.out_dir.with_name(
+            f"{trial.out_dir.name}_round{round_number - 1}"
+        )
+        checkpoint = previous_dir / f"checkpoint-{teacher_count * (round_number - 1):04}.pth"
+        command = trainer_command(args, trial)
+        command[command.index('--out_dir') + 1] = str(out_dir)
+        command[command.index('--rounds') + 1] = '1'
+        init_index = command.index('--init_checkpoint')
+        command[init_index:init_index + 2] = ['--resume_checkpoint', str(checkpoint)]
+        command.extend(['--reset_optimizer', '--reset_scheduler'])
+        commands.append(command)
+    return commands
 
 
 def main() -> None:
@@ -439,12 +494,11 @@ def main() -> None:
                            include_value_loss_min_weight=args.include_value_loss_min_weight)
 
     if not args.summary_only:
-        summaries = [summarize_trial(args, item) for item in trials]
+        summaries = summarize_trials(args, trials)
         write_summary(summary_csv, summaries, **summary_options)
         print(f"summary initialized: {summary_csv}")
 
         for index, trial in enumerate(trials, start=1):
-            command = trainer_command(args, trial)
             print(
                 f"[{index}/{len(trials)}] "
                 f"lr={trial.lr} "
@@ -457,30 +511,38 @@ def main() -> None:
                 "batches_per_update="
                 f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"
             )
-            if trial_is_complete(args, trial):
+            completed = completed_round_count(args, trial)
+            if completed == args.rounds:
                 print(f"skip completed: {trial.out_dir}")
                 continue
-            print(" ".join(command))
+            commands = remaining_trainer_commands(args, trial, completed)
+            if completed:
+                print(f"continue: {completed}/{args.rounds} rounds completed; "
+                      f"starting round {completed + 1}: {trial.out_dir}")
             if args.dry_run:
+                for command in commands:
+                    print(" ".join(command))
                 continue
             failed = False
             try:
-                subprocess.run(command, check=True)
+                for command in commands:
+                    print(" ".join(command))
+                    subprocess.run(command, check=True)
             except subprocess.CalledProcessError:
                 failed = True
                 if not args.continue_on_error:
-                    summaries = [summarize_trial(args, item) for item in trials]
+                    summaries = summarize_trials(args, trials)
                     write_summary(summary_csv, summaries, **summary_options)
                     print(f"summary: {summary_csv}")
                     raise
                 print(f"trial failed: {trial.out_dir}", file=sys.stderr)
 
-            summaries = [summarize_trial(args, item) for item in trials]
+            summaries = summarize_trials(args, trials)
             write_summary(summary_csv, summaries, **summary_options)
             status = "failed" if failed else "done"
             print(f"summary updated ({status}): {summary_csv}")
 
-    summaries = [summarize_trial(args, trial) for trial in trials]
+    summaries = summarize_trials(args, trials)
     write_summary(summary_csv, summaries, **summary_options)
     print(f"summary: {summary_csv}")
 

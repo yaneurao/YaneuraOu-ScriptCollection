@@ -303,7 +303,19 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
-各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには3round目の最終epochの結果を出力します。例えば教師ファイルが10個なら `final_epoch` は30です。既存の1round完了結果を3roundに延長する機能ではないため、新しく3roundで比較する場合は別の `--model-root` を指定してください。
+各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには3round目の最終epochの結果を出力します。例えば教師ファイルが10個なら `final_epoch` は30です。
+
+`--rounds 1 2 3` のように複数指定すると、最大の3roundまで一度だけ学習し、各組み合わせについて1・2・3round目の最終結果をCSVに3行出力します。`round` 列で区別でき、`out_dir` はそのroundのフォルダになります。教師ファイルが10個なら各行の `final_epoch` は10・20・30です。`--rounds 1 3` なら1・3round目だけを出力します。重複したround指定はまとめ、昇順で集計します。
+
+再学習せず既存結果をround別に集計する場合:
+
+```powershell
+python trainer/grid_search.py --model-root C:\shogi\model\grid --summary-only --rounds 1 2 3
+```
+
+指定したroundにログがなければ、その行は `status=no_log`、評価指標は空欄になります。`--summary-only` で `--rounds` を省略した場合は、従来どおり各試行の最新ログの結果を1行ずつ出力します。
+
+`--rounds` は追加回数ではなく、合計の目標round数です。同じ `--model-root` と学習条件で、round1完了後に `--rounds 3` を指定すると、`continue: 1/3 rounds completed` と表示し、round2・3だけを実行します。round2まで完了していればround3だけ、round3まで完了していればスキップします。継続時は最初の `--checkpoint` に戻らず、その試行の最後に完了したroundのcheckpointを使います。完了済みroundのファイルは変更しません。未完了roundにcheckpointがある場合の途中再開は対象外で、上書きせずエラーで停止します。
 
 同じコマンドを再実行すると、完了済みの試行は `skip completed` と表示して学習をスキップし、既存ログの最終epochの結果をCSVに含めます。指定したround数と現在の教師ファイル数に対応する最終epochのログ・checkpoint・出力モデルが揃っていることを確認します。途中までのcheckpointだけでは完了扱いにせず、既存データを上書きしません。初期checkpointや教師データなどを変更して別の実験をする場合は、別の `--model-root` を指定してください。
 
