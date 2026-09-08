@@ -911,15 +911,17 @@ def run_one_round(
         out_dir = next_round_out_dir(resume_checkpoint)
         checkpoint_offset = checkpoint_number(resume_checkpoint)
     else:
+        # Keep subsequent rounds in the explicitly selected run, not the
+        # default network directory shared by other grid-search trials.
+        base_dir = args.out_dir.resolve() if args.out_dir else make_out_dir(model_root, args.network)
         (
             out_dir,
             resume_checkpoint,
             checkpoint_offset,
             auto_reset_optimizer,
             auto_reset_scheduler,
-        ) = auto_round_state(model_root, args.network, total_epochs, checkpoint_suffix)
+        ) = auto_round_state(base_dir.parent, base_dir.name, total_epochs, checkpoint_suffix)
         if args.backend == "ptl" and resume_checkpoint is None and checkpoint_offset == 0:
-            base_dir = make_out_dir(model_root, args.network)
             legacy_state = latest_round_checkpoint(base_dir, ".pth")
             if legacy_state is not None:
                 legacy_number, _, legacy_dir, legacy_checkpoint = legacy_state
@@ -1327,8 +1329,9 @@ def main() -> None:
         help=(
             "Number of rounds (full passes over all teacher files) to run consecutively. "
             "Equivalent to invoking trainer.py this many times. "
-            "--out_dir / --resume_checkpoint / --init_checkpoint apply to the first round only; "
-            "subsequent rounds use auto round detection from --model_root and --network."
+            "--resume_checkpoint / --init_checkpoint apply to the first round only; "
+            "subsequent rounds use auto round detection from --out_dir when specified, "
+            "otherwise from --model_root and --network."
         ),
     )
     args = parser.parse_args()

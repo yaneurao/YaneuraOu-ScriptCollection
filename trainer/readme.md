@@ -211,8 +211,8 @@ python .\trainer.py --rounds 3
 
 注意点:
 
-- `--out_dir`、`--resume_checkpoint`、`--init_checkpoint` は **最初の round にだけ** 適用されます。2周目以降は `--model_root` と `--network` から自動検出した出力先 (`..._round{N+1}`) へ進みます
-- 途中で失敗した場合は、同じコマンドをもう一度実行すれば未完了の round / 教師ファイルから再開します
+- `--resume_checkpoint`、`--init_checkpoint` は **最初の round にだけ** 適用されます。2周目以降は `--out_dir` を指定していればその試行、未指定なら `--model_root` と `--network` から自動検出した出力先 (`..._round{N+1}`) へ進みます
+- 出力先やcheckpointを指定しない自動検出モードでは、途中で失敗した場合は同じコマンドをもう一度実行すれば未完了の round / 教師ファイルから再開します。`--init_checkpoint` は新規学習用なので、既存checkpointへの上書き再開はしません
 
 ## train.py 版の1周目から PTL 版の2周目へ移る
 
@@ -302,6 +302,8 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 ## lr / val_lambda のgrid search
 
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
+
+各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには3round目の最終epochの結果を出力します。例えば教師ファイルが10個なら `final_epoch` は30です。既存の1round完了結果を3roundに延長する機能ではないため、新しく3roundで比較する場合は別の `--model-root` を指定してください。
 
 同じコマンドを再実行すると、完了済みの試行は `skip completed` と表示して学習をスキップし、既存ログの最終epochの結果をCSVに含めます。指定したround数と現在の教師ファイル数に対応する最終epochのログ・checkpoint・出力モデルが揃っていることを確認します。途中までのcheckpointだけでは完了扱いにせず、既存データを上書きしません。初期checkpointや教師データなどを変更して別の実験をする場合は、別の `--model-root` を指定してください。
 
