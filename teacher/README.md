@@ -635,3 +635,25 @@ python teacher/filter_drawn_games.py -source teacher/ -dest teacher-no-drawn/ --
 - 一括処理では `-source` と `-dest` を必ずセットで指定します。
 - 入力ファイルサイズが38で割り切れない場合は、HCPEではない、または壊れたファイルとしてエラーにします。
 - HCPE3ではなく、従来のHCPE形式を対象にします。
+
+## HCPE3とHCPEを混合してシャッフルしたHCPEを出力
+
+`concat_hcpe3_round_robin.py` に `--output-format hcpe` を指定すると、HCPE3とHCPEを混在入力できます。
+
+```powershell
+python teacher/concat_hcpe3_round_robin.py `
+  --output C:\shogi\teacher\output `
+  --source C:\shogi\teacher\input1.hcpe3 `
+  --source C:\shogi\teacher\input2.hcpe `
+  --split 5 `
+  --shuffle-positions `
+  --output-format hcpe
+```
+
+- 入力形式は拡張子で判別します。フォルダ指定も可能で、このモードでは省略時に `*.hcpe*` を列挙します。`--pattern` で絞り込めます。
+- HCPEはそのまま、HCPE3は盤面・selectedMove16・eval・勝敗をHCPEに変換します。候補手数0の局面は出力しませんが、盤面を進めるために指し手を使用します。勝敗は先後の絶対結果のまま保持します。
+- 候補手が複数あるHCPE3局面は、分布情報を失うためエラーにします。MultiPV 1で生成した教師を対象にしてください。
+- `--shuffle-positions` は入力元をまたいで局面をシャッフルします。既存の一時バケット方式を使い、一度に読み込むのは1バケットです。全局面をRAMに載せませんが、一時ディスク容量が必要です。
+- `--split 5` は局面数の差が最大1になる5ファイルを生成します。出力名は `mixed-00001.hcpe` などです。フォルダ名によって出力形式が変わることはありません。
+- `--split` を省略すると `--positions` 単位で分割します。HCPE出力では `--max-output-size` と `--max-outputs` は使用できません。シャッフルを指定しない場合もHCPEへの変換は可能です。
+- `--output-format` の省略時は従来どおりHCPE3出力で、HCPE入力は受け付けません。入力ファイルは変更しません。

@@ -24,6 +24,7 @@ import numpy as np
 
 
 HCPE3_HEADER_SIZE = 36
+HCPE_SIZE = cshogi.HuffmanCodedPosAndEval.itemsize
 MOVE_INFO_SIZE = 6
 MOVE_VISITS_SIZE = 4
 MOVE_NUM_OFFSET = 32
@@ -166,7 +167,12 @@ class InputFileReader:
         open_readers: OpenReaderCache,
     ) -> GameRecord | None:
         file = open_readers.open(self)
-        data = read_hcpe3_game(file, self.spec.path)
+        if self.spec.path.suffix.lower() == '.hcpe':
+            data = file.read(HCPE_SIZE) or None
+            if data is not None and len(data) != HCPE_SIZE:
+                raise RuntimeError(f"truncated HCPE record: {self.spec.path}")
+        else:
+            data = read_hcpe3_game(file, self.spec.path)
         self.offset = file.tell()
         if data is None:
             open_readers.close(self)
@@ -395,13 +401,19 @@ def parse_sources(
                     force=force,
                 )
 
-            file_games = count_hcpe3_games(path, report_file_progress)
+            if path.suffix.lower() == '.hcpe':
+                if file_size % HCPE_SIZE:
+                    raise ValueError(f"invalid HCPE file size: {path}")
+                file_games = file_size // HCPE_SIZE
+                report_file_progress(file_size, file_games, force=True)
+            else:
+                file_games = count_hcpe3_games(path, report_file_progress)
             file_specs.append(InputFileSpec(source_index, source_dir, path, file_games))
             games += file_games
             counted_bytes += file_size
 
         if games <= 0:
-            raise RuntimeError(f"no HCPE3 games found in {source_dir}: {pattern}")
+            raise RuntimeError(f"no input records found in {source_dir}")
         progress.report(
             f"count done source {source_index}/{source_count} "
             f"{source_dir} files={len(files)} games={games} bytes={format_bytes(source_bytes)}",
@@ -458,7 +470,12 @@ def read_hcpe3_game(file, path: Path) -> bytes | None:
     return b"".join(parts)
 
 
-def iter_hcpe3_position_records(record: GameRecord):
+def iter_hcpe3_position_records(record: GameRecord, output_format: str = 'hcpe3'):
+    if record.input_file.suffix.lower() == '.hcpe':
+        if output_format != 'hcpe':
+            raise ValueError('HCPE input requires --output-format hcpe')
+        yield record.data[:32], record.data
+        return
     board = cshogi.Board()
     hcp = np.zeros(1, dtype=cshogi.dtypeHcp)
     offset = 0
@@ -485,7 +502,22 @@ def iter_hcpe3_position_records(record: GameRecord):
         position_header[:32] = hcp[0].tobytes()
         struct.pack_into("<H", position_header, MOVE_NUM_OFFSET, 1)
         position_record = bytes(position_header) + move_info + visits
-        yield hcp[0].tobytes(), position_record
+        if output_format == 'hcpe':
+            if candidate_num > 1:
+                raise ValueError(
+                    f"MultiPV candidates cannot be preserved in HCPE: "
+                    f"{record.input_file} game={record.file_game_index} ply={ply}"
+                )
+            if candidate_num:
+                selected_move16, evaluation = struct.unpack_from('<Hh', move_info)
+                result = header[34] & 3
+                if result > 2:
+                    raise ValueError(f"invalid gameResult: {record.input_file}")
+                yield hcp[0].tobytes(), hcp[0].tobytes() + struct.pack(
+                    '<hHBx', evaluation, selected_move16, result
+                )
+        else:
+            yield hcp[0].tobytes(), position_record
 
         if ply + 1 < move_num:
             selected_move16 = struct.unpack_from("<H", move_info, 0)[0]
@@ -515,8 +547,7 @@ def write_length_prefixed(file, record: bytes) -> None:
     file.write(record)
 
 
-def read_length_prefixed_records(path: Path) -> list[bytes]:
-    records = []
+def iter_length_prefixed_records(path: Path):
     with path.open("rb") as file:
         while True:
             size_bytes = file.read(4)
@@ -528,8 +559,11 @@ def read_length_prefixed_records(path: Path) -> list[bytes]:
             data = file.read(size)
             if len(data) != size:
                 raise RuntimeError(f"truncated bucket record body: {path}")
-            records.append(data)
-    return records
+            yield data
+
+
+def read_length_prefixed_records(path: Path) -> list[bytes]:
+    return list(iter_length_prefixed_records(path))
 
 
 def count_hcpe3_games(path: Path, progress=None) -> int:
@@ -628,14 +662,16 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("-o", "--output", type=Path, required=True, help="output folder")
+    parser.add_argument('--output-format', choices=('hcpe3', 'hcpe'), default='hcpe3',
+                        help='output format (default: hcpe3); hcpe accepts mixed inputs')
     parser.add_argument(
         "--source",
         action="append",
         metavar="PATH",
         required=True,
-        help="source folder or HCPE3 file; can be specified multiple times",
+        help="source folder or HCPE3/HCPE file; can be specified multiple times",
     )
-    parser.add_argument("--pattern", default="*.hcpe3", help="input filename pattern for source folders")
+    parser.add_argument("--pattern", help="input filename pattern (default: *.hcpe3, or *.hcpe* for HCPE output)")
     parser.add_argument(
         "--recursive",
         action="store_true",
@@ -736,6 +772,7 @@ class PositionSplitWriter:
         split_targets: list[int] | None,
         digits: int,
         manifest,
+        output_format: str = 'hcpe3',
     ):
         self.output_dir = output_dir
         self.prefix = prefix
@@ -743,6 +780,7 @@ class PositionSplitWriter:
         self.split_targets = split_targets
         self.digits = digits
         self.manifest = manifest
+        self.output_format = output_format
         self.output = None
         self.stats = None
         self.output_index = 0
@@ -763,7 +801,9 @@ class PositionSplitWriter:
         if self.output is None or self.stats.positions >= self.current_target():
             self.close()
             self.output_index += 1
-            output_file = make_output_path(self.output_dir, self.prefix, self.output_index, self.digits)
+            output_file = make_output_path(self.output_dir, self.prefix, self.output_index, self.digits).with_suffix(
+                '.' + self.output_format
+            )
             self.output = output_file.open("wb")
             self.stats = PositionOutputStats(output_file=output_file)
 
@@ -849,7 +889,7 @@ def run_shuffle_positions(args, sources: list[SourceSpec], progress: ProgressRep
             "manifest already exists; use --force to overwrite: " + str(manifest_path)
         )
 
-    for output_file in args.output.glob(f"{args.prefix}-*.hcpe3"):
+    for output_file in args.output.glob(f"{args.prefix}-*.{args.output_format}"):
         if output_file == manifest_path:
             continue
         if not args.force:
@@ -869,8 +909,8 @@ def run_shuffle_positions(args, sources: list[SourceSpec], progress: ProgressRep
     try:
         for record in iter_round_robin_records(sources, args.max_open_files):
             written_games += 1
-            for hcp_bytes, position_record in iter_hcpe3_position_records(record):
-                bucket = packed_position_xor_key(hcp_bytes, args.seed) % args.bucket_count
+            for hcp_bytes, position_record in iter_hcpe3_position_records(record, args.output_format):
+                bucket = packed_position_xor_key(hcp_bytes, args.seed) % args.bucket_count if args.shuffle_positions else 0
                 out = bucket_files.get(bucket)
                 if out is None:
                     out = bucket_path(work_dir, bucket).open("ab")
@@ -914,6 +954,7 @@ def run_shuffle_positions(args, sources: list[SourceSpec], progress: ProgressRep
             split_targets,
             args.digits,
             manifest,
+            args.output_format,
         )
         shuffled_positions = 0
         try:
@@ -921,10 +962,13 @@ def run_shuffle_positions(args, sources: list[SourceSpec], progress: ProgressRep
                 path = bucket_path(work_dir, bucket)
                 if not path.exists():
                     continue
-                records = read_length_prefixed_records(path)
-                order = rng.permutation(len(records))
-                for index in order:
-                    writer.write(records[int(index)])
+                if args.shuffle_positions:
+                    records = read_length_prefixed_records(path)
+                    ordered_records = (records[int(index)] for index in rng.permutation(len(records)))
+                else:
+                    ordered_records = iter_length_prefixed_records(path)
+                for position_record in ordered_records:
+                    writer.write(position_record)
                     shuffled_positions += 1
                 progress.report(
                     f"write buckets {bucket + 1}/{args.bucket_count} "
@@ -971,11 +1015,16 @@ def main() -> None:
     source_inputs = collect_source_inputs(
         args.source,
         args.output,
-        args.pattern,
+        args.pattern or ('*.hcpe*' if args.output_format == 'hcpe' else '*.hcpe3'),
         args.recursive,
     )
+    allowed = {'.hcpe3', '.hcpe'} if args.output_format == 'hcpe' else {'.hcpe3'}
+    for source in source_inputs:
+        for path in source.files:
+            if path.suffix.lower() not in allowed:
+                raise ValueError(f"unsupported input for {args.output_format} output: {path}")
     sources = parse_sources(source_inputs, progress)
-    if args.shuffle_positions:
+    if args.shuffle_positions or args.output_format == 'hcpe':
         run_shuffle_positions(args, sources, progress)
         return
 
