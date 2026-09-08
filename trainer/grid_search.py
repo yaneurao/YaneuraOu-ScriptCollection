@@ -399,6 +399,35 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
 
 
+def trial_is_complete(args: argparse.Namespace, trial: Trial) -> bool:
+    if not trainer_module.checkpoint_files_in_directory(trial.out_dir):
+        return False
+    teacher_count = len(trainer_module.collect_teacher_files(args.train_dir))
+    if not teacher_count:
+        return False
+    directories = dict(trainer_module.round_directories(trial.out_dir))
+    for round_number in range(1, args.rounds + 1):
+        directory = directories.get(round_number)
+        if directory is None:
+            return False
+        epoch = teacher_count * round_number
+        checkpoint = directory / f"checkpoint-{epoch:04}.pth"
+        # The final checkpoint precedes SWA evaluation and model export.
+        model = directory / f"model-{epoch:04}"
+        if not checkpoint.is_file() or not any(
+            path.is_file() and path.stat().st_size > 0
+            for path in (model, model.with_suffix(".npz"))
+        ):
+            return False
+        log = directory / f"train-{epoch:04}.log"
+        if not log.is_file():
+            return False
+        rows = trainer_module.parse_train_log(log, None)
+        if not rows or rows[-1].epoch != epoch or not rows[-1].test_loss[3]:
+            return False
+    return True
+
+
 def main() -> None:
     args = parse_args()
     trials = discover_trials(args.model_root) if args.summary_only else make_trials(args)
@@ -428,6 +457,9 @@ def main() -> None:
                 "batches_per_update="
                 f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"
             )
+            if trial_is_complete(args, trial):
+                print(f"skip completed: {trial.out_dir}")
+                continue
             print(" ".join(command))
             if args.dry_run:
                 continue

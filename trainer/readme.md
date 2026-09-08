@@ -303,6 +303,8 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
+同じコマンドを再実行すると、完了済みの試行は `skip completed` と表示して学習をスキップし、既存ログの最終epochの結果をCSVに含めます。指定したround数と現在の教師ファイル数に対応する最終epochのログ・checkpoint・出力モデルが揃っていることを確認します。途中までのcheckpointだけでは完了扱いにせず、既存データを上書きしません。初期checkpointや教師データなどを変更して別の実験をする場合は、別の `--model-root` を指定してください。
+
 ```powershell
 python .\grid_search.py ^
   --checkpoint C:\shogi\model\exp___i15x192\checkpoint-0839.pth ^
@@ -396,9 +398,11 @@ python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth `
 既存の`_vlmw`がない試行は1として扱います。
 
 勾配蓄積時は各ミニバッチで別々に正規化せず、更新1回分の重み合計で正規化します。
-`a<1`かつ勾配蓄積時はvalue勾配用の追加バッファと分離した逆伝播が必要なため、
-従来よりメモリと計算時間が増えます。`a=1`の計算経路は従来通りです。
-DeepLearningShogi側も対応する`dlshogi/train.py`と`dlshogi/value_loss.py`に更新してください。
+`a<1`かつ勾配蓄積時は、更新対象の教師valueから重み平均だけをC++で先読みします。
+逆伝播はミニバッチごとに1回で、value勾配用の追加バッファは不要です。
+`a=1`の計算経路は従来通りです。DeepLearningShogi側のPython・C++・Cythonソースを更新し、
+DeepLearningShogiフォルダで`python setup.py build_ext --inplace --force`を実行してください。
+古いネイティブ拡張のまま重み付けと勾配蓄積を併用すると、学習開始前に再ビルドを案内して終了します。
 
 ### CSVの条件列
 
