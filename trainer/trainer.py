@@ -267,7 +267,8 @@ def teacher_path_from_log_message(message: str) -> str | None:
     return match.group("path") if match else None
 
 
-def parse_train_log(path: Path, teacher_root: Path | None) -> list[TrainLogRow]:
+def parse_train_log(path: Path, teacher_root: Path | None, *,
+                    complete_lines_only: bool = False) -> list[TrainLogRow]:
     rows: list[TrainLogRow] = []
     rows_by_epoch: dict[int, TrainLogRow] = {}
     state = TrainLogRow(source=str(path))
@@ -277,7 +278,10 @@ def parse_train_log(path: Path, teacher_root: Path | None) -> list[TrainLogRow]:
     if fallback_epoch:
         state.epoch = int(fallback_epoch.group(1))
 
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if complete_lines_only and not text.endswith("\n"):
+        text = text.rpartition("\n")[0]
+    for raw_line in text.splitlines():
         message = train_log_info_message(raw_line)
 
         if message.startswith("batchsize="):

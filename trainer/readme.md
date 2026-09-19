@@ -303,9 +303,9 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
-各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには3round目の最終epochの結果を出力します。例えば教師ファイルが10個なら `final_epoch` は30です。
+各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには1～3roundの全epochの結果を出力します。例えば教師ファイルが10個なら、1試行につき `epoch` が1～30の30行になります。
 
-`--rounds 1 2 3` のように複数指定すると、最大の3roundまで一度だけ学習し、各組み合わせについて1・2・3round目の最終結果をCSVに3行出力します。`round` 列で区別でき、`out_dir` はそのroundのフォルダになります。教師ファイルが10個なら各行の `final_epoch` は10・20・30です。`--rounds 1 3` なら1・3round目だけを出力します。重複したround指定はまとめ、昇順で集計します。
+`--rounds 1 2 3` や `--rounds 1 3` も、最大値の3roundまで一度だけ学習し、途中のroundも含めて全epochを集計します。`round` と `epoch` 列で区別でき、`out_dir` はそのroundのフォルダになります。
 
 再学習せず既存結果をround別に集計する場合:
 
@@ -313,11 +313,11 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 python trainer/grid_search.py --model-root C:\shogi\model\grid --summary-only --rounds 1 2 3
 ```
 
-指定したroundにログがなければ、その行は `status=no_log`、評価指標は空欄になります。`--summary-only` で `--rounds` を省略した場合は、従来どおり各試行の最新ログの結果を1行ずつ出力します。
+指定したroundに結果がなければ、その行は `status=no_log`、epochと評価指標は空欄になります。`--summary-only` で `--rounds` を省略した場合は、存在する全round・全epochを集計します。
 
 `--rounds` は追加回数ではなく、合計の目標round数です。同じ `--model-root` と学習条件で、round1完了後に `--rounds 3` を指定すると、`continue: 1/3 rounds completed` と表示し、round2・3だけを実行します。round2まで完了していればround3だけ、round3まで完了していればスキップします。継続時は最初の `--checkpoint` に戻らず、その試行の最後に完了したroundのcheckpointを使います。完了済みroundのファイルは変更しません。未完了roundにcheckpointがある場合の途中再開は対象外で、上書きせずエラーで停止します。
 
-同じコマンドを再実行すると、完了済みの試行は `skip completed` と表示して学習をスキップし、既存ログの最終epochの結果をCSVに含めます。指定したround数と現在の教師ファイル数に対応する最終epochのログ・checkpoint・出力モデルが揃っていることを確認します。途中までのcheckpointだけでは完了扱いにせず、既存データを上書きしません。初期checkpointや教師データなどを変更して別の実験をする場合は、別の `--model-root` を指定してください。
+同じコマンドを再実行すると、完了済みの試行は `skip completed` と表示して学習をスキップし、既存ログの全epochの結果をCSVに含めます。指定したround数と現在の教師ファイル数に対応する最終epochのログ・checkpoint・出力モデルが揃っていることを確認します。途中までのcheckpointだけでは完了扱いにせず、既存データを上書きしません。初期checkpointや教師データなどを変更して別の実験をする場合は、別の `--model-root` を指定してください。
 
 ```powershell
 python .\grid_search.py ^
@@ -355,7 +355,9 @@ C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1_bs2048_bpu4
 C:\shogi\model\grid_lr_val\grid_summary.csv
 ```
 
-grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各試行が終わるたびに更新します。途中経過を確認したい場合は、このCSVを開いてください。
+grid searchは学習開始前に既存ログを集計し、完了済みepochをCSVへ書き出します。結果のない試行・roundだけが `no_log` になります。学習中は1秒間隔でログを確認し、epochの評価結果が出るごとに行を追加します。SWAの結果が後から出た場合は同じepochの行を更新します。学習終了・失敗時にも集計します。
+
+CSVは一時ファイルに書いてから置き換えるため、更新途中の空ファイルを見せません。ExcelなどがCSVをロックして更新できない場合は警告を出し、学習を継続しながら再試行します。CSVを閉じれば次回更新で追いつきます。
 
 主なCSV列の意味:
 
@@ -364,13 +366,13 @@ grid search開始時に全試行を `no_log` 状態でCSVへ書き出し、各�
 - `swa_test_policy_accuracy`: SWAモデルのpolicy accuracy
 - `swa_test_value_accuracy`: SWAモデルのvalue / result binary accuracy
 - `test_total_loss`: `policy loss + (1 - val_lambda) * result loss + val_lambda * value loss`
-- `final_epoch`: 集計対象となった最後のepoch
+- `round`: 教師フォルダを何周目に学習したか
+- `epoch`: この行のepoch番号（roundをまたぐ通算番号。旧 `final_epoch` 列から変更）
 
 dlshogiのログに出る `test loss` は `policy_loss, result_loss, value_loss, total_loss` の順です。`grid_summary.csv` にはこのうち `total_loss` を `test_total_loss` として出力します。
 
-各試行のaccuracy・lossは、常にログに記録された最後のepochの値を出力します。
-途中のepochの最良値は選びません。途中集計では、その時点で結果が記録されている最後のepochを使用します。
-最後のepochにSWAの値がない場合も、以前のepochの値では埋めません。
+各試行のaccuracy・lossは、epochごとにそのepochの値を出力します。最良epochの選別はしません。
+SWAの値がまだないepochは `nan` とし、別のepochの値では埋めません。書きかけのログ行は次回の更新まで読み飛ばします。
 
 既存ログだけを再集計したい場合:
 

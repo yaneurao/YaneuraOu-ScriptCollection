@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path, PureWindowsPath
@@ -66,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batchsizes", type=int, nargs="+")
     parser.add_argument("--batches-per-updates", type=int, nargs="+")
     parser.add_argument("--rounds", type=int, nargs="+",
-                        help="Rounds to summarize; train once up to the largest (default: 1).")
+                        help="Train up to the largest round and summarize every epoch (default: 1).")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--trainer", type=Path, default=Path(__file__).with_name("trainer.py"))
     parser.add_argument("--summary-csv", type=Path)
@@ -129,7 +131,7 @@ def parse_args() -> argparse.Namespace:
             )
     if args.rounds is not None and any(value < 1 for value in args.rounds):
         parser.error("--rounds must be >= 1")
-    args.summary_rounds = sorted(set(args.rounds)) if args.rounds is not None else (
+    args.summary_rounds = list(range(1, max(args.rounds) + 1)) if args.rounds is not None else (
         None if args.summary_only else [1]
     )
     args.rounds = max(args.summary_rounds) if args.summary_rounds else 1
@@ -316,7 +318,7 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
 
 
 def summarize_trial(args: argparse.Namespace, trial: Trial,
-                    round_number: int | None = None) -> dict[str, str | int]:
+                    round_number: int | None = None, *, parse_log=None) -> list[dict[str, str | int]]:
     out_dir = trial.out_dir if round_number in (None, 1) else trial.out_dir.with_name(
         f"{trial.out_dir.name}_round{round_number}"
     )
@@ -327,7 +329,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial,
         log_files = sorted(out_dir.glob('train-*.log'), key=trainer_module.train_log_index)
     rows: list[trainer_module.TrainLogRow] = []
     for log_file in log_files:
-        rows.extend(trainer_module.parse_train_log(log_file, None))
+        rows.extend((parse_log or trainer_module.parse_train_log)(log_file, None))
 
     train_dir = str(args.train_dir) if args.train_dir is not None else ""
     teachers = [row.teacher for row in rows if row.teacher]
@@ -359,31 +361,40 @@ def summarize_trial(args: argparse.Namespace, trial: Trial,
             if log_files else 1
         ),
         "status": "done" if rows else "no_log",
-        "final_epoch": "",
+        "epoch": "",
         "train-dir": train_dir,
         "out_dir": str(out_dir),
     }
     if not rows:
-        return summary
+        return [summary]
 
-    final = rows[-1]
-    summary.update(
-        {
-            "final_epoch": final.epoch or "",
-            "test_policy_accuracy": final.test_accuracy[0],
-            "test_value_accuracy": final.test_accuracy[1],
-            "swa_test_policy_accuracy": final.swa_test_accuracy[0],
-            "swa_test_value_accuracy": final.swa_test_accuracy[1],
-            "test_total_loss": final.test_loss[3],
+    # A restarted log may contain another result for the same epoch.
+    summaries = {}
+    for row in rows:
+        directory = Path(row.source).parent
+        number = round_number or trainer_module.split_train_log_round_dir_name(directory.name)[1]
+        row_train_dir = train_dir
+        if row.teacher:
+            teacher = PureWindowsPath(row.teacher) if "\\" in row.teacher else Path(row.teacher)
+            row_train_dir = str(teacher.parent)
+        summaries[number, row.epoch] = {
+            **summary,
+            "round": number,
+            "epoch": row.epoch if row.epoch is not None else "",
+            "test_policy_accuracy": row.test_accuracy[0],
+            "test_value_accuracy": row.test_accuracy[1],
+            "swa_test_policy_accuracy": row.swa_test_accuracy[0],
+            "swa_test_value_accuracy": row.swa_test_accuracy[1],
+            "test_total_loss": row.test_loss[3],
+            "train-dir": row_train_dir,
+            "out_dir": str(directory),
         }
-    )
-
-    return summary
+    return sorted(summaries.values(), key=lambda row: (row['round'], row['epoch'] or 0))
 
 
-def summarize_trials(args: argparse.Namespace, trials: list[Trial]) -> list[dict[str, str | int]]:
-    return [summarize_trial(args, trial, round_number)
-            for trial in trials for round_number in (args.summary_rounds or [None])]
+def summarize_trials(args: argparse.Namespace, trials: list[Trial], *, parse_log=None) -> list[dict[str, str | int]]:
+    return [row for trial in trials for round_number in (args.summary_rounds or [None])
+            for row in summarize_trial(args, trial, round_number, parse_log=parse_log)]
 
 
 def write_summary(path: Path, rows: list[dict[str, str | int]], *,
@@ -405,7 +416,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         "swa_test_value_accuracy",
         "test_total_loss",
         "status",
-        "final_epoch",
+        "epoch",
         "train-dir",
         "out_dir",
     ]
@@ -416,10 +427,40 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
     if not include_value_loss_min_weight:
         fieldnames.remove("value_loss_min_weight")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
+    # Readers see either the previous CSV or the complete new CSV.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", newline="", encoding="utf-8",
+                                         dir=path.parent, delete=False) as f:
+            temporary = Path(f.name)
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def run_training(command: list[str], *, update_summary) -> None:
+    # Inherit the console streams; only monitor logs, not trainer stdout.
+    with subprocess.Popen(command) as process:
+        try:
+            while True:
+                try:
+                    returncode = process.wait(timeout=1)
+                    break
+                except subprocess.TimeoutExpired:
+                    update_summary()
+            if returncode:
+                raise subprocess.CalledProcessError(returncode, command)
+        except BaseException:
+            if process.poll() is None:
+                process.terminate()
+                process.wait()
+            raise
+        finally:
+            update_summary()
 
 
 def completed_round_count(args: argparse.Namespace, trial: Trial) -> int:
@@ -493,9 +534,34 @@ def main() -> None:
                            include_policy_mix=args.include_policy_mix,
                            include_value_loss_min_weight=args.include_value_loss_min_weight)
 
+    last_summaries = None
+    log_cache = {}
+
+    def update_summary():
+        nonlocal last_summaries
+        # Training logs can be large. Reparse only new/changed files.
+        original_parser = trainer_module.parse_train_log
+
+        def cached_parser(path, teacher_root):
+            stat = path.stat()
+            signature = (stat.st_mtime_ns, stat.st_size)
+            cached = log_cache.get(path)
+            if cached is None or cached[0] != signature:
+                cached = (signature, original_parser(path, teacher_root, complete_lines_only=True))
+                log_cache[path] = cached
+            return cached[1]
+
+        summaries = summarize_trials(args, trials, parse_log=cached_parser)
+        if summaries != last_summaries:
+            try:
+                write_summary(summary_csv, summaries, **summary_options)
+            except PermissionError:
+                print(f"Cannot update summary (file in use): {summary_csv}", file=sys.stderr)
+                return
+            last_summaries = summaries
+
     if not args.summary_only:
-        summaries = summarize_trials(args, trials)
-        write_summary(summary_csv, summaries, **summary_options)
+        update_summary()
         print(f"summary initialized: {summary_csv}")
 
         for index, trial in enumerate(trials, start=1):
@@ -527,23 +593,20 @@ def main() -> None:
             try:
                 for command in commands:
                     print(" ".join(command))
-                    subprocess.run(command, check=True)
+                    run_training(command, update_summary=update_summary)
             except subprocess.CalledProcessError:
                 failed = True
                 if not args.continue_on_error:
-                    summaries = summarize_trials(args, trials)
-                    write_summary(summary_csv, summaries, **summary_options)
+                    update_summary()
                     print(f"summary: {summary_csv}")
                     raise
                 print(f"trial failed: {trial.out_dir}", file=sys.stderr)
 
-            summaries = summarize_trials(args, trials)
-            write_summary(summary_csv, summaries, **summary_options)
+            update_summary()
             status = "failed" if failed else "done"
             print(f"summary updated ({status}): {summary_csv}")
 
-    summaries = summarize_trials(args, trials)
-    write_summary(summary_csv, summaries, **summary_options)
+    update_summary()
     print(f"summary: {summary_csv}")
 
 
