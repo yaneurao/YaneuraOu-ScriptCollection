@@ -1223,7 +1223,7 @@ def main() -> None:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument(
-        "--lr-min",
+        "--lr_min",
         dest="lr_min",
         type=float,
         default=1e-5,
@@ -1237,7 +1237,7 @@ def main() -> None:
         default="cosine",
         help=(
             "LR scheduler. cosine keeps the legacy behavior. exponential "
-            "uses --lr as the round start lr and --lr-min as the round end lr."
+            "uses --lr as the round start lr and --lr_min as the round end lr."
         ),
     )
     parser.add_argument("--network", default="exp___i20x256")
@@ -1359,9 +1359,9 @@ def main() -> None:
         if args.lr <= 0:
             parser.error("--lr must be > 0 for --lr-scheduler exponential")
         if args.lr_min <= 0:
-            parser.error("--lr-min must be > 0 for --lr-scheduler exponential")
+            parser.error("--lr_min must be > 0 for --lr-scheduler exponential")
         if args.lr_min > args.lr:
-            parser.error("--lr-min must be <= --lr for --lr-scheduler exponential")
+            parser.error("--lr_min must be <= --lr for --lr-scheduler exponential")
     if args.resume_checkpoint and args.init_checkpoint:
         parser.error("--resume_checkpoint and --init_checkpoint cannot be used together")
 

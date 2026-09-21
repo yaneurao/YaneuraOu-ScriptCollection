@@ -15,7 +15,7 @@ model folder = C:\shogi\model\exp___i20x256
 batchsize    = 1024
 batches_per_update = 1
 lr           = 0.03
-lr-min       = 1e-5
+lr_min       = 1e-5
 lr_scheduler = cosine
 amp_dtype    = bfloat16
 val_lambda   = 1.0
@@ -29,14 +29,14 @@ use_compile  = False
 ```
 
 LR scheduler の既定値は `cosine` です。`trainer.py` は教師ファイル1個を1 epochとして `dlshogi.train` / `dlshogi.ptl` を呼び出し、scheduler は各教師ファイルの学習後に1回進みます。
-cosine では、最後の教師ファイルで `lr-min` に到達するように、周期を実質 `教師ファイル数 - 1` として扱います。
+cosine では、最後の教師ファイルで `lr_min` に到達するように、周期を実質 `教師ファイル数 - 1` として扱います。
 
-指数減衰を使う場合は `--lr-scheduler exponential` を指定します。この場合、`--lr` はround開始時のlr、`--lr-min` はround終了時のlrです。round開始時に確定している教師ファイル数から `gamma` を計算し、最後の教師ファイルの学習に使うlrが `lr-min` になるようにします。
+指数減衰を使う場合は `--lr-scheduler exponential` を指定します。この場合、`--lr` はround開始時のlr、`--lr_min` はround終了時のlrです。round開始時に確定している教師ファイル数から `gamma` を計算し、最後の教師ファイルの学習に使うlrが `lr_min` になるようにします。
 
 ```powershell
 python .\trainer.py ^
   --lr 0.03 ^
-  --lr-min 0.0001 ^
+  --lr_min 0.0001 ^
   --lr-scheduler exponential
 ```
 
@@ -309,7 +309,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 | 名前 | 値の範囲 |
 |---|---|
 | `lr` | 0以上の有限な数 |
-| `lr-min` | 0以上の有限な数 |
+| `lr_min` | 0以上の有限な数 |
 | `val_lambda` | 0～1 |
 | `temperature` | 0以上の有限な数 |
 | `policy-mix` | 0～1 |
@@ -317,11 +317,11 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 | `batchsize` | 1以上の整数 |
 | `batches-per-update` | 1以上の整数 |
 
-固定値は `--lr 0.0007`、`--val_lambda 0.5`、`--lr-min 0.00007` のように指定できます。
+固定値は `--lr 0.0007`、`--val_lambda 0.5`、`--lr_min 0.00007` のように指定できます。
 `lr` と `val_lambda` は学習時に固定値か `--grid` で指定する必要があります。
 同じ名前の `--grid` の重複や、固定値と `--grid` の併用はエラーです。
 1つの `--grid` 内で同じ値が重複しても、同じ試行は繰り返しません。
-指数減衰では全組み合わせについて `0 < lr-min <= lr` が必要です。
+指数減衰では全組み合わせについて `0 < lr_min <= lr` が必要です。
 旧複数形オプション（`--lrs`など）は廃止しました。
 
 各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには1～3roundの全epochの結果を出力します。例えば教師ファイルが10個なら、1試行につき `epoch` が1～30の30行になります。
@@ -347,7 +347,7 @@ python .\grid_search.py ^
   --network exp___i15x192 ^
   --model-root C:\shogi\model\grid_lr_val ^
   --grid lr 0.001 0.0007 0.0005 0.0003 ^
-  --grid lr-min 0.00005 0.00001 ^
+  --grid lr_min 0.00005 0.00001 ^
   --grid val_lambda 0.33 0.5 0.67 1.0 ^
   --grid temperature 1.0 0.8 ^
   --grid batchsize 1024 2048 ^
@@ -368,7 +368,7 @@ C:\shogi\model\grid_lr_val\exp___i15x192_lr0.001_val0.33_temp1_bs2048_bpu4
 ...
 ```
 
-`lr_min`, `batchsize`, `batches_per_update` も複数指定できます。grid searchの軸にせず固定値だけ指定したい場合は、`--lr-min 0.00005` / `--batchsize 4096` / `--batches-per-update 64` を使います。
+`lr_min`, `batchsize`, `batches_per_update` も複数指定できます。grid searchの軸にせず固定値だけ指定したい場合は、`--lr_min 0.00005` / `--batchsize 4096` / `--batches-per-update 64` を使います。
 
 集計CSVは既定では以下に出力されます。
 

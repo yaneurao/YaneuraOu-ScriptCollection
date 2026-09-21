@@ -53,7 +53,7 @@ TRIAL_DIR_RE = re.compile(
 # (type, default, minimum, maximum); None defaults are required or delegated.
 GRID_PARAMETERS = {
     "lr": (float, None, 0, None),
-    "lr-min": (float, None, 0, None),
+    "lr_min": (float, None, 0, None),
     "val_lambda": (float, None, 0, 1),
     "temperature": (float, 1.0, 0, None),
     "policy-mix": (float, 1.0, 0, 1),
@@ -155,11 +155,11 @@ def parse_args() -> argparse.Namespace:
             if args.grid_values[name] == [None]:
                 parser.error(f"specify --{name} VALUE or --grid {name} VALUE [VALUE ...]")
         if args.lr_scheduler == 'exponential':
-            # trainer.py uses 1e-5 when lr-min is omitted.
-            for lr, lr_min in product(args.grid_values['lr'], args.grid_values['lr-min']):
+            # trainer.py uses 1e-5 when lr_min is omitted.
+            for lr, lr_min in product(args.grid_values['lr'], args.grid_values['lr_min']):
                 lr_min = 1e-5 if lr_min is None else lr_min
                 if not 0 < lr_min <= lr:
-                    parser.error("exponential requires 0 < lr-min <= lr for every combination")
+                    parser.error("exponential requires 0 < lr_min <= lr for every combination")
     if args.rounds is not None and any(value < 1 for value in args.rounds):
         parser.error("--rounds must be >= 1")
     args.summary_rounds = list(range(1, max(args.rounds) + 1)) if args.rounds is not None else (
@@ -176,7 +176,7 @@ def float_tag(value: float) -> str:
 def make_trials(args: argparse.Namespace) -> list[Trial]:
     trials: list[Trial] = []
     values = args.grid_values
-    lr_mins = values['lr-min']
+    lr_mins = values['lr_min']
     batchsizes = values['batchsize']
     batches_per_updates = values['batches-per-update']
     for lr in values['lr']:
@@ -305,7 +305,7 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
     if trial.batches_per_update is not None:
         command.extend(["--batches-per-update", str(trial.batches_per_update)])
     if trial.lr_min is not None:
-        command.extend(["--lr-min", str(trial.lr_min)])
+        command.extend(["--lr_min", str(trial.lr_min)])
     append_optional_trainer_args(args, command)
     return command
 
