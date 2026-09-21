@@ -303,6 +303,27 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
+比較するパラメーターは `--grid 名前 値1 値2 ...` を繰り返して指定します。
+名前は `trainer.py` の引数から先頭の `--` を除いたものです。複数形にはしません。
+
+| 名前 | 値の範囲 |
+|---|---|
+| `lr` | 0以上の有限な数 |
+| `lr-min` | 0以上の有限な数 |
+| `val_lambda` | 0～1 |
+| `temperature` | 0以上の有限な数 |
+| `policy-mix` | 0～1 |
+| `value-loss-min-weight` | 0～1 |
+| `batchsize` | 1以上の整数 |
+| `batches-per-update` | 1以上の整数 |
+
+固定値は `--lr 0.0007`、`--val_lambda 0.5`、`--lr-min 0.00007` のように指定できます。
+`lr` と `val_lambda` は学習時に固定値か `--grid` で指定する必要があります。
+同じ名前の `--grid` の重複や、固定値と `--grid` の併用はエラーです。
+1つの `--grid` 内で同じ値が重複しても、同じ試行は繰り返しません。
+指数減衰では全組み合わせについて `0 < lr-min <= lr` が必要です。
+旧複数形オプション（`--lrs`など）は廃止しました。
+
 各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには1～3roundの全epochの結果を出力します。例えば教師ファイルが10個なら、1試行につき `epoch` が1～30の30行になります。
 
 `--rounds 1 2 3` や `--rounds 1 3` も、最大値の3roundまで一度だけ学習し、途中のroundも含めて全epochを集計します。`round` と `epoch` 列で区別でき、`out_dir` はそのroundのフォルダになります。
@@ -325,12 +346,12 @@ python .\grid_search.py ^
   --train-dir C:\shogi\teacher\aoba-yanennue-20260831a ^
   --network exp___i15x192 ^
   --model-root C:\shogi\model\grid_lr_val ^
-  --lrs 0.001 0.0007 0.0005 0.0003 ^
-  --lr-mins 0.00005 0.00001 ^
-  --val-lambdas 0.33 0.5 0.67 1.0 ^
-  --temperatures 1.0 0.8 ^
-  --batchsizes 1024 2048 ^
-  --batches-per-updates 1 4 ^
+  --grid lr 0.001 0.0007 0.0005 0.0003 ^
+  --grid lr-min 0.00005 0.00001 ^
+  --grid val_lambda 0.33 0.5 0.67 1.0 ^
+  --grid temperature 1.0 0.8 ^
+  --grid batchsize 1024 2048 ^
+  --grid batches-per-update 1 4 ^
   --rounds 1 ^
   --use_compile --compile_backend inductor --compile_mode reduce-overhead
 ```
@@ -386,10 +407,10 @@ python .\grid_search.py ^
 
 `_lrmin7e-05`のような指数表記の条件も検出します。試行フォルダが1つも検出できない場合はエラーとし、既存のCSVを上書きしません。
 
-`--temperatures` を省略した場合は `1.0` だけを試します。
+`temperature`を固定値でも`--grid`でも指定しない場合は `1.0` だけを試します。
 
-フォルダ名の`_temp...`は`--temperatures`を明示した場合だけ、`_pmix...`は
-`--policy-mixes`を明示した場合だけ付けます。両方省略すれば、例えば`net_lr0.001_val0.5`となります。
+フォルダ名の`_temp...`は`temperature`を固定値または`--grid`で明示した場合だけ、`_pmix...`は
+`policy-mix`を同様に明示した場合だけ付けます。両方省略すれば、例えば`net_lr0.001_val0.5`となります。
 値が1でも明示すればタグを付けます。既存フォルダの名前は変更せず、`--summary-only`では
 タグあり・なしの両形式を読み取れます。省略時の学習値はどちらも1.0のままです。
 
@@ -404,13 +425,13 @@ evalfix有効時は補正後の教師valueを使います。対応backendは`tra
 ```powershell
 python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth `
   --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_value_weight `
-  --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 `
-  --value-loss-min-weights 0.25 0.5 0.75 1.0
+  --network exp___i15x192 --grid lr 0.0007 --grid val_lambda 0.5 `
+  --grid value-loss-min-weight 0.25 0.5 0.75 1.0
 ```
 
 明示指定時はフォルダ名に`_vlmw0.5`などを付け、CSVに`value_loss_min_weight`列を出力します。
 省略時はこの列を出力しません。`--summary-only`でも、列を表示するには
-`--value-loss-min-weights`を明示してください。値は各フォルダから復元し、対象の絞り込みには使いません。
+`--grid value-loss-min-weight`または固定値の`--value-loss-min-weight`を明示してください。値は各フォルダから復元し、対象の絞り込みには使いません。
 既存の`_vlmw`がない試行は1として扱います。
 
 勾配蓄積時は各ミニバッチで別々に正規化せず、更新1回分の重み合計で正規化します。
@@ -426,19 +447,18 @@ CSVの右端`out_dir`の直前に、教師フォルダを示す`train-dir`列を
 学習前は`--train-dir`の指定値、学習ログから教師ファイルを取得できる場合はその親フォルダを使用します。
 `--summary-only`でもログから復元します。ログにも引数にも情報がない場合は空欄です。
 
-CSVの`temperature`列は`--temperatures`を明示した場合だけ、`policy_mix`列は
-`--policy-mixes`を明示した場合だけ出力します。値が`1.0`だけでも明示すれば列が出ます。
+CSVの`temperature`列と`policy_mix`列は、それぞれを固定値または`--grid`で明示した場合だけ出力します。値が`1.0`だけでも明示すれば列が出ます。
 `--summary-only`でも同じ条件です。これらの指定は再集計対象を絞り込むものではなく、
 列の値には各試行フォルダから復元した実際の条件を使用します。
 
-`--policy-mixes 0 0.05 0.1 0.25 1`でpolicyの混合比率も全組み合わせで比較できます。省略時は`1.0`だけです。
+`--grid policy-mix 0 0.05 0.1 0.25 1`でpolicyの混合比率も全組み合わせで比較できます。省略時は`1.0`だけです。
 例えば温度を固定し、次のように指定します（checkpoint等は自分のパスに置き換えてください）。
 
 ```powershell
-python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_policy_mix --network exp___i15x192 --lrs 0.0007 --val-lambdas 0.5 --temperatures 0.1 --policy-mixes 0 0.05 0.1 0.25 1
+python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint-0839.pth --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_policy_mix --network exp___i15x192 --grid lr 0.0007 --grid val_lambda 0.5 --grid temperature 0.1 --grid policy-mix 0 0.05 0.1 0.25 1
 ```
 
-`--policy-mixes`を明示した場合だけ、出力フォルダ名に`_pmix0.1`のような混合比率を付け、`grid_summary.csv`に`policy_mix`列を出力します。
+`policy-mix`を固定値または`--grid`で明示した場合だけ、出力フォルダ名に`_pmix0.1`のような混合比率を付け、`grid_summary.csv`に`policy_mix`列を出力します。
 `--summary-only`でも復元できます。`_pmix`のない従来の試行フォルダは、従来挙動の`policy_mix=1.0`として集計します。
 
 ## SWA

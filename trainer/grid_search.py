@@ -3,7 +3,7 @@
 Example:
   python trainer/grid_search.py --checkpoint C:\\model\\checkpoint-0839.pth \
     --train-dir C:\\teacher\\train --network exp___i15x192 \
-    --lrs 0.001 0.0007 --val-lambdas 0.33 0.5 --temperatures 1.0 0.8 \
+    --grid lr 0.001 0.0007 --grid val_lambda 0.33 0.5 --grid temperature 1.0 0.8 \
     --use_compile --compile_backend inductor
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import re
 import subprocess
@@ -48,25 +49,34 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_vlmw(?P<value_loss_min_weight>[^_]+))?$"
 )
 
+# Names match trainer.py options, without their leading '--'.
+# (type, default, minimum, maximum); None defaults are required or delegated.
+GRID_PARAMETERS = {
+    "lr": (float, None, 0, None),
+    "lr-min": (float, None, 0, None),
+    "val_lambda": (float, None, 0, 1),
+    "temperature": (float, 1.0, 0, None),
+    "policy-mix": (float, 1.0, 0, 1),
+    "value-loss-min-weight": (float, 1.0, 0, 1),
+    "batchsize": (int, None, 1, None),
+    "batches-per-update": (int, None, 1, None),
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Run YOSC trainer.py for every lr/val_lambda pair and summarize logs."
-        )
+        description="Run trainer.py for every combination of --grid values and summarize logs.",
+        allow_abbrev=False,
     )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--train-dir", type=Path)
     parser.add_argument("--network")
     parser.add_argument("--model-root", type=Path, required=True)
-    parser.add_argument("--lrs", type=float, nargs="+")
-    parser.add_argument("--lr-mins", type=float, nargs="+")
-    parser.add_argument("--val-lambdas", type=float, nargs="+")
-    parser.add_argument("--temperatures", type=float, nargs="+")
-    parser.add_argument("--policy-mixes", type=float, nargs="+")
-    parser.add_argument("--value-loss-min-weights", type=float, nargs="+")
-    parser.add_argument("--batchsizes", type=int, nargs="+")
-    parser.add_argument("--batches-per-updates", type=int, nargs="+")
+    parser.add_argument("--grid", action="append", nargs="+", default=[], metavar="NAME_OR_VALUE",
+                        help="Repeat --grid NAME VALUE [VALUE ...]. Names: "
+                             + ", ".join(GRID_PARAMETERS))
+    for name, (value_type, _, _, _) in GRID_PARAMETERS.items():
+        parser.add_argument("--" + name, type=value_type, help="Fixed value (cannot also use --grid).")
     parser.add_argument("--rounds", type=int, nargs="+",
                         help="Train up to the largest round and summarize every epoch (default: 1).")
     parser.add_argument("--python", default=sys.executable)
@@ -83,9 +93,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run remaining trials even if one trainer.py invocation fails.",
     )
-    parser.add_argument("--batchsize", type=int)
-    parser.add_argument("--batches-per-update", type=int)
-    parser.add_argument("--lr-min", type=float)
     parser.add_argument("--lr-scheduler", choices=("cosine", "exponential"))
     parser.add_argument("--hcpe_val_lambda", type=float)
     parser.add_argument("--hcpe3_val_lambda", type=float)
@@ -105,23 +112,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile_fullgraph", action="store_true")
     parser.add_argument("--compile_dynamic", action="store_true")
     args = parser.parse_args()
-    args.include_value_loss_min_weight = args.value_loss_min_weights is not None
-    if args.value_loss_min_weights is None:
-        args.value_loss_min_weights = [1.0]
-    if any(not 0.0 <= value <= 1.0 for value in args.value_loss_min_weights):
-        parser.error("--value-loss-min-weights values must be between 0 and 1")
-    args.include_temperature = args.temperatures is not None
-    args.include_policy_mix = args.policy_mixes is not None
-    if args.temperatures is None:
-        args.temperatures = [1.0]
-    if args.policy_mixes is None:
-        args.policy_mixes = [1.0]
-    if any(not 0.0 <= value <= 1.0 for value in args.policy_mixes):
-        parser.error("--policy-mixes values must be between 0 and 1")
+    axes = {}
+    for group in args.grid:
+        name, *values = group
+        if name not in GRID_PARAMETERS:
+            parser.error(f"unknown --grid parameter: {name}; choose from {', '.join(GRID_PARAMETERS)}")
+        if not values:
+            parser.error(f"--grid {name} requires at least one value")
+        if name in axes:
+            parser.error(f"duplicate --grid parameter: {name}")
+        if getattr(args, name.replace('-', '_')) is not None:
+            parser.error(f"--{name} and --grid {name} cannot be used together")
+        try:
+            axes[name] = [GRID_PARAMETERS[name][0](value) for value in values]
+        except ValueError:
+            parser.error(f"invalid value for --grid {name}: expected {GRID_PARAMETERS[name][0].__name__}")
+    args.grid_values = {}
+    for name, (_, default, minimum, maximum) in GRID_PARAMETERS.items():
+        fixed = getattr(args, name.replace('-', '_'))
+        values = axes.get(name, [fixed if fixed is not None else default])
+        for value in values:
+            if value is not None and (not math.isfinite(value) or value < minimum
+                                      or (maximum is not None and value > maximum)):
+                parser.error(f"{name} must be finite and >= {minimum}"
+                             + (f" and <= {maximum}" if maximum is not None else ""))
+        args.grid_values[name] = list(dict.fromkeys(values))
+    for name in ("temperature", "policy-mix", "value-loss-min-weight"):
+        setattr(args, 'include_' + name.replace('-', '_'),
+                name in axes or getattr(args, name.replace('-', '_')) is not None)
     if not args.summary_only:
         missing = [
             name
-            for name in ("checkpoint", "train_dir", "network", "lrs", "val_lambdas")
+            for name in ("checkpoint", "train_dir", "network")
             if getattr(args, name) is None
         ]
         if missing:
@@ -129,18 +151,21 @@ def parse_args() -> argparse.Namespace:
                 "the following arguments are required unless --summary-only is used: "
                 + ", ".join("--" + name.replace("_", "-") for name in missing)
             )
+        for name in ('lr', 'val_lambda'):
+            if args.grid_values[name] == [None]:
+                parser.error(f"specify --{name} VALUE or --grid {name} VALUE [VALUE ...]")
+        if args.lr_scheduler == 'exponential':
+            # trainer.py uses 1e-5 when lr-min is omitted.
+            for lr, lr_min in product(args.grid_values['lr'], args.grid_values['lr-min']):
+                lr_min = 1e-5 if lr_min is None else lr_min
+                if not 0 < lr_min <= lr:
+                    parser.error("exponential requires 0 < lr-min <= lr for every combination")
     if args.rounds is not None and any(value < 1 for value in args.rounds):
         parser.error("--rounds must be >= 1")
     args.summary_rounds = list(range(1, max(args.rounds) + 1)) if args.rounds is not None else (
         None if args.summary_only else [1]
     )
     args.rounds = max(args.summary_rounds) if args.summary_rounds else 1
-    if args.batchsizes and args.batchsize is not None:
-        parser.error("--batchsizes and --batchsize cannot be used together")
-    if args.batches_per_updates and args.batches_per_update is not None:
-        parser.error("--batches-per-updates and --batches-per-update cannot be used together")
-    if args.lr_mins and args.lr_min is not None:
-        parser.error("--lr-mins and --lr-min cannot be used together")
     return args
 
 
@@ -150,14 +175,15 @@ def float_tag(value: float) -> str:
 
 def make_trials(args: argparse.Namespace) -> list[Trial]:
     trials: list[Trial] = []
-    lr_mins = args.lr_mins or [args.lr_min]
-    batchsizes = args.batchsizes or [args.batchsize]
-    batches_per_updates = args.batches_per_updates or [args.batches_per_update]
-    for lr in args.lrs:
+    values = args.grid_values
+    lr_mins = values['lr-min']
+    batchsizes = values['batchsize']
+    batches_per_updates = values['batches-per-update']
+    for lr in values['lr']:
         for lr_min in lr_mins:
-            for val_lambda in args.val_lambdas:
+            for val_lambda in values['val_lambda']:
                 for temperature, policy_mix, value_loss_min_weight in product(
-                        args.temperatures, args.policy_mixes, args.value_loss_min_weights):
+                        values['temperature'], values['policy-mix'], values['value-loss-min-weight']):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
