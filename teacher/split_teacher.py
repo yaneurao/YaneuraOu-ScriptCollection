@@ -74,6 +74,19 @@ def write_part(records: np.ndarray, path: Path) -> None:
     print(path, len(records))
 
 
+def deduplicate_records(records: np.ndarray) -> np.ndarray:
+    """Keep the first occurrence of each complete record, in input order."""
+    seen: set[bytes] = set()
+    keep = np.zeros(len(records), dtype=bool)
+    for index, record in enumerate(records):
+        key = record.tobytes()
+        if key not in seen:
+            seen.add(key)
+            keep[index] = True
+    del seen
+    return records[keep]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -121,7 +134,7 @@ def main() -> None:
     original_len = len(records)
 
     if args.uniq:
-        records = np.unique(records)
+        records = deduplicate_records(records)
         print(args.input, original_len, len(records))
     else:
         print(args.input, original_len)
@@ -154,7 +167,7 @@ def main() -> None:
         part = records[pos:pos_next]
         if args.uniq_each_split:
             before = len(part)
-            part = np.unique(part)
+            part = deduplicate_records(part)
             print("uniq_each_split", before, len(part))
 
         output_index = i + 1 if split_requested or args.output is None else None
