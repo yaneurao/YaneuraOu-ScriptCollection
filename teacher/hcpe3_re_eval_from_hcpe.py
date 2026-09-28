@@ -10,46 +10,8 @@
 # policy は MCTS の visit 分布ではなくモデル予測分布になる点に注意。
 
 import argparse
-import os
 import sys
 from pathlib import Path
-
-
-def _add_nvidia_dll_dirs() -> None:
-    """
-    Windows で `pip install nvidia-cudnn-cu12` などで cuDNN / cuBLAS を入れた場合、
-    DLL は `...\\site-packages\\nvidia\\<lib>\\bin\\` に置かれるが、これは Windows の
-    既定 DLL 検索パスに入らないため、ONNX Runtime がロードできずに `cudnn64_9.dll
-    is missing` 系のエラーになる。
-
-    onnxruntime を import する前に、pip インストール済みの nvidia.* パッケージの
-    bin ディレクトリを os.add_dll_directory で登録しておく。
-    """
-    if sys.platform != 'win32':
-        return
-    for mod_name in ('cudnn', 'cublas', 'cuda_runtime', 'cuda_nvrtc'):
-        try:
-            m = __import__('nvidia.' + mod_name, fromlist=['*'])
-        except ImportError:
-            continue
-        bin_dir = os.path.join(os.path.dirname(m.__file__), 'bin')
-        if not os.path.isdir(bin_dir):
-            continue
-        # 1) %PATH% の先頭に挿入。ONNX Runtime の依存 DLL (例: cudnn64_9.dll) を
-        #    LoadLibraryW で解決する経路はこちらしか効かないため必須。
-        path_parts = os.environ.get('PATH', '').split(os.pathsep)
-        if bin_dir not in path_parts:
-            os.environ['PATH'] = bin_dir + os.pathsep + os.environ.get('PATH', '')
-        # 2) os.add_dll_directory も登録 (LOAD_LIBRARY_SEARCH_USER_DIRS 経路向け)。
-        if hasattr(os, 'add_dll_directory'):
-            try:
-                os.add_dll_directory(bin_dir)
-            except (FileNotFoundError, OSError):
-                pass
-
-
-_add_nvidia_dll_dirs()
-
 
 import numpy as np
 import onnxruntime
@@ -134,6 +96,14 @@ def main():
         if args.tensorrt
         else ['CUDAExecutionProvider', 'CPUExecutionProvider']
     )
+    if sys.platform == 'win32':
+        if not hasattr(onnxruntime, 'preload_dlls'):
+            raise RuntimeError(
+                'Windows requires onnxruntime-gpu >= 1.21 with preload_dlls(). '
+                'Install a version compatible with your CUDA and cuDNN libraries.'
+            )
+        # Load CUDA/cuDNN dependencies from PyTorch or NVIDIA pip packages.
+        onnxruntime.preload_dlls()
     session = onnxruntime.InferenceSession(args.model, providers=providers)
 
     total = validate_fixed_record_file(Path(args.hcpe), HCPE_SIZE, "HCPE")

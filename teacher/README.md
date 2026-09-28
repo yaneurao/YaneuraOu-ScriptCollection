@@ -545,7 +545,7 @@ pip install onnxruntime-gpu nvidia-cudnn-cu12
 pip install tensorrt-cu12
 ```
 
-pip版 `nvidia-cudnn-cu12` のDLLは `...\site-packages\nvidia\cudnn\bin\` に置かれますが、これはWindowsの既定DLL検索パスに含まれません。`teacher/hcpe3_re_eval_from_hcpe.py` は起動時に、pipで入れた `nvidia.<lib>\bin` を `%PATH%` と `os.add_dll_directory()` に追加します。
+Windowsでは `teacher/hcpe3_re_eval_from_hcpe.py` がセッション作成前に `onnxruntime.preload_dlls()` を呼び、PyTorchやNVIDIAのpipパッケージ内のCUDA/cuDNN DLLを読み込みます。`cufft64_11.dll` など、インストール済みでもPATHから見つからない依存DLLへの対応です。このAPIを備えた `onnxruntime-gpu >= 1.21` が必要です。CUDA/cuDNNと互換性のある版を使用してください。DLL自体が未インストール、またはバージョン不一致の場合は別途環境の修正が必要です。
 
 TensorRTをzip配布版で入れる場合は、PATHに `lib\` ではなくDLLが置かれている `bin\` を通してください。`--tensorrt` 付きの初回起動ではONNXからTensorRT engineをビルドするため、数分から十数分かかることがあります。
 
