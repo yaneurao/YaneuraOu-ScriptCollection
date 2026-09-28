@@ -110,6 +110,7 @@ def main():
 
     board = Board()
 
+    Path(args.out_hcpe3).parent.mkdir(parents=True, exist_ok=True)
     with open(args.hcpe, 'rb') as f_in, \
          open(args.out_hcpe3, 'wb') as f_out, \
          tqdm(total=total, desc="re-eval", unit='pos') as pbar:

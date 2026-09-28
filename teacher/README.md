@@ -490,6 +490,8 @@ HCPEの各局面を再評価し、HCPE3として出力する場合は `teacher/h
 python teacher/hcpe3_re_eval_from_hcpe.py model.onnx input.hcpe output.hcpe3
 ```
 
+出力ファイルの親フォルダが存在しない場合は、階層ごと自動作成します。
+
 TensorRT Execution Providerを優先する場合:
 
 ```bash
