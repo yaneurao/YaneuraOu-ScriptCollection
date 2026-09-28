@@ -492,6 +492,10 @@ python teacher/hcpe3_re_eval_from_hcpe.py model.onnx input.hcpe output.hcpe3
 
 出力ファイルの親フォルダが存在しない場合は、階層ごと自動作成します。
 
+ONNXの入力特徴数を自動判定します。通常の `input2=57` モデルは `cshogi`、入玉特徴付きの `input2=119` モデルは学習側の `dlshogi.cppshogi` で特徴を生成します。追加62チャンネルはゼロ埋めせず、学習時と同じ入玉特徴を使用します。
+
+入玉特徴付きモデルでは、YOSCと同じ親フォルダの `DeepLearningShogi` を既定で参照します。別の場所にある場合は `--dlshogi-dir C:\shogi\DeepLearningShogi` を指定してください。学習時と同じ、`NYUGYOKU_FEATURES` を有効にしてビルドした拡張が必要です。拡張がない場合や特徴数が合わない場合は、出力ファイルを開く前にエラーで停止します。
+
 TensorRT Execution Providerを優先する場合:
 
 ```bash

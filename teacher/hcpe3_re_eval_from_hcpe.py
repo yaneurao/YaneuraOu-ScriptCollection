@@ -10,6 +10,7 @@
 # policy は MCTS の visit 分布ではなくモデル予測分布になる点に注意。
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
 
@@ -41,6 +42,51 @@ from TeacherFormatLib import (  # noqa: E402
 
 # policy 量子化のスケール (visit 上限)
 VISIT_SCALE = 65535
+
+
+def select_feature_decoder(session, dlshogi_dir: Path):
+    inputs = {item.name: item for item in session.get_inputs()}
+    channels = []
+    for name in ('input1', 'input2'):
+        item = inputs.get(name)
+        if (item is None or item.type != 'tensor(float)' or len(item.shape) != 4
+                or item.shape[2:] != [9, 9] or not isinstance(item.shape[1], int)):
+            raise ValueError(f'Unsupported model input {name}: expected float32 [batch, channels, 9, 9]')
+        channels.append(item.shape[1])
+    if channels == [FEATURES1_NUM, FEATURES2_NUM]:
+        return channels, None
+    if channels != [62, 119]:
+        raise ValueError(f'Unsupported model feature channels: {channels}')
+
+    if dlshogi_dir.is_dir():
+        sys.path.insert(0, str(dlshogi_dir.resolve()))
+    try:
+        cppshogi = importlib.import_module('dlshogi.cppshogi')
+        common = importlib.import_module('dlshogi.common')
+    except ImportError as exc:
+        raise RuntimeError(
+            'This model requires entering-king features (119 channels). '
+            'Use --dlshogi-dir to select the DeepLearningShogi used for training, '
+            'with its dlshogi.cppshogi extension built with NYUGYOKU_FEATURES.'
+        ) from exc
+    actual = [common.FEATURES1_NUM, common.FEATURES2_NUM]
+    if actual != channels:
+        raise ValueError(
+            f'Model feature channels {channels} do not match dlshogi {actual}. '
+            'Rebuild dlshogi.cppshogi with NYUGYOKU_FEATURES; zero padding is not supported.'
+        )
+    return channels, cppshogi.hcpe_decode_with_value
+
+
+def decode_batch_features(batch, channels, decoder):
+    n = len(batch)
+    x1 = np.empty((n, channels[0], 9, 9), dtype=np.float32)
+    x2 = np.empty((n, channels[1], 9, 9), dtype=np.float32)
+    if decoder is not None:
+        # The native training decoder also writes these three unused targets.
+        decoder(batch, x1, x2, np.empty(n, dtype=np.int64),
+                np.empty(n, dtype=np.float32), np.empty(n, dtype=np.float32))
+    return x1, x2
 
 
 # ============================================================
@@ -87,6 +133,9 @@ def main():
                         help="MoveVisits に書き出す候補手数。policy 上位 K 手だけを softmax → uint16 量子化して書く。合法手が K より少ない局面ではその全合法手。default=8")
     parser.add_argument('--tensorrt', action='store_true',
                         help="TensorRT Execution Provider を優先する。")
+    parser.add_argument('--dlshogi-dir', type=Path,
+                        default=Path(__file__).resolve().parents[2] / 'DeepLearningShogi',
+                        help="入玉特徴付きモデル用の学習時のDeepLearningShogiフォルダ。既定はYOSCと同じ親フォルダ。")
     args = parser.parse_args()
     if args.top_k <= 0:
         raise ValueError("--top-k must be positive")
@@ -105,6 +154,9 @@ def main():
         # Load CUDA/cuDNN dependencies from PyTorch or NVIDIA pip packages.
         onnxruntime.preload_dlls()
     session = onnxruntime.InferenceSession(args.model, providers=providers)
+    channels, decoder = select_feature_decoder(session, args.dlshogi_dir)
+    print(f'input features: {channels[0]}/{channels[1]} '
+          f'({"dlshogi.cppshogi" if decoder is not None else "cshogi"})')
 
     total = validate_fixed_record_file(Path(args.hcpe), HCPE_SIZE, "HCPE")
 
@@ -122,8 +174,7 @@ def main():
             batch = np.frombuffer(chunk, HCPE)
             n = len(batch)
 
-            x1 = np.empty((n, FEATURES1_NUM, 9, 9), dtype=np.float32)
-            x2 = np.empty((n, FEATURES2_NUM, 9, 9), dtype=np.float32)
+            x1, x2 = decode_batch_features(batch, channels, decoder)
             # 各局面ごとの (legal moves の policy ラベル, 対応する move16) を保持
             labels_per_pos: list[np.ndarray] = []
             m16_per_pos: list[np.ndarray] = []
@@ -131,7 +182,8 @@ def main():
             for i in range(n):
                 board.set_hcp(batch[i]['hcp'])
                 assert board.is_ok()
-                make_input_features(board, x1[i], x2[i])
+                if decoder is None:
+                    make_input_features(board, x1[i], x2[i])
 
                 moves = list(board.legal_moves)
                 if moves:
