@@ -304,7 +304,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 `grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
 
 比較するパラメーターは `--grid 名前 値1 値2 ...` を繰り返して指定します。
-名前は `trainer.py` の引数から先頭の `--` を除いたものです。複数形にはしません。
+名前は原則 `trainer.py` の引数から先頭の `--` を除いたものです。複数形にはしません。`evalfix` はON/OFFを指定するgrid専用の名前です。
 
 | 名前 | 値の範囲 |
 |---|---|
@@ -316,6 +316,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 | `value-loss-min-weight` | 0～1 |
 | `batchsize` | 1以上の整数 |
 | `batches-per-update` | 1以上の整数 |
+| `evalfix` | `true`（ON）または `false`（OFF）。省略時はON |
 
 固定値は `--lr 0.0007`、`--val_lambda 0.5`、`--lr_min 0.00007` のように指定できます。
 `lr` と `val_lambda` は学習時に固定値か `--grid` で指定する必要があります。
@@ -323,6 +324,20 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 1つの `--grid` 内で同じ値が重複しても、同じ試行は繰り返しません。
 指数減衰では全組み合わせについて `0 < lr_min <= lr` が必要です。
 旧複数形オプション（`--lrs`など）は廃止しました。
+
+evalfixのON/OFFを比較する場合は、既存のコマンドに `--grid evalfix true false` を追加します。他のgrid軸との全組み合わせを実行します。
+
+```powershell
+python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint.pth `
+  --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\grid_evalfix `
+  --network exp___i40x512 --grid lr 0.0007 --grid val_lambda 0.2 `
+  --grid evalfix true false
+```
+
+固定値は `--evalfix true` / `--evalfix false` でも指定できます。既存の `--no_evalfix` は固定OFFとして使えますが、`--evalfix` または `--grid evalfix` との併用はエラーです。OFFの試行ではtrainerに `--no_evalfix` を渡し、ONではtrainerのデフォルトONを利用します。
+
+明示指定した場合だけ、試行フォルダ名に `_evalfixtrue` / `_evalfixfalse` を付け、CSVに `evalfix` 列を出力します。`--no_evalfix` 指定時も同様にOFFのフォルダを分けます。省略時のフォルダ名・学習動作は従来どおりです。
+`--summary-only` では、この印のあるフォルダを検出すると引数の再指定なしで `evalfix` 列を出力します。印のない過去のフォルダはON/OFFを断定できないため、この列は空欄になります。
 
 各組み合わせを3round学習する場合は `--rounds 3` を追加してください（デフォルト1）。各試行の1round目のフォルダに対して、2round目は `_round2`、3round目は `_round3` を付けた兄弟フォルダに保存します。同じ試行の直前roundのcheckpointを引き継ぎ、roundの開始時にはoptimizerとlrスケジュールをリセットします。CSVには1～3roundの全epochの結果を出力します。例えば教師ファイルが10個なら、1試行につき `epoch` が1～30の30行になります。
 
