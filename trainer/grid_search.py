@@ -36,6 +36,7 @@ class Trial:
     out_dir: Path
     value_loss_min_weight: float = 1.0
     evalfix: bool = True
+    evalfix_a: float | None = None
 
 
 FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -48,7 +49,8 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_bs(?P<batchsize>\d+))?"
     r"(?:_bpu(?P<batches_per_update>\d+))?"
     r"(?:_vlmw(?P<value_loss_min_weight>[^_]+))?"
-    r"(?:_evalfix(?P<evalfix>true|false))?$"
+    r"(?:_evalfix(?P<evalfix>true|false))?"
+    r"(?:_evalfixa(?P<evalfix_a>[^_]+))?$"
 )
 
 def parse_bool(value: str) -> bool:
@@ -69,6 +71,7 @@ GRID_PARAMETERS = {
     "batchsize": (int, None, 1, None),
     "batches-per-update": (int, None, 1, None),
     "evalfix": (parse_bool, True, 0, 1),
+    "evalfix-a": (float, None, 0, None),
 }
 
 
@@ -150,7 +153,12 @@ def parse_args() -> argparse.Namespace:
                 parser.error(f"{name} must be finite and >= {minimum}"
                              + (f" and <= {maximum}" if maximum is not None else ""))
         args.grid_values[name] = list(dict.fromkeys(values))
-    for name in ("temperature", "policy-mix", "value-loss-min-weight", "evalfix"):
+    if args.grid_values['evalfix-a'] != [None]:
+        if any(a <= 0 for a in args.grid_values['evalfix-a']):
+            parser.error('evalfix-a must be > 0')
+        if False in args.grid_values['evalfix']:
+            parser.error('evalfix-a cannot be combined with evalfix false or --no_evalfix')
+    for name in ("temperature", "policy-mix", "value-loss-min-weight", "evalfix", "evalfix-a"):
         setattr(args, 'include_' + name.replace('-', '_'),
                 name in axes or getattr(args, name.replace('-', '_')) is not None)
     if not args.summary_only:
@@ -195,9 +203,9 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     for lr in values['lr']:
         for lr_min in lr_mins:
             for val_lambda in values['val_lambda']:
-                for temperature, policy_mix, value_loss_min_weight, evalfix in product(
+                for temperature, policy_mix, value_loss_min_weight, evalfix, evalfix_a in product(
                         values['temperature'], values['policy-mix'], values['value-loss-min-weight'],
-                        values['evalfix']):
+                        values['evalfix'], values['evalfix-a']):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
@@ -216,6 +224,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                 name += f"_vlmw{float_tag(value_loss_min_weight)}"
                             if args.include_evalfix:
                                 name += f"_evalfix{str(evalfix).lower()}"
+                            if evalfix_a is not None:
+                                name += f"_evalfixa{float_tag(evalfix_a)}"
                             trials.append(
                                 Trial(
                                     lr=lr,
@@ -228,6 +238,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     out_dir=args.model_root / name,
                                     value_loss_min_weight=value_loss_min_weight,
                                     evalfix=evalfix,
+                                    evalfix_a=evalfix_a,
                                 )
                             )
     return trials
@@ -244,6 +255,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         temperature = float(match.group("temperature") or "1.0")
         policy_mix = float(match.group("policy_mix") or "1.0")
         value_loss_min_weight = float(match.group("value_loss_min_weight") or "1.0")
+        evalfix_a = float(match.group('evalfix_a')) if match.group('evalfix_a') else None
         batchsize = int(match.group("batchsize")) if match.group("batchsize") else None
         batches_per_update = (
             int(match.group("batches_per_update"))
@@ -263,6 +275,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         out_dir=path,
         value_loss_min_weight=value_loss_min_weight,
         evalfix=match.group('evalfix') != 'false',
+        evalfix_a=evalfix_a,
     )
 
 
@@ -326,6 +339,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         command.extend(["--lr_min", str(trial.lr_min)])
     if not trial.evalfix:
         command.append('--no_evalfix')
+    if trial.evalfix_a is not None:
+        command.extend(['--evalfix-a', str(trial.evalfix_a)])
     append_optional_trainer_args(args, command)
     return command
 
@@ -391,6 +406,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial,
         "policy_mix": str(trial.policy_mix),
         "value_loss_min_weight": str(trial.value_loss_min_weight),
         "evalfix": str(trial.evalfix).lower() if '_evalfix' in trial.out_dir.name else '',
+        "evalfix_a": str(trial.evalfix_a) if trial.evalfix_a is not None else '',
         "batchsize": str(trial.batchsize) if trial.batchsize is not None else "",
         "batches_per_update": (
             str(trial.batches_per_update)
@@ -446,7 +462,7 @@ def summarize_trials(args: argparse.Namespace, trials: list[Trial], *, parse_log
 def write_summary(path: Path, rows: list[dict[str, str | int]], *,
                   include_temperature: bool = True, include_policy_mix: bool = True,
                   include_value_loss_min_weight: bool = False,
-                  include_evalfix: bool = False) -> None:
+                  include_evalfix: bool = False, include_evalfix_a: bool = False) -> None:
     fieldnames = [
         "lr",
         "lr_min",
@@ -455,6 +471,7 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         "policy_mix",
         "value_loss_min_weight",
         "evalfix",
+        "evalfix_a",
         "batchsize",
         "batches_per_update",
         "round",
@@ -476,6 +493,8 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         fieldnames.remove("value_loss_min_weight")
     if not include_evalfix:
         fieldnames.remove('evalfix')
+    if not include_evalfix_a:
+        fieldnames.remove('evalfix_a')
     path.parent.mkdir(parents=True, exist_ok=True)
     # Readers see either the previous CSV or the complete new CSV.
     temporary = None
@@ -584,7 +603,9 @@ def main() -> None:
                            include_policy_mix=args.include_policy_mix,
                            include_value_loss_min_weight=args.include_value_loss_min_weight,
                            include_evalfix=args.include_evalfix or any(
-                               '_evalfix' in trial.out_dir.name for trial in trials))
+                               '_evalfix' in trial.out_dir.name for trial in trials),
+                           include_evalfix_a=args.include_evalfix_a or any(
+                               trial.evalfix_a is not None for trial in trials))
 
     last_summaries = None
     log_cache = {}
@@ -626,6 +647,7 @@ def main() -> None:
                 f"policy_mix={trial.policy_mix} "
                 f"value_loss_min_weight={trial.value_loss_min_weight} "
                 f"evalfix={str(trial.evalfix).lower()} "
+                f"evalfix_a={trial.evalfix_a if trial.evalfix_a is not None else 'auto'} "
                 f"batchsize={trial.batchsize if trial.batchsize is not None else '-'} "
                 "batches_per_update="
                 f"{trial.batches_per_update if trial.batches_per_update is not None else '-'}"

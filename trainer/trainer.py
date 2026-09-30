@@ -835,6 +835,7 @@ def write_ptl_config(
             "val_batch_size": args.batchsize,
             "use_average": not args.no_average,
             "use_evalfix": not args.no_evalfix,
+            **({"evalfix_a": args.evalfix_a} if args.evalfix_a is not None else {}),
             "temperature": args.temperature,
             "cache": None,
         },
@@ -969,7 +970,8 @@ def run_one_round(
             f"{args.batches_per_update} "
             f"(effective batchsize={args.batchsize * args.batches_per_update})"
         )
-    print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}")
+    print(f"evalfix: {'disabled' if args.no_evalfix else 'enabled'}"
+          + (f" (fixed a={args.evalfix_a})" if args.evalfix_a is not None else ""))
     print(f"val_lambda: {args.val_lambda}")
     if args.hcpe_val_lambda is not None:
         print(f"hcpe val_lambda: {args.hcpe_val_lambda}")
@@ -1101,7 +1103,9 @@ def run_one_round(
                 train_args.extend(["--amp_dtype", args.amp_dtype])
             if not args.no_average:
                 train_args.append("--use_average")
-            if not args.no_evalfix:
+            if args.evalfix_a is not None:
+                train_args.extend(["--evalfix-a", str(args.evalfix_a)])
+            elif not args.no_evalfix:
                 train_args.append("--use_evalfix")
             if args.use_compile:
                 train_args.append("--use_compile")
@@ -1269,6 +1273,8 @@ def main() -> None:
     )
     parser.add_argument("--no_amp", action="store_true")
     parser.add_argument("--no_average", action="store_true")
+    parser.add_argument("--evalfix-a", type=float,
+                        help="Use a fixed positive score-to-value coefficient instead of fitting it.")
     parser.add_argument(
         "--no_evalfix",
         action="store_true",
@@ -1339,6 +1345,11 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if args.evalfix_a is not None:
+        if not math.isfinite(args.evalfix_a) or args.evalfix_a <= 0:
+            parser.error("--evalfix-a must be finite and > 0")
+        if args.no_evalfix:
+            parser.error("--evalfix-a cannot be combined with --no_evalfix")
     if not 0.0 <= args.value_loss_min_weight <= 1.0:
         parser.error("--value-loss-min-weight must be between 0 and 1")
     if args.backend != "train" and args.value_loss_min_weight != 1.0:

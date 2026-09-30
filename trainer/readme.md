@@ -317,6 +317,7 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 | `batchsize` | 1以上の整数 |
 | `batches-per-update` | 1以上の整数 |
 | `evalfix` | `true`（ON）または `false`（OFF）。省略時はON |
+| `evalfix-a` | 0より大きい有限な数。指定時は自動推定せず固定係数を使用 |
 
 固定値は `--lr 0.0007`、`--val_lambda 0.5`、`--lr_min 0.00007` のように指定できます。
 `lr` と `val_lambda` は学習時に固定値か `--grid` で指定する必要があります。
@@ -326,6 +327,12 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 旧複数形オプション（`--lrs`など）は廃止しました。
 
 evalfixのON/OFFを比較する場合は、既存のコマンドに `--grid evalfix true false` を追加します。他のgrid軸との全組み合わせを実行します。
+
+評価値を勝率へ変換する係数を固定するには、`trainer.py --evalfix-a 600` を指定します。変換は実質的に `p = sigmoid(eval / a)` です（内部の整数評価値への丸めあり）。未指定時は従来どおりファイルごとに自動推定し、`--no_evalfix` の場合は従来の約756.086496を使用します。固定値と `--no_evalfix` の併用はエラーです。テストデータの変換係数は変更しません。
+
+grid searchでは `--evalfix-a 600` で固定、`--grid evalfix-a 400 600 756.086496` で比較できます。`evalfix false` を含む指定とは併用できません。フォルダ名に `_evalfixa600` のような係数を付け、CSVに `evalfix_a` 列を追加します。`--summary-only` でもフォルダ名から係数を復元します。指定のない既存フォルダの係数欄は空欄です。
+
+この機能は対応版のDeepLearningShogiも必要です。`dlshogi/train.py` に直接 `--evalfix-a 600` を渡す場合は `--use_evalfix` は不要です。同時指定した場合も固定係数が優先されます。YOSCのPTL backendにも固定係数を渡します。dlshogi側の `--cache` / `--patch` との併用は、別係数の変換済みvalueが混入するのを防ぐためエラーとします。
 
 ```powershell
 python trainer/grid_search.py --checkpoint C:\shogi\model\checkpoint.pth `
