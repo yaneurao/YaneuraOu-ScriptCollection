@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -23,35 +24,25 @@ MAC_DEFAULT_TUNE_FILE = f"{MAC_WINBUILD_ROOT}/YaneuraOuV950.tune"
 MAC_DEFAULT_PARAMS_FILE = f"{MAC_WINBUILD_ROOT}/YaneuraOuV950.params"
 
 
-RELEASE_EDITIONS = [
-    ("YANEURAOU_ENGINE_NNUE", "YaneuraOu_NNUE_halfkp_256x2_32_32"),
-    ("YANEURAOU_ENGINE_SFNN1536", "YaneuraOu_SFNN1536"),
-    ("YANEURAOU_ENGINE_SFNN_halfka2_1024_7_64_k3k3", "YaneuraOu_SFNN_halfka2_1024_7_64_k3k3"),
-    ("YANEURAOU_ENGINE_SFNN_halfka2_1024_8_64_k3k3", "YaneuraOu_SFNN_halfka2_1024_8_64_k3k3"),
-    (
-        "YANEURAOU_ENGINE_SFNN_halfka2_1024_7_64_hand1024_k3k3_progress4",
-        "YaneuraOu_SFNN_halfka2_1024_7_64_hand1024_k3k3_progress4",
-    ),
-    (
-        "YANEURAOU_ENGINE_SFNN_halfka2_1024_8_64_hand1024_k3k3_progress4",
-        "YaneuraOu_SFNN_halfka2_1024_8_64_hand1024_k3k3_progress4",
-    ),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_1024X2_8_32", "YaneuraOu_NNUE_halfkp_1024x2_8_32"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_1024X2_8_64", "YaneuraOu_NNUE_halfkp_1024x2_8_64"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_768X2_16_64", "YaneuraOu_NNUE_halfkp_768x2_16_64"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_512X2_8_64", "YaneuraOu_NNUE_halfkp_512x2_8_64"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_384X2_8_96", "YaneuraOu_NNUE_halfkp_384x2_8_96"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKPE9", "YaneuraOu_NNUE_halfkpe9_256x2_32_32"),
-    ("YANEURAOU_ENGINE_NNUE_HALFKP_VM_256X2_32_32", "YaneuraOu_NNUE_halfkpvm_256x2_32_32"),
-    ("YANEURAOU_ENGINE_NNUE_KP256", "YaneuraOu_NNUE_kp_256x2_32_32"),
-    ("YANEURAOU_ENGINE_KPPT", "YaneuraOu_KPPT"),
-    ("YANEURAOU_ENGINE_KPP_KKPT", "YaneuraOu_KPP_KKPT"),
-    ("YANEURAOU_ENGINE_MATERIAL", "YO-MATERIAL"),
-]
-
-DEFAULT_DISABLED_RELEASE_EDITIONS = {
-    "YANEURAOU_ENGINE_MATERIAL",
-}
+def load_release_editions(yobuild_root: Path) -> list[tuple[str, str]]:
+    path = yobuild_root / "arch-list.txt"
+    editions = []
+    seen = set()
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        arch = line.strip()
+        if not arch or arch.startswith("#"):
+            continue
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", arch) or arch.upper().startswith("YANEURAOU_ENGINE_"):
+            raise ValueError(f"{path}:{line_number}: invalid arch: {arch}")
+        if arch.upper() == "NNUE":
+            raise ValueError(f"{path}:{line_number}: use an explicit arch such as NNUE_HALFKP_256X2_32_32")
+        if arch.upper() in seen:
+            raise ValueError(f"{path}:{line_number}: duplicate arch: {arch}")
+        seen.add(arch.upper())
+        editions.append((f"YANEURAOU_ENGINE_{arch}", f"YaneuraOu_{arch}"))
+    if not editions:
+        raise ValueError(f"{path}: no architectures defined")
+    return editions
 
 
 def create_preset(name: str, yobuild_root: Path) -> dict[str, Any]:
@@ -172,9 +163,9 @@ def _release_all(yobuild_root: Path) -> dict[str, Any]:
                 {
                     "edition": edition,
                     "artifact_prefix": artifact_prefix,
-                    "enabled": edition not in DEFAULT_DISABLED_RELEASE_EDITIONS,
+                    "enabled": True,
                 }
-                for edition, artifact_prefix in RELEASE_EDITIONS
+                for edition, artifact_prefix in load_release_editions(yobuild_root)
             ],
             "package": {
                 "enabled": True,
@@ -204,7 +195,7 @@ def _yo_material(yobuild_root: Path) -> dict[str, Any]:
             "version": "V9.40YANE",
             "material_level": 9,
             "common_cppflags": ["-DHASH_KEY_BITS=128", "-DTT_CLUSTER_SIZE=4"],
-            "output_path": "../bin/YO-MATERIAL.exe",
+            "output_path": "../bin/YaneuraOu_MATERIAL.exe",
         }
     )
     return recipe

@@ -13,10 +13,9 @@ from typing import Any
 
 from .planner import create_plan, validate_plan
 from .presets import (
-    DEFAULT_DISABLED_RELEASE_EDITIONS,
     PRESET_LABELS,
     PRESET_NAMES,
-    RELEASE_EDITIONS,
+    load_release_editions,
     create_preset,
 )
 from .script_writer import resolve_run_root, write_build_run
@@ -61,7 +60,7 @@ MSYS2_SYSTEM_BY_PLATFORM = {
 }
 GUI_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "yobuild_gui.pickle"
 GUI_SETTINGS_VERSION = 2
-NORMAL_WINDOW_GEOMETRY = "1280x820"
+NORMAL_WINDOW_GEOMETRY = "1280x920"
 NORMAL_WINDOW_MINSIZE = (1080, 700)
 COMPACT_WINDOW_GEOMETRY = "1040x620"
 COMPACT_WINDOW_MINSIZE = (820, 520)
@@ -893,7 +892,7 @@ class BuildGui(tk.Tk):
         edition = str(recipe.get("edition", ""))
         artifact_prefix = _path_stem(str(recipe.get("output_path", "")))
         if not artifact_prefix:
-            artifact_prefix = "YO-MATERIAL" if "MATERIAL" in edition else edition or "YaneuraOu"
+            artifact_prefix = "YaneuraOu_" + edition.removeprefix("YANEURAOU_ENGINE_") if edition else "YaneuraOu"
         spsa = {
             "mode": "none",
             "tune_py": "",
@@ -1091,7 +1090,7 @@ class BuildGui(tk.Tk):
         ttk.Label(header, text="YANEURAOU_EDITION").grid(row=0, column=1, sticky="w")
         ttk.Label(header, text="Artifact prefix").grid(row=0, column=2, sticky="w")
 
-        fixed_editions = _normalize_editions_for_form(editions)
+        fixed_editions = _normalize_editions_for_form(editions, self.yobuild_root)
         for row_index, edition in enumerate(fixed_editions, start=1):
             row = ttk.Frame(self.edition_scroller.inner)
             row.grid(row=row_index, column=0, sticky="ew", pady=2)
@@ -1574,16 +1573,15 @@ def _normalize_variants_for_form(variants: list[dict[str, Any]]) -> list[dict[st
     return normalized
 
 
-def _normalize_editions_for_form(editions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _normalize_editions_for_form(editions: list[dict[str, Any]], yobuild_root: Path) -> list[dict[str, Any]]:
     saved_by_edition: dict[str, dict[str, Any]] = {}
     for edition in editions:
         edition_name = str(edition.get("edition", ""))
         if edition_name and edition_name not in saved_by_edition:
             saved_by_edition[edition_name] = edition
 
-    has_saved_editions = bool(saved_by_edition)
     fixed_editions: list[dict[str, Any]] = []
-    for edition_name, artifact_prefix in RELEASE_EDITIONS:
+    for edition_name, artifact_prefix in load_release_editions(yobuild_root):
         saved = saved_by_edition.get(edition_name)
         fixed_editions.append(
             {
@@ -1591,7 +1589,7 @@ def _normalize_editions_for_form(editions: list[dict[str, Any]]) -> list[dict[st
                 "artifact_prefix": artifact_prefix,
                 "enabled": bool(saved.get("enabled", True))
                 if saved is not None
-                else (not has_saved_editions and edition_name not in DEFAULT_DISABLED_RELEASE_EDITIONS),
+                else True,
             }
         )
     return fixed_editions

@@ -82,10 +82,11 @@ UI:
 - platform は `Windows x64`, `Windows x86`, `Windows arm`, `macOS` から選ぶ combo box
 - source folder は text box と folder 選択 button
 - CPU target は選択中 platform に対応する checkbox group
-- evaluation edition はコード側の固定一覧から作る checkbox group
+- evaluation edition は `YaneuraOu-Builder/arch-list.txt` の記載順で作る checkbox group
 - edition 行には `YANEURAOU_EDITION` と出力 prefix を持たせる
-- 保存済み preset / recipe は固定Edition一覧を増減させず、各行のON/OFF状態だけを復元する
-- 重複行は警告表示
+- edition と出力 prefix はarchにそれぞれ `YANEURAOU_ENGINE_` と `YaneuraOu_` を付けて生成する
+- 保存済み preset / recipe は一覧を増減させず、同じeditionのON/OFF状態だけを復元する。初回・新規追加archはON
+- 定義ファイルの重複行、不正な記述、空の一覧はエラーにする
 - build target は `tournament` 固定で、GUI 上では選択させない
 - Windows platform では、生成した script を MSYS2 の環境で実行する button を用意する。Windows x64 は `MSYSTEM=MINGW64` の `clang++`、Windows x86 は `MSYSTEM=MINGW64` から `clang++ --target=i686-w64-windows-gnu`、Windows arm は `/opt/aarch64-w64-mingw32/bin/aarch64-w64-mingw32-clang++` を使う。
 - macOS platform では、生成した script を GUI から直接 subprocess として実行する button を用意する。実行中は script 実行 button を無効化し、stdout / stderr を Logs に流す。
