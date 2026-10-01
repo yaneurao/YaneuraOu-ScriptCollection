@@ -1,0 +1,18 @@
+# One architecture per line. Blank lines and comment lines are ignored.
+# edition = YANEURAOU_ENGINE_<arch>, artifact prefix = YaneuraOu_<arch>
+NNUE_HALFKP_256X2_32_32
+SFNN1536
+SFNN_halfka2_1024_7_64_k3k3
+SFNN_halfka2_1024_8_64_k3k3
+SFNN_halfka2_1024_8_64_progress8
+NNUE_HALFKP_1024X2_8_32
+NNUE_HALFKP_1024X2_8_64
+NNUE_HALFKP_768X2_16_64
+NNUE_HALFKP_512X2_8_64
+NNUE_HALFKP_384X2_8_96
+NNUE_HALFKPE9
+NNUE_HALFKP_VM_256X2_32_32
+NNUE_KP256
+KPPT
+KPP_KKPT
+MATERIAL

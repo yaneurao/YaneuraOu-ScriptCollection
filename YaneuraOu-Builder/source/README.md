@@ -106,11 +106,14 @@ Release画面では、次を設定できます。
 - package設定
 - optional SPSA preprocessing
 
-Edition一覧はコード内の固定 `RELEASE_EDITIONS` から作ります。保存済みpresetは、
-固定行の増減ではなく、各行のON/OFF状態だけを復元します。
-
-`YANEURAOU_ENGINE_MATERIAL` / `YO-MATERIAL` 行も固定一覧に含まれますが、
-release presetでは既定OFFです。
+Edition一覧は `YaneuraOu-Builder/arch-list.txt` から作ります。1行にarchを1つ記載し、
+空行と `#` から始まるコメント行は無視します。記載順に表示し、初回・新規追加archはONです。
+保存済みpresetからは同じeditionのON/OFFだけを復元し、削除したarchは表示しません。
+editionは `YANEURAOU_ENGINE_`、出力名の接頭辞は `YaneuraOu_` をarchに付けて生成します。
+例外はなく、`MATERIAL` の出力名も `YaneuraOu_MATERIAL` になります。
+`NNUE` ではなく `NNUE_HALFKP_256X2_32_32` のように指定してください。
+重複（大小文字違いも含む）、不正な記述、空の一覧はエラーになります。
+arch追加後はGUIを再起動してください。対象のやねうら王ソースがそのarchに対応している必要があります。
 
 variant名 `DEV` と `Git` は固定です。保存済みpresetは、これら固定行のON/OFF状態と
 extra flagsだけを復元します。

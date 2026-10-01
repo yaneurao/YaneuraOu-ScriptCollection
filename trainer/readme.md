@@ -330,7 +330,7 @@ evalfixのON/OFFを比較する場合は、既存のコマンドに `--grid eval
 
 評価値を勝率へ変換する係数を固定するには、`trainer.py --evalfix-a 600` を指定します。変換は実質的に `p = sigmoid(eval / a)` です（内部の整数評価値への丸めあり）。未指定時は従来どおりファイルごとに自動推定し、`--no_evalfix` の場合は従来の約756.086496を使用します。固定値と `--no_evalfix` の併用はエラーです。テストデータの変換係数は変更しません。
 
-grid searchでは `--evalfix-a 600` で固定、`--grid evalfix-a 400 600 756.086496` で比較できます。`evalfix false` を含む指定とは併用できません。フォルダ名に `_evalfixa600` のような係数を付け、CSVに `evalfix_a` 列を追加します。`--summary-only` でもフォルダ名から係数を復元します。指定のない既存フォルダの係数欄は空欄です。
+grid searchでは `--evalfix-a 600` で固定、`--grid evalfix-a 400 600 756.086496` で比較できます。`--grid evalfix-a 600` だけでも固定係数600を使用し、`--grid evalfix true` の併記は不要です。`evalfix false` を含む指定とは併用できません。フォルダ名に `_evalfixa600` のような係数を付け、CSVに `evalfix_a` 列を追加します。`--summary-only` でもフォルダ名から係数を復元します。指定のない既存フォルダの係数欄は空欄です。
 
 この機能は対応版のDeepLearningShogiも必要です。`dlshogi/train.py` に直接 `--evalfix-a 600` を渡す場合は `--use_evalfix` は不要です。同時指定した場合も固定係数が優先されます。YOSCのPTL backendにも固定係数を渡します。dlshogi側の `--cache` / `--patch` との併用は、別係数の変換済みvalueが混入するのを防ぐためエラーとします。
 
