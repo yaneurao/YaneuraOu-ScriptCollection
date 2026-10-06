@@ -301,7 +301,17 @@ python .\trainer.py --out_dir C:\shogi\model\exp___i20x256_round2 --show_log
 
 ## lr / val_lambda のgrid search
 
-`grid_search.py` を使うと、指定した checkpoint の重みを初期値にして、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。
+`grid_search.py` を使うと、`lr` / `lr_min` / `val_lambda` / `temperature` などの全組み合わせを順に学習し、結果をCSVに集計できます。`--checkpoint` を指定するとその重みを初期値にし、省略すると各試行をランダム初期化してゼロから学習します。文字列 `none` を指定するのではなく、引数自体を省略してください。
+
+ゼロから学習する例:
+
+```powershell
+python trainer/grid_search.py --train-dir C:\shogi\teacher\train `
+  --model-root C:\shogi\model\grid_scratch --network exp___i40x512 `
+  --grid lr 0.03 0.01 --grid val_lambda 0.3 0.5 --no_swa
+```
+
+`lr` と `val_lambda` の指定は引き続き必要です。`--model-root` は出力先です。既存の出力がある場合の完了済み試行のスキップやround継続は従来どおりなので、完全に新しい実験には新しい出力先を指定してください。
 
 比較するパラメーターは `--grid 名前 値1 値2 ...` を繰り返して指定します。
 名前は原則 `trainer.py` の引数から先頭の `--` を除いたものです。複数形にはしません。`evalfix` はON/OFFを指定するgrid専用の名前です。

@@ -80,7 +80,8 @@ def parse_args() -> argparse.Namespace:
         description="Run trainer.py for every combination of --grid values and summarize logs.",
         allow_abbrev=False,
     )
-    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--checkpoint", type=Path,
+                        help="Initial model checkpoint. Omit to train from scratch.")
     parser.add_argument("--train-dir", type=Path)
     parser.add_argument("--network")
     parser.add_argument("--model-root", type=Path, required=True)
@@ -164,7 +165,7 @@ def parse_args() -> argparse.Namespace:
     if not args.summary_only:
         missing = [
             name
-            for name in ("checkpoint", "train_dir", "network")
+            for name in ("train_dir", "network")
             if getattr(args, name) is None
         ]
         if missing:
@@ -316,8 +317,6 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         str(args.train_dir),
         "--out_dir",
         str(trial.out_dir),
-        "--init_checkpoint",
-        str(args.checkpoint),
         "--rounds",
         str(args.rounds),
         "--lr",
@@ -331,6 +330,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         "--value-loss-min-weight",
         str(trial.value_loss_min_weight),
     ]
+    if args.checkpoint is not None:
+        command.extend(['--init_checkpoint', str(args.checkpoint)])
     if trial.batchsize is not None:
         command.extend(["--batchsize", str(trial.batchsize)])
     if trial.batches_per_update is not None:
@@ -586,8 +587,10 @@ def remaining_trainer_commands(
         command = trainer_command(args, trial)
         command[command.index('--out_dir') + 1] = str(out_dir)
         command[command.index('--rounds') + 1] = '1'
-        init_index = command.index('--init_checkpoint')
-        command[init_index:init_index + 2] = ['--resume_checkpoint', str(checkpoint)]
+        if '--init_checkpoint' in command:
+            init_index = command.index('--init_checkpoint')
+            del command[init_index:init_index + 2]
+        command.extend(['--resume_checkpoint', str(checkpoint)])
         command.extend(['--reset_optimizer', '--reset_scheduler'])
         commands.append(command)
     return commands
