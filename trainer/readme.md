@@ -8,6 +8,8 @@
 
 `--lr-warmup` は、新規学習の最初の教師ファイル内で、LRを指定値から `--lr` まで線形に上げます。省略すると従来どおりで、追加の教師走査やBN再計算は行いません。`--backend train` 用です。
 
+`--lr-warmup` だけを指定すると、開始LRは `1e-7`（`0.0000001`）になります。`--lr-warmup 0.00001` のように数値を付ければ上書きできます。trainer、grid search、dlshogiのいずれも同じ指定方法です。`--grid lr-warmup` には比較する数値を明示してください。
+
 ```powershell
 python trainer/trainer.py --train_dir C:\shogi\teacher\train --lr-warmup 0.00001 --lr 0.0007 --lr_min 0.00007
 ```

@@ -1347,8 +1347,8 @@ def main() -> None:
             "otherwise from --model_root and --network."
         ),
     )
-    parser.add_argument('--lr-warmup', type=float,
-                        help='Linear LR warmup over the first teacher file of a fresh run')
+    parser.add_argument('--lr-warmup', type=float, nargs='?', const=1e-7,
+                        help='Initial LR for first-file warmup (bare flag: 1e-7; omitted: disabled)')
     args = parser.parse_args()
     if args.lr_warmup is not None:
         if not math.isfinite(args.lr_warmup) or not math.isfinite(args.lr) or not 0 <= args.lr_warmup <= args.lr:

@@ -92,7 +92,11 @@ def parse_args() -> argparse.Namespace:
                         help="Repeat --grid NAME VALUE [VALUE ...]. Names: "
                              + ", ".join(GRID_PARAMETERS))
     for name, (value_type, _, _, _) in GRID_PARAMETERS.items():
-        parser.add_argument("--" + name, type=value_type, help="Fixed value (cannot also use --grid).")
+        if name == 'lr-warmup':
+            parser.add_argument('--lr-warmup', type=float, nargs='?', const=1e-7,
+                                help='Initial warmup LR (bare flag: 1e-7; omitted: disabled).')
+        else:
+            parser.add_argument("--" + name, type=value_type, help="Fixed value (cannot also use --grid).")
     parser.add_argument("--rounds", type=int, nargs="+",
                         help="Train up to the largest round and summarize every epoch (default: 1).")
     parser.add_argument("--python", default=sys.executable)
