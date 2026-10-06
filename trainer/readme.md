@@ -4,6 +4,29 @@
 
 既定では `C:\shogi\teacher\yane-distill` にある `*.hcpe` / `*.hcpe3` をすべて使い、`exp___i20x256` を bfloat16 で学習します。
 
+## 最初の教師ファイルでLRをwarmupする
+
+`--lr-warmup` は、新規学習の最初の教師ファイル内で、LRを指定値から `--lr` まで線形に上げます。省略すると従来どおりで、追加の教師走査やBN再計算は行いません。`--backend train` 用です。
+
+```powershell
+python trainer/trainer.py --train_dir C:\shogi\teacher\train --lr-warmup 0.00001 --lr 0.0007 --lr_min 0.00007
+```
+
+grid searchでも固定値、探索対象の両方を指定できます。
+
+```powershell
+python trainer/grid_search.py --train-dir C:\shogi\teacher\train --model-root C:\shogi\model\warmup --network exp___i15x192 --grid lr 0.0007 --grid lr-warmup 0.000001 0.00001 --grid val_lambda 0.5
+```
+
+- `0 <= lr-warmup <= lr` とします。gridではすべての組み合わせがこの条件を満たす必要があります。
+- 読み込み・重複局面の集約後の件数と `batchsize`、`batches-per-update` から更新回数を計算します。最初の更新で開始LR、最後の更新で `lr` を使用します。端数の勾配蓄積も1更新として数えます。
+- 更新が1回だけの場合は `lr` を使用します。完全なmini-batchが1つも作れない場合はエラーです。
+- 2ファイル目は `lr` で開始し、残りのファイルでcosine/exponentialの減衰を行います。教師が1ファイルならwarmupのみです。2ファイルなら2つ目は `lr` のままです。3ファイル以上なら最後のファイルは `lr_min` になります。
+- `--init_checkpoint` は重みのみからの新規学習なのでwarmupします。`--resume_checkpoint` による継続や2round目以降には繰り返しません。再開時にも同じ `--lr-warmup` を指定してください。
+- gridの出力フォルダには指定時だけ `_warmup...` が付き、CSVにも `lr_warmup` 列を追加します。`--summary-only` でもそのフォルダ名から復元します。
+
+dlshogi側にも対応した `dlshogi/train.py` が必要です。直接実行した場合の `--lr-warmup` は、その呼び出しの最初のepochに適用されます。YOSCが初回ファイルだけに渡すことで上記の動作になります。
+
 ## 既定値
 
 ```txt

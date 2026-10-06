@@ -956,7 +956,8 @@ def run_one_round(
         else None
     )
 
-    lr_scheduler = lr_scheduler_train_arg(args, total_epochs)
+    warmup_round = args.lr_warmup is not None and checkpoint_offset == 0
+    lr_scheduler = lr_scheduler_train_arg(args, max(1, total_epochs - int(warmup_round)))
 
     print(f"DeepLearningShogi: {dlshogi_dir}")
     print(f"teacher files: {len(teacher_files)}")
@@ -1065,6 +1066,8 @@ def run_one_round(
                 train_args.extend(
                     ["--batches-per-update", str(args.batches_per_update)]
                 )
+            if warmup_round and file_index == 1 and not resume_checkpoint and not previous_checkpoint.exists():
+                train_args.extend(['--lr-warmup', str(args.lr_warmup)])
 
             if previous_checkpoint.exists():
                 train_args.extend(["--resume", str(previous_checkpoint)])
@@ -1344,7 +1347,14 @@ def main() -> None:
             "otherwise from --model_root and --network."
         ),
     )
+    parser.add_argument('--lr-warmup', type=float,
+                        help='Linear LR warmup over the first teacher file of a fresh run')
     args = parser.parse_args()
+    if args.lr_warmup is not None:
+        if not math.isfinite(args.lr_warmup) or not math.isfinite(args.lr) or not 0 <= args.lr_warmup <= args.lr:
+            parser.error('--lr-warmup requires 0 <= lr-warmup <= lr (finite)')
+        if args.backend != 'train':
+            parser.error('--lr-warmup is supported only with --backend train')
     if args.evalfix_a is not None:
         if not math.isfinite(args.evalfix_a) or args.evalfix_a <= 0:
             parser.error("--evalfix-a must be finite and > 0")

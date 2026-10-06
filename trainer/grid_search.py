@@ -37,6 +37,7 @@ class Trial:
     value_loss_min_weight: float = 1.0
     evalfix: bool = True
     evalfix_a: float | None = None
+    lr_warmup: float | None = None
 
 
 FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -50,7 +51,8 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_bpu(?P<batches_per_update>\d+))?"
     r"(?:_vlmw(?P<value_loss_min_weight>[^_]+))?"
     r"(?:_evalfix(?P<evalfix>true|false))?"
-    r"(?:_evalfixa(?P<evalfix_a>[^_]+))?$"
+    r"(?:_evalfixa(?P<evalfix_a>[^_]+))?"
+    r"(?:_warmup(?P<lr_warmup>[^_]+))?$"
 )
 
 def parse_bool(value: str) -> bool:
@@ -64,6 +66,7 @@ def parse_bool(value: str) -> bool:
 GRID_PARAMETERS = {
     "lr": (float, None, 0, None),
     "lr_min": (float, None, 0, None),
+    "lr-warmup": (float, None, 0, None),
     "val_lambda": (float, None, 0, 1),
     "temperature": (float, 1.0, 0, None),
     "policy-mix": (float, 1.0, 0, 1),
@@ -176,6 +179,9 @@ def parse_args() -> argparse.Namespace:
         for name in ('lr', 'val_lambda'):
             if args.grid_values[name] == [None]:
                 parser.error(f"specify --{name} VALUE or --grid {name} VALUE [VALUE ...]")
+        for lr, warmup in product(args.grid_values['lr'], args.grid_values['lr-warmup']):
+            if warmup is not None and warmup > lr:
+                parser.error('lr-warmup must be <= lr for every combination')
         if args.lr_scheduler == 'exponential':
             # trainer.py uses 1e-5 when lr_min is omitted.
             for lr, lr_min in product(args.grid_values['lr'], args.grid_values['lr_min']):
@@ -204,9 +210,9 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     for lr in values['lr']:
         for lr_min in lr_mins:
             for val_lambda in values['val_lambda']:
-                for temperature, policy_mix, value_loss_min_weight, evalfix, evalfix_a in product(
+                for temperature, policy_mix, value_loss_min_weight, evalfix, evalfix_a, lr_warmup in product(
                         values['temperature'], values['policy-mix'], values['value-loss-min-weight'],
-                        values['evalfix'], values['evalfix-a']):
+                        values['evalfix'], values['evalfix-a'], values['lr-warmup']):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
@@ -227,6 +233,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                 name += f"_evalfix{str(evalfix).lower()}"
                             if evalfix_a is not None:
                                 name += f"_evalfixa{float_tag(evalfix_a)}"
+                            if lr_warmup is not None:
+                                name += f"_warmup{float_tag(lr_warmup)}"
                             trials.append(
                                 Trial(
                                     lr=lr,
@@ -240,6 +248,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     value_loss_min_weight=value_loss_min_weight,
                                     evalfix=evalfix,
                                     evalfix_a=evalfix_a,
+                                    lr_warmup=lr_warmup,
                                 )
                             )
     return trials
@@ -277,6 +286,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         value_loss_min_weight=value_loss_min_weight,
         evalfix=match.group('evalfix') != 'false',
         evalfix_a=evalfix_a,
+        lr_warmup=float(match.group('lr_warmup')) if match.group('lr_warmup') else None,
     )
 
 
@@ -338,6 +348,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         command.extend(["--batches-per-update", str(trial.batches_per_update)])
     if trial.lr_min is not None:
         command.extend(["--lr_min", str(trial.lr_min)])
+    if trial.lr_warmup is not None:
+        command.extend(['--lr-warmup', str(trial.lr_warmup)])
     if not trial.evalfix:
         command.append('--no_evalfix')
     if trial.evalfix_a is not None:
@@ -402,6 +414,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial,
     summary: dict[str, str | int] = {
         "lr": str(trial.lr),
         "lr_min": str(trial.lr_min) if trial.lr_min is not None else "",
+        "lr_warmup": str(trial.lr_warmup) if trial.lr_warmup is not None else "",
         "val_lambda": str(trial.val_lambda),
         "temperature": str(trial.temperature),
         "policy_mix": str(trial.policy_mix),
@@ -463,10 +476,12 @@ def summarize_trials(args: argparse.Namespace, trials: list[Trial], *, parse_log
 def write_summary(path: Path, rows: list[dict[str, str | int]], *,
                   include_temperature: bool = True, include_policy_mix: bool = True,
                   include_value_loss_min_weight: bool = False,
-                  include_evalfix: bool = False, include_evalfix_a: bool = False) -> None:
+                  include_evalfix: bool = False, include_evalfix_a: bool = False,
+                  include_lr_warmup: bool = False) -> None:
     fieldnames = [
         "lr",
         "lr_min",
+        "lr_warmup",
         "val_lambda",
         "temperature",
         "policy_mix",
@@ -488,6 +503,8 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
     ]
     if not include_temperature:
         fieldnames.remove("temperature")
+    if not include_lr_warmup:
+        fieldnames.remove('lr_warmup')
     if not include_policy_mix:
         fieldnames.remove("policy_mix")
     if not include_value_loss_min_weight:
@@ -603,6 +620,7 @@ def main() -> None:
         raise ValueError(f"No trial folders found in {args.model_root}; summary CSV was not changed.")
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
     summary_options = dict(include_temperature=args.include_temperature,
+                           include_lr_warmup=any(trial.lr_warmup is not None for trial in trials),
                            include_policy_mix=args.include_policy_mix,
                            include_value_loss_min_weight=args.include_value_loss_min_weight,
                            include_evalfix=args.include_evalfix or any(
