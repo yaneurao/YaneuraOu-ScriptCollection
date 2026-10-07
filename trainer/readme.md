@@ -29,6 +29,22 @@ python trainer/grid_search.py --train-dir C:\shogi\teacher\train --model-root C:
 
 dlshogi側にも対応した `dlshogi/train.py` が必要です。直接実行した場合の `--lr-warmup` は、その呼び出しの最初のepochに適用されます。YOSCが初回ファイルだけに渡すことで上記の動作になります。
 
+## 勾配クリッピング
+
+`--clip_grad_max_norm` で勾配全体のL2ノルムの上限を指定できます。デフォルトは `10`、`0` でクリッピングを無効にします。勾配蓄積を使う場合は平均化後の勾配に適用します。負数・NaN・無限大は指定できません。
+
+```powershell
+python trainer/trainer.py --train_dir C:\shogi\teacher\train --clip_grad_max_norm 30
+```
+
+grid searchでは、通常の学習引数に次を追加して比較できます。
+
+```powershell
+--grid clip_grad_max_norm 0 10 30
+```
+
+固定値なら `--clip_grad_max_norm 30` と指定します。明示した場合のみフォルダ名に `_clip30` などが付き、CSVに `clip_grad_max_norm` 列が追加されます。`--summary-only` でも復元されます。省略した試行の上限は10です。無効化や上限の引き上げによって学習が不安定になる場合があります。
+
 ## 既定値
 
 ```txt

@@ -778,7 +778,7 @@ def write_ptl_config(
             "devices": [args.gpu] if args.gpu >= 0 else 1,
             "max_epochs": max_epochs,
             "precision": lightning_precision(args.no_amp, args.amp_dtype),
-            "gradient_clip_val": 10.0,
+            "gradient_clip_val": getattr(args, 'clip_grad_max_norm', 10.0),
             "val_check_interval": 1.0,
             "num_sanity_val_steps": 0,
             "log_every_n_steps": 50,
@@ -965,6 +965,7 @@ def run_one_round(
     print(f"out dir: {out_dir}")
     print(f"network: {args.network}")
     print(f"batchsize: {args.batchsize}")
+    print(f"clip_grad_max_norm: {args.clip_grad_max_norm} (0 disables clipping)")
     if args.batches_per_update > 1:
         print(
             "batches per update: "
@@ -1049,6 +1050,8 @@ def run_one_round(
                 "SGD(momentum=0.9,nesterov=True)",
                 "--weight_decay",
                 "0.0001",
+                "--clip_grad_max_norm",
+                str(args.clip_grad_max_norm),
                 "--val_lambda",
                 str(current_val_lambda),
                 "--temperature",
@@ -1349,7 +1352,11 @@ def main() -> None:
     )
     parser.add_argument('--lr-warmup', type=float, nargs='?', const=1e-7,
                         help='Initial LR for first-file warmup (bare flag: 1e-7; omitted: disabled)')
+    parser.add_argument('--clip_grad_max_norm', type=float, default=10.0,
+                        help='Maximum gradient L2 norm (default: 10; 0 disables clipping)')
     args = parser.parse_args()
+    if not math.isfinite(args.clip_grad_max_norm) or args.clip_grad_max_norm < 0:
+        parser.error('--clip_grad_max_norm must be finite and >= 0')
     if args.lr_warmup is not None:
         if not math.isfinite(args.lr_warmup) or not math.isfinite(args.lr) or not 0 <= args.lr_warmup <= args.lr:
             parser.error('--lr-warmup requires 0 <= lr-warmup <= lr (finite)')

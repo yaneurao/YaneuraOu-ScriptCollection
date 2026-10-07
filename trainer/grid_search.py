@@ -38,6 +38,7 @@ class Trial:
     evalfix: bool = True
     evalfix_a: float | None = None
     lr_warmup: float | None = None
+    clip_grad_max_norm: float | None = None
 
 
 FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -52,7 +53,8 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_vlmw(?P<value_loss_min_weight>[^_]+))?"
     r"(?:_evalfix(?P<evalfix>true|false))?"
     r"(?:_evalfixa(?P<evalfix_a>[^_]+))?"
-    r"(?:_warmup(?P<lr_warmup>[^_]+))?$"
+    r"(?:_warmup(?P<lr_warmup>[^_]+))?"
+    r"(?:_clip(?P<clip_grad_max_norm>[^_]+))?$"
 )
 
 def parse_bool(value: str) -> bool:
@@ -67,6 +69,7 @@ GRID_PARAMETERS = {
     "lr": (float, None, 0, None),
     "lr_min": (float, None, 0, None),
     "lr-warmup": (float, None, 0, None),
+    "clip_grad_max_norm": (float, None, 0, None),
     "val_lambda": (float, None, 0, 1),
     "temperature": (float, 1.0, 0, None),
     "policy-mix": (float, 1.0, 0, 1),
@@ -214,9 +217,9 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
     for lr in values['lr']:
         for lr_min in lr_mins:
             for val_lambda in values['val_lambda']:
-                for temperature, policy_mix, value_loss_min_weight, evalfix, evalfix_a, lr_warmup in product(
+                for temperature, policy_mix, value_loss_min_weight, evalfix, evalfix_a, lr_warmup, clip_grad_max_norm in product(
                         values['temperature'], values['policy-mix'], values['value-loss-min-weight'],
-                        values['evalfix'], values['evalfix-a'], values['lr-warmup']):
+                        values['evalfix'], values['evalfix-a'], values['lr-warmup'], values['clip_grad_max_norm']):
                     for batchsize in batchsizes:
                         for batches_per_update in batches_per_updates:
                             name = f"{args.network}_lr{float_tag(lr)}"
@@ -239,6 +242,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                 name += f"_evalfixa{float_tag(evalfix_a)}"
                             if lr_warmup is not None:
                                 name += f"_warmup{float_tag(lr_warmup)}"
+                            if clip_grad_max_norm is not None:
+                                name += f"_clip{float_tag(clip_grad_max_norm)}"
                             trials.append(
                                 Trial(
                                     lr=lr,
@@ -253,6 +258,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     evalfix=evalfix,
                                     evalfix_a=evalfix_a,
                                     lr_warmup=lr_warmup,
+                                    clip_grad_max_norm=clip_grad_max_norm,
                                 )
                             )
     return trials
@@ -291,6 +297,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         evalfix=match.group('evalfix') != 'false',
         evalfix_a=evalfix_a,
         lr_warmup=float(match.group('lr_warmup')) if match.group('lr_warmup') else None,
+        clip_grad_max_norm=float(match.group('clip_grad_max_norm')) if match.group('clip_grad_max_norm') else None,
     )
 
 
@@ -354,6 +361,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         command.extend(["--lr_min", str(trial.lr_min)])
     if trial.lr_warmup is not None:
         command.extend(['--lr-warmup', str(trial.lr_warmup)])
+    if trial.clip_grad_max_norm is not None:
+        command.extend(['--clip_grad_max_norm', str(trial.clip_grad_max_norm)])
     if not trial.evalfix:
         command.append('--no_evalfix')
     if trial.evalfix_a is not None:
@@ -419,6 +428,7 @@ def summarize_trial(args: argparse.Namespace, trial: Trial,
         "lr": str(trial.lr),
         "lr_min": str(trial.lr_min) if trial.lr_min is not None else "",
         "lr_warmup": str(trial.lr_warmup) if trial.lr_warmup is not None else "",
+        "clip_grad_max_norm": str(trial.clip_grad_max_norm if trial.clip_grad_max_norm is not None else 10.0),
         "val_lambda": str(trial.val_lambda),
         "temperature": str(trial.temperature),
         "policy_mix": str(trial.policy_mix),
@@ -481,11 +491,13 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
                   include_temperature: bool = True, include_policy_mix: bool = True,
                   include_value_loss_min_weight: bool = False,
                   include_evalfix: bool = False, include_evalfix_a: bool = False,
-                  include_lr_warmup: bool = False) -> None:
+                  include_lr_warmup: bool = False,
+                  include_clip_grad_max_norm: bool = False) -> None:
     fieldnames = [
         "lr",
         "lr_min",
         "lr_warmup",
+        "clip_grad_max_norm",
         "val_lambda",
         "temperature",
         "policy_mix",
@@ -509,6 +521,8 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         fieldnames.remove("temperature")
     if not include_lr_warmup:
         fieldnames.remove('lr_warmup')
+    if not include_clip_grad_max_norm:
+        fieldnames.remove('clip_grad_max_norm')
     if not include_policy_mix:
         fieldnames.remove("policy_mix")
     if not include_value_loss_min_weight:
@@ -625,6 +639,7 @@ def main() -> None:
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
     summary_options = dict(include_temperature=args.include_temperature,
                            include_lr_warmup=any(trial.lr_warmup is not None for trial in trials),
+                           include_clip_grad_max_norm=any(trial.clip_grad_max_norm is not None for trial in trials),
                            include_policy_mix=args.include_policy_mix,
                            include_value_loss_min_weight=args.include_value_loss_min_weight,
                            include_evalfix=args.include_evalfix or any(
@@ -666,6 +681,7 @@ def main() -> None:
             print(
                 f"[{index}/{len(trials)}] "
                 f"lr={trial.lr} "
+                f"clip_grad_max_norm={trial.clip_grad_max_norm if trial.clip_grad_max_norm is not None else 10.0} "
                 f"lr_min={trial.lr_min if trial.lr_min is not None else '-'} "
                 f"val_lambda={trial.val_lambda} "
                 f"temperature={trial.temperature} "
