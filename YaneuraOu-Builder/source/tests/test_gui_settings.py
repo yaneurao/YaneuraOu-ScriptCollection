@@ -68,9 +68,24 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(gui.plan, [])
         showerror.assert_called_once()
 
+    def test_tabs_and_bookminer_visibility(self):
+        gui = self.gui
+        self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
+                         ['Release settings', 'Variants', 'CPU targets', 'Editions'])
+        gui.settings_tabs.select(gui.edition_box)
+        gui.preset_var.set('bookminer-cpp')
+        gui._select_preset()
+        self.assertEqual(gui.settings_tabs.tab(gui.edition_box, 'state'), 'hidden')
+        self.assertEqual(gui.settings_tabs.tab(gui.variant_box, 'state'), 'hidden')
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        self.assertEqual(gui.settings_tabs.tab(gui.edition_box, 'state'), 'normal')
+        self.assertEqual(gui.settings_tabs.tab(gui.variant_box, 'state'), 'normal')
+
     def test_edition_columns_align(self):
         gui = self.gui
         gui.deiconify()
+        gui.settings_tabs.select(gui.edition_box)
         gui.update_idletasks()
         labels = [w for w in gui.edition_scroller.inner.winfo_children()
                   if isinstance(w, app.ttk.Label) and int(w.grid_info()['column']) == 2]

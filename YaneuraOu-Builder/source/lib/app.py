@@ -111,30 +111,6 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.configure(height=height)
 
 
-class CollapsibleFrame(ttk.Frame):
-    def __init__(self, parent: tk.Widget, title: str):
-        super().__init__(parent)
-        self.columnconfigure(0, weight=1)
-        self.title = title
-        self.expanded = True
-        self.toggle = ttk.Button(self, command=self._toggle)
-        self.toggle.grid(row=0, column=0, sticky="ew")
-        self.content = ttk.Frame(self, padding=8)
-        self.content.grid(row=1, column=0, sticky="ew")
-        self._update_title()
-
-    def _toggle(self) -> None:
-        self.expanded = not self.expanded
-        if self.expanded:
-            self.content.grid()
-        else:
-            self.content.grid_remove()
-        self._update_title()
-
-    def _update_title(self) -> None:
-        self.toggle.configure(text=f"{'▼' if self.expanded else '▶'} {self.title}")
-
-
 class Tooltip:
     def __init__(self, widget: tk.Widget, text: str) -> None:
         self.widget = widget
@@ -405,21 +381,15 @@ class BuildGui(tk.Tk):
         self.run_direct_button = ttk.Button(build_actions, text="Run Direct", command=self._run_scripts_direct)
         self.run_direct_button.pack(side="left")
 
-        self.release_scroller = ScrollableFrame(self.recipe_tab, height=620)
-        self.release_scroller.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
-        self.release_scroller.inner.columnconfigure(0, weight=1)
-
-        self.release_page = ttk.Frame(self.release_scroller.inner, padding=10)
-        self.release_page.grid(row=0, column=0, sticky="nsew")
+        self.settings_tabs = ttk.Notebook(self.recipe_tab)
+        self.settings_tabs.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         self._build_release_page()
 
     def _build_release_page(self) -> None:
-        self.release_page.columnconfigure(0, weight=1)
-        self.release_page.rowconfigure(1, weight=1)
-
-        general_section = CollapsibleFrame(self.release_page, "Release settings")
-        general_section.grid(row=0, column=0, sticky="ew")
-        general = general_section.content
+        self.release_scroller = ScrollableFrame(self.settings_tabs, height=620)
+        self.settings_tabs.add(self.release_scroller, text="Release settings")
+        general = self.release_scroller.inner
+        general.configure(padding=10)
         for column in (1, 3):
             general.columnconfigure(column, weight=1)
 
@@ -581,34 +551,31 @@ class BuildGui(tk.Tk):
             tooltip=RELEASE_SETTING_TOOLTIPS["spsa_params_file"],
         )
 
-        matrix = ttk.Frame(self.release_page)
-        matrix.grid(row=1, column=0, sticky="ew", pady=(10, 0))
-        matrix.columnconfigure(0, weight=1)
-
-        self.variant_box = CollapsibleFrame(matrix, "Variants")
-        self.variant_box.grid(row=0, column=0, sticky="ew")
-        variant_box = self.variant_box.content
+        self.variant_box = ttk.Frame(self.settings_tabs, padding=10)
+        self.settings_tabs.add(self.variant_box, text="Variants")
+        variant_box = self.variant_box
         variant_box.columnconfigure(2, weight=1)
         ttk.Label(variant_box, text="Use").grid(row=0, column=0, sticky="w")
         ttk.Label(variant_box, text="Name").grid(row=0, column=1, sticky="w")
         ttk.Label(variant_box, text="Extra CPP flags").grid(row=0, column=2, sticky="w")
         self.variant_frame = variant_box
 
-        self.cpu_box = CollapsibleFrame(matrix, "CPU targets")
-        self.cpu_box.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        self.cpu_frame = self.cpu_box.content
+        self.cpu_box = ttk.Frame(self.settings_tabs, padding=10)
+        self.settings_tabs.add(self.cpu_box, text="CPU targets")
+        self.cpu_frame = self.cpu_box
         self.cpu_frame.columnconfigure(0, weight=1)
 
-        self.edition_box = CollapsibleFrame(matrix, "Editions")
-        self.edition_box.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        edition_box = self.edition_box.content
+        self.edition_box = ttk.Frame(self.settings_tabs, padding=10)
+        self.settings_tabs.add(self.edition_box, text="Editions")
+        edition_box = self.edition_box
         edition_box.columnconfigure(0, weight=1)
+        edition_box.rowconfigure(1, weight=1)
         edition_buttons = ttk.Frame(edition_box)
         edition_buttons.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ttk.Button(edition_buttons, text="Enable all", command=lambda: self._set_all_editions(True)).pack(side="left")
         ttk.Button(edition_buttons, text="Disable all", command=lambda: self._set_all_editions(False)).pack(side="left", padx=(6, 0))
         self.edition_scroller = ScrollableFrame(edition_box, height=NORMAL_EDITION_HEIGHT)
-        self.edition_scroller.grid(row=1, column=0, sticky="ew")
+        self.edition_scroller.grid(row=1, column=0, sticky="nsew")
 
     def _build_log_tab(self) -> None:
         self.log_tab.columnconfigure(0, weight=1)
@@ -1008,16 +975,8 @@ class BuildGui(tk.Tk):
 
     def _apply_recipe_kind_layout(self, kind: str) -> None:
         bookminer_cpp = kind == "bookminer_cpp"
-        if hasattr(self, "variant_box"):
-            if bookminer_cpp:
-                self.variant_box.grid_remove()
-            else:
-                self.variant_box.grid()
-        if hasattr(self, "edition_box"):
-            if bookminer_cpp:
-                self.edition_box.grid_remove()
-            else:
-                self.edition_box.grid()
+        for tab in (self.variant_box, self.edition_box):
+            self.settings_tabs.tab(tab, state="hidden" if bookminer_cpp else "normal")
         if hasattr(self, "spsa_box"):
             if bookminer_cpp:
                 self.spsa_box.grid_remove()
