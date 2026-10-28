@@ -62,10 +62,7 @@ GUI_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "yobuild_gui.pickle"
 GUI_SETTINGS_VERSION = 2
 NORMAL_WINDOW_GEOMETRY = "1280x920"
 NORMAL_WINDOW_MINSIZE = (1080, 700)
-COMPACT_WINDOW_GEOMETRY = "1040x720"
-COMPACT_WINDOW_MINSIZE = (820, 520)
 NORMAL_EDITION_HEIGHT = 420
-COMPACT_EDITION_HEIGHT = 250
 RELEASE_SETTING_TOOLTIPS = {
     "run_name": "生成するrunフォルダ名の元になる名前です。Preset名とは別に、出力runの識別に使います。",
     "run_root": "生成したscript、recipe.json、plan.json、manifest.jsonを置く親フォルダです。",
@@ -111,6 +108,30 @@ class ScrollableFrame(ttk.Frame):
 
     def set_height(self, height: int) -> None:
         self.canvas.configure(height=height)
+
+
+class CollapsibleFrame(ttk.Frame):
+    def __init__(self, parent: tk.Widget, title: str):
+        super().__init__(parent)
+        self.columnconfigure(0, weight=1)
+        self.title = title
+        self.expanded = True
+        self.toggle = ttk.Button(self, command=self._toggle)
+        self.toggle.grid(row=0, column=0, sticky="ew")
+        self.content = ttk.Frame(self, padding=8)
+        self.content.grid(row=1, column=0, sticky="ew")
+        self._update_title()
+
+    def _toggle(self) -> None:
+        self.expanded = not self.expanded
+        if self.expanded:
+            self.content.grid()
+        else:
+            self.content.grid_remove()
+        self._update_title()
+
+    def _update_title(self) -> None:
+        self.toggle.configure(text=f"{'▼' if self.expanded else '▶'} {self.title}")
 
 
 class Tooltip:
@@ -215,8 +236,8 @@ class BuildGui(tk.Tk):
         self.title("YO-Build")
 
         self.gui_settings, self.startup_messages = load_gui_settings()
-        self.compact_window = bool(self.gui_settings.get("compact_window", False))
-        self._apply_window_geometry()
+        self.geometry(NORMAL_WINDOW_GEOMETRY)
+        self.minsize(*NORMAL_WINDOW_MINSIZE)
         self.user_presets = self._load_user_presets(self.gui_settings.get("presets"))
         self._ensure_presets()
         self.preset_values = self._preset_names()
@@ -236,10 +257,8 @@ class BuildGui(tk.Tk):
         self.write_scripts_button: ttk.Button | None = None
         self.run_msys2_button: ttk.Button | None = None
         self.run_direct_button: ttk.Button | None = None
-        self.window_size_button: ttk.Button | None = None
 
         self._build_widgets()
-        self._apply_compact_layout()
         self._load_recipe_into_form()
         for message in self.startup_messages:
             self._log(message)
@@ -302,7 +321,6 @@ class BuildGui(tk.Tk):
         data = {
             "schema_version": GUI_SETTINGS_VERSION,
             "current_preset": self.current_preset_name,
-            "compact_window": self.compact_window,
             "presets": self.user_presets,
         }
         try:
@@ -313,30 +331,11 @@ class BuildGui(tk.Tk):
         return True
 
     def _on_close(self) -> None:
-        self._save_gui_settings()
-        self.destroy()
-
-    def _apply_window_geometry(self) -> None:
-        if self.compact_window:
-            self.geometry(COMPACT_WINDOW_GEOMETRY)
-            self.minsize(*COMPACT_WINDOW_MINSIZE)
-        else:
-            self.geometry(NORMAL_WINDOW_GEOMETRY)
-            self.minsize(*NORMAL_WINDOW_MINSIZE)
-
-    def _apply_compact_layout(self) -> None:
-        if hasattr(self, "edition_scroller"):
-            self.edition_scroller.set_height(COMPACT_EDITION_HEIGHT if self.compact_window else NORMAL_EDITION_HEIGHT)
-        if hasattr(self, "release_scroller"):
-            self.release_scroller.set_height(420 if self.compact_window else 620)
-        if self.window_size_button is not None:
-            self.window_size_button.configure(text="Normal Window" if self.compact_window else "Small Window")
-
-    def _toggle_window_size(self) -> None:
-        self.compact_window = not self.compact_window
-        self._apply_window_geometry()
-        self._apply_compact_layout()
-        self._save_gui_settings(update_current_preset=False)
+        if self._read_recipe_from_form_silent() is None:
+            messagebox.showerror("Settings", "Settings could not be saved. Check the quotation marks in the flags fields.")
+            return
+        if self._save_gui_settings():
+            self.destroy()
 
     def _build_widgets(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -361,7 +360,6 @@ class BuildGui(tk.Tk):
         top = ttk.Frame(self.recipe_tab)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        top.columnconfigure(2, weight=0)
 
         ttk.Label(top, text="Preset").grid(row=0, column=0, sticky="w")
         self.preset_var = tk.StringVar(value=self.current_preset_name)
@@ -374,9 +372,6 @@ class BuildGui(tk.Tk):
         )
         self.preset_box.grid(row=0, column=1, padx=(6, 10), sticky="w")
         self.preset_box.bind("<<ComboboxSelected>>", lambda _event: self._select_preset())
-
-        self.window_size_button = ttk.Button(top, command=self._toggle_window_size)
-        self.window_size_button.grid(row=0, column=2, sticky="e")
 
         actions = ttk.Frame(top)
         actions.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -399,7 +394,7 @@ class BuildGui(tk.Tk):
         self.run_direct_button = ttk.Button(build_actions, text="Run Direct", command=self._run_scripts_direct)
         self.run_direct_button.pack(side="left")
 
-        self.release_scroller = ScrollableFrame(self.recipe_tab)
+        self.release_scroller = ScrollableFrame(self.recipe_tab, height=620)
         self.release_scroller.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         self.release_scroller.inner.columnconfigure(0, weight=1)
 
@@ -411,8 +406,9 @@ class BuildGui(tk.Tk):
         self.release_page.columnconfigure(0, weight=1)
         self.release_page.rowconfigure(1, weight=1)
 
-        general = ttk.LabelFrame(self.release_page, text="Release settings", padding=8)
-        general.grid(row=0, column=0, sticky="ew")
+        general_section = CollapsibleFrame(self.release_page, "Release settings")
+        general_section.grid(row=0, column=0, sticky="ew")
+        general = general_section.content
         for column in (1, 3):
             general.columnconfigure(column, weight=1)
 
@@ -575,42 +571,34 @@ class BuildGui(tk.Tk):
         )
 
         matrix = ttk.Frame(self.release_page)
-        matrix.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        matrix.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         matrix.columnconfigure(0, weight=1)
-        matrix.columnconfigure(1, weight=2)
-        matrix.rowconfigure(1, weight=1)
 
-        left = ttk.Frame(matrix)
-        left.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
-        left.columnconfigure(0, weight=1)
-
-        variant_box = ttk.LabelFrame(left, text="Variants", padding=8)
-        variant_box.grid(row=0, column=0, sticky="ew")
-        variant_box.columnconfigure(1, weight=1)
+        self.variant_box = CollapsibleFrame(matrix, "Variants")
+        self.variant_box.grid(row=0, column=0, sticky="ew")
+        variant_box = self.variant_box.content
+        variant_box.columnconfigure(2, weight=1)
         ttk.Label(variant_box, text="Use").grid(row=0, column=0, sticky="w")
         ttk.Label(variant_box, text="Name").grid(row=0, column=1, sticky="w")
         ttk.Label(variant_box, text="Extra CPP flags").grid(row=0, column=2, sticky="w")
-        self.variant_box = variant_box
         self.variant_frame = variant_box
 
-        cpu_box = ttk.LabelFrame(left, text="CPU targets", padding=8)
-        cpu_box.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        cpu_box.columnconfigure(0, weight=1)
-        self.cpu_frame = cpu_box
+        self.cpu_box = CollapsibleFrame(matrix, "CPU targets")
+        self.cpu_box.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.cpu_frame = self.cpu_box.content
+        self.cpu_frame.columnconfigure(0, weight=1)
 
-        edition_box = ttk.LabelFrame(matrix, text="Editions", padding=8)
-        edition_box.grid(row=0, column=1, rowspan=2, sticky="nsew")
+        self.edition_box = CollapsibleFrame(matrix, "Editions")
+        self.edition_box.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        edition_box = self.edition_box.content
         edition_box.columnconfigure(0, weight=1)
-        edition_box.rowconfigure(1, weight=1)
-        self.edition_box = edition_box
-
         edition_buttons = ttk.Frame(edition_box)
         edition_buttons.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ttk.Button(edition_buttons, text="Enable all", command=lambda: self._set_all_editions(True)).pack(side="left")
         ttk.Button(edition_buttons, text="Disable all", command=lambda: self._set_all_editions(False)).pack(side="left", padx=(6, 0))
-
-        self.edition_scroller = ScrollableFrame(edition_box, height=420)
-        self.edition_scroller.grid(row=1, column=0, sticky="nsew")
+        self.edition_scroller = ScrollableFrame(edition_box, height=NORMAL_EDITION_HEIGHT)
+        self.edition_scroller.grid(row=1, column=0, sticky="ew")
+        self.edition_scroller.inner.columnconfigure(0, weight=1)
 
     def _build_log_tab(self) -> None:
         self.log_tab.columnconfigure(0, weight=1)
@@ -701,7 +689,9 @@ class BuildGui(tk.Tk):
         if not name or name == self.current_preset_name:
             return
         if not self._save_current_preset_from_form(self.current_preset_name):
-            self._log(f"Preset switch warning: current preset was not saved: {self.current_preset_name}")
+            self.preset_var.set(self.current_preset_name)
+            messagebox.showerror("Settings", "Settings could not be saved. Check the quotation marks in the flags fields.")
+            return
         self.current_preset_name = name
         self.recipe = self._preset_recipe(name)
         self.plan = []
@@ -729,6 +719,8 @@ class BuildGui(tk.Tk):
         if name in self.user_presets:
             if not messagebox.askyesno("New Preset", f"Overwrite preset '{name}'?"):
                 return
+        if name != self.current_preset_name:
+            self.user_presets[self.current_preset_name] = deepcopy(recipe)
         recipe = deepcopy(recipe)
         recipe["name"] = name
         self.user_presets[name] = recipe
@@ -761,6 +753,7 @@ class BuildGui(tk.Tk):
             messagebox.showerror("Clone Preset", f"Preset '{name}' already exists.")
             return
 
+        self.user_presets[source_name] = deepcopy(source_recipe)
         recipe = deepcopy(source_recipe)
         recipe["name"] = name
         self.user_presets[name] = recipe
@@ -1009,11 +1002,6 @@ class BuildGui(tk.Tk):
                 self.variant_box.grid_remove()
             else:
                 self.variant_box.grid()
-        if hasattr(self, "cpu_frame"):
-            if bookminer_cpp:
-                self.cpu_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 0))
-            else:
-                self.cpu_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         if hasattr(self, "edition_box"):
             if bookminer_cpp:
                 self.edition_box.grid_remove()
@@ -1041,7 +1029,7 @@ class BuildGui(tk.Tk):
             name_entry = ttk.Entry(
                 self.variant_frame,
                 textvariable=name,
-                width=12,
+                width=8,
                 state="readonly" if variant_name in STANDARD_VARIANT_NAMES else "normal",
             )
             name_entry.grid(row=row_index, column=1, sticky="ew", padx=(0, 6), pady=2)
@@ -1057,7 +1045,7 @@ class BuildGui(tk.Tk):
         known = list(CPU_OPTIONS.get(platform_name, ()))
         has_selection = platform_name in cpus_by_platform
         selected = [str(cpu) for cpu in cpus_by_platform.get(platform_name, [])]
-        if not selected and "win" in platform_name and "win" in cpus_by_platform:
+        if not has_selection and "win" in platform_name and "win" in cpus_by_platform:
             has_selection = True
             selected = [str(cpu) for cpu in cpus_by_platform.get("win", [])]
         if not has_selection:
@@ -1138,8 +1126,8 @@ class BuildGui(tk.Tk):
             ),
         }
 
-    def _release_recipe_from_form(self) -> dict[str, Any]:
-        recipe = self._base_recipe_from_form("release_all")
+    def _release_recipe_from_form(self, *, validate: bool = True) -> dict[str, Any]:
+        recipe = self._base_recipe_from_form("release_all", require_name=validate)
         platform_name = self._release_platform_key()
         source_key = "win" if "win" in platform_name else platform_name
         variants = []
@@ -1147,7 +1135,7 @@ class BuildGui(tk.Tk):
         for row in self.variant_rows:
             name = row["name"].get().strip()
             enabled = bool(row["enabled"].get())
-            if enabled and not name:
+            if validate and enabled and not name:
                 raise ValueError("Variant name is required for enabled rows.")
             if name:
                 variants.append(
@@ -1159,7 +1147,7 @@ class BuildGui(tk.Tk):
                 )
                 if enabled:
                     enabled_variants += 1
-        if not enabled_variants:
+        if validate and not enabled_variants:
             raise ValueError("At least one variant is required.")
         editions = []
         for row in self.edition_rows:
@@ -1174,18 +1162,21 @@ class BuildGui(tk.Tk):
                     }
                 )
         selected_cpus = [cpu for cpu, var in self.cpu_vars.items() if var.get()]
-        if not selected_cpus:
+        if validate and not selected_cpus:
             raise ValueError("At least one CPU target is required.")
-        engine_version = _required(self.release_version_var.get(), "Engine version")
+        engine_version = self.release_version_var.get().strip()
+        if validate:
+            engine_version = _required(engine_version, "Engine version")
         recipe.update(
             {
+                "material_level": self.recipe.get("material_level"),
                 "version": engine_version,
                 "package_version": package_version_from_engine_version(engine_version),
-                "source_dirs": {source_key: _required(self.release_source_var.get(), "YaneuraOu source folder")},
+                "source_dirs": {source_key: (_required(self.release_source_var.get(), "YaneuraOu source folder") if validate else self.release_source_var.get().strip())},
                 "platforms": [platform_name],
                 "variants": variants,
                 "target": BUILD_TARGET,
-                "compiler": _required(self.release_compiler_var.get(), "Compiler"),
+                "compiler": (_required(self.release_compiler_var.get(), "Compiler") if validate else self.release_compiler_var.get().strip()),
                 "jobs": FIXED_BUILD_JOBS,
                 "engine_name": self.release_engine_name_var.get().strip() or "YaneuraOu",
                 "common_cppflags": _split_words(self.release_common_flags_var.get()),
@@ -1197,7 +1188,7 @@ class BuildGui(tk.Tk):
                     "format": self.package_format_var.get().strip() or "7z",
                     "exclude": _split_words(self.package_exclude_var.get()) or ["obj"],
                 },
-                "spsa": self._spsa_recipe_from_release_form(),
+                "spsa": self._spsa_recipe_from_release_form(validate=validate),
             }
         )
         return recipe
@@ -1226,27 +1217,20 @@ class BuildGui(tk.Tk):
         )
         return recipe
 
-    def _spsa_recipe_from_release_form(self) -> dict[str, str]:
+    def _spsa_recipe_from_release_form(self, *, validate: bool = True) -> dict[str, str]:
         mode = self.spsa_mode_var.get().strip() or "none"
         if mode not in SPSA_MODES:
             raise ValueError("SPSA mode must be none, tune, or apply.")
-        if mode == "none":
-            return {
-                "mode": "none",
-                "tune_py": "",
-                "param_lib": "",
-                "tune_file": "",
-                "params_file": "",
-            }
         return {
             "mode": mode,
-            "tune_py": _required(self.spsa_tune_py_var.get(), "tune.py"),
-            "param_lib": _required(self.spsa_param_lib_var.get(), "ParamLib.py"),
-            "tune_file": _required(self.spsa_tune_file_var.get(), ".tune file"),
-            "params_file": _required(self.spsa_params_file_var.get(), ".params file"),
+            "tune_py": (_required(self.spsa_tune_py_var.get(), "tune.py") if validate and mode != "none" else self.spsa_tune_py_var.get().strip()),
+            "param_lib": (_required(self.spsa_param_lib_var.get(), "ParamLib.py") if validate and mode != "none" else self.spsa_param_lib_var.get().strip()),
+            "tune_file": (_required(self.spsa_tune_file_var.get(), ".tune file") if validate and mode != "none" else self.spsa_tune_file_var.get().strip()),
+            "params_file": (_required(self.spsa_params_file_var.get(), ".params file") if validate and mode != "none" else self.spsa_params_file_var.get().strip()),
         }
 
     def _create_plan_from_form(self) -> None:
+        self.plan = []
         recipe = self._read_recipe_from_form()
         if recipe is None:
             return
@@ -1449,7 +1433,7 @@ class BuildGui(tk.Tk):
         try:
             if self.form_recipe_kind == "bookminer_cpp":
                 return self._bookminer_cpp_recipe_from_form()
-            return self._release_recipe_from_form()
+            return self._release_recipe_from_form(validate=False)
         except ValueError:
             return None
 
