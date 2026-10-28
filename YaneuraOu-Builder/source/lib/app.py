@@ -239,6 +239,7 @@ class BuildGui(tk.Tk):
         self.cpu_vars: dict[str, tk.BooleanVar] = {}
         self.cpu_selections: dict[str, list[str]] = {}
         self.cpu_platform = ""
+        self.source_dirs: dict[str, str] = {}
         self.variant_rows: list[dict[str, Any]] = []
         self.edition_rows: list[dict[str, Any]] = []
         self.write_scripts_button: ttk.Button | None = None
@@ -861,9 +862,6 @@ class BuildGui(tk.Tk):
         platform_name = _platform_for_single_recipe(source_dir, target_cpu)
         source_key = "win" if "win" in platform_name else platform_name
         edition = str(recipe.get("edition", ""))
-        artifact_prefix = _path_stem(str(recipe.get("output_path", "")))
-        if not artifact_prefix:
-            artifact_prefix = "YaneuraOu_" + edition.removeprefix("YANEURAOU_ENGINE_") if edition else "YaneuraOu"
         spsa = {
             "mode": "none",
             "tune_py": "",
@@ -898,11 +896,8 @@ class BuildGui(tk.Tk):
             "msys2_root": _msys2_root_from_recipe(recipe),
             "cpus": {platform_name: [target_cpu]},
             "editions": [
-                {
-                    "edition": edition,
-                    "artifact_prefix": artifact_prefix,
-                    "enabled": True,
-                }
+                {"edition": name, "artifact_prefix": prefix, "enabled": name == edition}
+                for name, prefix in load_release_editions(self.yobuild_root)
             ],
             "package": {
                 "enabled": False,
@@ -927,6 +922,11 @@ class BuildGui(tk.Tk):
         platform_name = self._release_platform_key()
         if self.cpu_platform:
             self.cpu_selections[self.cpu_platform] = [cpu for cpu, var in self.cpu_vars.items() if var.get()]
+            if self.form_recipe_kind != "bookminer_cpp":
+                old_key = "win" if "win" in self.cpu_platform else self.cpu_platform
+                self.source_dirs[old_key] = self.release_source_var.get()
+                new_key = "win" if "win" in platform_name else platform_name
+                self.release_source_var.set(str(self.source_dirs.get(new_key, "")))
         self._rebuild_cpu_rows(self.cpu_selections, platform_name)
         self._apply_platform_compiler_defaults(platform_name)
 
@@ -945,6 +945,7 @@ class BuildGui(tk.Tk):
         release_recipe = recipe
         self.form_recipe_kind = str(release_recipe.get("kind", "release_all"))
         source_dirs = release_recipe.get("source_dirs", {})
+        self.source_dirs = deepcopy(source_dirs)
         package = release_recipe.get("package", {})
         spsa = release_recipe.get("spsa", {})
 
@@ -1142,7 +1143,7 @@ class BuildGui(tk.Tk):
                 "material_level": self.recipe.get("material_level"),
                 "version": engine_version,
                 "package_version": package_version_from_engine_version(engine_version),
-                "source_dirs": {**self.recipe.get("source_dirs", {}), source_key: (_required(self.release_source_var.get(), "YaneuraOu source folder") if validate else self.release_source_var.get().strip())},
+                "source_dirs": {**self.source_dirs, source_key: (_required(self.release_source_var.get(), "YaneuraOu source folder") if validate else self.release_source_var.get().strip())},
                 "platforms": [platform_name],
                 "variants": variants,
                 "target": BUILD_TARGET,

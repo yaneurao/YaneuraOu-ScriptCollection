@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 from collections import defaultdict
@@ -283,22 +284,22 @@ def _write_bookminer_cpp_scripts(recipe: dict[str, Any], plan: list[dict[str, An
             cpu = str(job["cpu"])
             artifact = str(job["artifact"])
             extra_cppflags = " ".join(str(flag) for flag in job.get("extra_cppflags", []) if flag)
-            build_dir = f"$RUN_DIR/build/bookminer-cpp/{cpu}"
-            target_path = f"$RUN_DIR/artifacts/{artifact}"
+            build_dir = '"$RUN_DIR"/' + shlex.quote(f"build/bookminer-cpp/{cpu}")
+            target_path = '"$RUN_DIR"/' + shlex.quote(f"artifacts/{artifact}")
             lines += [
                 f"echo \"[BookMinerCpp] TARGET_CPU={cpu}\"",
                 'require_command "$WIN32_CLANG_WRAPPER"' if first["platform"] == "win32" else f"require_command {_quote_literal(str(job.get('compiler', 'clang++')))}",
                 (
                     f"make -C \"$BOOKMINER_CPP_SOURCE_DIR\" clean "
-                    f"TARGET={_quote(target_path)} "
-                    f"BUILD_DIR={_quote(build_dir)}"
+                    f"TARGET={target_path} "
+                    f"BUILD_DIR={build_dir}"
                 ),
                 (
                     f"make -C \"$BOOKMINER_CPP_SOURCE_DIR\" -j{int(job.get('jobs', 8))} "
                     f"CXX={_quote(str(job.get('compiler', 'clang++')))} "
                     f"TARGET_CPU={_quote(cpu)} "
-                    f"TARGET={_quote(target_path)} "
-                    f"BUILD_DIR={_quote(build_dir)} "
+                    f"TARGET={target_path} "
+                    f"BUILD_DIR={build_dir} "
                     f"YANEURAOU_ROOT=\"$YANEURAOU_ROOT\" "
                     f"EXTRA_CPPFLAGS={_quote_literal(extra_cppflags)}"
                 ),
@@ -361,10 +362,11 @@ def _write_run_all_script(run_dir: Path, scripts_dir: Path) -> None:
 
 def _quote(value: str) -> str:
     value = _to_shell_path(value)
-    if value.startswith("~/") or value == "~":
-        return value
-    escaped = value.replace('"', '\\"')
-    return f'"{escaped}"'
+    if value == "~":
+        return '"$HOME"'
+    if value.startswith("~/"):
+        return '"$HOME"/' + shlex.quote(value[2:])
+    return shlex.quote(value)
 
 
 def _quote_literal(value: str) -> str:

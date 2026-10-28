@@ -59,6 +59,21 @@ class GuiSettingsTest(unittest.TestCase):
         gui._on_release_platform_changed()
         self.assertFalse(any(var.get() for var in gui.cpu_vars.values()))
 
+    def test_source_folder_survives_platform_changes(self):
+        gui = self.gui
+        gui.release_source_var.set('/windows-source')
+        gui.release_platform_var.set('macOS')
+        gui._on_release_platform_changed()
+        gui.release_source_var.set('/mac-source')
+        gui.release_platform_var.set('Windows x64')
+        gui._on_release_platform_changed()
+        self.assertEqual(gui.release_source_var.get(), '/windows-source')
+        gui._save_current_preset_from_form()
+        gui._load_recipe_into_form()
+        gui.release_platform_var.set('macOS')
+        gui._on_release_platform_changed()
+        self.assertEqual(gui.release_source_var.get(), '/mac-source')
+
     def test_empty_plan_reports_error_and_clears_previous_plan(self):
         gui = self.gui
         gui._set_all_editions(False)
@@ -67,6 +82,15 @@ class GuiSettingsTest(unittest.TestCase):
             gui._create_plan_from_form()
         self.assertEqual(gui.plan, [])
         showerror.assert_called_once()
+
+    def test_single_preset_selects_only_its_edition(self):
+        gui = self.gui
+        gui.preset_var.set('yo-material')
+        gui._select_preset()
+        self.assertEqual([row['edition'] for row in gui.edition_rows if row['enabled'].get()],
+                         ['YANEURAOU_ENGINE_MATERIAL'])
+        recipe = gui._release_recipe_from_form()
+        self.assertEqual(recipe['material_level'], 9)
 
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
