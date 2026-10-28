@@ -71,16 +71,17 @@ class GuiSettingsTest(unittest.TestCase):
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
         self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
-                         ['Release settings', 'Variants', 'CPU targets', 'Editions'])
+                         ['Release settings', 'Variants / CPU targets', 'Editions'])
         gui.settings_tabs.select(gui.edition_box)
         gui.preset_var.set('bookminer-cpp')
         gui._select_preset()
         self.assertEqual(gui.settings_tabs.tab(gui.edition_box, 'state'), 'hidden')
-        self.assertEqual(gui.settings_tabs.tab(gui.variant_box, 'state'), 'hidden')
+        self.assertFalse(gui.variant_box.winfo_manager())
+        self.assertEqual(gui.settings_tabs.tab(gui.targets_tab, 'state'), 'normal')
         gui.preset_var.set('release-all')
         gui._select_preset()
         self.assertEqual(gui.settings_tabs.tab(gui.edition_box, 'state'), 'normal')
-        self.assertEqual(gui.settings_tabs.tab(gui.variant_box, 'state'), 'normal')
+        self.assertEqual(gui.variant_box.winfo_manager(), 'grid')
 
     def test_edition_columns_align(self):
         gui = self.gui

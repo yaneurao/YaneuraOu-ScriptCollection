@@ -551,8 +551,11 @@ class BuildGui(tk.Tk):
             tooltip=RELEASE_SETTING_TOOLTIPS["spsa_params_file"],
         )
 
-        self.variant_box = ttk.Frame(self.settings_tabs, padding=10)
-        self.settings_tabs.add(self.variant_box, text="Variants")
+        self.targets_tab = ttk.Frame(self.settings_tabs, padding=10)
+        self.targets_tab.columnconfigure(0, weight=1)
+        self.settings_tabs.add(self.targets_tab, text="Variants / CPU targets")
+        self.variant_box = ttk.LabelFrame(self.targets_tab, text="Variants", padding=8)
+        self.variant_box.grid(row=0, column=0, sticky="ew")
         variant_box = self.variant_box
         variant_box.columnconfigure(2, weight=1)
         ttk.Label(variant_box, text="Use").grid(row=0, column=0, sticky="w")
@@ -560,8 +563,8 @@ class BuildGui(tk.Tk):
         ttk.Label(variant_box, text="Extra CPP flags").grid(row=0, column=2, sticky="w")
         self.variant_frame = variant_box
 
-        self.cpu_box = ttk.Frame(self.settings_tabs, padding=10)
-        self.settings_tabs.add(self.cpu_box, text="CPU targets")
+        self.cpu_box = ttk.LabelFrame(self.targets_tab, text="CPU targets", padding=8)
+        self.cpu_box.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         self.cpu_frame = self.cpu_box
         self.cpu_frame.columnconfigure(0, weight=1)
 
@@ -975,8 +978,11 @@ class BuildGui(tk.Tk):
 
     def _apply_recipe_kind_layout(self, kind: str) -> None:
         bookminer_cpp = kind == "bookminer_cpp"
-        for tab in (self.variant_box, self.edition_box):
-            self.settings_tabs.tab(tab, state="hidden" if bookminer_cpp else "normal")
+        self.settings_tabs.tab(self.edition_box, state="hidden" if bookminer_cpp else "normal")
+        if bookminer_cpp:
+            self.variant_box.grid_remove()
+        else:
+            self.variant_box.grid()
         if hasattr(self, "spsa_box"):
             if bookminer_cpp:
                 self.spsa_box.grid_remove()
