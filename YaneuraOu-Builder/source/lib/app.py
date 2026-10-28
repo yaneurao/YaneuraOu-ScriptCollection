@@ -6,6 +6,7 @@ import pickle
 import shlex
 import subprocess
 import threading
+import tempfile
 import tkinter as tk
 from pathlib import Path, PureWindowsPath
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -225,8 +226,16 @@ def load_gui_settings() -> tuple[dict[str, Any], list[str]]:
 
 def save_gui_settings(data: dict[str, Any]) -> None:
     GUI_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(GUI_SETTINGS_PATH, "wb") as f:
-        pickle.dump(data, f)
+    temporary_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=GUI_SETTINGS_PATH.parent, delete=False) as f:
+            temporary_path = f.name
+            pickle.dump(data, f)
+        os.replace(temporary_path, GUI_SETTINGS_PATH)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            os.unlink(temporary_path)
 
 
 class BuildGui(tk.Tk):
@@ -252,6 +261,8 @@ class BuildGui(tk.Tk):
         self.run_mode = ""
 
         self.cpu_vars: dict[str, tk.BooleanVar] = {}
+        self.cpu_selections: dict[str, list[str]] = {}
+        self.cpu_platform = ""
         self.variant_rows: list[dict[str, Any]] = []
         self.edition_rows: list[dict[str, Any]] = []
         self.write_scripts_button: ttk.Button | None = None
@@ -598,7 +609,6 @@ class BuildGui(tk.Tk):
         ttk.Button(edition_buttons, text="Disable all", command=lambda: self._set_all_editions(False)).pack(side="left", padx=(6, 0))
         self.edition_scroller = ScrollableFrame(edition_box, height=NORMAL_EDITION_HEIGHT)
         self.edition_scroller.grid(row=1, column=0, sticky="ew")
-        self.edition_scroller.inner.columnconfigure(0, weight=1)
 
     def _build_log_tab(self) -> None:
         self.log_tab.columnconfigure(0, weight=1)
@@ -722,7 +732,6 @@ class BuildGui(tk.Tk):
         if name != self.current_preset_name:
             self.user_presets[self.current_preset_name] = deepcopy(recipe)
         recipe = deepcopy(recipe)
-        recipe["name"] = name
         self.user_presets[name] = recipe
         self.recipe = deepcopy(recipe)
         self.plan = []
@@ -755,7 +764,6 @@ class BuildGui(tk.Tk):
 
         self.user_presets[source_name] = deepcopy(source_recipe)
         recipe = deepcopy(source_recipe)
-        recipe["name"] = name
         self.user_presets[name] = recipe
         self.recipe = deepcopy(recipe)
         self.plan = []
@@ -802,7 +810,6 @@ class BuildGui(tk.Tk):
             return
 
         recipe = deepcopy(recipe)
-        recipe["name"] = new_name
         del self.user_presets[old_name]
         self.user_presets[new_name] = recipe
         self.recipe = deepcopy(recipe)
@@ -873,7 +880,8 @@ class BuildGui(tk.Tk):
         self.release_source_var.set(str(recipe.get("source_dir", "")))
         self._apply_platform_compiler_defaults(platform_name)
         self._rebuild_variant_rows([])
-        self._rebuild_cpu_rows(recipe.get("cpus", {}), platform_name)
+        self.cpu_selections = deepcopy(recipe.get("cpus", {}))
+        self._rebuild_cpu_rows(self.cpu_selections, platform_name)
         self._rebuild_edition_rows([])
         self._apply_recipe_kind_layout("bookminer_cpp")
 
@@ -947,7 +955,9 @@ class BuildGui(tk.Tk):
 
     def _on_release_platform_changed(self) -> None:
         platform_name = self._release_platform_key()
-        self._rebuild_cpu_rows({}, platform_name)
+        if self.cpu_platform:
+            self.cpu_selections[self.cpu_platform] = [cpu for cpu, var in self.cpu_vars.items() if var.get()]
+        self._rebuild_cpu_rows(self.cpu_selections, platform_name)
         self._apply_platform_compiler_defaults(platform_name)
 
     def _on_spsa_mode_changed(self) -> None:
@@ -991,7 +1001,8 @@ class BuildGui(tk.Tk):
         self._apply_platform_compiler_defaults(platform_name)
 
         self._rebuild_variant_rows(release_recipe.get("variants", []))
-        self._rebuild_cpu_rows(release_recipe.get("cpus", {}), platform_name)
+        self.cpu_selections = deepcopy(release_recipe.get("cpus", {}))
+        self._rebuild_cpu_rows(self.cpu_selections, platform_name)
         self._rebuild_edition_rows(release_recipe.get("editions", []))
         self._apply_recipe_kind_layout(str(release_recipe.get("kind", "release_all")))
 
@@ -1041,6 +1052,7 @@ class BuildGui(tk.Tk):
             child.destroy()
         self.cpu_vars = {}
         platform_name = platform_name or self._release_platform_key()
+        self.cpu_platform = platform_name
         label = PLATFORM_KEY_TO_LABEL.get(platform_name, platform_name)
         known = list(CPU_OPTIONS.get(platform_name, ()))
         has_selection = platform_name in cpus_by_platform
@@ -1070,26 +1082,19 @@ class BuildGui(tk.Tk):
         for child in self.edition_scroller.inner.winfo_children():
             child.destroy()
         self.edition_rows = []
-        header = ttk.Frame(self.edition_scroller.inner)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(1, weight=2)
-        header.columnconfigure(2, weight=1)
-        ttk.Label(header, text="Use", width=5).grid(row=0, column=0, sticky="w")
-        ttk.Label(header, text="YANEURAOU_EDITION").grid(row=0, column=1, sticky="w")
-        ttk.Label(header, text="Artifact prefix").grid(row=0, column=2, sticky="w")
+        frame = self.edition_scroller.inner
+        ttk.Label(frame, text="Use", width=5).grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="YANEURAOU_EDITION").grid(row=0, column=1, sticky="w", padx=(0, 12))
+        ttk.Label(frame, text="Artifact prefix").grid(row=0, column=2, sticky="w")
 
         fixed_editions = _normalize_editions_for_form(editions, self.yobuild_root)
         for row_index, edition in enumerate(fixed_editions, start=1):
-            row = ttk.Frame(self.edition_scroller.inner)
-            row.grid(row=row_index, column=0, sticky="ew", pady=2)
-            row.columnconfigure(1, weight=2)
-            row.columnconfigure(2, weight=1)
             enabled = tk.BooleanVar(value=edition.get("enabled", True))
             edition_name = str(edition.get("edition", ""))
             artifact_prefix = str(edition.get("artifact_prefix", ""))
-            ttk.Checkbutton(row, variable=enabled).grid(row=0, column=0, sticky="w")
-            ttk.Label(row, text=edition_name).grid(row=0, column=1, sticky="w", padx=(0, 6))
-            ttk.Label(row, text=artifact_prefix).grid(row=0, column=2, sticky="w")
+            ttk.Checkbutton(frame, variable=enabled).grid(row=row_index, column=0, sticky="w", pady=2)
+            ttk.Label(frame, text=edition_name).grid(row=row_index, column=1, sticky="w", padx=(0, 12), pady=2)
+            ttk.Label(frame, text=artifact_prefix).grid(row=row_index, column=2, sticky="w", pady=2)
             self.edition_rows.append({"enabled": enabled, "edition": edition_name, "artifact": artifact_prefix})
 
     def _set_all_editions(self, enabled: bool) -> None:
@@ -1172,7 +1177,7 @@ class BuildGui(tk.Tk):
                 "material_level": self.recipe.get("material_level"),
                 "version": engine_version,
                 "package_version": package_version_from_engine_version(engine_version),
-                "source_dirs": {source_key: (_required(self.release_source_var.get(), "YaneuraOu source folder") if validate else self.release_source_var.get().strip())},
+                "source_dirs": {**self.recipe.get("source_dirs", {}), source_key: (_required(self.release_source_var.get(), "YaneuraOu source folder") if validate else self.release_source_var.get().strip())},
                 "platforms": [platform_name],
                 "variants": variants,
                 "target": BUILD_TARGET,
@@ -1181,12 +1186,12 @@ class BuildGui(tk.Tk):
                 "engine_name": self.release_engine_name_var.get().strip() or "YaneuraOu",
                 "common_cppflags": _split_words(self.release_common_flags_var.get()),
                 "msys2_root": self.msys2_root_var.get().strip() or DEFAULT_MSYS2_ROOT,
-                "cpus": {platform_name: selected_cpus},
+                "cpus": {**self.cpu_selections, platform_name: selected_cpus},
                 "editions": editions,
                 "package": {
                     "enabled": self.package_enabled_var.get(),
                     "format": self.package_format_var.get().strip() or "7z",
-                    "exclude": _split_words(self.package_exclude_var.get()) or ["obj"],
+                    "exclude": _split_words(self.package_exclude_var.get()),
                 },
                 "spsa": self._spsa_recipe_from_release_form(validate=validate),
             }
@@ -1212,7 +1217,7 @@ class BuildGui(tk.Tk):
                 "compiler": self.release_compiler_var.get().strip(),
                 "jobs": FIXED_BUILD_JOBS,
                 "msys2_root": self.msys2_root_var.get().strip() or DEFAULT_MSYS2_ROOT,
-                "cpus": {platform_name: selected_cpus},
+                "cpus": {**self.cpu_selections, platform_name: selected_cpus},
             }
         )
         return recipe
@@ -1239,6 +1244,9 @@ class BuildGui(tk.Tk):
             warnings = validate_plan(recipe, plan)
         except ValueError as exc:
             messagebox.showerror("Create plan failed", str(exc))
+            return
+        if not plan:
+            messagebox.showerror("Create plan failed", "No build jobs were selected. Check CPU targets and editions.")
             return
         self.recipe = recipe
         self.plan = plan

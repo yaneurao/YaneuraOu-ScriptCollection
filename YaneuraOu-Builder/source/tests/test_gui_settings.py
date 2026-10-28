@@ -1,0 +1,82 @@
+from pathlib import Path
+import sys
+import tempfile
+import tkinter as tk
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import app
+
+
+class GuiSettingsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.settings = patch.object(app, 'GUI_SETTINGS_PATH', Path(self.tmp.name) / 'settings.pickle')
+        self.settings.start()
+        self.addCleanup(self.settings.stop)
+        try:
+            self.gui = app.BuildGui(Path(__file__).resolve().parents[2])
+        except tk.TclError as exc:
+            self.skipTest(f'Tk display unavailable: {exc}')
+        self.gui.withdraw()
+        self.addCleanup(self.gui.destroy)
+
+    def test_clone_preserves_selections_and_run_name(self):
+        gui = self.gui
+        gui.name_var.set('my-run')
+        for index, var in enumerate(gui.cpu_vars.values()):
+            var.set(index == 0)
+        for index, row in enumerate(gui.edition_rows):
+            row['enabled'].set(index == 0)
+        cpus = [cpu for cpu, var in gui.cpu_vars.items() if var.get()]
+        editions = [row['edition'] for row in gui.edition_rows if row['enabled'].get()]
+        with patch.object(app, '_ask_wide_string', return_value='copy'):
+            gui._clone_preset()
+        self.assertEqual(gui.name_var.get(), 'my-run')
+        self.assertEqual([cpu for cpu, var in gui.cpu_vars.items() if var.get()], cpus)
+        self.assertEqual([row['edition'] for row in gui.edition_rows if row['enabled'].get()], editions)
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        self.assertEqual([cpu for cpu, var in gui.cpu_vars.items() if var.get()], cpus)
+        self.assertEqual([row['edition'] for row in gui.edition_rows if row['enabled'].get()], editions)
+
+    def test_cpu_selection_survives_platform_changes_and_reload(self):
+        gui = self.gui
+        for index, var in enumerate(gui.cpu_vars.values()):
+            var.set(index == 0)
+        selected = [cpu for cpu, var in gui.cpu_vars.items() if var.get()]
+        gui.release_platform_var.set('macOS')
+        gui._on_release_platform_changed()
+        gui._set_all_cpus(False)
+        gui.release_platform_var.set('Windows x64')
+        gui._on_release_platform_changed()
+        self.assertEqual([cpu for cpu, var in gui.cpu_vars.items() if var.get()], selected)
+        self.assertTrue(gui._save_current_preset_from_form())
+        gui._load_recipe_into_form()
+        gui.release_platform_var.set('macOS')
+        gui._on_release_platform_changed()
+        self.assertFalse(any(var.get() for var in gui.cpu_vars.values()))
+
+    def test_empty_plan_reports_error_and_clears_previous_plan(self):
+        gui = self.gui
+        gui._set_all_editions(False)
+        gui.plan = [{'old': True}]
+        with patch.object(app.messagebox, 'showerror') as showerror:
+            gui._create_plan_from_form()
+        self.assertEqual(gui.plan, [])
+        showerror.assert_called_once()
+
+    def test_edition_columns_align(self):
+        gui = self.gui
+        gui.deiconify()
+        gui.update_idletasks()
+        labels = [w for w in gui.edition_scroller.inner.winfo_children()
+                  if isinstance(w, app.ttk.Label) and int(w.grid_info()['column']) == 2]
+        self.assertGreater(len(labels), 1)
+        self.assertEqual(len({w.winfo_x() for w in labels}), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()
