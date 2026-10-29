@@ -340,7 +340,8 @@ void sort_and_adjust_moves(std::vector<MoveInfo>& moves)
         return lhs.eval > rhs.eval;
     });
 
-    if (moves.size() >= 2 && moves[0].eval == moves[1].eval)
+    if (moves.size() >= 2 && moves[0].eval == moves[1].eval
+        && moves[0].eval > std::numeric_limits<std::int16_t>::min())
     {
         const auto best_eval = moves[0].eval;
         for (std::size_t i = 1; i < moves.size(); ++i)
