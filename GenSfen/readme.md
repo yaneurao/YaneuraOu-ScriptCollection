@@ -26,6 +26,8 @@ pack・hcpe3の両方で自動的に有効です。通信切断以外のプロ�
 通信が終了せず応答待ちのままになる障害に備える場合は、SSHの`ServerAliveInterval`と
 `ServerAliveCountMax`も指定してください。応答待ち自体に本スクリプト独自のタイムアウトは設けていません。
 
+探索結果にPVがある場合、`bestmove`に対応するPVの評価値を教師に使います。対応する評価値が見つからない場合や、不正・非合法な指し手が返った場合は途中の対局を破棄し、そのworkerを停止します。PVを出さずscoreだけを返すエンジンでは、そのscoreとbestmoveの対応を検証できませんが、従来の互換性のため受け付けます。`lowerbound` / `upperbound`付きの評価値も使用します。
+
 DL系の探索部(例えば、dlshogiやふかうら王)での教師生成は考慮していません。その場合、dlshogiのselfplayを用いるのがお勧めです。
 
 
@@ -287,10 +289,10 @@ startpos
 startpos moves 7g7f
 
 // 平手の開始局面をSFEN形式で表現したもの。
-sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL
+sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
 
 // 平手の開始局面をSFEN形式で表現したものから76歩を指した局面。
-sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL moves 7g7f
+sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 moves 7g7f
 ```
 
 ## 動作に必要なモジュールのインストール

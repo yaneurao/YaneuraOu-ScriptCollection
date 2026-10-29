@@ -321,8 +321,7 @@ class ShogiMatch:
             engine_position = engine_position_with_moves(startpos_sfen)
 
         except Exception as e:
-            print_log(f"Exception : {e}")
-            return game_data
+            raise ValueError("Failed to load or parse a start position") from e
 
         # 対局前の初期化
         for engine in self.engines:
@@ -347,8 +346,8 @@ class ShogiMatch:
             engine = self.engines[board.turn]  # 手番側のエンジンを取得
             usi_move, eval_int = engine.go(engine_position, self.shared.nodes)
 
-            if usi_move == "resign":
-                # 投了
+            if usi_move == "resign" or (usi_move in ("none", "0000") and board.is_game_over()):
+                # 投了または合法手がない局面
                 winner = board.turn ^ 1  # 非手番側の勝ち black=0, white=1
                 game_data.write_game_result(winner + 1)
                 game_data.write_uint8(0) # 終局理由: resign
@@ -361,8 +360,14 @@ class ShogiMatch:
                 game_data.write_uint8(10) # 終局理由: win by csa_rule24
                 break
 
-            # 指し手文字列をAperyのmove16形式に変換
-            move = board.move_from_usi(usi_move) & 0xffff
+            # 不正な応答を勝敗や教師指し手として保存しない。
+            try:
+                move = board.move_from_usi(usi_move)
+            except Exception as exc:
+                raise ValueError(f"Invalid bestmove: {usi_move} ({engine_position})") from exc
+            if not move or not board.is_legal(move):
+                raise ValueError(f"Illegal bestmove: {usi_move} ({engine_position})")
+            move &= 0xffff
 
             # 棋譜データに追加
             game_data.write_uint16(move)
@@ -453,8 +458,7 @@ class ShogiMatch:
             engine_position = engine_position_with_moves(startpos_sfen)
 
         except Exception as e:
-            print_log(f"Exception : {e}")
-            return game_data
+            raise ValueError("Failed to load or parse a start position") from e
 
         for engine in self.engines:
             engine.send_usi('usinewgame')
@@ -496,7 +500,7 @@ class ShogiMatch:
                 )
                 max_candidates = self.shared.multipv
 
-            if usi_move == "resign":
+            if usi_move == "resign" or (usi_move in ("none", "0000") and board.is_game_over()):
                 winner = board.turn ^ 1
                 game_data.set_result(self.hcpe3_result_from_winner(winner))
                 break
@@ -508,15 +512,10 @@ class ShogiMatch:
 
             try:
                 selected_move = board.move_from_usi(usi_move)
-            except Exception:
-                winner = board.turn ^ 1
-                game_data.set_result(self.hcpe3_result_from_winner(winner))
-                break
-
-            if not board.is_legal(selected_move):
-                winner = board.turn ^ 1
-                game_data.set_result(self.hcpe3_result_from_winner(winner))
-                break
+            except Exception as exc:
+                raise ValueError(f"Invalid bestmove: {usi_move} ({engine_position})") from exc
+            if not selected_move or not board.is_legal(selected_move):
+                raise ValueError(f"Illegal bestmove: {usi_move} ({engine_position})")
 
             selected_eval, candidate_visits = self.make_hcpe3_candidate_visits(
                 board,

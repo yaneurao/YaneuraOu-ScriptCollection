@@ -205,6 +205,8 @@ def usi_mate_to_yaneuraou_eval(mate_ply_str:str, mate_score:int = VALUE_MATE)->E
     """USI score mate をやねうら王のmate scoreへ変換する。"""
     if mate_ply_str == '+' or mate_ply_str == '-':
         return mate_score - 1 if mate_ply_str == '+' else -mate_score + 1
+    if mate_ply_str == '-0':
+        return -mate_score
 
     mate_ply = int(mate_ply_str)
     if mate_ply > 0:
@@ -430,7 +432,7 @@ class Engine:
         #     print_log(f'[{self.thread_settings.thread_id}]>{mes}')
 
         # エンジンのprocessが死んでたら例外を出す。
-        if not line or self.engine.poll() is not None:
+        if not line:
             self.dump_engine_io_log("engine_terminated")
             raise EngineConnectionError(
                 f"Engine is disconnected (exit code={self.engine.poll()}). , search_sfen : {self.search_sfen}")
@@ -477,134 +479,69 @@ class Engine:
             if mes==wait_text:
                 break
 
-    def go(self,sfen:PositionStr, nodes:int)->tuple[Move,Eval]:
-        '''
-        思考エンジンに探索させる。
-        sfen  : 局面(USIのpositionコマンドで指定できる形式)
-        nodes : 探索ノード数
-        
-        返し値 : 最終的なbestmoveとその時の評価値が返る。
-                例) ('7g7f',120)
-                mate 1は、やねうら王形式の31999と数値化されて返る。
-        '''
-
-        # "position"コマンドを思考エンジンに送信する。
-        self.search_sfen = sfen
-        self.send_usi(f"position {sfen}")
-
-        # "go"コマンドを思考エンジンに送信する。
-        self.send_usi(f"go nodes {nodes}")
-
-        # "bestmove"は必ず返ってくるはずなのでそれを待つ。
-        # 読み筋(PV)の初手と最終的な評価値とbestmoveをparseして返す。
-
-        # "bestmove"は必ず返ってくるはずなのでそれを待つ。
-        # 読み筋(PV)の初手と最終的な評価値とbestmoveをparseして返す。
-
-        # 最善手
-        bestmove : Move = ""
-        # 最終的な評価値
-        besteval : Eval | None = None
-
-        while True:
-            ret = self.receive_usi()
-            rets = ret.split()
-            # これはUSIプロトコルでエンジン側から送られてくる文字列の"bestmove"
-            if "bestmove" in ret:
-                # 実戦だとこの指し手が'resign'とか'win'の可能性もあるが、評価値が先に振り切るので定跡掘る時には考えない。
-                bestmove : Move = rets[1]
-                if besteval is None:
-                    log_path = self.dump_engine_io_log("bestmove_before_eval")
-                    suffix = f" Engine log saved: {log_path}" if log_path else ""
-                    raise Exception(f"Error! : bestmove received before eval.{suffix}")
-                return bestmove , besteval
-            else:
-                # 読み筋に対して、そのpvの初手を蓄積していく。
-                # また最終的な評価値も保存しておく。
-                
-                # info nodes XX score cp YY pv ZZ ... の形なので、"cp"と"pv"を起点として、その直後の文字を取得する。
-                if not rets or rets[0]!='info':
-                    # infoと違う。何か関係ないメッセージっぽい。
-                    continue
-
-                idx = index_of(rets,"nodes")
-                nodes = 0
-                if idx != -1:
-                    nodes = int(rets[idx+1])
-
-                idx = index_of(rets,'score')
-                if idx != -1:
-                    besteval = evalstr_to_int(rets[idx+1],rets[idx+2])
-
-                # idx = index_of(rets,'pv')
-                # if idx != -1:
-                #     # 'pv'の次のtokenが存在することを仮定している。
-                #     # 実戦だとこの指し手が'resign'とか'win'の可能性もあるが、評価値が先に振り切るので定跡掘る時には考えない。
-                #     first_move = rets[idx+1]
-                #     # 発見した順序が保たれて欲しいので順番に追記していく。
-                #     if nodes >= min_nodes and not first_move in first_moves:
-                #         first_moves += first_move,
-                #     if not first_move in first_moves_all:
-                #         first_moves_all += first_move,
+    def go(self, sfen:PositionStr, nodes:int)->tuple[Move, Eval]:
+        """Return bestmove and its score from a single-PV search."""
+        bestmove, score, _ = self.go_multipv(sfen, nodes, VALUE_MATE)
+        return bestmove, score
 
     def go_multipv(self, sfen:PositionStr, nodes:int, mate_score:int)->tuple[Move, Eval, list[tuple[Move, Eval]]]:
-        '''
-        思考エンジンにMultiPVで探索させる。
-
-        返し値:
-            bestmove, best_eval, candidates
-
-        candidates は [(pv初手, 評価値), ...] で、USI infoのmultipv番号順に並ぶ。
-        評価値は手番側から見たもの。score mate Nはmate_score - Nへ写像する。
-        '''
-
+        """Return bestmove, its score, and the latest PV for each MultiPV rank."""
         self.search_sfen = sfen
         self.send_usi(f"position {sfen}")
         self.send_usi(f"go nodes {nodes}")
 
-        bestmove : Move = ""
-        besteval : Eval | None = None
         multipv_infos : dict[int, tuple[Move, Eval]] = {}
+        score_without_pv : Eval | None = None
 
         while True:
             ret = self.receive_usi()
             rets = ret.split()
-
-            if rets and rets[0] == "bestmove":
-                if len(rets) < 2:
-                    log_path = self.dump_engine_io_log("bestmove_parse_error")
-                    suffix = f" Engine log saved: {log_path}" if log_path else ""
-                    raise Exception(f"Error! : malformed bestmove line: '{ret}'.{suffix}")
-
-                bestmove = rets[1]
-                if besteval is None:
-                    log_path = self.dump_engine_io_log("bestmove_before_eval")
-                    suffix = f" Engine log saved: {log_path}" if log_path else ""
-                    raise Exception(f"Error! : bestmove received before eval.{suffix}")
-                candidates = [multipv_infos[k] for k in sorted(multipv_infos)]
-                return bestmove, besteval, candidates
-
-            if not rets or rets[0] != 'info':
+            if not rets:
                 continue
 
-            score_idx = index_of(rets, 'score')
-            if score_idx != -1 and score_idx + 2 < len(rets):
-                score = evalstr_to_int(rets[score_idx + 1], rets[score_idx + 2], mate_score)
-                multipv_idx = index_of(rets, 'multipv')
-                multipv = 1
-                if multipv_idx != -1 and multipv_idx + 1 < len(rets):
-                    try:
-                        multipv = int(rets[multipv_idx + 1])
-                    except ValueError:
-                        multipv = 1
-                if multipv == 1:
-                    besteval = score
+            if rets[0] == "bestmove":
+                if len(rets) < 2:
+                    self._search_result_error("bestmove_parse_error", f"malformed bestmove line: '{ret}'")
+                bestmove = rets[1]
+                candidates = [multipv_infos[k] for k in sorted(multipv_infos)]
+                # These terminal results do not create a scored move record.
+                if bestmove in ("resign", "win", "none", "0000"):
+                    return bestmove, 0, candidates
+                for move, score in candidates:
+                    if move == bestmove:
+                        return bestmove, score, candidates
+                # Some engines send only a score and bestmove, without PV.
+                if not candidates and score_without_pv is not None:
+                    return bestmove, score_without_pv, candidates
+                self._search_result_error("bestmove_without_matching_score",
+                                          f"no score for bestmove '{bestmove}'")
 
-                pv_idx = index_of(rets, 'pv')
-                if pv_idx != -1 and pv_idx + 1 < len(rets):
-                    first_move = rets[pv_idx + 1]
-                    multipv_infos[multipv] = (first_move, score)
-    
+            if rets[0] != "info" or (len(rets) > 1 and rets[1] == "string"):
+                continue
+            score_idx = index_of(rets, 'score')
+            if score_idx == -1 or score_idx + 2 >= len(rets):
+                continue
+            multipv_idx = index_of(rets, 'multipv')
+            try:
+                if multipv_idx != -1 and multipv_idx + 1 >= len(rets):
+                    continue
+                multipv = int(rets[multipv_idx + 1]) if multipv_idx != -1 else 1
+                if multipv < 1:
+                    continue
+                score = evalstr_to_int(rets[score_idx + 1], rets[score_idx + 2], mate_score)
+            except (ValueError, OverflowError):
+                continue
+            pv_idx = index_of(rets, 'pv')
+            if pv_idx != -1 and pv_idx + 1 < len(rets):
+                multipv_infos[multipv] = (rets[pv_idx + 1], score)
+            elif multipv == 1:
+                score_without_pv = score
+
+    def _search_result_error(self, reason:str, message:str):
+        log_path = self.dump_engine_io_log(reason)
+        suffix = f" Engine log saved: {log_path}" if log_path else ""
+        raise Exception(f"Error! : {message}.{suffix}")
+
     def raise_exception(self, error_message:str):
         ''' 例外を発生させる。エンジンの詳細を出力する。'''
         raise Exception(f"{error_message} , search_sfen : {self.search_sfen}")
@@ -736,6 +673,8 @@ def board_from_position_string(s : PositionStr)->cshogi.Board: # type:ignore
         sfen, moves = s, []
 
     sfen = sfen.strip()
+    if sfen.startswith('sfen '):
+        sfen = sfen[5:].strip()
     if sfen == 'startpos':
         sfen = SFEN_START_PLY1
 
