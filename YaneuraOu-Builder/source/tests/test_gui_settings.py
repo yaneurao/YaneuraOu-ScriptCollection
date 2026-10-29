@@ -23,6 +23,33 @@ class GuiSettingsTest(unittest.TestCase):
         self.gui.withdraw()
         self.addCleanup(self.gui.destroy)
 
+    def test_shogizone_settings_persist_outside_recipe(self):
+        gui = self.gui
+        gui.shogizone_url_var.set('https://zone.example')
+        gui.shogizone_password_var.set('secret')
+        self.assertTrue(gui._save_gui_settings())
+        settings, _ = app.load_gui_settings()
+        self.assertEqual(settings['shogizone_url'], 'https://zone.example')
+        self.assertEqual(settings['shogizone_password'], 'secret')
+        self.assertNotIn('shogizone_password', settings['presets'][gui.current_preset_name])
+
+    def test_upload_run_uses_saved_credentials_and_reports_success(self):
+        gui = self.gui
+        gui.shogizone_url_var.set('https://zone.example')
+        gui.shogizone_password_var.set('secret')
+        artifact = Path(self.tmp.name) / 'engine.exe'
+        with patch.object(app.filedialog, 'askdirectory', return_value=self.tmp.name), \
+             patch.object(app, 'collect_artifacts', return_value=[(artifact, 'x64', 'AVX2')]), \
+             patch.object(app, 'upload_artifact', return_value={'id': 'asset'}) as upload, \
+             patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
+             patch.object(app.messagebox, 'showinfo') as info, \
+             patch.object(app.threading, 'Thread') as thread:
+            thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
+            gui._upload_shogizone_run()
+        upload.assert_called_once_with('https://zone.example', 'secret', artifact, 'x64', 'AVX2')
+        info.assert_called_once_with('ShogiZone upload', 'Upload completed.')
+        self.assertFalse(gui.run_active)
+
     def test_clone_preserves_selections_and_run_name(self):
         gui = self.gui
         gui.name_var.set('my-run')
@@ -95,7 +122,7 @@ class GuiSettingsTest(unittest.TestCase):
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
         self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
-                         ['Release settings', 'Variants / CPU targets', 'Editions'])
+                         ['Release settings', 'Variants / CPU targets', 'Editions', 'ShogiZone'])
         gui.settings_tabs.select(gui.edition_box)
         gui.preset_var.set('bookminer-cpp')
         gui._select_preset()

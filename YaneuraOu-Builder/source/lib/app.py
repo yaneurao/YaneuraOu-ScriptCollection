@@ -20,6 +20,7 @@ from .presets import (
     create_preset,
 )
 from .script_writer import resolve_run_root, write_build_run
+from .shogizone import collect_artifacts, upload_artifact
 from .toolchains import WINARM_CROSS_COMPILER, WIN32_CROSS_COMPILER
 from .versioning import package_version_from_engine_version
 
@@ -309,6 +310,8 @@ class BuildGui(tk.Tk):
         data = {
             "schema_version": GUI_SETTINGS_VERSION,
             "current_preset": self.current_preset_name,
+            "shogizone_url": self.shogizone_url_var.get(),
+            "shogizone_password": self.shogizone_password_var.get(),
             "presets": self.user_presets,
         }
         try:
@@ -319,6 +322,9 @@ class BuildGui(tk.Tk):
         return True
 
     def _on_close(self) -> None:
+        if self.run_active and self.run_mode == "upload":
+            messagebox.showinfo("ShogiZone", "Wait for the upload to finish before closing.")
+            return
         if self._read_recipe_from_form_silent() is None:
             messagebox.showerror("Settings", "Settings could not be saved. Check the quotation marks in the flags fields.")
             return
@@ -385,6 +391,52 @@ class BuildGui(tk.Tk):
         self.settings_tabs = ttk.Notebook(self.recipe_tab)
         self.settings_tabs.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         self._build_release_page()
+        self._build_shogizone_tab()
+
+    def _build_shogizone_tab(self) -> None:
+        tab = ttk.Frame(self.settings_tabs, padding=10)
+        self.settings_tabs.add(tab, text="ShogiZone")
+        tab.columnconfigure(1, weight=1)
+        self.shogizone_url_var = tk.StringVar(value=str(self.gui_settings.get("shogizone_url", "")))
+        self.shogizone_password_var = tk.StringVar(value=str(self.gui_settings.get("shogizone_password", "")))
+        self._entry(tab, 0, "Server URL", self.shogizone_url_var, width=72)
+        ttk.Label(tab, text="Upload password").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        ttk.Entry(tab, textvariable=self.shogizone_password_var, show="*", width=40).grid(row=1, column=1, sticky="w", pady=4)
+        ttk.Label(tab, text="Select a completed run folder to upload its Windows executables.").grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 4))
+        self.upload_button = ttk.Button(tab, text="Upload Run to ShogiZone", command=self._upload_shogizone_run)
+        self.upload_button.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+
+    def _upload_shogizone_run(self) -> None:
+        if self.run_active:
+            return
+        server = self.shogizone_url_var.get().strip()
+        password = self.shogizone_password_var.get()
+        if not server or not password:
+            messagebox.showerror("ShogiZone", "Server URL and upload password are required.")
+            return
+        run_dir = filedialog.askdirectory(initialdir=_initial_dir(self.run_root_var.get(), self.yobuild_root), title="Select a completed YO-Build run")
+        if not run_dir:
+            return
+        try:
+            artifacts = collect_artifacts(Path(run_dir))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("ShogiZone", str(exc))
+            return
+        if not self._save_gui_settings(update_current_preset=False):
+            messagebox.showerror("ShogiZone", "Could not save upload settings.")
+            return
+        self._set_run_active(True, "upload")
+        self.notebook.select(self.log_tab)
+        def worker() -> None:
+            try:
+                for path, arch, cpu in artifacts:
+                    result = upload_artifact(server, password, path, arch, cpu)
+                    self.after(0, self._log, f"[upload] {path.name} -> {result.get('id', '')}")
+                self.after(0, self._finish_run, "ShogiZone upload", True, "")
+            except Exception as exc:
+                self.after(0, self._log, f"[upload] failed: {exc}")
+                self.after(0, self._finish_run, "ShogiZone upload", False, str(exc))
+        threading.Thread(target=worker, daemon=True).start()
 
     def _build_release_page(self) -> None:
         self.release_scroller = ScrollableFrame(self.settings_tabs, height=620)
@@ -1390,6 +1442,8 @@ class BuildGui(tk.Tk):
                 state=disabled_state,
                 text="Running MSYS2..." if active and mode == "msys2" else "Run with MSYS2",
             )
+        if hasattr(self, "upload_button"):
+            self.upload_button.configure(state=disabled_state)
         if self.run_direct_button is not None:
             self.run_direct_button.configure(
                 state=disabled_state,
@@ -1397,9 +1451,10 @@ class BuildGui(tk.Tk):
             )
 
     def _finish_run(self, title: str, success: bool, error_message: str) -> None:
+        mode = self.run_mode
         self._set_run_active(False)
         if success:
-            messagebox.showinfo(title, "All scripts completed.")
+            messagebox.showinfo(title, "Upload completed." if mode == "upload" else "All scripts completed.")
         elif error_message:
             messagebox.showerror(title, error_message)
 

@@ -127,3 +127,9 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 
 `Small Window` ボタンでcompact windowに切り替えられます。Recipe pageは縦scroll可能なので、
 小さいmacOS displayでも下部設定へ到達できます。
+
+### ShogiZone へのアップロード
+
+ShogiZone 観戦サーバーの `.env` に `SHOGIZONE_BUILDER_UPLOAD_PASSWORD` を設定し、サーバーを再起動します。YO-Build の `ShogiZone` タブでサーバー URL と同じ upload password を設定し、`Upload Run to ShogiZone` からビルド済み run フォルダを選びます。run の `plan.json` にある Windows 向け release の実行ファイルを、CPU条件とともにアップロードします。複数ファイルの途中で失敗した場合、送信済みのファイルは ShogiZone に残ります。パスワードはローカルの GUI 設定ファイルに平文で保存されます。外部ネットワークでは HTTPS を使ってください。
+
+これは ShogiZone の配布ファイルへのアップロードです。ShogiZone の管理画面でエンジン本体設定に追加し、必要なエンジン登録を作成してください。
