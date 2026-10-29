@@ -20,7 +20,7 @@ from .presets import (
     create_preset,
 )
 from .script_writer import resolve_run_root, write_build_run
-from .shogizone import collect_artifacts, upload_artifact
+from .shogizone import collect_artifact_groups, engine_group_name, preflight_engines, register_engine, upload_artifact, validate_upload_settings
 from .toolchains import WINARM_CROSS_COMPILER, WIN32_CROSS_COMPILER
 from .versioning import package_version_from_engine_version
 
@@ -340,12 +340,15 @@ class BuildGui(tk.Tk):
 
         self.recipe_tab = ttk.Frame(self.notebook, padding=10)
         self.log_tab = ttk.Frame(self.notebook, padding=10)
+        self.shogizone_tab = ttk.Frame(self.notebook, padding=10)
 
         self.notebook.add(self.recipe_tab, text="Recipe")
         self.notebook.add(self.log_tab, text="Logs")
+        self.notebook.add(self.shogizone_tab, text="ShogiZone")
 
         self._build_recipe_tab()
         self._build_log_tab()
+        self._build_shogizone_tab()
 
     def _build_recipe_tab(self) -> None:
         self.recipe_tab.columnconfigure(0, weight=1)
@@ -391,11 +394,9 @@ class BuildGui(tk.Tk):
         self.settings_tabs = ttk.Notebook(self.recipe_tab)
         self.settings_tabs.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         self._build_release_page()
-        self._build_shogizone_tab()
 
     def _build_shogizone_tab(self) -> None:
-        tab = ttk.Frame(self.settings_tabs, padding=10)
-        self.settings_tabs.add(tab, text="ShogiZone")
+        tab = self.shogizone_tab
         tab.columnconfigure(1, weight=1)
         self.shogizone_url_var = tk.StringVar(value=str(self.gui_settings.get("shogizone_url", "")))
         self.shogizone_password_var = tk.StringVar(value=str(self.gui_settings.get("shogizone_password", "")))
@@ -411,14 +412,15 @@ class BuildGui(tk.Tk):
             return
         server = self.shogizone_url_var.get().strip()
         password = self.shogizone_password_var.get()
-        if not server or not password:
-            messagebox.showerror("ShogiZone", "Server URL and upload password are required.")
+        engine_name = self.shogizone_engine_name_var.get().strip()
+        if not server or not password or not engine_name:
+            messagebox.showerror("ShogiZone", "Server URL, upload password, and the engine name in Release settings are required.")
             return
         run_dir = filedialog.askdirectory(initialdir=_initial_dir(self.run_root_var.get(), self.yobuild_root), title="Select a completed YO-Build run")
         if not run_dir:
             return
         try:
-            artifacts = collect_artifacts(Path(run_dir))
+            groups = collect_artifact_groups(Path(run_dir), engine_name)
         except (OSError, ValueError) as exc:
             messagebox.showerror("ShogiZone", str(exc))
             return
@@ -429,14 +431,23 @@ class BuildGui(tk.Tk):
         self.notebook.select(self.log_tab)
         def worker() -> None:
             try:
-                for path, arch, cpu in artifacts:
-                    result = upload_artifact(server, password, path, arch, cpu)
-                    self.after(0, self._log, f"[upload] {path.name} -> {result.get('id', '')}")
+                self._upload_shogizone_groups(server, password, groups)
                 self.after(0, self._finish_run, "ShogiZone upload", True, "")
             except Exception as exc:
                 self.after(0, self._log, f"[upload] failed: {exc}")
                 self.after(0, self._finish_run, "ShogiZone upload", False, str(exc))
         threading.Thread(target=worker, daemon=True).start()
+
+    def _upload_shogizone_groups(self, server: str, password: str, groups: dict[str, list[tuple[Path, str, str]]]) -> None:
+        preflight_engines(server, password, list(groups))
+        for name, artifacts in groups.items():
+            ids = []
+            for path, arch, cpu in artifacts:
+                result = upload_artifact(server, password, path, arch, cpu)
+                ids.append(result["id"])
+                self.after(0, self._log, f"[upload] {path.name} -> {result['id']}")
+            result = register_engine(server, password, name, ids)
+            self.after(0, self._log, f"[upload] registered {name} -> {result['id']}")
 
     def _build_release_page(self) -> None:
         self.release_scroller = ScrollableFrame(self.settings_tabs, height=620)
@@ -463,6 +474,8 @@ class BuildGui(tk.Tk):
         self.spsa_param_lib_var = tk.StringVar()
         self.spsa_tune_file_var = tk.StringVar()
         self.spsa_params_file_var = tk.StringVar()
+        self.shogizone_engine_name_var = tk.StringVar()
+        self.shogizone_auto_upload_var = tk.BooleanVar()
 
         self._entry(
             general,
@@ -603,6 +616,13 @@ class BuildGui(tk.Tk):
             "file",
             tooltip=RELEASE_SETTING_TOOLTIPS["spsa_params_file"],
         )
+
+        zone = ttk.LabelFrame(general, text="ShogiZone upload", padding=8)
+        zone.grid(row=11, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+        zone.columnconfigure(1, weight=1)
+        self.shogizone_release_box = zone
+        ttk.Checkbutton(zone, text="Upload to ShogiZone after build", variable=self.shogizone_auto_upload_var).grid(row=0, column=0, columnspan=2, sticky="w")
+        self._entry(zone, 1, "Engine name", self.shogizone_engine_name_var, width=48)
 
         self.targets_tab = ttk.Frame(self.settings_tabs, padding=10)
         self.targets_tab.columnconfigure(0, weight=1)
@@ -884,6 +904,8 @@ class BuildGui(tk.Tk):
             if detected is not None:
                 bookminer_cpp_source_dir = str(detected)
         self.form_recipe_kind = "bookminer_cpp"
+        self.shogizone_auto_upload_var.set(False)
+        self.shogizone_engine_name_var.set("")
         self.name_var.set(str(recipe.get("name", "")))
         self.run_root_var.set(_normalized_run_root_text(recipe.get("run_root", self.yobuild_root / "runs"), self.yobuild_root))
         self.release_version_var.set(str(recipe.get("version", "")))
@@ -1016,6 +1038,9 @@ class BuildGui(tk.Tk):
         self.spsa_param_lib_var.set(str(spsa.get("param_lib", "")))
         self.spsa_tune_file_var.set(str(spsa.get("tune_file", "")))
         self.spsa_params_file_var.set(str(spsa.get("params_file", "")))
+        upload_settings = release_recipe.get("shogizone", {})
+        self.shogizone_engine_name_var.set(str(upload_settings.get("engine_name", "")))
+        self.shogizone_auto_upload_var.set(bool(upload_settings.get("auto_upload", False)))
 
         platform_name = self._recipe_platform(release_recipe)
         self.release_platform_var.set(PLATFORM_KEY_TO_LABEL.get(platform_name, "Windows x64"))
@@ -1036,6 +1061,10 @@ class BuildGui(tk.Tk):
             self.variant_box.grid_remove()
         else:
             self.variant_box.grid()
+        if bookminer_cpp:
+            self.shogizone_release_box.grid_remove()
+        else:
+            self.shogizone_release_box.grid()
         if hasattr(self, "spsa_box"):
             if bookminer_cpp:
                 self.spsa_box.grid_remove()
@@ -1212,6 +1241,7 @@ class BuildGui(tk.Tk):
                     "exclude": _split_words(self.package_exclude_var.get()),
                 },
                 "spsa": self._spsa_recipe_from_release_form(validate=validate),
+                "shogizone": {"auto_upload": self.shogizone_auto_upload_var.get(), "engine_name": self.shogizone_engine_name_var.get().strip()},
             }
         )
         return recipe
@@ -1295,6 +1325,17 @@ class BuildGui(tk.Tk):
         if "win" not in platform_name:
             messagebox.showerror("Run with MSYS2", "MSYS2 execution is only for Windows platforms.")
             return
+        upload = None
+        if self.form_recipe_kind != "bookminer_cpp" and self.shogizone_auto_upload_var.get():
+            upload = (self.shogizone_url_var.get().strip(), self.shogizone_password_var.get(),
+                      self.shogizone_engine_name_var.get().strip())
+            try:
+                validate_upload_settings(upload[0], upload[1])
+                if not upload[2]:
+                    raise ValueError("ShogiZone engine name is required for automatic upload.")
+            except ValueError as exc:
+                messagebox.showerror("ShogiZone", str(exc))
+                return
         msys2_root = _msys2_root_from_legacy_shell(self.msys2_root_var.get().strip() or DEFAULT_MSYS2_ROOT)
         launcher_path = _msys2_shell_path(msys2_root, platform_name)
         bash_path = _msys2_bash_path(msys2_root)
@@ -1309,6 +1350,13 @@ class BuildGui(tk.Tk):
             run_dir = self._write_scripts(show_message=False)
             if run_dir is None:
                 return
+            if upload is not None:
+                try:
+                    for job in self.plan:
+                        engine_group_name(upload[2], str(job.get("edition", "")), str(job.get("variant", "")))
+                except ValueError as exc:
+                    messagebox.showerror("ShogiZone", str(exc))
+                    return
             scripts_dir = run_dir / "scripts"
             scripts = sorted(path for path in scripts_dir.iterdir() if path.is_file())
             if not scripts:
@@ -1320,7 +1368,7 @@ class BuildGui(tk.Tk):
             self._log(f"[run] MSYS2 PATH prefix: {msystem_prefix}/bin")
             thread = threading.Thread(
                 target=self._run_scripts_thread,
-                args=(bash_path, msystem, msystem_prefix, scripts),
+                args=(bash_path, msystem, msystem_prefix, scripts, upload),
                 daemon=True,
             )
             thread.start()
@@ -1337,6 +1385,9 @@ class BuildGui(tk.Tk):
             messagebox.showerror("Run Direct", "Direct execution is for macOS scripts. Use MSYS2 for Windows platforms.")
             return
 
+        if self.form_recipe_kind != "bookminer_cpp" and self.shogizone_auto_upload_var.get():
+            messagebox.showerror("ShogiZone", "Automatic upload is only available for Windows builds.")
+            return
         self._set_run_active(True, "direct")
         self.notebook.select(self.log_tab)
         started = False
@@ -1358,7 +1409,7 @@ class BuildGui(tk.Tk):
             if not started:
                 self._set_run_active(False)
 
-    def _run_scripts_thread(self, bash_path: str, msystem: str, msystem_prefix: str, scripts: list[Path]) -> None:
+    def _run_scripts_thread(self, bash_path: str, msystem: str, msystem_prefix: str, scripts: list[Path], upload: tuple[str, str, str] | None = None) -> None:
         env = os.environ.copy()
         env["MSYSTEM"] = msystem
         env["MSYSTEM_PREFIX"] = msystem_prefix
@@ -1370,6 +1421,7 @@ class BuildGui(tk.Tk):
             cwd=lambda script: script.parent,
             env=env,
             completion_title="Run with MSYS2",
+            upload=upload,
         )
 
     def _run_scripts_direct_thread(self, scripts: list[Path]) -> None:
@@ -1394,6 +1446,7 @@ class BuildGui(tk.Tk):
         cwd: Any,
         env: dict[str, str],
         completion_title: str,
+        upload: tuple[str, str, str] | None = None,
     ) -> None:
         success = False
         error_message = ""
@@ -1423,8 +1476,18 @@ class BuildGui(tk.Tk):
                 if exit_code != 0:
                     error_message = f"{script.name} failed with exit code {exit_code}."
                     return
-            success = True
             self.after(0, self._log, "[run] all scripts completed")
+            if upload is not None:
+                server, password, engine_name = upload
+                try:
+                    groups = collect_artifact_groups(scripts[0].parent.parent, engine_name)
+                    self._upload_shogizone_groups(server, password, groups)
+                except Exception as exc:
+                    error_message = f"Build completed, but ShogiZone upload failed: {exc}"
+                    self.after(0, self._log, f"[upload] {error_message}")
+                    return
+                self.after(0, self._log, "[upload] all engine groups registered")
+            success = True
         except Exception as exc:
             error_message = str(exc)
             self.after(0, self._log, f"[run] unexpected error: {exc}")

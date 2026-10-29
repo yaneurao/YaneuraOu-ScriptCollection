@@ -37,18 +37,53 @@ class GuiSettingsTest(unittest.TestCase):
         gui = self.gui
         gui.shogizone_url_var.set('https://zone.example')
         gui.shogizone_password_var.set('secret')
+        gui.shogizone_engine_name_var.set('Engine')
         artifact = Path(self.tmp.name) / 'engine.exe'
         with patch.object(app.filedialog, 'askdirectory', return_value=self.tmp.name), \
-             patch.object(app, 'collect_artifacts', return_value=[(artifact, 'x64', 'AVX2')]), \
+             patch.object(app, 'collect_artifact_groups', return_value={'Engine-MATERIAL-Git': [(artifact, 'x64', 'AVX2')]}), \
              patch.object(app, 'upload_artifact', return_value={'id': 'asset'}) as upload, \
+             patch.object(app, 'register_engine', return_value={'id': 123}) as register, \
+             patch.object(app, 'preflight_engines') as preflight, \
              patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
              patch.object(app.messagebox, 'showinfo') as info, \
              patch.object(app.threading, 'Thread') as thread:
             thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
             gui._upload_shogizone_run()
         upload.assert_called_once_with('https://zone.example', 'secret', artifact, 'x64', 'AVX2')
+        preflight.assert_called_once_with('https://zone.example', 'secret', ['Engine-MATERIAL-Git'])
+        register.assert_called_once_with('https://zone.example', 'secret', 'Engine-MATERIAL-Git', ['asset'])
         info.assert_called_once_with('ShogiZone upload', 'Upload completed.')
         self.assertFalse(gui.run_active)
+
+    def test_shogizone_upload_fields_are_preset_specific(self):
+        gui = self.gui
+        self.assertEqual([gui.notebook.tab(tab, 'text') for tab in gui.notebook.tabs()],
+                         ['Recipe', 'Logs', 'ShogiZone'])
+        gui.shogizone_engine_name_var.set('Engine One')
+        gui.shogizone_auto_upload_var.set(True)
+        gui.preset_var.set('yo-material')
+        gui._select_preset()
+        self.assertFalse(gui.shogizone_auto_upload_var.get())
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        self.assertEqual(gui.shogizone_engine_name_var.get(), 'Engine One')
+        self.assertTrue(gui.shogizone_auto_upload_var.get())
+
+    def test_upload_occurs_only_after_successful_scripts(self):
+        gui = self.gui
+        script = Path(self.tmp.name) / 'scripts' / 'build'
+        for exit_code in (0, 1):
+            with self.subTest(exit_code=exit_code):
+                process = unittest.mock.Mock(stdout=[], wait=unittest.mock.Mock(return_value=exit_code))
+                with patch.object(app.subprocess, 'Popen', return_value=process), \
+                     patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
+                     patch.object(app, 'collect_artifact_groups', return_value={'name': []}) as collect, \
+                     patch.object(gui, '_upload_shogizone_groups') as upload, \
+                     patch.object(gui, '_finish_run'):
+                    gui._run_script_subprocesses([script], lambda _script: ['test'], cwd=lambda _s: self.tmp.name,
+                                                  env={}, completion_title='Build', upload=('https://zone', 'secret', 'Engine'))
+                self.assertEqual(collect.called, exit_code == 0)
+                self.assertEqual(upload.called, exit_code == 0)
 
     def test_clone_preserves_selections_and_run_name(self):
         gui = self.gui
@@ -122,7 +157,7 @@ class GuiSettingsTest(unittest.TestCase):
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
         self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
-                         ['Release settings', 'Variants / CPU targets', 'Editions', 'ShogiZone'])
+                         ['Release settings', 'Variants / CPU targets', 'Editions'])
         gui.settings_tabs.select(gui.edition_box)
         gui.preset_var.set('bookminer-cpp')
         gui._select_preset()

@@ -9,7 +9,7 @@ import unittest
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from lib.shogizone import collect_artifacts, upload_artifact
+from lib.shogizone import collect_artifact_groups, collect_artifacts, upload_artifact
 
 
 class UploadTest(unittest.TestCase):
@@ -29,6 +29,15 @@ class UploadTest(unittest.TestCase):
     def test_collects_windows_jobs_and_deduplicates(self):
         self.plan([self.job, self.job, dict(self.job, platform='mac')])
         self.assertEqual(collect_artifacts(self.root), [(self.executable, 'x64', 'AVX2')])
+
+    def test_groups_by_edition_and_variant(self):
+        first = dict(self.job, edition='YANEURAOU_ENGINE_MATERIAL', variant='Git')
+        second = dict(first, variant='DEV', artifact='other.exe')
+        (self.executable.parent / 'other.exe').write_bytes(b'exe')
+        self.plan([first, second])
+        groups = collect_artifact_groups(self.root, 'YaneuraOu V980')
+        self.assertEqual(set(groups), {'YaneuraOu V980-MATERIAL-Git', 'YaneuraOu V980-MATERIAL-DEV'})
+        self.assertEqual(groups['YaneuraOu V980-MATERIAL-Git'][0][1:], ('x64', 'AVX2'))
 
     def test_missing_artifact_stops_before_upload(self):
         self.plan([self.job, dict(self.job, artifact='missing.exe')])
