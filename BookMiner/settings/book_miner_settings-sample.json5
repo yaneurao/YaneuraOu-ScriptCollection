@@ -12,4 +12,10 @@
     // ここに書かれた局面集合から定跡ツリーを辿る。
     // nコマンド実行のたびに読み直される。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
+
+    // peta shock 用エンジン。相対パスは BookMiner フォルダを基準にする。
+    peta_shock_engine_path: "YO-MATERIAL.exe",
+
+    // peta shock の並列数。探索用エンジンの Threads とは独立。
+    peta_shock_threads: 1,
 }

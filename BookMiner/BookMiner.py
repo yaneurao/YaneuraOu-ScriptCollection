@@ -285,6 +285,10 @@ class BookMinerSettings:
     # peta_nextで辿り始める開始局面集合ファイル。
     peta_next_start_sfens_path : str = PETA_NEXT_START_SFENS_PATH
 
+    # peta_shock 用エンジンのパスは BookMiner.py のあるフォルダからの相対パス、または絶対パス。
+    peta_shock_engine_path : str = PETA_SHOCK_ENGINE_NAME
+    peta_shock_threads : int = 1
+
 # ============================================================
 
 T = TypeVar("T")
@@ -662,12 +666,22 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
         "peta_next_start_sfens_path",
         settings.peta_next_start_sfens_path,
     )
+    settings.peta_shock_engine_path = read_non_empty_str(
+        "peta_shock_engine_path", settings.peta_shock_engine_path,
+    )
+    settings.peta_shock_threads = read_positive_int(
+        "peta_shock_threads", settings.peta_shock_threads,
+    )
+    if settings.peta_shock_threads > (1 << 32) - 1:
+        raise Exception("invalid BookMiner setting. peta_shock_threads is too large.")
 
     print(
         "BookMiner settings : "
         f"auto_save_interval_seconds = {settings.auto_save_interval_seconds}, "
         f"max_book_ply = {settings.max_book_ply}, "
-        f"peta_next_start_sfens_path = {settings.peta_next_start_sfens_path}"
+        f"peta_next_start_sfens_path = {settings.peta_next_start_sfens_path}, "
+        f"peta_shock_engine_path = {settings.peta_shock_engine_path}, "
+        f"peta_shock_threads = {settings.peta_shock_threads}"
     )
     return settings
 
@@ -2717,13 +2731,14 @@ def is_yaneuraou_progress_bar_line(line:str)->bool:
     return bool(bar) and all(ch == "." for ch in bar)
 
 
-def run_peta_shock_makebook(source_book_path:str)->str:
+def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
     makebook peta_shock で source_book_path と同じ拡張子の book/backup/peta_book-* に変換する。
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    engine_path = os.path.join(script_dir, PETA_SHOCK_ENGINE_NAME)
+    settings = settings or BookMinerSettings()
+    engine_path = os.path.abspath(os.path.join(script_dir, settings.peta_shock_engine_path))
     if not os.path.isfile(engine_path):
         raise Exception(f"peta shock engine not found : {engine_path}")
 
@@ -2737,6 +2752,8 @@ def run_peta_shock_makebook(source_book_path:str)->str:
         os.remove(peta_temp_path)
 
     makebook_command = f"makebook peta_shock {source_book_rel} {peta_temp_rel}"
+    if settings.peta_shock_threads != 1:
+        makebook_command += f" threads {settings.peta_shock_threads}"
     commands = [
         "setoption name BookDir value book",
         "setoption name BookFile value no_book",
@@ -2753,7 +2770,7 @@ def run_peta_shock_makebook(source_book_path:str)->str:
     print(f"command     = {makebook_command}")
 
     process = subprocess.Popen(
-        engine_path,
+        [engine_path],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -2771,6 +2788,8 @@ def run_peta_shock_makebook(source_book_path:str)->str:
             for line in process.stdout:
                 output_queue.put(line)
         finally:
+            if process.stdout is not None:
+                process.stdout.close()
             output_queue.put(None)
 
     Thread(target=read_output, daemon=True).start()
@@ -2832,16 +2851,16 @@ def read_peta_book(peta_book_path:str|None = None):
     print("reading the peta_book has done.")
 
 
-def make_and_read_peta_book(source_book_path:str|None = None):
+def make_and_read_peta_book(source_book_path:str|None = None, settings:BookMinerSettings|None = None):
     """
     最新または指定された通常定跡DBをpeta_shock化し、生成されたpeta_bookを読み込む。
     """
     source_book_path = resolve_peta_source_book_path(source_book_path)
-    peta_path = run_peta_shock_makebook(source_book_path)
+    peta_path = run_peta_shock_makebook(source_book_path, settings)
     read_peta_book(peta_path)
 
 
-def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None):
+def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None, settings:BookMinerSettings|None = None):
     """
     現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
     周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
@@ -2858,7 +2877,7 @@ def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], Non
             reset_auto_backup_timer()
         source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
     print(f"p command source book = {source_book_path}")
-    make_and_read_peta_book(source_book_path)
+    make_and_read_peta_book(source_book_path, settings)
     print("..p command has done.")
     print("[PetaCommandDone]")
 
@@ -4293,12 +4312,12 @@ def user_input(from_gui:bool = False):
 
             elif i == 'p':
                 # write and peta_read
-                write_and_read_peta_book(book, reset_auto_backup_timer)
+                write_and_read_peta_book(book, reset_auto_backup_timer, book_miner_settings)
 
             elif i == 'pl' or i == 'peta_shock_latest':
                 # latest regular backup -> peta_read
                 print("start pl command : peta_shock latest backup, and read peta book.")
-                make_and_read_peta_book(None)
+                make_and_read_peta_book(None, book_miner_settings)
                 print("..pl command has done.")
                 print("[PetaCommandDone]")
             

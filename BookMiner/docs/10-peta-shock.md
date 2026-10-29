@@ -86,7 +86,7 @@ r
 やねうら王側のコマンド形式は次の通りです。
 
 ```text
-makebook peta_shock <readbook> <writebook> [shrink] [fast]
+makebook peta_shock <readbook> <writebook> [shrink] [fast] [threads N]
 ```
 
 `readbook` と `writebook` は、エンジンオプション `BookDir` からの相対パスです。
@@ -95,6 +95,7 @@ makebook peta_shock <readbook> <writebook> [shrink] [fast]
 |---|---|
 | `shrink` | 最善手と同じ評価値の指し手以外を削除して、出力される定跡ファイルを小さくします。次に掘る候補を広く列挙したい BookMiner 運用では通常使いません。 |
 | `fast` | テンポラリファイルを書き出さずに高速化します。ただし、メモリ使用量は増えます。 |
+| `threads N` | 合流探索の並列数を指定します。省略時は 1 です。USI の `Threads` とは独立しています。 |
 
 BookMiner の `p` コマンドは、内部的には `YO-MATERIAL.exe` におおむね次のようなコマンドを送ります。
 
@@ -106,6 +107,8 @@ setoption name USI_Hash value 1
 makebook peta_shock backup/book_miner-YYYYMMDDHHMMSS_N.db backup/tmp-peta_book-YYYYMMDDHHMMSS_N.db
 quit
 ```
+
+`settings/book_miner_settings.json5` の `peta_shock_threads` を 2 以上にすると、上の `makebook` に `threads N` を追加します。`p`、`pl` と GUI からの自動実行に共通して適用されます。並列化対応版のやねうら王が必要です。古いエンジンでは指定が無視される場合があるので、ログの `threads` や `convergence workers` を確認してください。エンジンの場所は `peta_shock_engine_path` で変更できます。設定は BookMiner 起動時に読み込まれます。
 
 変換に成功すると、BookMiner は `tmp-peta_book-....db` を正式な `peta_book-....db` に置き換えます。変換途中のファイルを完成済みの peta book として扱わないためです。
 
@@ -146,7 +149,7 @@ peta shock 化には、探索用の強いエンジンではなく MATERIAL 版�
 
 MATERIAL 版は評価関数ファイルを必要とせず、メモリ使用量が小さいため、大きな定跡 DB を変換する用途に向いています。
 
-BookMiner では、この用途のために `YO-MATERIAL.exe` を使います。`YO-MATERIAL.exe` は、自分で MATERIAL 版をビルドするか、やねうら王 News Letter で頒布されている最新の MATERIAL 版を `YO-MATERIAL.exe` という名前に変更して、`BookMiner/` に配置します。
+BookMiner では、初期設定で `BookMiner/YO-MATERIAL.exe` を使います。MATERIAL 版を自分でビルドするか、やねうら王 News Letter で頒布されているものを使ってください。別の場所やファイル名は `peta_shock_engine_path` で指定できます。
 
 ## 運用上の注意
 

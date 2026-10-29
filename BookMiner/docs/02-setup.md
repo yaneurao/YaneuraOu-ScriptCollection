@@ -8,7 +8,7 @@
 - `cshogi`
 - `json5`
 - 探索用エンジン
-- `BookMiner.py` と同じフォルダに置いた `YO-MATERIAL.exe`
+- peta shock 用の MATERIAL 版やねうら王（初期設定は `BookMiner.py` と同じフォルダの `YO-MATERIAL.exe`）
 
 ## フォルダ構成
 
@@ -186,6 +186,10 @@ settings/book_miner_settings.json5
     // peta nextの開始局面集合ファイル。
     // このファイルはpn/prコマンドの開始局面を絞るために使う。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
+
+    // peta shock 用エンジンと並列数。
+    peta_shock_engine_path: "YO-MATERIAL.exe",
+    peta_shock_threads: 1,
 }
 ```
 
@@ -194,6 +198,15 @@ settings/book_miner_settings.json5
 - `auto_save_interval_seconds` : 定期自動バックアップの間隔です。単位は秒です。
 - `max_book_ply` : この手数に到達したら、それ以上局面を掘りません。
 - `peta_next_start_sfens_path` : `pn` / `pr` コマンドで使う開始局面集合ファイルです。
+- `peta_shock_engine_path` : peta shock 用実行ファイルのパスです。相対パスは BookMiner フォルダ基準で、絶対パスも指定できます。省略時は `YO-MATERIAL.exe` です。
+- `peta_shock_threads` : peta shock の並列数です。正の整数を指定し、省略時は `1` です。探索用エンジンの `Threads` とは別の設定です。
+
+例えば Windows の別フォルダにあるエンジンで 8 スレッドを使う場合は、次のように指定します。パス区切りには `/` を使えます。
+
+```json5
+peta_shock_engine_path: "D:/shogi engines/YaneuraOu-Material.exe",
+peta_shock_threads: 8,
+```
 
 `auto_save_interval_seconds` の `10800` は 3 時間です。
 
@@ -257,7 +270,7 @@ BookMiner は SSH のパスワード入力を処理しません。事前に公�
 
 ## YO-MATERIAL.exe の配置
 
-`YO-MATERIAL.exe` は `BookMiner.py` と同じフォルダに置きます。
+初期設定では `YO-MATERIAL.exe` を `BookMiner.py` と同じフォルダに置きます。別の場所やファイル名を使う場合は `book_miner_settings.json5` の `peta_shock_engine_path` で指定できます。
 
 ```text
 BookMiner/
@@ -266,7 +279,7 @@ BookMiner/
 ```
 
 `YO-MATERIAL.exe` は同梱していません。自分で MATERIAL 版のやねうら王をビルドするか、やねうら王News Letterで頒布されている最新の MATERIAL 版を入手してください。
-入手した実行ファイルは `YO-MATERIAL.exe` という名前に変更して、上記の場所に配置します。
+初期設定のまま使う場合は、入手した実行ファイルを `YO-MATERIAL.exe` という名前に変更して上記の場所に配置します。
 
 ビルド用の make コマンドは、例えば次のように書きます。`TARGET_CPU` は使う PC の CPU に合わせて変更してください。
 
