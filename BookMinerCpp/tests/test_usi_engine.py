@@ -57,6 +57,21 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f -47'])
 
+    def test_resignation_can_follow_a_scored_pv(self):
+        result = self.run_engine([["info depth 12 multipv 1 score cp -26 upperbound pv 1a1b 2g2f",
+                                   "bestmove resign"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['1a1b -26'])
+
+    def test_ranking_updates_replace_earlier_candidates(self):
+        result = self.run_engine([["info multipv 1 score cp 100 pv 7g7f",
+                                   "info multipv 2 score cp 20 pv 2g2f",
+                                   "info multipv 1 score cp 120 pv 3g3f",
+                                   "info multipv 2 score cp 25 pv 7g7f",
+                                   "bestmove 3g3f"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['3g3f 120', '7g7f 25'])
+
     def test_bestmove_must_match_scored_pv(self):
         result = self.run_engine([["info score cp 100 pv 7g7f", "bestmove 2g2f"]])
         self.assertNotEqual(result.returncode, 0)
