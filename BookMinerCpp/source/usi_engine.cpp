@@ -254,7 +254,7 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
     int multipv = std::min(multipv_step, multipv_limit);
     const int multipv_delta = std::max(0, config_.multipv_delta);
 
-    send_line("multipv " + std::to_string(multipv));
+    send_line("setoption name MultiPV value " + std::to_string(multipv));
     send_line("position " + position_command);
 
     const auto base_nodes = static_cast<std::uint64_t>(std::llround(static_cast<double>(config_.nodes) * node_ratio));
@@ -269,6 +269,7 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
     send_go(nodes);
 
     std::map<int, EngineMoveInfo> moves;
+    std::vector<EngineMoveInfo> previous_node;
 
     while (true)
     {
@@ -296,15 +297,29 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
                 node.push_back(it->second);
             }
 
+            if (!previous_node.empty() && node.size() < static_cast<std::size_t>(multipv))
+            {
+                log("[EngineWarning] Re-search returned incomplete MultiPV; using the previous search result.");
+                return EngineGoResult{std::move(previous_node), searched_nodes};
+            }
+            if (tokens.size() < 2)
+                throw std::runtime_error("engine returned invalid bestmove: " + *line);
+            if (node.empty() && tokens[1] != "resign" && tokens[1] != "win" && tokens[1] != "none")
+                throw std::runtime_error("engine returned bestmove without a score and PV: " + *line);
+            if (!node.empty() && tokens[1] != node.front().move)
+                throw std::runtime_error("engine bestmove does not match the last PV: " + *line);
+
             if (static_cast<int>(node.size()) == multipv && !node.empty()
                 && std::abs(node.front().eval - node.back().eval) <= multipv_delta)
             {
                 if (multipv >= multipv_limit)
                     return EngineGoResult{std::move(node), searched_nodes};
 
+                previous_node = node;
+                moves.clear();
                 multipv = std::min(multipv + multipv_step, multipv_limit);
                 nodes = half_nodes;
-                send_line("multipv " + std::to_string(multipv));
+                send_line("setoption name MultiPV value " + std::to_string(multipv));
                 send_go(nodes);
                 continue;
             }
@@ -312,14 +327,23 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
             return EngineGoResult{std::move(node), searched_nodes};
         }
 
-        if (tokens[0] != "info")
+        if (tokens[0] != "info" || (tokens.size() > 1 && tokens[1] == "string"))
             continue;
 
         const int mpv_index = index_of(tokens, "multipv");
-        const int mpv = mpv_index == -1 ? 1 : std::stoi(tokens[static_cast<std::size_t>(mpv_index + 1)]);
+        int mpv = 1;
+        if (mpv_index != -1)
+        {
+            if (static_cast<std::size_t>(mpv_index + 1) >= tokens.size())
+                continue;
+            try { mpv = std::stoi(tokens[static_cast<std::size_t>(mpv_index + 1)]); }
+            catch (const std::exception&) { continue; }
+            if (mpv < 1 || mpv > multipv)
+                continue;
+        }
         const int score_index = index_of(tokens, "score");
         const int pv_index = index_of(tokens, "pv");
-        if (score_index == -1 || pv_index == -1)
+        if (score_index == -1 || pv_index == -1 || pv_index < score_index + 3)
             continue;
         if (static_cast<std::size_t>(score_index + 2) >= tokens.size() || static_cast<std::size_t>(pv_index + 1) >= tokens.size())
             continue;
@@ -328,8 +352,11 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
         if (move == "win" || move == "resign")
             continue;
 
-        moves[mpv] = EngineMoveInfo{move, evalstr_to_int(tokens[static_cast<std::size_t>(score_index + 1)], tokens[static_cast<std::size_t>(score_index + 2)])};
-        (void)log;
+        try {
+            moves[mpv] = EngineMoveInfo{move, evalstr_to_int(tokens[static_cast<std::size_t>(score_index + 1)], tokens[static_cast<std::size_t>(score_index + 2)])};
+        } catch (const std::exception&) {
+            log("[EngineWarning] Invalid score in engine output: " + *line);
+        }
     }
 }
 
