@@ -57,6 +57,11 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f -47'])
 
+    def test_negative_zero_mate_is_loss(self):
+        result = self.run_engine([["info score mate -0 pv 7g7f", "bestmove 7g7f"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['7g7f -32000'])
+
     def test_resignation_can_follow_a_scored_pv(self):
         result = self.run_engine([["info depth 12 multipv 1 score cp -26 upperbound pv 1a1b 2g2f",
                                    "bestmove resign"]])

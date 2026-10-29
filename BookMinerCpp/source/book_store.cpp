@@ -334,11 +334,16 @@ auto find_entry_in_run(RunT& run, const PackedSfen& key)
     return it;
 }
 
-void sort_and_adjust_moves(std::vector<MoveInfo>& moves)
+void sort_moves(std::vector<MoveInfo>& moves)
 {
-    std::sort(moves.begin(), moves.end(), [](const MoveInfo& lhs, const MoveInfo& rhs) {
+    std::stable_sort(moves.begin(), moves.end(), [](const MoveInfo& lhs, const MoveInfo& rhs) {
         return lhs.eval > rhs.eval;
     });
+}
+
+void sort_and_adjust_moves(std::vector<MoveInfo>& moves)
+{
+    sort_moves(moves);
 
     if (moves.size() >= 2 && moves[0].eval == moves[1].eval
         && moves[0].eval > std::numeric_limits<std::int16_t>::min())
@@ -703,6 +708,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
                 position.moves.push_back(move);
             }
 
+            sort_moves(position.moves);
             run.push_back(Entry{entry.key, std::move(position)});
             const auto done = static_cast<std::size_t>(i + 1);
             if (done % BookReadProgressInterval == 0)
@@ -752,6 +758,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
             if (position.moves.empty())
                 position.ply = static_cast<std::uint16_t>(std::max(0, current_ply));
             position.moves.insert(position.moves.end(), current_moves.begin(), current_moves.end());
+            sort_moves(position.moves);
         }
 
         current_sfen.clear();
@@ -893,6 +900,7 @@ public:
                 move.eval = normalize_book_eval(move.eval);
             position.moves.push_back(move);
         }
+        sort_moves(position.moves);
         return position;
     }
 
@@ -955,6 +963,7 @@ public:
         PositionInfo position;
         position.ply = static_cast<std::uint16_t>(std::max(0, entry->ply));
         position.moves = read_moves_after(entry->next_pos);
+        sort_moves(position.moves);
         return position;
     }
 

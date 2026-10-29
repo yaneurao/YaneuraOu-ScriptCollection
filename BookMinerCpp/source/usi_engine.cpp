@@ -61,6 +61,9 @@ int parse_mate_eval(const std::string& value)
         return ValueMate - 1;
     if (value == "-")
         return -ValueMate + 1;
+    // stoi("-0") loses the sign, but USI uses it for an already-mated side.
+    if (value == "-0")
+        return -ValueMate;
 
     const int mate_ply = std::stoi(value);
     if (mate_ply > 0)
