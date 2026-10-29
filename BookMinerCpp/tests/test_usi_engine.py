@@ -39,6 +39,29 @@ class EngineProtocolTest(unittest.TestCase):
         engine.chmod(0o755)
         return subprocess.run([str(self.exe), str(engine)], capture_output=True, text=True, timeout=10)
 
+    def test_later_engine_start_failure_joins_ready_threads(self):
+        engine = Path(self.tmp.name) / 'ready-engine'
+        engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                          'for line in sys.stdin:\n'
+                          ' if line.strip() == "usi": print("usiok", flush=True)\n'
+                          ' elif line.strip() == "isready": print("readyok", flush=True)\n'
+                          ' elif line.strip() == "quit": break\n')
+        engine.chmod(0o755)
+        result = subprocess.run([str(self.exe), str(engine), str(engine) + '-missing'],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('engine not found', result.stderr)
+
+    def test_engine_exit_does_not_kill_parent_with_sigpipe(self):
+        engine = Path(self.tmp.name) / 'exit-engine'
+        engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                          'sys.stdin.readline()\nprint("usiok", flush=True)\n')
+        engine.chmod(0o755)
+        result = subprocess.run([str(self.exe), str(engine), '--broken-pipe'],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('failed to write to engine stdin', result.stderr)
+
     def test_bounds_are_used_and_info_string_is_ignored(self):
         result = self.run_engine([["info depth 5 multipv 1 score cp 100 pv 7g7f",
                                    "info depth 5 multipv 2 score cp 20 pv 2g2f",

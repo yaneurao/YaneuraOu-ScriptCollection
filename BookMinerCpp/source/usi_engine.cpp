@@ -19,6 +19,8 @@
 #ifdef _WIN32
 #include <io.h>
 #else
+#include <pthread.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -89,6 +91,34 @@ std::filesystem::path resolve_local_engine_path(const std::filesystem::path& app
         engine_path = app_dir / engine_path;
     return std::filesystem::absolute(engine_path).lexically_normal();
 }
+
+#ifndef _WIN32
+// A closed engine pipe must become an EPIPE error, not terminate BookMiner.
+ssize_t write_without_sigpipe(int fd, const char* data, std::size_t size)
+{
+    sigset_t blocked, old_mask, pending;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGPIPE);
+    if (pthread_sigmask(SIG_BLOCK, &blocked, &old_mask) != 0)
+        throw std::runtime_error("failed to block SIGPIPE");
+    sigpending(&pending);
+    const bool already_pending = sigismember(&pending, SIGPIPE) == 1;
+    const ssize_t result = write(fd, data, size);
+    const int saved_errno = errno;
+    if (result < 0 && saved_errno == EPIPE && !already_pending)
+    {
+        sigpending(&pending);
+        if (sigismember(&pending, SIGPIPE) == 1)
+        {
+            int received = 0;
+            sigwait(&blocked, &received);
+        }
+    }
+    pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
+    errno = saved_errno;
+    return result;
+}
+#endif
 
 #ifdef _WIN32
 std::string quote_for_windows_command_line(const std::filesystem::path& path)
@@ -381,8 +411,10 @@ void UsiEngine::send_line(const std::string& command)
     std::size_t remaining = line.size();
     while (remaining > 0)
     {
-        const ssize_t n = write(child_stdin_write_, data, remaining);
-        if (n < 0)
+        const ssize_t n = write_without_sigpipe(child_stdin_write_, data, remaining);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
             throw std::runtime_error("failed to write to engine stdin");
         data += n;
         remaining -= static_cast<std::size_t>(n);
@@ -501,6 +533,16 @@ std::vector<std::unique_ptr<UsiEngine>> initialize_engines(
     std::atomic<int> ready{0};
     std::mutex error_mutex;
     std::exception_ptr first_error;
+    // Join before captured locals and engine instances are destroyed, including
+    // when starting a later engine throws.
+    struct JoinReadyThreads {
+        std::vector<std::thread>& threads;
+        ~JoinReadyThreads() {
+            for (auto& thread : threads)
+                if (thread.joinable())
+                    thread.join();
+        }
+    } join_ready_threads{ready_threads};
 
     int id = 0;
     for (const auto& config : configs)
