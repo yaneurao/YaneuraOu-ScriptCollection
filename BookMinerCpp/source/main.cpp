@@ -1206,6 +1206,7 @@ private:
         std::size_t last_reported_taken = 0;
         std::size_t last_reported_total = 0;
         std::size_t deferred = 0;
+        std::size_t failed = 0;
         std::size_t last_reported_deferred = 0;
         bool done_reported = false;
         std::string eval_limit;
@@ -1260,6 +1261,7 @@ private:
                 return;
 
             TaskResult result = TaskResult::Done;
+            bool failed = false;
             try
             {
                 result = process_position_command(
@@ -1278,14 +1280,17 @@ private:
             }
             catch (const std::exception& ex)
             {
-                log_line(std::string("Exception : ") + ex.what());
+                failed = true;
+                log_line(std::string("Exception : task failed, job=") + std::to_string(task->job_id)
+                    + " engine=" + std::to_string(engine.thread_id())
+                    + " position=" + task->position_command + " : " + ex.what());
             }
             if (result == TaskResult::Deferred)
             {
                 defer_task(std::move(*task));
                 continue;
             }
-            report_task_done(*task);
+            report_task_done(*task, failed);
         }
     }
 
@@ -1304,7 +1309,7 @@ private:
             log_line("[TaskQueueDeferLimit] job=" + std::to_string(task.job_id)
                 + " defer_count=" + std::to_string(task.defer_count)
                 + " position=" + task.position_command);
-            report_task_done(task);
+            report_task_done(task, true);
             return;
         }
 
@@ -1327,7 +1332,7 @@ private:
         }
     }
 
-    void report_task_done(const Task& task)
+    void report_task_done(const Task& task, bool failed = false)
     {
         std::size_t total_taken = 0;
         std::size_t total_enqueued = 0;
@@ -1340,6 +1345,8 @@ private:
         std::string job_book_extend_ply;
         std::string job_branch;
         std::size_t job_deferred = 0;
+        std::size_t job_failed = 0;
+        std::size_t total_failed = 0;
 
         {
             std::scoped_lock lock(progress_mutex_);
@@ -1357,6 +1364,13 @@ private:
             if (job.branch.empty())
                 job.branch = std::to_string(task.branch_width) + "-" + std::to_string(task.branch_depth);
             ++job.taken;
+            if (failed)
+            {
+                ++job.failed;
+                ++total_failed_;
+            }
+            job_failed = job.failed;
+            total_failed = total_failed_;
             job_taken = job.taken;
             job_total = job.total;
             job_eval_limit = job.eval_limit;
@@ -1390,6 +1404,8 @@ private:
             + " job_remaining=" + std::to_string(job_remaining)
             + " remaining=" + std::to_string(remaining)
             + " deferred=" + std::to_string(job_deferred)
+            + " failed=" + std::to_string(job_failed)
+            + " total_failed=" + std::to_string(total_failed)
             + " eval_limit=" + job_eval_limit
             + " game_ply_limit=" + job_game_ply_limit
             + " book_extend_ply=" + job_book_extend_ply
@@ -1403,6 +1419,8 @@ private:
                 + " job_remaining=0"
                 + " remaining=" + std::to_string(remaining)
                 + " deferred=" + std::to_string(job_deferred)
+                + " failed=" + std::to_string(job_failed)
+                + " total_failed=" + std::to_string(total_failed)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply
@@ -1417,6 +1435,8 @@ private:
                 + " job_remaining=" + std::to_string(job_remaining)
                 + " remaining=0"
                 + " deferred=" + std::to_string(job_deferred)
+                + " failed=" + std::to_string(job_failed)
+                + " total_failed=" + std::to_string(total_failed)
                 + " eval_limit=" + job_eval_limit
                 + " game_ply_limit=" + job_game_ply_limit
                 + " book_extend_ply=" + job_book_extend_ply
@@ -1533,6 +1553,7 @@ private:
     std::map<int, JobProgress> jobs_;
     std::size_t total_enqueued_ = 0;
     std::size_t total_taken_ = 0;
+    std::size_t total_failed_ = 0;
     std::chrono::steady_clock::time_point last_task_progress_report_{};
 };
 

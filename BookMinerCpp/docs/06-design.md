@@ -85,8 +85,11 @@ GUIが解釈する進捗タグはPython版と揃えます。
 各 enqueue job の最後のtaskが完了したときは、全体queueに他のjobが残っていても `TaskQueueJobDone` を即時に出します。
 全体queueの最後のtaskが完了したときは `TaskQueueDone` を即時に出します。
 
-進捗の `done` は「完了したtask数」です。
-そのため `[TaskQueueDone]` が出た時点で、enqueue済みtaskはすべて処理済みです。
+進捗の `done` は、成功と失敗を含む「処理を終えたtask数」です。
+`TaskQueueJobDone` と `TaskQueueDone` の `failed` はその job の失敗件数、`total_failed` は起動後の全 job の累計失敗件数です。エンジン通信などの例外時は job、エンジン番号、入力局面をログに出します。失敗した task は自動再試行されないため、再投入が必要です。
+`[TaskQueueDone]` は queue の処理が終わったことを示し、全 task の成功は保証しません。
+
+`q` で終了すると、現在の定跡を保存してから worker を停止します。未着手の task は破棄され、保存時点で実行中の探索の結果は保存されない場合があります。
 
 定跡DBは `BookStore` が保持し、workerは局面情報をcopyで読み、探索結果をmergeで書き込みます。
 同一局面またはflip同一局面を複数workerが同時に探索しないよう、`BookStore` 内で探索中局面をleaseとして管理します。
