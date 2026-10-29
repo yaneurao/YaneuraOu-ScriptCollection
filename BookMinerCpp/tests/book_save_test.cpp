@@ -75,4 +75,52 @@ int main(int argc, char** argv)
     }
     check_import(ybb);
 
+    // A failed import must leave the prior book available.
+    bookminer::BookStore preserved;
+    preserved.merge_position(bookminer::StartSfenPly1, 1, {
+        {bookminer::move16_from_usi("7g7f"), 123, 0}});
+    for (const char* name : {"missing.db", "missing.ybb"}) {
+        bool failed = false;
+        try { preserved.load_yaneuraou_book(dir / name, false, nullptr, nullptr); }
+        catch (const std::runtime_error&) { failed = true; }
+        auto existing = preserved.find_position_copy(bookminer::StartSfenPly1);
+        if (!failed || !existing || existing->moves.front().eval != 123)
+            throw std::runtime_error("failed import erased existing book");
+    }
+    for (const char* name : {"broken.db", "broken.ybb"}) {
+        const auto path = dir / name;
+        {
+            std::ofstream out(path, std::ios::binary);
+            if (path.extension() == ".db")
+                out << bookminer::YaneuraOuBookHeaderV1 << "\nsfen " << bookminer::StartSfenPly1
+                    << "\n7g7f none invalid 0\n";
+            else
+                out << "invalid ybb";
+        }
+        bool failed = false;
+        try { preserved.load_yaneuraou_book(path, false, nullptr, nullptr); }
+        catch (const std::runtime_error&) { failed = true; }
+        auto existing = preserved.find_position_copy(bookminer::StartSfenPly1);
+        if (!failed || !existing || existing->moves.front().eval != 123)
+            throw std::runtime_error("malformed import erased existing book");
+    }
+    const auto oversized = dir / "oversized.db";
+    {
+        std::ofstream out(oversized);
+        out << bookminer::YaneuraOuBookHeaderV1 << "\nsfen " << bookminer::StartSfenPly1
+            << "\n7g7f none 100000 0\n";
+    }
+    bool rejected = false;
+    try { preserved.load_yaneuraou_book(oversized, false, nullptr, nullptr); }
+    catch (const std::runtime_error&) { rejected = true; }
+    if (!rejected || preserved.find_position_copy(bookminer::StartSfenPly1)->moves.front().eval != 123)
+        throw std::runtime_error("out-of-range score was not safely rejected");
+    bookminer::BookStore normalized;
+    normalized.load_yaneuraou_book(oversized, true, nullptr, nullptr);
+    const auto old_book = normalized.find_position_copy(bookminer::StartSfenPly1);
+    if (!old_book || old_book->moves.front().eval != bookminer::ValueMate)
+        throw std::runtime_error("legacy score normalization failed");
+    if (bookminer::normalize_book_eval(std::numeric_limits<int>::min()) != std::numeric_limits<std::int16_t>::min())
+        throw std::runtime_error("minimum int normalization failed");
+
 }

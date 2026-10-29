@@ -126,6 +126,9 @@ ParsedMoveLine parse_book_move_line(const std::string& line, bool normalize_eval
     if (!parse_int(eval_text, eval))
         throw std::runtime_error("invalid eval: " + eval_text);
 
+    if (!normalize_eval && (eval < std::numeric_limits<std::int16_t>::min()
+                            || eval > std::numeric_limits<std::int16_t>::max()))
+        throw std::runtime_error("book evaluation out of int16 range: " + eval_text);
     parsed.eval = normalize_eval ? normalize_book_eval(eval) : static_cast<std::int16_t>(eval);
     return parsed;
 }
@@ -585,13 +588,13 @@ std::string move16_to_usi(std::uint16_t move16)
 
 std::int16_t normalize_book_eval(int eval)
 {
-    const int abs_eval = eval < 0 ? -eval : eval;
+    const std::int64_t abs_eval = eval < 0 ? -static_cast<std::int64_t>(eval) : eval;
     const int sign = eval < 0 ? -1 : 1;
 
-    int normalized = eval;
+    std::int64_t normalized = eval;
     if (abs_eval > OldBookMateThreshold)
     {
-        const int mate_distance = OldBookValueMate - abs_eval;
+        const std::int64_t mate_distance = OldBookValueMate - abs_eval;
         normalized = sign * (ValueMate - mate_distance);
     }
     else if (abs_eval > ValueEvalClamp)
@@ -651,7 +654,6 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
 {
     if (is_yane_bin_book_path(path))
     {
-        clear();
         std::ifstream index_in(path, std::ios::binary);
         if (!index_in)
             throw std::runtime_error("failed to open ybb book: " + path.string());
@@ -731,8 +733,6 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
 
     if (has_suffix(path.filename().string(), "-index.ybb") || has_suffix(path.filename().string(), "-moves.ybb"))
         throw std::runtime_error("split ybb is not supported. specify a single .ybb path: " + path.string());
-
-    clear();
 
     std::ifstream in(path);
     if (!in)
@@ -818,6 +818,8 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         }
     }
 
+    if (in.bad())
+        throw std::runtime_error("failed to read book: " + path.string());
     append_position();
     auto run = make_sorted_run_from_map(loaded);
     {
