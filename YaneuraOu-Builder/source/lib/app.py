@@ -228,6 +228,8 @@ class BuildGui(tk.Tk):
         self.minsize(*NORMAL_WINDOW_MINSIZE)
         self.user_presets = self._load_user_presets(self.gui_settings.get("presets"))
         self._ensure_presets()
+        saved_order = self.gui_settings.get("preset_order", [])
+        self.preset_order = saved_order if isinstance(saved_order, list) else []
         self.preset_values = self._preset_names()
         selected_preset = str(self.gui_settings.get("current_preset", "release-all"))
         if selected_preset not in self.preset_values:
@@ -280,7 +282,15 @@ class BuildGui(tk.Tk):
         self._ensure_presets()
         default_names = [name for name in PRESET_NAMES if name in self.user_presets]
         custom_names = sorted(name for name in self.user_presets if name not in PRESET_NAMES)
-        return tuple(default_names) + tuple(custom_names)
+        ordered = []
+        seen = set()
+        for name in self.preset_order:
+            if isinstance(name, str) and name in self.user_presets and name not in seen:
+                ordered.append(name)
+                seen.add(name)
+        ordered.extend(name for name in default_names + custom_names if name not in seen)
+        self.preset_order = ordered
+        return tuple(ordered)
 
     def _preset_recipe(self, name: str) -> dict[str, Any]:
         self._ensure_presets()
@@ -308,6 +318,22 @@ class BuildGui(tk.Tk):
             self.preset_list.selection_set(index)
             self.preset_list.activate(index)
             self.preset_list.see(index)
+            if hasattr(self, "preset_up_button"):
+                self.preset_up_button.configure(state="normal" if index > 0 else "disabled")
+                self.preset_down_button.configure(state="normal" if index + 1 < len(self.preset_values) else "disabled")
+
+    def _move_preset(self, offset: int) -> None:
+        index = self.preset_values.index(self.current_preset_name)
+        target = index + offset
+        if not 0 <= target < len(self.preset_values):
+            return
+        previous = list(self.preset_order)
+        self.preset_order[index], self.preset_order[target] = self.preset_order[target], self.preset_order[index]
+        self._refresh_preset_box(self.current_preset_name)
+        if not self._save_gui_settings(update_current_preset=False):
+            self.preset_order = previous
+            self._refresh_preset_box(self.current_preset_name)
+            messagebox.showerror("Presets", "Could not save the preset order.")
 
     def _save_current_preset_from_form(self, preset_name: str | None = None) -> bool:
         recipe = self._read_recipe_from_form_silent()
@@ -327,6 +353,7 @@ class BuildGui(tk.Tk):
         data = {
             "schema_version": GUI_SETTINGS_VERSION,
             "current_preset": self.current_preset_name,
+            "preset_order": list(self.preset_order),
             "shogizone_url": self.shogizone_url_var.get(),
             "shogizone_password": self.shogizone_password_var.get(),
             "path_aliases": [{"name": name.get().strip(), "path": path.get().strip()} for name, path in self.path_alias_rows],
@@ -428,7 +455,13 @@ class BuildGui(tk.Tk):
         sidebar.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(10, 0))
         sidebar.rowconfigure(1, weight=1)
         sidebar.columnconfigure(0, weight=1)
-        ttk.Label(sidebar, text="Presets").grid(row=0, column=0, sticky="w")
+        preset_header = ttk.Frame(sidebar)
+        preset_header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(preset_header, text="Presets").pack(side="left")
+        self.preset_up_button = ttk.Button(preset_header, text="↑", width=3, command=lambda: self._move_preset(-1))
+        self.preset_up_button.pack(side="left", padx=(8, 2))
+        self.preset_down_button = ttk.Button(preset_header, text="↓", width=3, command=lambda: self._move_preset(1))
+        self.preset_down_button.pack(side="left")
         self.preset_var = tk.StringVar(value=self.current_preset_name)
         self.preset_list = tk.Listbox(sidebar, width=23, exportselection=False, selectmode=tk.BROWSE)
         self.preset_list.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
@@ -973,6 +1006,7 @@ class BuildGui(tk.Tk):
         recipe = deepcopy(recipe)
         del self.user_presets[old_name]
         self.user_presets[new_name] = recipe
+        self.preset_order = [new_name if name == old_name else name for name in self.preset_order]
         self.recipe = deepcopy(recipe)
         self.plan = []
         self._refresh_preset_box(new_name)

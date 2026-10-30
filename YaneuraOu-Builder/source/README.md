@@ -125,7 +125,7 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 初期4presetは組み込み固定ではなく、保存済みpreset一覧が空のときだけ作られる通常presetです。
 そのため、renameやdeleteができます。
 
-Recipe 画面の左側に preset 一覧が表示され、クリックで切り替えられます。切り替える前の編集内容は保存されます。一覧はスクロールできます。
+Recipe 画面の左側に preset 一覧が表示され、クリックで切り替えられます。切り替える前の編集内容は保存されます。一覧はスクロールできます。一覧上部の ↑ / ↓ で選択中の preset を移動でき、並び順は次回起動時にも保持されます。
 
 `Open Build Folder` は、起動後に最後に生成した run の `build` フォルダを開きます。`Write Script` やビルド開始時に空の `build` フォルダを作るため、ビルド中や失敗後も開けます。BookMinerCpp の完成した実行ファイルは同じ run 内の `artifacts` にあります。
 

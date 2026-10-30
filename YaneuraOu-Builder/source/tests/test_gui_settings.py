@@ -123,6 +123,42 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(gui.release_source_var.get(), 'source path one')
         self.assertEqual(gui.copied_fields[str(gui.release_source_var)][1], 'release-all')
 
+    def test_preset_order_persists_and_rename_keeps_position(self):
+        gui = self.gui
+        original = gui.preset_values
+        self.assertEqual(str(gui.preset_up_button['state']), 'disabled')
+        gui.release_source_var.set('unsaved change')
+        gui.preset_down_button.invoke()
+        self.assertEqual(gui.preset_values[:2], (original[1], original[0]))
+        self.assertEqual(gui.current_preset_name, original[0])
+        self.assertEqual(gui.preset_list.curselection(), (1,))
+        self.assertEqual(gui.release_source_var.get(), 'unsaved change')
+        settings, _ = app.load_gui_settings()
+        self.assertEqual(settings['preset_order'], list(gui.preset_values))
+        with patch.object(app, '_ask_wide_string', return_value='renamed'):
+            gui._rename_preset()
+        self.assertEqual(gui.preset_values[1], 'renamed')
+        other = app.BuildGui(Path(__file__).resolve().parents[2])
+        other.withdraw()
+        try:
+            self.assertEqual(other.preset_values, gui.preset_values)
+            self.assertEqual(other.current_preset_name, 'renamed')
+        finally:
+            other.destroy()
+        with patch.object(app.messagebox, 'askyesno', return_value=True):
+            gui._delete_preset()
+        self.assertNotIn('renamed', gui.preset_order)
+
+    def test_preset_order_save_failure_restores_order(self):
+        gui = self.gui
+        original = gui.preset_values
+        with patch.object(app, 'save_gui_settings', side_effect=OSError('disk error')), \
+             patch.object(app.messagebox, 'showerror') as error:
+            gui._move_preset(1)
+        self.assertEqual(gui.preset_values, original)
+        self.assertEqual(gui.preset_list.curselection(), (0,))
+        error.assert_called_once()
+
     def test_invalid_edit_restores_preset_list_selection(self):
         gui = self.gui
         gui.release_common_flags_var.set('"unterminated')
