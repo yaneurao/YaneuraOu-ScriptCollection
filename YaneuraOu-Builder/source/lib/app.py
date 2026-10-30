@@ -376,9 +376,8 @@ class BuildGui(tk.Tk):
         default = self.yobuild_root.parent if (self.yobuild_root.parent / "SPSA").is_dir() else ""
         header = ttk.Frame(self.paths_tab)
         header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
         ttk.Label(header, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
-        ttk.Button(header, text="Add path", command=self._add_path_alias).grid(row=0, column=1, sticky="e")
+        ttk.Button(header, text="Add path", command=self._add_path_alias).grid(row=0, column=1, sticky="w", padx=(10, 0))
         alias_scroller = ScrollableFrame(self.paths_tab, height=400)
         alias_scroller.grid(row=1, column=0, sticky="nsew", pady=8)
         self.alias_frame = alias_scroller.inner
