@@ -91,7 +91,7 @@ macOS platformでは `Run Direct` を使い、MSYS2を介さずに生成script�
 - `YaneuraOu source folder` は、BookMinerCppが参照するやねうら王 `source`
   フォルダです。
 - `YaneuraOu-ScriptCollection/BookMinerCpp/source` は既定配置から自動検出します。
-- 成果物はrunフォルダ内の `artifacts/` に `BookMinerCpp-AVX2.exe` のような名前で出力されます。
+- 成果物は run フォルダ内の `build/` に `BookMinerCpp-AVX2.exe` のような名前で出力されます。中間ファイルは `build-intermediate/bookminer-cpp/` に作られます。
 - Windows ARMのBookMinerCpp buildは未対応です。
 
 ## GUI設定
@@ -127,7 +127,7 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 
 Recipe 画面の左側に preset 一覧が表示され、クリックで切り替えられます。切り替える前の編集内容は保存されます。一覧はスクロールできます。一覧上部の ↑ / ↓ で選択中の preset を移動でき、並び順は次回起動時にも保持されます。
 
-`Open Build Folder` は、起動後に最後に生成した run の `build` フォルダを開きます。`Write Script` やビルド開始時に空の `build` フォルダを作るため、ビルド中や失敗後も開けます。BookMinerCpp の完成した実行ファイルは同じ run 内の `artifacts` にあります。
+`Open Build Folder` は、起動後に最後に生成した run の `build` フォルダを開きます。`Write Script` やビルド開始時に空の `build` フォルダを作るため、ビルド中や失敗後も開けます。
 
 Release settings のテキスト欄や選択欄を右クリックすると、項目の値を他の preset 用にコピーできます。別の preset を一覧から選び、同じ欄を右クリックして `Paste from ...` を選ぶと、表示されているコピー元の値を貼り付けます。コピーした値は項目ごとに保持され、アプリを終了すると消えます。macOS では Control キーを押しながらのクリックでもメニューを開けます。
 

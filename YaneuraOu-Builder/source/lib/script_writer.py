@@ -277,7 +277,7 @@ def _write_bookminer_cpp_scripts(recipe: dict[str, Any], plan: list[dict[str, An
             f"BOOKMINER_CPP_SOURCE_DIR={_quote(first['bookminer_cpp_source_dir'])}",
             f"YANEURAOU_ROOT={_quote(first['source_dir'])}",
             "",
-            "mkdir -p artifacts build/bookminer-cpp",
+            "mkdir -p build build-intermediate/bookminer-cpp",
             "",
         ]
         if first["platform"] == "win32":
@@ -286,8 +286,8 @@ def _write_bookminer_cpp_scripts(recipe: dict[str, Any], plan: list[dict[str, An
             cpu = str(job["cpu"])
             artifact = str(job["artifact"])
             extra_cppflags = " ".join(str(flag) for flag in job.get("extra_cppflags", []) if flag)
-            build_dir = '"$RUN_DIR"/' + shlex.quote(f"build/bookminer-cpp/{cpu}")
-            target_path = '"$RUN_DIR"/' + shlex.quote(f"artifacts/{artifact}")
+            build_dir = '"$RUN_DIR"/' + shlex.quote(f"build-intermediate/bookminer-cpp/{cpu}")
+            target_path = '"$RUN_DIR"/' + shlex.quote(f"build/{artifact}")
             lines += [
                 f"echo \"[BookMinerCpp] TARGET_CPU={cpu}\"",
                 'require_command "$WIN32_CLANG_WRAPPER"' if first["platform"] == "win32" else f"require_command {_quote_literal(str(job.get('compiler', 'clang++')))}",
