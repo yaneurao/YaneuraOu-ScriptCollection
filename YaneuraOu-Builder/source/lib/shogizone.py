@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import uuid
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -127,12 +128,12 @@ def upload_artifact(server: str, password: str, path: Path, arch: str, cpu: str)
         connection.close()
 
 
-def _post_json(server: str, password: str, endpoint: str, payload: dict) -> dict:
+def _post_json(server: str, password: str, endpoint: str, payload: dict, *, timeout: int = 120) -> dict:
     validate_upload_settings(server, password)
     url = urlsplit(server.strip())
     data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     connection_type = http.client.HTTPSConnection if url.scheme == 'https' else http.client.HTTPConnection
-    connection = connection_type(url.hostname, url.port, timeout=120)
+    connection = connection_type(url.hostname, url.port, timeout=timeout)
     try:
         connection.request('POST', url.path.rstrip('/') + endpoint, body=data,
                            headers={'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json'})
@@ -143,7 +144,7 @@ def _post_json(server: str, password: str, endpoint: str, payload: dict) -> dict
                 message = str(json.loads(data).get('error', response.reason))
             except (ValueError, AttributeError):
                 message = response.reason
-            raise RuntimeError(f"Engine registration failed ({response.status}): {message}")
+            raise RuntimeError(f"ShogiZone request failed ({response.status}): {message}")
         return json.loads(data)
     finally:
         connection.close()
@@ -151,6 +152,15 @@ def _post_json(server: str, password: str, endpoint: str, payload: dict) -> dict
 
 def preflight_engines(server: str, password: str, names: list[str]) -> None:
     _post_json(server, password, '/api/builder/engine-preflight', {'names': names})
+
+
+def check_connection(server: str, password: str) -> None:
+    # A unique name makes the existing read-only preflight suitable for an
+    # authentication check without creating or modifying any server data.
+    result = _post_json(server, password, '/api/builder/engine-preflight',
+                        {'names': ['builder-connection-test-' + uuid.uuid4().hex]}, timeout=10)
+    if not isinstance(result, dict) or result.get('ok') is not True:
+        raise RuntimeError('Unexpected response from ShogiZone.')
 
 
 def register_engine(server: str, password: str, name: str, asset_ids: list[str]) -> dict:

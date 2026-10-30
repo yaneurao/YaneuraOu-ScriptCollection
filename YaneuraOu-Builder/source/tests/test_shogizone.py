@@ -9,7 +9,7 @@ import unittest
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from lib.shogizone import collect_artifact_groups, collect_artifacts, upload_artifact
+from lib.shogizone import check_connection, collect_artifact_groups, collect_artifacts, upload_artifact
 
 
 class UploadTest(unittest.TestCase):
@@ -76,6 +76,36 @@ class UploadTest(unittest.TestCase):
         self.assertEqual(parse_qs(urlsplit(path).query)['cpu_target'], ['AVX2'])
         self.assertEqual(auth, 'Bearer password')
         self.assertEqual(data, b'fake exe')
+
+    def test_connection_check_authentication_and_response(self):
+        received = []
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                auth = self.headers.get('Authorization')
+                received.append((self.path, auth, body))
+                status = 200 if auth == 'Bearer correct' else 401
+                self.send_response(status)
+                self.end_headers()
+                self.wfile.write(json.dumps({'ok': True} if status == 200 else {'error': 'Invalid upload password'}).encode())
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f'http://127.0.0.1:{server.server_port}/zone'
+            check_connection(url, 'correct')
+            with self.assertRaisesRegex(RuntimeError, '401'):
+                check_connection(url, 'wrong')
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
+        self.assertEqual(received[0][0], '/zone/api/builder/engine-preflight')
+        self.assertEqual(received[0][1], 'Bearer correct')
+        self.assertTrue(received[0][2]['names'][0].startswith('builder-connection-test-'))
+        self.assertNotEqual(received[0][2], received[1][2])
 
 
 if __name__ == '__main__':

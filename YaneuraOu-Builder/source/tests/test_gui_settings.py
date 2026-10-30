@@ -33,27 +33,28 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(settings['shogizone_password'], 'secret')
         self.assertNotIn('shogizone_password', settings['presets'][gui.current_preset_name])
 
-    def test_upload_run_uses_saved_credentials_and_reports_success(self):
+    def test_connection_test_reports_success_and_failure(self):
         gui = self.gui
         gui.shogizone_url_var.set('https://zone.example')
         gui.shogizone_password_var.set('secret')
-        gui.shogizone_engine_name_var.set('Engine')
-        artifact = Path(self.tmp.name) / 'engine.exe'
-        with patch.object(app.filedialog, 'askdirectory', return_value=self.tmp.name), \
-             patch.object(app, 'collect_artifact_groups', return_value={'Engine-MATERIAL-Git': [(artifact, 'x64', 'AVX2')]}), \
-             patch.object(app, 'upload_artifact', return_value={'id': 'asset'}) as upload, \
-             patch.object(app, 'register_engine', return_value={'id': 123}) as register, \
-             patch.object(app, 'preflight_engines') as preflight, \
-             patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
-             patch.object(app.messagebox, 'showinfo') as info, \
-             patch.object(app.threading, 'Thread') as thread:
-            thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
-            gui._upload_shogizone_run()
-        upload.assert_called_once_with('https://zone.example', 'secret', artifact, 'x64', 'AVX2')
-        preflight.assert_called_once_with('https://zone.example', 'secret', ['Engine-MATERIAL-Git'])
-        register.assert_called_once_with('https://zone.example', 'secret', 'Engine-MATERIAL-Git', ['asset'])
-        info.assert_called_once_with('ShogiZone upload', 'Upload completed.')
-        self.assertFalse(gui.run_active)
+        for failure in (None, RuntimeError('unauthorized')):
+            with self.subTest(failure=failure), \
+                 patch.object(app, 'check_connection', side_effect=failure) as check, \
+                 patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
+                 patch.object(app.messagebox, 'showinfo') as info, \
+                 patch.object(app.messagebox, 'showerror') as error, \
+                 patch.object(app.threading, 'Thread') as thread:
+                thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
+                gui._test_shogizone_connection()
+                check.assert_called_once_with('https://zone.example', 'secret')
+                if failure:
+                    error.assert_called_once_with('ShogiZone connection test', 'unauthorized')
+                    info.assert_not_called()
+                else:
+                    info.assert_called_once_with('ShogiZone connection test', 'Connection and upload password verified.')
+                    error.assert_not_called()
+                self.assertFalse(gui.run_active)
+        self.assertFalse(hasattr(gui, 'upload_button'))
 
     def test_shogizone_upload_fields_are_preset_specific(self):
         gui = self.gui

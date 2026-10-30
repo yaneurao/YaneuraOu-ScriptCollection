@@ -130,8 +130,8 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 
 ### ShogiZone へのアップロード
 
-ShogiZone 側で Builder 用 upload password を設定します。対応 API を含む ShogiZone に更新したうえで、YO-Build の画面上部の `ShogiZone` タブにサーバー URL と同じ password を設定してください。URL と password は全 preset 共通で、パスワードはローカルの GUI 設定ファイルに平文で保存されます。外部ネットワークでは HTTPS を使ってください。
+ShogiZone 側で Builder 用 upload password を設定します。対応 API を含む ShogiZone に更新したうえで、YO-Build の画面上部の `ShogiZone` タブにサーバー URL と同じ password を設定してください。`Test connection` でサーバーへの接続とパスワードの認証を確認できます。URL と password は全 preset 共通で、パスワードはローカルの GUI 設定ファイルに平文で保存されます。外部ネットワークでは HTTPS を使ってください。
 
-各 preset の `Release settings` で `Engine name` を入力し、`Upload to ShogiZone after build` を ON にすると、Windows 向け `Run with MSYS2` がすべて成功した後に自動アップロードします。`Write Script` で生成したスクリプトを GUI の外で実行した場合は自動アップロードされません。その場合や過去のビルドは、`ShogiZone` タブの `Upload Run to ShogiZone` で run フォルダを選択できます。このときも現在の preset の `Engine name` を使います。
+各 preset の `Release settings` で `Engine name` を入力し、`Upload to ShogiZone after build` を ON にすると、Windows 向け `Run with MSYS2` がすべて成功した後に自動アップロードします。`Write Script` で生成したスクリプトを GUI の外で実行した場合は自動アップロードされません。
 
 エンジン本体は `入力名-Edition-Variant` ごとに登録され、各 CPU target の実行ファイルはその本体にまとめられます。たとえば `MyEngine-MATERIAL-Git` のようになります。同名または同じ保存フォルダの本体が既にある場合は上書きせずエラーにします。通信や登録が途中で失敗すると、送信済みのファイルや登録済みの本体が残る場合があります。エンジン本体を利用するための「エンジン登録」は ShogiZone の管理画面で別途作成してください。

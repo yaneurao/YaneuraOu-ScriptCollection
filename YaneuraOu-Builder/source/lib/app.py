@@ -20,7 +20,7 @@ from .presets import (
     create_preset,
 )
 from .script_writer import resolve_run_root, write_build_run
-from .shogizone import collect_artifact_groups, engine_group_name, preflight_engines, register_engine, upload_artifact, validate_upload_settings
+from .shogizone import check_connection, collect_artifact_groups, engine_group_name, preflight_engines, register_engine, upload_artifact, validate_upload_settings
 from .toolchains import WINARM_CROSS_COMPILER, WIN32_CROSS_COMPILER
 from .versioning import package_version_from_engine_version
 
@@ -322,8 +322,8 @@ class BuildGui(tk.Tk):
         return True
 
     def _on_close(self) -> None:
-        if self.run_active and self.run_mode == "upload":
-            messagebox.showinfo("ShogiZone", "Wait for the upload to finish before closing.")
+        if self.run_active and self.run_mode == "connection_test":
+            messagebox.showinfo("ShogiZone", "Wait for the connection test to finish before closing.")
             return
         if self._read_recipe_from_form_silent() is None:
             messagebox.showerror("Settings", "Settings could not be saved. Check the quotation marks in the flags fields.")
@@ -403,39 +403,29 @@ class BuildGui(tk.Tk):
         self._entry(tab, 0, "Server URL", self.shogizone_url_var, width=72)
         ttk.Label(tab, text="Upload password").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Entry(tab, textvariable=self.shogizone_password_var, show="*", width=40).grid(row=1, column=1, sticky="w", pady=4)
-        ttk.Label(tab, text="Select a completed run folder to upload its Windows executables.").grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 4))
-        self.upload_button = ttk.Button(tab, text="Upload Run to ShogiZone", command=self._upload_shogizone_run)
-        self.upload_button.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+        self.connection_test_button = ttk.Button(tab, text="Test connection", command=self._test_shogizone_connection)
+        self.connection_test_button.grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 4))
 
-    def _upload_shogizone_run(self) -> None:
+    def _test_shogizone_connection(self) -> None:
         if self.run_active:
             return
         server = self.shogizone_url_var.get().strip()
         password = self.shogizone_password_var.get()
-        engine_name = self.shogizone_engine_name_var.get().strip()
-        if not server or not password or not engine_name:
-            messagebox.showerror("ShogiZone", "Server URL, upload password, and the engine name in Release settings are required.")
-            return
-        run_dir = filedialog.askdirectory(initialdir=_initial_dir(self.run_root_var.get(), self.yobuild_root), title="Select a completed YO-Build run")
-        if not run_dir:
-            return
         try:
-            groups = collect_artifact_groups(Path(run_dir), engine_name)
-        except (OSError, ValueError) as exc:
+            validate_upload_settings(server, password)
+        except ValueError as exc:
             messagebox.showerror("ShogiZone", str(exc))
             return
         if not self._save_gui_settings(update_current_preset=False):
             messagebox.showerror("ShogiZone", "Could not save upload settings.")
             return
-        self._set_run_active(True, "upload")
-        self.notebook.select(self.log_tab)
+        self._set_run_active(True, "connection_test")
         def worker() -> None:
             try:
-                self._upload_shogizone_groups(server, password, groups)
-                self.after(0, self._finish_run, "ShogiZone upload", True, "")
+                check_connection(server, password)
+                self.after(0, self._finish_run, "ShogiZone connection test", True, "")
             except Exception as exc:
-                self.after(0, self._log, f"[upload] failed: {exc}")
-                self.after(0, self._finish_run, "ShogiZone upload", False, str(exc))
+                self.after(0, self._finish_run, "ShogiZone connection test", False, str(exc))
         threading.Thread(target=worker, daemon=True).start()
 
     def _upload_shogizone_groups(self, server: str, password: str, groups: dict[str, list[tuple[Path, str, str]]]) -> None:
@@ -1505,8 +1495,8 @@ class BuildGui(tk.Tk):
                 state=disabled_state,
                 text="Running MSYS2..." if active and mode == "msys2" else "Run with MSYS2",
             )
-        if hasattr(self, "upload_button"):
-            self.upload_button.configure(state=disabled_state)
+        if hasattr(self, "connection_test_button"):
+            self.connection_test_button.configure(state=disabled_state)
         if self.run_direct_button is not None:
             self.run_direct_button.configure(
                 state=disabled_state,
@@ -1517,7 +1507,7 @@ class BuildGui(tk.Tk):
         mode = self.run_mode
         self._set_run_active(False)
         if success:
-            messagebox.showinfo(title, "Upload completed." if mode == "upload" else "All scripts completed.")
+            messagebox.showinfo(title, "Connection and upload password verified." if mode == "connection_test" else "All scripts completed.")
         elif error_message:
             messagebox.showerror(title, error_message)
 
