@@ -374,7 +374,11 @@ class BuildGui(tk.Tk):
         self.paths_tab.columnconfigure(0, weight=1)
         self.paths_tab.rowconfigure(1, weight=1)
         default = self.yobuild_root.parent if (self.yobuild_root.parent / "SPSA").is_dir() else ""
-        ttk.Label(self.paths_tab, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
+        header = ttk.Frame(self.paths_tab)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
+        ttk.Button(header, text="Add path", command=self._add_path_alias).grid(row=0, column=1, sticky="e")
         alias_scroller = ScrollableFrame(self.paths_tab, height=400)
         alias_scroller.grid(row=1, column=0, sticky="nsew", pady=8)
         self.alias_frame = alias_scroller.inner
@@ -386,7 +390,6 @@ class BuildGui(tk.Tk):
         for row in saved:
             if isinstance(row, dict):
                 self._add_path_alias(str(row.get("name", "")), str(row.get("path", "")))
-        ttk.Button(self.paths_tab, text="Add path", command=self._add_path_alias).grid(row=2, column=0, sticky="w")
 
     def _add_path_alias(self, name: str = "", path: str = "") -> None:
         name_var, path_var = tk.StringVar(value=name), tk.StringVar(value=path)
