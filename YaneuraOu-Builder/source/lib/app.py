@@ -377,11 +377,12 @@ class BuildGui(tk.Tk):
         header = ttk.Frame(self.paths_tab)
         header.grid(row=0, column=0, sticky="ew")
         ttk.Label(header, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
-        ttk.Button(header, text="Add path", command=self._add_path_alias).grid(row=0, column=1, sticky="w", padx=(10, 0))
         alias_scroller = ScrollableFrame(self.paths_tab, height=400)
         alias_scroller.grid(row=1, column=0, sticky="nsew", pady=8)
         self.alias_frame = alias_scroller.inner
         self.alias_frame.columnconfigure(1, weight=1)
+        self.add_path_button = ttk.Button(self.alias_frame, text="Add path", command=self._add_path_alias)
+        self.add_path_button.pack(anchor="w", pady=(6, 0))
         self.path_alias_rows: list[tuple[tk.StringVar, tk.StringVar]] = []
         saved = self.gui_settings.get("path_aliases")
         if not isinstance(saved, list):
@@ -394,7 +395,7 @@ class BuildGui(tk.Tk):
         name_var, path_var = tk.StringVar(value=name), tk.StringVar(value=path)
         self.path_alias_rows.append((name_var, path_var))
         frame = ttk.Frame(self.alias_frame)
-        frame.pack(fill="x", pady=2)
+        frame.pack(fill="x", pady=2, before=self.add_path_button)
         ttk.Label(frame, text="[").pack(side="left")
         ttk.Entry(frame, textvariable=name_var, width=22).pack(side="left")
         ttk.Label(frame, text="]").pack(side="left", padx=(0, 8))
