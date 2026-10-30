@@ -239,6 +239,7 @@ class BuildGui(tk.Tk):
         self.build_recipe: dict[str, Any] | None = None
         self.run_active = False
         self.run_mode = ""
+        self.last_build_dir: Path | None = None
 
         self.cpu_vars: dict[str, tk.BooleanVar] = {}
         self.cpu_selections: dict[str, list[str]] = {}
@@ -464,6 +465,8 @@ class BuildGui(tk.Tk):
         self.write_scripts_button.pack(side="left", padx=(0, 6))
         self.run_msys2_button = ttk.Button(build_actions, text="Run with MSYS2", command=self._run_scripts_with_msys2)
         self.run_msys2_button.pack(side="left", padx=(0, 6))
+        self.open_build_button = ttk.Button(build_actions, text="Open Build Folder", command=self._open_build_folder, state="disabled")
+        self.open_build_button.pack(side="left", padx=(0, 6))
         self.run_direct_button = ttk.Button(build_actions, text="Run Direct", command=self._run_scripts_direct)
         self.run_direct_button.pack(side="left")
         ttk.Label(top, text="Right-click a Release settings text field to copy its value between presets.").grid(row=2, column=0, sticky="w", pady=(4, 0))
@@ -1428,14 +1431,33 @@ class BuildGui(tk.Tk):
         try:
             assert self.build_recipe is not None
             run_dir = write_build_run(self.build_recipe, self.plan, self.yobuild_root)
+            build_dir = run_dir / "build"
+            build_dir.mkdir(exist_ok=True)
         except OSError as exc:
             messagebox.showerror("Write scripts failed", str(exc))
             return None
+        self.last_build_dir = build_dir
+        self.open_build_button.configure(state="normal")
         self._log(f"Wrote scripts: {run_dir}")
         self._log(f"Run helper: {run_dir / 'run-all'}")
         if show_message:
             messagebox.showinfo("Write scripts", f"Wrote scripts to:\n{run_dir}\n\nManual run:\ncd {run_dir} && ./run-all")
         return run_dir
+
+    def _open_build_folder(self) -> None:
+        path = self.last_build_dir
+        if path is None or not path.is_dir():
+            messagebox.showerror("Open Build Folder", "The build folder no longer exists.")
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except OSError as exc:
+            messagebox.showerror("Open Build Folder", str(exc))
 
     def _run_scripts_with_msys2(self) -> None:
         if self.run_active:

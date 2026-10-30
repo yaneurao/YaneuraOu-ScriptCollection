@@ -61,6 +61,30 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(settings['presets'][gui.current_preset_name]['run_root'], '[YOSC]/runs')
         self.assertIn({'name': 'YaneuraOuSource', 'path': str(source)}, settings['path_aliases'])
 
+    def test_open_latest_build_folder(self):
+        gui = self.gui
+        self.assertEqual(str(gui.open_build_button['state']), 'disabled')
+        gui.run_root_var.set(str(Path(self.tmp.name) / 'runs'))
+        run = gui._write_scripts(show_message=False)
+        self.assertIsNotNone(run)
+        self.assertTrue((run / 'build').is_dir())
+        self.assertEqual(str(gui.open_build_button['state']), 'normal')
+        gui._set_run_active(True, 'msys2')
+        self.assertEqual(str(gui.open_build_button['state']), 'normal')
+        gui._set_run_active(False)
+        with patch.object(app.sys, 'platform', 'win32'), \
+             patch.object(app.os, 'startfile', create=True) as startfile:
+            gui._open_build_folder()
+            startfile.assert_called_once_with(str(run / 'build'))
+        with patch.object(app.sys, 'platform', 'darwin'), \
+             patch.object(app.subprocess, 'Popen') as popen:
+            gui._open_build_folder()
+            popen.assert_called_once_with(['open', str(run / 'build')])
+        (run / 'build').rmdir()
+        with patch.object(app.messagebox, 'showerror') as error:
+            gui._open_build_folder()
+            error.assert_called_once()
+
     def test_invalid_path_alias_is_reported_before_writing(self):
         gui = self.gui
         gui.release_source_var.set('[Missing]/source')

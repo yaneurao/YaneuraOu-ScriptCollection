@@ -127,6 +127,8 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 
 Recipe 画面の左側に preset 一覧が表示され、クリックで切り替えられます。切り替える前の編集内容は保存されます。一覧はスクロールできます。
 
+`Open Build Folder` は、起動後に最後に生成した run の `build` フォルダを開きます。`Write Script` やビルド開始時に空の `build` フォルダを作るため、ビルド中や失敗後も開けます。BookMinerCpp の完成した実行ファイルは同じ run 内の `artifacts` にあります。
+
 Release settings のテキスト欄や選択欄を右クリックすると、項目の値を他の preset 用にコピーできます。別の preset を一覧から選び、同じ欄を右クリックして `Paste from ...` を選ぶと、表示されているコピー元の値を貼り付けます。コピーした値は項目ごとに保持され、アプリを終了すると消えます。macOS では Control キーを押しながらのクリックでもメニューを開けます。
 
 ### 共通パス
