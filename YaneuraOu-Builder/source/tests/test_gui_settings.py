@@ -33,6 +33,52 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(settings['shogizone_password'], 'secret')
         self.assertNotIn('shogizone_password', settings['presets'][gui.current_preset_name])
 
+    def test_shared_path_aliases_are_expanded_only_for_build(self):
+        gui = self.gui
+        root = Path(self.tmp.name) / 'checkout'
+        source = Path(self.tmp.name) / 'engine source'
+        gui.path_alias_rows[0][1].set(str(root))
+        gui._add_path_alias('YaneuraOuSource', str(source))
+        gui.run_root_var.set('[YOSC]/runs')
+        gui.release_source_var.set('[YaneuraOuSource]')
+        gui.spsa_mode_var.set('apply')
+        gui.spsa_tune_py_var.set('[YOSC]\\SPSA\\tune.py')
+        gui.spsa_param_lib_var.set('[YOSC]/SPSA/ParamLib.py')
+        gui.spsa_tune_file_var.set('[YOSC]/SPSA/param/example.tune')
+        gui.spsa_params_file_var.set('[YOSC]/SPSA/param/example.params')
+        run = gui._write_scripts(show_message=False)
+        self.assertIsNotNone(run)
+        self.assertEqual(run.parent, root / 'runs')
+        import json
+        recipe = json.loads((run / 'recipe.json').read_text(encoding='utf8'))
+        self.assertEqual(recipe['source_dirs']['win'], str(source))
+        self.assertEqual(recipe['spsa']['tune_py'], str(root / 'SPSA' / 'tune.py'))
+        scripts = list((run / 'scripts').iterdir())
+        self.assertTrue(scripts)
+        self.assertIn(str(root / 'SPSA' / 'tune.py'), scripts[0].read_text(encoding='utf8'))
+        settings, _ = app.load_gui_settings()
+        self.assertEqual(settings['presets'][gui.current_preset_name]['spsa']['tune_py'], '[YOSC]\\SPSA\\tune.py')
+        self.assertEqual(settings['presets'][gui.current_preset_name]['run_root'], '[YOSC]/runs')
+        self.assertIn({'name': 'YaneuraOuSource', 'path': str(source)}, settings['path_aliases'])
+
+    def test_invalid_path_alias_is_reported_before_writing(self):
+        gui = self.gui
+        gui.release_source_var.set('[Missing]/source')
+        with patch.object(app.messagebox, 'showerror') as error:
+            self.assertIsNone(gui._write_scripts(show_message=False))
+        self.assertIn('[Missing]', error.call_args.args[1])
+        self.assertEqual(gui.plan, [])
+
+    def test_path_alias_windows_paths_and_validation(self):
+        aliases = {'YOSC': r'C:\Users\user\work\YOSC', 'YaneuraOuSource': r'D:\engine\source'}
+        self.assertEqual(app._expand_alias_path(r'[YOSC]\SPSA\tune.py', aliases),
+                         r'C:\Users\user\work\YOSC\SPSA\tune.py')
+        self.assertEqual(app._expand_alias_path('[YaneuraOuSource]/file', aliases), r'D:\engine\source\file')
+        self.assertEqual(app._expand_alias_path('[YOSC]/file', {'YOSC': '/'}), '/file')
+        for path, mapping in [('[Unknown]/file', aliases), ('[YOSC]suffix', aliases), ('[YOSC]/file', {'YOSC': 'relative'})]:
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                app._expand_alias_path(path, mapping)
+
     def test_preset_list_copy_field_and_persist_across_switches(self):
         gui = self.gui
         self.assertEqual(tuple(gui.preset_list.get(0, tk.END)), gui.preset_values)
@@ -90,7 +136,7 @@ class GuiSettingsTest(unittest.TestCase):
     def test_shogizone_upload_fields_are_preset_specific(self):
         gui = self.gui
         self.assertEqual([gui.notebook.tab(tab, 'text') for tab in gui.notebook.tabs()],
-                         ['Recipe', 'Logs', 'ShogiZone'])
+                         ['Recipe', 'Logs', 'ShogiZone', 'Paths'])
         gui.shogizone_engine_name_var.set('Engine One')
         gui.shogizone_auto_upload_var.set(True)
         gui.preset_var.set('yo-material')

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import os
+import re
 import sys
 import pickle
 import shlex
@@ -235,6 +236,7 @@ class BuildGui(tk.Tk):
         self.recipe: dict[str, Any] = self._preset_recipe(selected_preset)
         self.form_recipe_kind = str(self.recipe.get("kind", "release_all"))
         self.plan: list[dict[str, Any]] = []
+        self.build_recipe: dict[str, Any] | None = None
         self.run_active = False
         self.run_mode = ""
 
@@ -326,6 +328,7 @@ class BuildGui(tk.Tk):
             "current_preset": self.current_preset_name,
             "shogizone_url": self.shogizone_url_var.get(),
             "shogizone_password": self.shogizone_password_var.get(),
+            "path_aliases": [{"name": name.get().strip(), "path": path.get().strip()} for name, path in self.path_alias_rows],
             "presets": self.user_presets,
         }
         try:
@@ -355,14 +358,63 @@ class BuildGui(tk.Tk):
         self.recipe_tab = ttk.Frame(self.notebook, padding=10)
         self.log_tab = ttk.Frame(self.notebook, padding=10)
         self.shogizone_tab = ttk.Frame(self.notebook, padding=10)
+        self.paths_tab = ttk.Frame(self.notebook, padding=10)
 
         self.notebook.add(self.recipe_tab, text="Recipe")
         self.notebook.add(self.log_tab, text="Logs")
         self.notebook.add(self.shogizone_tab, text="ShogiZone")
+        self.notebook.add(self.paths_tab, text="Paths")
 
         self._build_recipe_tab()
         self._build_log_tab()
         self._build_shogizone_tab()
+        self._build_paths_tab()
+
+    def _build_paths_tab(self) -> None:
+        self.paths_tab.columnconfigure(0, weight=1)
+        self.paths_tab.rowconfigure(1, weight=1)
+        default = self.yobuild_root.parent if (self.yobuild_root.parent / "SPSA").is_dir() else ""
+        ttk.Label(self.paths_tab, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
+        alias_scroller = ScrollableFrame(self.paths_tab, height=400)
+        alias_scroller.grid(row=1, column=0, sticky="nsew", pady=8)
+        self.alias_frame = alias_scroller.inner
+        self.alias_frame.columnconfigure(1, weight=1)
+        self.path_alias_rows: list[tuple[tk.StringVar, tk.StringVar]] = []
+        saved = self.gui_settings.get("path_aliases")
+        if not isinstance(saved, list):
+            saved = [{"name": "YOSC", "path": str(self.gui_settings.get("yosc_path", default))}]
+        for row in saved:
+            if isinstance(row, dict):
+                self._add_path_alias(str(row.get("name", "")), str(row.get("path", "")))
+        ttk.Button(self.paths_tab, text="Add path", command=self._add_path_alias).grid(row=2, column=0, sticky="w")
+
+    def _add_path_alias(self, name: str = "", path: str = "") -> None:
+        name_var, path_var = tk.StringVar(value=name), tk.StringVar(value=path)
+        self.path_alias_rows.append((name_var, path_var))
+        frame = ttk.Frame(self.alias_frame)
+        frame.pack(fill="x", pady=2)
+        ttk.Label(frame, text="[").pack(side="left")
+        ttk.Entry(frame, textvariable=name_var, width=22).pack(side="left")
+        ttk.Label(frame, text="]").pack(side="left", padx=(0, 8))
+        ttk.Entry(frame, textvariable=path_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(frame, text="Browse", command=lambda: self._browse_dir(path_var)).pack(side="left", padx=4)
+        def remove() -> None:
+            self.path_alias_rows.remove((name_var, path_var))
+            frame.destroy()
+        ttk.Button(frame, text="Remove", command=remove).pack(side="left")
+
+    def _path_aliases(self) -> dict[str, str]:
+        result = {}
+        for name_var, path_var in self.path_alias_rows:
+            name, path = name_var.get().strip(), path_var.get().strip()
+            if not name and not path:
+                continue
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise ValueError(f"Invalid path alias name: {name!r}")
+            if name in result:
+                raise ValueError(f"Duplicate path alias: [{name}]")
+            result[name] = path
+        return result
 
     def _build_recipe_tab(self) -> None:
         self.recipe_tab.columnconfigure(1, weight=1)
@@ -1344,12 +1396,14 @@ class BuildGui(tk.Tk):
 
     def _create_plan_from_form(self) -> None:
         self.plan = []
+        self.build_recipe = None
         recipe = self._read_recipe_from_form()
         if recipe is None:
             return
         try:
-            plan = create_plan(recipe)
-            warnings = validate_plan(recipe, plan)
+            resolved = _resolve_recipe_paths(recipe, self._path_aliases())
+            plan = create_plan(resolved)
+            warnings = validate_plan(resolved, plan)
         except ValueError as exc:
             messagebox.showerror("Create plan failed", str(exc))
             return
@@ -1357,6 +1411,7 @@ class BuildGui(tk.Tk):
             messagebox.showerror("Create plan failed", "No build jobs were selected. Check CPU targets and editions.")
             return
         self.recipe = recipe
+        self.build_recipe = resolved
         self.plan = plan
         self._save_gui_settings()
         self._log(f"Created build plan: {len(plan)} jobs. Details will be written to plan.json.")
@@ -1368,7 +1423,8 @@ class BuildGui(tk.Tk):
         if not self.plan:
             return None
         try:
-            run_dir = write_build_run(self.recipe, self.plan, self.yobuild_root)
+            assert self.build_recipe is not None
+            run_dir = write_build_run(self.build_recipe, self.plan, self.yobuild_root)
         except OSError as exc:
             messagebox.showerror("Write scripts failed", str(exc))
             return None
@@ -1396,7 +1452,11 @@ class BuildGui(tk.Tk):
             except ValueError as exc:
                 messagebox.showerror("ShogiZone", str(exc))
                 return
-        msys2_root = _msys2_root_from_legacy_shell(self.msys2_root_var.get().strip() or DEFAULT_MSYS2_ROOT)
+        try:
+            msys2_root = _msys2_root_from_legacy_shell(_expand_alias_path(self.msys2_root_var.get().strip() or DEFAULT_MSYS2_ROOT, self._path_aliases()))
+        except ValueError as exc:
+            messagebox.showerror("Run with MSYS2", str(exc))
+            return
         launcher_path = _msys2_shell_path(msys2_root, platform_name)
         bash_path = _msys2_bash_path(msys2_root)
         msystem = _msys2_msystem(platform_name)
@@ -1590,19 +1650,27 @@ class BuildGui(tk.Tk):
             return None
 
     def _browse_dir(self, variable: tk.StringVar) -> None:
-        path = filedialog.askdirectory(initialdir=_initial_dir(variable.get(), self.yobuild_root))
+        path = filedialog.askdirectory(initialdir=self._path_initial_dir(variable))
         if path:
             variable.set(path)
 
     def _browse_file(self, variable: tk.StringVar) -> None:
-        path = filedialog.askopenfilename(initialdir=_initial_dir(variable.get(), self.yobuild_root))
+        path = filedialog.askopenfilename(initialdir=self._path_initial_dir(variable))
         if path:
             variable.set(path)
 
     def _browse_save(self, variable: tk.StringVar) -> None:
-        path = filedialog.asksaveasfilename(initialdir=_initial_dir(variable.get(), self.yobuild_root))
+        path = filedialog.asksaveasfilename(initialdir=self._path_initial_dir(variable))
         if path:
             variable.set(path)
+
+    def _path_initial_dir(self, variable: tk.StringVar) -> str:
+        value = variable.get()
+        try:
+            value = _expand_alias_path(value, self._path_aliases())
+        except ValueError:
+            pass
+        return _initial_dir(value, self.yobuild_root)
 
     def _clear_plan(self) -> None:
         self.plan = []
@@ -1759,7 +1827,47 @@ def _normalized_run_root_text(value: Any, yobuild_root: Path) -> str:
     text = str(value).strip()
     if not text:
         text = str(yobuild_root / "runs")
+    if text.startswith("["):
+        return text
     return str(resolve_run_root(text, yobuild_root))
+
+
+def _expand_alias_path(value: str, aliases: dict[str, str]) -> str:
+    if not value.startswith("["):
+        return value
+    match = re.match(r"^\[([A-Za-z_][A-Za-z0-9_]*)\](?=$|[/\\])", value)
+    if match is None:
+        raise ValueError(f"Unknown or invalid path alias: {value}")
+    name = match.group(1)
+    if name not in aliases:
+        raise ValueError(f"Path alias [{name}] is not registered in the Paths tab.")
+    root = aliases[name].strip()
+    if not root or not (os.path.isabs(root) or PureWindowsPath(root).is_absolute()):
+        raise ValueError(f"Set an absolute folder for [{name}] in the Paths tab.")
+    suffix = value[match.end():].lstrip("/\\")
+    if not suffix:
+        return root
+    separator = "\\" if PureWindowsPath(root).is_absolute() else "/"
+    # Keep drive roots such as C:\\ and POSIX / intact.
+    return root.rstrip("/\\") + separator + suffix.replace("\\", separator).replace("/", separator)
+
+
+def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
+    result = deepcopy(recipe)
+    for key in ("run_root", "source_dir", "bookminer_cpp_source_dir", "msys2_root", "work_dir", "output_path", "tune_py", "param_lib", "tune_file", "params_file"):
+        if isinstance(result.get(key), str):
+            result[key] = _expand_alias_path(result[key], aliases)
+    source_dirs = result.get("source_dirs")
+    if isinstance(source_dirs, dict):
+        for key, value in source_dirs.items():
+            if isinstance(value, str):
+                source_dirs[key] = _expand_alias_path(value, aliases)
+    spsa = result.get("spsa")
+    if isinstance(spsa, dict):
+        for key in ("tune_py", "param_lib", "tune_file", "params_file"):
+            if isinstance(spsa.get(key), str):
+                spsa[key] = _expand_alias_path(spsa[key], aliases)
+    return result
 
 
 def _platform_for_single_recipe(source_dir: str, target_cpu: str) -> str:
