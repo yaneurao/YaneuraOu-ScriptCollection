@@ -33,6 +33,37 @@ class GuiSettingsTest(unittest.TestCase):
         self.assertEqual(settings['shogizone_password'], 'secret')
         self.assertNotIn('shogizone_password', settings['presets'][gui.current_preset_name])
 
+    def test_preset_list_copy_field_and_persist_across_switches(self):
+        gui = self.gui
+        self.assertEqual(tuple(gui.preset_list.get(0, tk.END)), gui.preset_values)
+        gui.release_source_var.set('source path one')
+        gui._copy_preset_field(gui.release_source_var)
+        index = gui.preset_values.index('yo-material')
+        gui.preset_list.selection_clear(0, tk.END)
+        gui.preset_list.selection_set(index)
+        gui._on_preset_list_select(None)
+        self.assertEqual(gui.current_preset_name, 'yo-material')
+        self.assertEqual(gui.preset_list.curselection(), (index,))
+        self.assertNotEqual(gui.release_source_var.get(), 'source path one')
+        gui._paste_preset_field(gui.preset_list, gui.release_source_var)
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        gui.preset_var.set('yo-material')
+        gui._select_preset()
+        self.assertEqual(gui.release_source_var.get(), 'source path one')
+        self.assertEqual(gui.copied_fields[str(gui.release_source_var)][1], 'release-all')
+
+    def test_invalid_edit_restores_preset_list_selection(self):
+        gui = self.gui
+        gui.release_common_flags_var.set('"unterminated')
+        gui.preset_list.selection_clear(0, tk.END)
+        gui.preset_list.selection_set(gui.preset_values.index('yo-material'))
+        with patch.object(app.messagebox, 'showerror') as error:
+            gui._on_preset_list_select(None)
+        error.assert_called_once()
+        self.assertEqual(gui.current_preset_name, 'release-all')
+        self.assertEqual(gui.preset_list.curselection(), (gui.preset_values.index('release-all'),))
+
     def test_connection_test_reports_success_and_failure(self):
         gui = self.gui
         gui.shogizone_url_var.set('https://zone.example')

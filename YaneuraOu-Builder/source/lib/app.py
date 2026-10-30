@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import os
+import sys
 import pickle
 import shlex
 import subprocess
@@ -243,6 +244,8 @@ class BuildGui(tk.Tk):
         self.source_dirs: dict[str, str] = {}
         self.variant_rows: list[dict[str, Any]] = []
         self.edition_rows: list[dict[str, Any]] = []
+        self.copied_fields: dict[str, tuple[str, str]] = {}
+        self.field_copy_menu = tk.Menu(self, tearoff=False)
         self.write_scripts_button: ttk.Button | None = None
         self.run_msys2_button: ttk.Button | None = None
         self.run_direct_button: ttk.Button | None = None
@@ -286,11 +289,22 @@ class BuildGui(tk.Tk):
 
     def _refresh_preset_box(self, selected: str | None = None) -> None:
         self.preset_values = self._preset_names()
-        self.preset_box.configure(values=self.preset_values)
+        self.preset_list.delete(0, tk.END)
+        for name in self.preset_values:
+            self.preset_list.insert(tk.END, name)
         if selected not in self.preset_values:
             selected = self.preset_values[0]
         self.current_preset_name = str(selected)
         self.preset_var.set(self.current_preset_name)
+        self._show_selected_preset()
+
+    def _show_selected_preset(self) -> None:
+        self.preset_list.selection_clear(0, tk.END)
+        if self.current_preset_name in self.preset_values:
+            index = self.preset_values.index(self.current_preset_name)
+            self.preset_list.selection_set(index)
+            self.preset_list.activate(index)
+            self.preset_list.see(index)
 
     def _save_current_preset_from_form(self, preset_name: str | None = None) -> bool:
         recipe = self._read_recipe_from_form_silent()
@@ -351,24 +365,31 @@ class BuildGui(tk.Tk):
         self._build_shogizone_tab()
 
     def _build_recipe_tab(self) -> None:
-        self.recipe_tab.columnconfigure(0, weight=1)
+        self.recipe_tab.columnconfigure(1, weight=1)
         self.recipe_tab.rowconfigure(1, weight=1)
 
-        top = ttk.Frame(self.recipe_tab)
-        top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(1, weight=1)
-
-        ttk.Label(top, text="Preset").grid(row=0, column=0, sticky="w")
+        sidebar = ttk.Frame(self.recipe_tab)
+        sidebar.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
+        sidebar.rowconfigure(1, weight=1)
+        sidebar.columnconfigure(0, weight=1)
+        ttk.Label(sidebar, text="Presets").grid(row=0, column=0, sticky="w")
         self.preset_var = tk.StringVar(value=self.current_preset_name)
-        self.preset_box = ttk.Combobox(
-            top,
-            textvariable=self.preset_var,
-            values=self.preset_values,
-            state="readonly",
-            width=54,
-        )
-        self.preset_box.grid(row=0, column=1, padx=(6, 10), sticky="w")
-        self.preset_box.bind("<<ComboboxSelected>>", lambda _event: self._select_preset())
+        self.preset_list = tk.Listbox(sidebar, width=23, exportselection=False, selectmode=tk.BROWSE)
+        self.preset_list.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        scroll = ttk.Scrollbar(sidebar, orient="vertical", command=self.preset_list.yview)
+        scroll.grid(row=1, column=1, sticky="ns", pady=(4, 0))
+        self.preset_list.configure(yscrollcommand=scroll.set)
+        hscroll = ttk.Scrollbar(sidebar, orient="horizontal", command=self.preset_list.xview)
+        hscroll.grid(row=2, column=0, sticky="ew")
+        self.preset_list.configure(xscrollcommand=hscroll.set)
+        for name in self.preset_values:
+            self.preset_list.insert(tk.END, name)
+        self._show_selected_preset()
+        self.preset_list.bind("<<ListboxSelect>>", self._on_preset_list_select)
+
+        top = ttk.Frame(self.recipe_tab)
+        top.grid(row=0, column=1, sticky="ew")
+        top.columnconfigure(1, weight=1)
 
         actions = ttk.Frame(top)
         actions.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -390,9 +411,10 @@ class BuildGui(tk.Tk):
         self.run_msys2_button.pack(side="left", padx=(0, 6))
         self.run_direct_button = ttk.Button(build_actions, text="Run Direct", command=self._run_scripts_direct)
         self.run_direct_button.pack(side="left")
+        ttk.Label(top, text="Right-click a Release settings text field to copy its value between presets.").grid(row=2, column=0, sticky="w", pady=(4, 0))
 
         self.settings_tabs = ttk.Notebook(self.recipe_tab)
-        self.settings_tabs.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        self.settings_tabs.grid(row=1, column=1, sticky="nsew", pady=(10, 0))
         self._build_release_page()
 
     def _build_shogizone_tab(self) -> None:
@@ -558,7 +580,9 @@ class BuildGui(tk.Tk):
         ttk.Combobox(package, textvariable=self.package_format_var, values=("7z",), state="readonly", width=8).pack(side="left")
         ttk.Label(package, text="Exclude").pack(side="left", padx=(14, 4))
         self._pack_info_icon(package, RELEASE_SETTING_TOOLTIPS["package_exclude"], padx=(0, 4))
-        ttk.Entry(package, textvariable=self.package_exclude_var, width=32).pack(side="left")
+        package_exclude = ttk.Entry(package, textvariable=self.package_exclude_var, width=32)
+        package_exclude.pack(side="left")
+        self._bind_field_copy(package_exclude, self.package_exclude_var)
 
         spsa_box = ttk.LabelFrame(general, text="SPSA preprocessing", padding=8)
         spsa_box.grid(row=10, column=0, columnspan=4, sticky="ew", pady=(8, 0))
@@ -666,6 +690,7 @@ class BuildGui(tk.Tk):
         self._field_label(parent, row, label, tooltip)
         entry = ttk.Entry(parent, textvariable=variable, width=width)
         entry.grid(row=row, column=1, columnspan=columnspan, sticky="ew", pady=4)
+        self._bind_field_copy(entry, variable)
         return entry
 
     def _combo(
@@ -685,6 +710,7 @@ class BuildGui(tk.Tk):
         if state is not None:
             combo.configure(state=state)
         combo.grid(row=row, column=1, sticky="w", pady=4)
+        self._bind_field_copy(combo, variable)
         return combo
 
     def _path_entry(
@@ -701,12 +727,48 @@ class BuildGui(tk.Tk):
         self._field_label(parent, row, label, tooltip)
         entry = ttk.Entry(parent, textvariable=variable)
         entry.grid(row=row, column=1, columnspan=columnspan, sticky="ew", pady=4)
+        self._bind_field_copy(entry, variable)
         command = {
             "dir": lambda: self._browse_dir(variable),
             "file": lambda: self._browse_file(variable),
             "save": lambda: self._browse_save(variable),
         }[mode]
         ttk.Button(parent, text="Browse", command=command).grid(row=row, column=2 + columnspan - 1, sticky="w", padx=(6, 0))
+
+    def _bind_field_copy(self, widget: tk.Widget, variable: tk.StringVar) -> None:
+        def show_menu(event: tk.Event) -> str:
+            key = str(variable)
+            menu = self.field_copy_menu
+            menu.delete(0, tk.END)
+            menu.add_command(label="Copy for other presets", command=lambda: self._copy_preset_field(variable))
+            saved = self.copied_fields.get(key)
+            if saved is None:
+                menu.add_command(label="Paste: no value copied", state="disabled")
+            else:
+                value, preset = saved
+                preview = value.replace("\n", " ")
+                if len(preview) > 55:
+                    preview = preview[:52] + "..."
+                menu.add_command(label=f"Paste from {preset}: {preview}",
+                                 command=lambda: self._paste_preset_field(widget, variable))
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+            return "break"
+        widget.bind("<Button-3>", show_menu)
+        if sys.platform == "darwin":
+            widget.bind("<Control-Button-1>", show_menu)
+
+    def _copy_preset_field(self, variable: tk.StringVar) -> None:
+        self.copied_fields[str(variable)] = (variable.get(), self.current_preset_name)
+
+    def _paste_preset_field(self, widget: tk.Widget, variable: tk.StringVar) -> None:
+        saved = self.copied_fields.get(str(variable))
+        if saved is not None:
+            variable.set(saved[0])
+            if isinstance(widget, ttk.Combobox):
+                widget.event_generate("<<ComboboxSelected>>")
 
     def _field_label(self, parent: tk.Widget, row: int, label: str, tooltip: str | None = None) -> None:
         frame = ttk.Frame(parent)
@@ -727,15 +789,23 @@ class BuildGui(tk.Tk):
         icon.pack(side="left", padx=padx)
         Tooltip(icon, tooltip)
 
+    def _on_preset_list_select(self, _event: tk.Event) -> None:
+        selection = self.preset_list.curselection()
+        if selection:
+            self.preset_var.set(self.preset_values[selection[0]])
+            self._select_preset()
+
     def _select_preset(self) -> None:
         name = self.preset_var.get().strip()
         if not name or name == self.current_preset_name:
             return
         if not self._save_current_preset_from_form(self.current_preset_name):
             self.preset_var.set(self.current_preset_name)
+            self._show_selected_preset()
             messagebox.showerror("Settings", "Settings could not be saved. Check the quotation marks in the flags fields.")
             return
         self.current_preset_name = name
+        self._show_selected_preset()
         self.recipe = self._preset_recipe(name)
         self.plan = []
         self._load_recipe_into_form()

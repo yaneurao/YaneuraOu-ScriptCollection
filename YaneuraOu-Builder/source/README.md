@@ -125,8 +125,9 @@ GUI設定とpresetは `source/yobuild_gui.pickle` に保存されます。各run
 初期4presetは組み込み固定ではなく、保存済みpreset一覧が空のときだけ作られる通常presetです。
 そのため、renameやdeleteができます。
 
-`Small Window` ボタンでcompact windowに切り替えられます。Recipe pageは縦scroll可能なので、
-小さいmacOS displayでも下部設定へ到達できます。
+Recipe 画面の左側に preset 一覧が表示され、クリックで切り替えられます。切り替える前の編集内容は保存されます。一覧はスクロールできます。
+
+Release settings のテキスト欄や選択欄を右クリックすると、項目の値を他の preset 用にコピーできます。別の preset を一覧から選び、同じ欄を右クリックして `Paste from ...` を選ぶと、表示されているコピー元の値を貼り付けます。コピーした値は項目ごとに保持され、アプリを終了すると消えます。macOS では Control キーを押しながらのクリックでもメニューを開けます。
 
 ### ShogiZone へのアップロード
 
