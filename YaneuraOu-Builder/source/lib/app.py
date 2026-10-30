@@ -424,7 +424,7 @@ class BuildGui(tk.Tk):
         self.recipe_tab.rowconfigure(1, weight=1)
 
         sidebar = ttk.Frame(self.recipe_tab)
-        sidebar.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
+        sidebar.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(10, 0))
         sidebar.rowconfigure(1, weight=1)
         sidebar.columnconfigure(0, weight=1)
         ttk.Label(sidebar, text="Presets").grid(row=0, column=0, sticky="w")
@@ -443,7 +443,7 @@ class BuildGui(tk.Tk):
         self.preset_list.bind("<<ListboxSelect>>", self._on_preset_list_select)
 
         top = ttk.Frame(self.recipe_tab)
-        top.grid(row=0, column=1, sticky="ew")
+        top.grid(row=0, column=0, columnspan=2, sticky="ew")
         top.columnconfigure(1, weight=1)
 
         actions = ttk.Frame(top)
