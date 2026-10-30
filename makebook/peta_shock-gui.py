@@ -150,7 +150,10 @@ def run_peta_shock(
     engine_path: Path,
     converter_path: Path,
     log,
+    threads: int = 1,
 ) -> None:  # type:ignore[no-untyped-def]
+    if isinstance(threads, bool) or not isinstance(threads, int) or not 1 <= threads <= 0xFFFFFFFF:
+        raise PetaShockError("スレッド数は 1 以上の整数で指定してください。")
     input_path = input_path.resolve()
     output_path = normalize_ybb_output(output_path.resolve())
     engine_path = engine_path.resolve()
@@ -183,6 +186,7 @@ def run_peta_shock(
                 source_name=source_alias.name,
                 output_name=peta_db.name,
                 log=log,
+                threads=threads,
             )
             if not peta_db.is_file() or peta_db.stat().st_size == 0:
                 raise PetaShockError(f"peta-shock .db was not created: {peta_db}")
@@ -202,6 +206,7 @@ def run_peta_shock(
                 source_name=source_alias.name,
                 output_name=peta_ybb.name,
                 log=log,
+                threads=threads,
             )
             if not peta_ybb.is_file() or peta_ybb.stat().st_size == 0:
                 raise PetaShockError(f"peta-shock .ybb was not created: {peta_ybb}")
@@ -224,8 +229,13 @@ def run_engine_peta_shock(
     source_name: str,
     output_name: str,
     log,
+    threads: int = 1,
 ) -> None:  # type:ignore[no-untyped-def]
+    if isinstance(threads, bool) or not isinstance(threads, int) or not 1 <= threads <= 0xFFFFFFFF:
+        raise PetaShockError("スレッド数は 1 以上の整数で指定してください。")
     makebook_command = f"makebook peta_shock {source_name} {output_name}"
+    if threads != 1:
+        makebook_command += f" threads {threads}"
     commands = [
         f"setoption name BookDir value {book_dir}",
         "setoption name BookFile value no_book",
@@ -281,6 +291,7 @@ class PetaShockGui(tk.Tk):
         self.output_var = tk.StringVar(value=settings.get("output_path", ""))
         self.engine_var = tk.StringVar(value=settings.get("engine_path", str(DEFAULT_ENGINE_PATH)))
         self.converter_var = tk.StringVar(value=settings.get("converter_path", str(DEFAULT_CONVERTER_PATH)))
+        self.threads_var = tk.StringVar(value=settings.get("threads", "1"))
         self.status_var = tk.StringVar(value="ready")
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.worker: threading.Thread | None = None
@@ -313,8 +324,11 @@ class PetaShockGui(tk.Tk):
         ttk.Entry(form, textvariable=self.converter_var).grid(row=3, column=1, sticky="ew", padx=6, pady=(6, 0))
         ttk.Button(form, text="選択", command=self._choose_converter).grid(row=3, column=2, pady=(6, 0))
 
+        ttk.Label(form, text="スレッド数").grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(form, textvariable=self.threads_var, width=8).grid(row=4, column=1, sticky="w", padx=6, pady=(6, 0))
+
         action = ttk.Frame(form)
-        action.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        action.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         self.convert_button = ttk.Button(action, text="変換", command=self._start_conversion)
         self.convert_button.pack(side="left")
         ttk.Label(action, textvariable=self.status_var).pack(side="left", padx=(12, 0))
@@ -383,6 +397,12 @@ class PetaShockGui(tk.Tk):
             messagebox.showerror("入力エラー", "入力定跡と出力先を指定してください。")
             return
         try:
+            threads_text = self.threads_var.get().strip()
+            if not threads_text.isascii() or not threads_text.isdecimal() or len(threads_text) > 10:
+                raise ValueError("スレッド数は 1 以上の整数で指定してください。")
+            threads = int(threads_text)
+            if not 1 <= threads <= 0xFFFFFFFF:
+                raise ValueError("スレッド数は 1 以上の整数で指定してください。")
             input_path = Path(self.input_var.get())
             output_path = normalize_ybb_output(Path(self.output_var.get()))
             engine_path = Path(self.engine_var.get())
@@ -407,6 +427,7 @@ class PetaShockGui(tk.Tk):
                     engine_path=engine_path,
                     converter_path=converter_path,
                     log=lambda text: self.message_queue.put(("log", text)),
+                    threads=threads,
                 )
             except Exception as exc:
                 self.message_queue.put(("error", str(exc)))
@@ -445,6 +466,7 @@ class PetaShockGui(tk.Tk):
             "output_path": self.output_var.get(),
             "engine_path": self.engine_var.get(),
             "converter_path": self.converter_var.get(),
+            "threads": self.threads_var.get(),
         }
 
     def _save_settings(self) -> None:

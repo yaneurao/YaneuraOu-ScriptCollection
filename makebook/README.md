@@ -377,6 +377,8 @@ python3 peta_shock-gui.py
 
 `YO-MATERIAL.exe` の初期値は `../BookMiner/YO-MATERIAL.exe` です。
 
+「スレッド数」でペタショック化の並列数を指定できます。初期値は `1` で、設定は次回起動時にも保持されます。`2` 以上の場合はエンジンに `makebook peta_shock ... threads N` を送ります。並列化に対応したやねうら王が必要です。古いエンジンでは指定が無視されることがあるため、ログの `threads` や `convergence workers` を確認してください。この設定は `.db` から `.ybb` への変換処理には適用されません。
+
 ## convert_ybb_to_db.py
 
 やねうら王 バイナリ定跡DB `.ybb` を やねうら王定跡DB `.db` へ変換します。
