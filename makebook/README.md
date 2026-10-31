@@ -106,6 +106,8 @@ run が多すぎる場合は `--max-open-runs` 個ずつ段階的に merge す�
 
 `from_sfen.py`、`merge.py`、`merge_largebook.py`、`sort.py`、`sort_largebook.py` は、入出力ファイル名の拡張子で `.db` / `.ybb` を判定します。`.ybb` は ponder と各手の採択回数を持たない形式なので、`.ybb` を読み込んだ場合は `ponder=none`、`move_count=1` として扱います。
 
+DB→YBB変換で同一の局面ブロックに同じ指し手が複数ある場合、その指し手は一つにまとめ、最後に現れた評価値と深さを採用します。異なる局面ブロックに同じ盤面が重複する入力は、変換時にエラーになります。必要に応じて先に `sort_largebook.py` で正規化してください。
+
 ## from_sfen.py
 
 SFEN棋譜列から、やねうら王定跡DBを生成します。

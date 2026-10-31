@@ -346,12 +346,13 @@ def convert_db_to_ybb(
     current_packed_sfen: bytes | None = None
     current_ply = 1
     current_moves: list[bytes] = []
+    current_move_indices: dict[int, int] = {}
     current_sfen = ""
     board = cshogi.Board()
 
     def finish_current() -> None:
         nonlocal chunk_estimated_bytes, run_index, total_positions
-        nonlocal current_packed_sfen, current_ply, current_moves, current_sfen
+        nonlocal current_packed_sfen, current_ply, current_moves, current_move_indices, current_sfen
 
         if current_packed_sfen is None:
             return
@@ -376,6 +377,7 @@ def convert_db_to_ybb(
         current_packed_sfen = None
         current_ply = 1
         current_moves = []
+        current_move_indices = {}
         current_sfen = ""
 
     with input_db.open("r", encoding="utf-8-sig", errors="replace") as f:
@@ -401,10 +403,14 @@ def convert_db_to_ybb(
                 continue
             move_text, value, depth = parsed
             move16 = usi_to_move16(board, move_text)
-            if include_depth:
-                current_moves.append(move_struct.pack(move16, value, depth))
+            record = (move_struct.pack(move16, value, depth) if include_depth
+                      else move_struct.pack(move16, value))
+            previous = current_move_indices.get(move16)
+            if previous is None:
+                current_move_indices[move16] = len(current_moves)
+                current_moves.append(record)
             else:
-                current_moves.append(move_struct.pack(move16, value))
+                current_moves[previous] = record
             if len(current_moves) > 65535:
                 raise ValueError(f"line {line_number}: too many moves: {current_sfen}")
 

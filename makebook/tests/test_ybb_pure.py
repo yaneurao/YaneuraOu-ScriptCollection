@@ -11,9 +11,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ybb_db_converter_pure as pure
 import convert_db_to_ybb as native_to_ybb
 import convert_ybb_to_db as native_to_db
+from YaneuraOuBookLib import read_yaneuraou_book
 
 
 class PureYbbTests(unittest.TestCase):
+    def test_duplicate_move_keeps_one_entry_with_latest_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.db'
+            source.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {cshogi.Board().sfen()}\n'
+                              '7g7f none 1 10 1\n2g2f none 20 20 1\n7g7f none 30 40 1\n')
+            for module in (pure, native_to_ybb):
+                work = root / module.__name__
+                work.mkdir()
+                output = root / f'{module.__name__}.ybb'
+                module.convert_db_to_ybb(source, output, work, 10, 1_000_000, 2, True)
+                moves = next(iter(read_yaneuraou_book(str(output)).values()))
+                self.assertEqual([(move.move, move.value, move.depth) for move in moves],
+                                 [('7g7f', 30, 40), ('2g2f', 20, 20)])
+
     def test_full_conversion_matches_cshogi_with_multiple_runs(self):
         rng = random.Random(85)
         with tempfile.TemporaryDirectory() as directory:
