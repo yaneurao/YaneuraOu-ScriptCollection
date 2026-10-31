@@ -205,7 +205,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def float_tag(value: float) -> str:
-    return f"{value:.12g}"
+    short = f"{value:.12g}"
+    # Preserve existing concise directory names when they uniquely represent
+    # the float; otherwise retain enough digits to distinguish grid values.
+    return short if float(short) == value else repr(value)
 
 
 def make_trials(args: argparse.Namespace) -> list[Trial]:
@@ -282,6 +285,8 @@ def trial_from_directory(path: Path) -> Trial | None:
             if match.group("batches_per_update")
             else None
         )
+        lr_warmup = float(match.group('lr_warmup')) if match.group('lr_warmup') else None
+        clip_grad_max_norm = float(match.group('clip_grad_max_norm')) if match.group('clip_grad_max_norm') else None
     except ValueError:
         return None
     return Trial(
@@ -296,8 +301,8 @@ def trial_from_directory(path: Path) -> Trial | None:
         value_loss_min_weight=value_loss_min_weight,
         evalfix=match.group('evalfix') != 'false',
         evalfix_a=evalfix_a,
-        lr_warmup=float(match.group('lr_warmup')) if match.group('lr_warmup') else None,
-        clip_grad_max_norm=float(match.group('clip_grad_max_norm')) if match.group('clip_grad_max_norm') else None,
+        lr_warmup=lr_warmup,
+        clip_grad_max_norm=clip_grad_max_norm,
     )
 
 
