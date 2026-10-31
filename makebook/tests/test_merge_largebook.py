@@ -43,7 +43,7 @@ class LargeBookMergeTests(unittest.TestCase):
             right.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {start}\n2g2f none 10 20 5\n')
             for script, dest, extra in (
                 ('merge.py', small, []),
-                ('merge_largebook.py', large, ['--tmp-dir', str(root), '--chunk-positions', '1']),
+                ('merge_largebook.py', large, ['--tmp-dir', str(root), '--chunk-positions', '1', '--max-open-runs', '2']),
             ):
                 result = subprocess.run([sys.executable, str(ROOT / 'makebook' / script),
                                          str(left), str(right), str(dest), *extra],

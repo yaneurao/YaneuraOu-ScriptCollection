@@ -80,6 +80,7 @@ def run_sort_largebook(
     *,
     work_dir: Path,
     chunk_positions: int,
+    max_open_runs: int,
     ignore_book_ply: bool,
 ) -> None:
     script = Path(__file__).resolve().parent / "sort_largebook.py"
@@ -92,6 +93,8 @@ def run_sort_largebook(
         str(work_dir),
         "--chunk-positions",
         str(chunk_positions),
+        "--max-open-runs",
+        str(max_open_runs),
         "--preserve-move-order",
     ]
     if ignore_book_ply:
@@ -183,6 +186,7 @@ def merge_largebook(
             sorted1,
             work_dir=work_dir,
             chunk_positions=chunk_positions,
+            max_open_runs=max_open_runs,
             ignore_book_ply=ignore_book_ply,
         )
         run_sort_largebook(
@@ -190,6 +194,7 @@ def merge_largebook(
             sorted2,
             work_dir=work_dir,
             chunk_positions=chunk_positions,
+            max_open_runs=max_open_runs,
             ignore_book_ply=ignore_book_ply,
         )
         output_db = str(work_dir / "merged.db") if is_ybb_path(dst) else dst

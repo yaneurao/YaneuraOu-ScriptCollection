@@ -219,7 +219,7 @@ python3 merge_largebook.py book1.db book2.db merged.db --tmp-dir /mnt/ssd/tmp
 | `--tmp-dir DIR` | `./tmp` | 一時ファイルを作るディレクトリ。省略時はカレントディレクトリの `tmp/` を使います。 |
 | `--chunk-positions N` | `500000` | 内部で `sort_largebook.py` に渡す1 runあたりの局面数。 |
 | `--chunk-bytes N` | `536870912` | `.ybb` 出力時の `.db` から `.ybb` への変換で、1 runに含める概算byte数。 |
-| `--max-open-runs N` | `64` | `.ybb` 出力時の `.db` から `.ybb` への変換で、同時にopenするrun数の上限。 |
+| `--max-open-runs N` | `64` | 入力のソートと `.ybb` 変換で、同時に開く一時run数の上限。 |
 | `--ignore-book-ply` | なし | 入力DBを読むときに SFEN 末尾の手数を無視します。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
 
@@ -269,7 +269,7 @@ python3 sort_largebook.py input.db sorted.db --tmp-dir /mnt/ssd/tmp
 
 1. 入力DBを SFEN ブロック単位で読みます。
 2. `--chunk-positions` 件ごとに、SFENを正規化してソート済みの一時runを書きます。
-3. すべてのrunを k-way merge して、最終的なDBを書きます。
+3. runを `--max-open-runs` 個ずつ段階的に k-way merge して、最終的なDBを書きます。
 4. 手数違いの同一局面は、最終merge時に手数が最小の局面だけを書きます。
 
 オプション:
@@ -279,7 +279,7 @@ python3 sort_largebook.py input.db sorted.db --tmp-dir /mnt/ssd/tmp
 | `--tmp-dir DIR` | `./tmp` | 一時ファイルを作るディレクトリ。省略時はカレントディレクトリの `tmp/` を使います。 |
 | `--chunk-positions N` | `500000` | 1つの一時runに含める局面数。 |
 | `--chunk-bytes N` | `536870912` | `.ybb` 出力時の `.db` から `.ybb` への変換で、1 runに含める概算byte数。 |
-| `--max-open-runs N` | `64` | `.ybb` 出力時の `.db` から `.ybb` への変換で、同時にopenするrun数の上限。 |
+| `--max-open-runs N` | `64` | ソートと `.ybb` 変換で、同時に開く一時run数の上限。 |
 | `--ignore-book-ply` | なし | 入力DBを読むときに SFEN 末尾の手数を無視します。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
 

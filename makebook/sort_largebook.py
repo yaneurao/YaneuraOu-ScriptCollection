@@ -195,6 +195,25 @@ def merge_runs(runs: list[Path], dst: str, preserve_move_order: bool = False) ->
     return positions, entries
 
 
+def merge_runs_bounded(runs: list[Path], dst: str, work_dir: Path, max_open_runs: int,
+                       preserve_move_order: bool = False) -> tuple[int, int]:
+    """Merge in passes so the number of simultaneously open runs is bounded."""
+    pass_number = 0
+    while len(runs) > max_open_runs:
+        next_runs = []
+        for start in range(0, len(runs), max_open_runs):
+            group = runs[start:start + max_open_runs]
+            if len(group) == 1:
+                next_runs.append(group[0])
+                continue
+            path = work_dir / f'merge-{pass_number:04d}-{len(next_runs):06d}.db'
+            merge_runs(group, str(path), preserve_move_order)
+            next_runs.append(path)
+        runs = next_runs
+        pass_number += 1
+    return merge_runs(runs, dst, preserve_move_order)
+
+
 def sort_largebook(
     src: str,
     dst: str,
@@ -216,7 +235,8 @@ def sort_largebook(
             preserve_move_order=preserve_move_order,
         )
         output_db = str(work_dir / "sorted.db") if is_ybb_path(dst) else dst
-        positions, entries = merge_runs(runs, output_db, preserve_move_order)
+        positions, entries = merge_runs_bounded(runs, output_db, work_dir, max_open_runs,
+                                                preserve_move_order)
         if is_ybb_path(dst):
             convert_db_to_ybb(
                 Path(output_db),
@@ -265,7 +285,7 @@ def main() -> None:
         "--max-open-runs",
         type=int,
         default=DEFAULT_MAX_OPEN_RUNS,
-        help=f"max ybb conversion runs to open at once; default {DEFAULT_MAX_OPEN_RUNS}",
+        help=f"max temporary runs to open at once; default {DEFAULT_MAX_OPEN_RUNS}",
     )
     parser.add_argument(
         "--ignore-book-ply",
