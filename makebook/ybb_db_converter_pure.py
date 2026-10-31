@@ -381,6 +381,10 @@ def parse_sfen(sfen: str) -> ParsedSfen:
         if promote or file_index != -1:
             raise ValueError(f"invalid rank in sfen: {rank_text}")
 
+    for color in (BLACK, WHITE):
+        if board.count(make_piece(color, KING)) > 1:
+            raise ValueError(f"duplicate king in sfen: {sfen}")
+
     if turn_text not in ("b", "w"):
         raise ValueError(f"invalid side to move: {turn_text}")
     turn = BLACK if turn_text == "b" else WHITE
@@ -592,6 +596,8 @@ def usi_to_move16(usi: str) -> int:
         raise ValueError(f"invalid usi move: {usi}")
     to_square = square_from_usi(usi[2:4])
     if usi[1:2] == "*":
+        if len(usi) != 4:
+            raise ValueError(f"invalid drop move: {usi}")
         piece_type = DROP_PIECE_BY_CHAR.get(usi[0])
         if piece_type is None:
             raise ValueError(f"invalid drop move: {usi}")
