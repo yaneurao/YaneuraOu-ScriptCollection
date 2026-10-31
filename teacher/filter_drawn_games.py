@@ -66,6 +66,8 @@ def filter_drawn_games(
     output_path: Path,
     chunk_records: int,
 ) -> tuple[int, int, int, str]:
+    if output_path.exists() and os.path.samefile(input_path, output_path):
+        raise ValueError("input and output must be different files")
     fmt = detect_format(input_path)
     record_size = fmt["record_size"]
     result_offset = fmt["result_offset"]

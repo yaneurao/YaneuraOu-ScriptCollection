@@ -29,6 +29,8 @@ def filter_hcpe_by_eval(
     threshold: int,
     chunk_records: int,
 ) -> tuple[int, int, int]:
+    if output_path.exists() and os.path.samefile(input_path, output_path):
+        raise ValueError("input and output must be different files")
     file_size = input_path.stat().st_size
     if file_size % HCPE_RECORD_SIZE != 0:
         raise ValueError(
