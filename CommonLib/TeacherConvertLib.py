@@ -259,6 +259,14 @@ def convert_hcpe3_to_hcpe_file(
 
                     candidate_num = int(move_info["candidateNum"])
                     selected_move16 = u16(move_info["selectedMove16"])
+                    move32 = None
+                    if candidate_num or ply + 1 < move_num:
+                        move32 = board.move_from_move16(selected_move16)
+                        if not move32 or not board.is_legal(move32):
+                            raise ValueError(
+                                f"{input_path}: illegal selectedMove16 "
+                                f"{selected_move16:#06x} at game {stats.games}, ply {ply}"
+                            )
 
                     if candidate_num:
                         visits_bytes = read_exact(
@@ -276,16 +284,7 @@ def convert_hcpe3_to_hcpe_file(
                         stats.positions += 1
 
                     if ply + 1 < move_num:
-                        try:
-                            move32 = board.move_from_move16(selected_move16)
-                            if not move32 or not board.is_legal(move32):
-                                raise ValueError("illegal move")
-                            board.push(move32)
-                        except Exception as exc:
-                            raise ValueError(
-                                f"{input_path}: illegal selectedMove16 "
-                                f"{selected_move16:#06x} at game {stats.games}, ply {ply}"
-                            ) from exc
+                        board.push(move32)
 
                 stats.games += 1
 
@@ -347,6 +346,14 @@ def convert_hcpe3_to_psv_file(
 
                     candidate_num = int(move_info["candidateNum"])
                     selected_move16 = u16(move_info["selectedMove16"])
+                    move32 = None
+                    if candidate_num or ply + 1 < move_num:
+                        move32 = board.move_from_move16(selected_move16)
+                        if not move32 or not board.is_legal(move32):
+                            raise ValueError(
+                                f"{input_path}: illegal selectedMove16 "
+                                f"{selected_move16:#06x} at game {stats.games}, ply {ply}"
+                            )
 
                     if candidate_num:
                         visits_bytes = read_exact(
@@ -367,16 +374,7 @@ def convert_hcpe3_to_psv_file(
                         stats.positions += 1
 
                     if ply + 1 < move_num:
-                        try:
-                            move32 = board.move_from_move16(selected_move16)
-                            if not move32 or not board.is_legal(move32):
-                                raise ValueError("illegal move")
-                            board.push(move32)
-                        except Exception as exc:
-                            raise ValueError(
-                                f"{input_path}: illegal selectedMove16 "
-                                f"{selected_move16:#06x} at game {stats.games}, ply {ply}"
-                            ) from exc
+                        board.push(move32)
 
                 stats.games += 1
 

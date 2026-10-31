@@ -25,6 +25,24 @@ def make_game(first_move):
 
 
 class Hcpe3MoveValidationTests(unittest.TestCase):
+    def test_illegal_final_training_move_is_rejected(self):
+        header = np.zeros(1, dtype=HCPE3_HEADER)
+        cshogi.Board().to_hcp(header['hcp'])
+        header['moveNum'] = 1
+        move = np.zeros(1, dtype=MOVE_INFO)
+        move['candidateNum'] = 1
+        data = header.tobytes() + move.tobytes() + np.zeros(1, dtype=MOVE_VISITS).tobytes()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'bad.hcpe3'
+            path.write_bytes(data)
+            for converter in (convert_hcpe3_to_hcpe_file, convert_hcpe3_to_psv_file):
+                with self.subTest(converter=converter.__name__), tempfile.TemporaryFile() as output:
+                    with self.assertRaisesRegex(ValueError, 'illegal selectedMove16'):
+                        converter(path, output, no_progress=True)
+            record = GameRecord(1, path.parent, path, 1, 1, data)
+            with self.assertRaisesRegex(RuntimeError, 'illegal selectedMove16'):
+                list(iter_hcpe3_position_records(record))
+
     def test_illegal_move_is_rejected_before_replaying_next_position(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'bad.hcpe3'

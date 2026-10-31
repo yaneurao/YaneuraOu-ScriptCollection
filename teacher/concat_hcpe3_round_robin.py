@@ -497,6 +497,16 @@ def iter_hcpe3_position_records(record: GameRecord, output_format: str = 'hcpe3'
         visits = record.data[offset:offset + visits_size]
         offset += visits_size
 
+        selected_move16 = struct.unpack_from("<H", move_info, 0)[0]
+        move32 = None
+        if candidate_num or ply + 1 < move_num:
+            move32 = board.move_from_move16(selected_move16)
+            if not move32 or not board.is_legal(move32):
+                raise RuntimeError(
+                    f"illegal selectedMove16 {selected_move16:#06x}: "
+                    f"{record.input_file} game={record.file_game_index} ply={ply}"
+                )
+
         board.to_hcp(hcp[0])
         position_header = bytearray(header)
         position_header[:32] = hcp[0].tobytes()
@@ -520,17 +530,7 @@ def iter_hcpe3_position_records(record: GameRecord, output_format: str = 'hcpe3'
             yield hcp[0].tobytes(), position_record
 
         if ply + 1 < move_num:
-            selected_move16 = struct.unpack_from("<H", move_info, 0)[0]
-            try:
-                move32 = board.move_from_move16(selected_move16)
-                if not move32 or not board.is_legal(move32):
-                    raise ValueError("illegal move")
-                board.push(move32)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"illegal selectedMove16 {selected_move16:#06x}: "
-                    f"{record.input_file} game={record.file_game_index} ply={ply}"
-                ) from exc
+            board.push(move32)
 
 
 def packed_position_xor_key(hcp_bytes: bytes, seed: int) -> int:
