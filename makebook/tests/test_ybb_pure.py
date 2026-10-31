@@ -15,6 +15,14 @@ from YaneuraOuBookLib import read_yaneuraou_book
 
 
 class PureYbbTests(unittest.TestCase):
+    def test_sfen_invalid_zero_counts_and_trailing_tokens_are_rejected(self):
+        start = cshogi.Board().sfen()
+        board, turn, _, ply = start.split()
+        for sfen in (f'{board} {turn} 0P {ply}',
+                     f'0{board} {turn} - {ply}', f'{start} trailing'):
+            with self.subTest(sfen=sfen), self.assertRaises(ValueError):
+                pure.pack_sfen_text(sfen)
+
     def test_duplicate_move_keeps_one_entry_with_latest_value(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -336,7 +336,7 @@ def parse_sfen(sfen: str) -> ParsedSfen:
     tokens = sfen.split()
     if tokens and tokens[0] == "sfen":
         tokens = tokens[1:]
-    if len(tokens) < 3:
+    if not 3 <= len(tokens) <= 4:
         raise ValueError(f"invalid sfen: {sfen}")
 
     board_text, turn_text, hand_text = tokens[:3]
@@ -359,6 +359,8 @@ def parse_sfen(sfen: str) -> ParsedSfen:
             if token.isdigit():
                 if promote:
                     raise ValueError(f"invalid promoted marker in sfen: {sfen}")
+                if token == "0":
+                    raise ValueError(f"invalid empty-square count in sfen: {sfen}")
                 file_index -= int(token)
                 continue
             if token == "+":
@@ -403,6 +405,8 @@ def parse_sfen(sfen: str) -> ParsedSfen:
             if not (PAWN <= piece_type < KING):
                 raise ValueError(f"invalid hand piece in sfen: {token}")
             count = int(count_text) if count_text else 1
+            if count < 1:
+                raise ValueError(f"invalid hand count in sfen: {hand_text}")
             add_hand(hands, color_of(piece), piece_type, count)
             count_text = ""
         if count_text:
