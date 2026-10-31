@@ -380,7 +380,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
     try:
         params = read_parameters(params_file)
-    except:
+    except FileNotFoundError:
         params : list[Entry] = []
 
     tune_blocks = read_tune_file(tune_file)
@@ -411,7 +411,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
                 # パラメーターはfloat表記で持っているので、"int"を要求しているならintに変換する必要がある。
                 if type == "int":
-                    value = int(value + 0.5) # このときに値を丸める。
+                    value = round_parameter_int(value)
 
                 replacements[param_name] = str(value)
 
@@ -453,7 +453,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
 
     try:
         params = read_parameters(params_file)
-    except:
+    except FileNotFoundError:
         params : list[Entry] = []
 
     # いったん、全部使わないパラメーターとして、使っているものだけをFalseにする。

@@ -695,7 +695,7 @@ class ShogiMatch:
                 continue
 
             if param.type == "int":
-                v = int(v + 0.5) # 丸め処理を入れておく。(±0.5増えたら隣の値になって欲しいので)
+                v = round_parameter_int(v)
 
             # 送信する思考エンジンは[0]は基準エンジンだから、engines[1]固定でいいや。
             self.engines[1].send_usi(f"setoption name {param.name} value {v}")

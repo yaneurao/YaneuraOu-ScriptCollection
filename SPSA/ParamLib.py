@@ -1,6 +1,7 @@
 # パラメーターの読み書きモジュール
 
 import os
+import math
 from dataclasses import dataclass
 
 # ============================================================
@@ -9,6 +10,11 @@ from dataclasses import dataclass
 
 # パラメーターファイルで、そのパラメーターを使っていないことを示す文字列。
 NOT_USED_STR = "[[NOT USED]]" 
+
+
+def round_parameter_int(value: float) -> int:
+    """Round to nearest integer, with half values away from zero."""
+    return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
 
 # パラメーターファイルの1行を表現する型
 @dataclass
@@ -50,7 +56,7 @@ def read_parameters(params_file : str)->list[Entry]:
     print(f"read parameters, path = {params_file}", end="")
 
     if not os.path.exists(params_file):
-        raise Exception(f"Error : {params_file} not found.")
+        raise FileNotFoundError(f"Error : {params_file} not found.")
         
     l : list[Entry] = []
 
