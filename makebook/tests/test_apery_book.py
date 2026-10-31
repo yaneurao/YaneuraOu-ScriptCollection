@@ -12,6 +12,17 @@ from convert_to_apery import convert_to_apery, usi_to_apery_move16
 
 
 class AperyBookTests(unittest.TestCase):
+    def test_invalid_move_is_rejected_without_overwriting_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'book.db'
+            output = Path(directory) / 'book.bin'
+            source.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {cshogi.Board().sfen()}\n'
+                              'bad-move none 12 1 1\n')
+            output.write_bytes(b'old data')
+            with self.assertRaisesRegex(ValueError, 'illegal or non-board move'):
+                convert_to_apery(str(source), str(output))
+            self.assertEqual(output.read_bytes(), b'old data')
+
     def test_same_board_at_different_plies_uses_earliest_ply(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'book.db'

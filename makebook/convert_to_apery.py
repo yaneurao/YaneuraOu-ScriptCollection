@@ -73,6 +73,12 @@ def convert_to_apery(src: str, dst: str) -> None:
     board = cshogi.Board()
     for sfen, moves in BookLib.normalized_book_entries(book):
         board.set_sfen(sfen)
+        for move in moves:
+            move32 = board.move_from_usi(move.move)
+            if not move32 or not board.is_legal(move32):
+                raise ValueError(f"cannot export illegal or non-board move {move.move!r}: {sfen}")
+            if not -(1 << 31) <= move.value < (1 << 31):
+                raise ValueError(f"Apery score is outside int32 range: {move.value}: {sfen}")
         keyed_entries.append((int(board.book_key()), moves))
 
     keyed_entries.sort(key=lambda item: item[0])
