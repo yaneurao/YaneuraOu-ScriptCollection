@@ -522,7 +522,10 @@ def iter_hcpe3_position_records(record: GameRecord, output_format: str = 'hcpe3'
         if ply + 1 < move_num:
             selected_move16 = struct.unpack_from("<H", move_info, 0)[0]
             try:
-                board.push_move16(selected_move16)
+                move32 = board.move_from_move16(selected_move16)
+                if not move32 or not board.is_legal(move32):
+                    raise ValueError("illegal move")
+                board.push(move32)
             except Exception as exc:
                 raise RuntimeError(
                     f"illegal selectedMove16 {selected_move16:#06x}: "

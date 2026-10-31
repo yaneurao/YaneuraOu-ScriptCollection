@@ -81,6 +81,9 @@ def convert_pack_to_hcpe_file(
 
             hcpe = np.zeros(1, dtype=HCPE)
             for move, eval16 in game_records:
+                move32 = board.move_from_move16(move)
+                if not move32 or not board.is_legal(move32):
+                    raise ValueError(f"{input_path}: illegal move16 {move:#06x} at game {stats.games - 1}")
                 hcpe.fill(0)
                 board.to_hcp(hcpe["hcp"])
                 hcpe["eval"][0] = int(eval16)
@@ -88,7 +91,7 @@ def convert_pack_to_hcpe_file(
                 hcpe["gameResult"][0] = int(game_result)
                 hcpe.tofile(output)
 
-                board.push_move16(move)
+                board.push(move32)
                 stats.positions += 1
 
         update_progress(force=True)
@@ -275,7 +278,10 @@ def convert_hcpe3_to_hcpe_file(
 
                     if ply + 1 < move_num:
                         try:
-                            board.push_move16(selected_move16)
+                            move32 = board.move_from_move16(selected_move16)
+                            if not move32 or not board.is_legal(move32):
+                                raise ValueError("illegal move")
+                            board.push(move32)
                         except Exception as exc:
                             raise ValueError(
                                 f"{input_path}: illegal selectedMove16 "
@@ -364,7 +370,10 @@ def convert_hcpe3_to_psv_file(
 
                     if ply + 1 < move_num:
                         try:
-                            board.push_move16(selected_move16)
+                            move32 = board.move_from_move16(selected_move16)
+                            if not move32 or not board.is_legal(move32):
+                                raise ValueError("illegal move")
+                            board.push(move32)
                         except Exception as exc:
                             raise ValueError(
                                 f"{input_path}: illegal selectedMove16 "
