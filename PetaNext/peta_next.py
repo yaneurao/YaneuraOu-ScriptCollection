@@ -262,7 +262,7 @@ def peta_next_one_turn(
 
     アルゴリズム:
       - 各 root から BFS で展開する。
-      - 手番側 (ply % 2 == turn) では bestmove のみを辿る。
+      - 定跡側の手番では bestmove のみを辿る。
       - 非手番側では (現在局面の手番側から見た) root_best_eval - peta_eval_diff 以上の eval の指し手を辿る。
       - peta_book に存在しない局面に出たら leaf として記録する。
       - root_best_eval は手番側視点で持ち回るため、1手進めるごとに符号を反転する。
@@ -272,24 +272,31 @@ def peta_next_one_turn(
     現実的でない leaf に到達することを防ぐ (Discord の説明にある 2a の制限)。
     """
     # 順序を保つために dict をセット代わりに使う
-    leafs : dict[PositionStr, LeafOutput] = {}
+    leafs : dict[Sfen, LeafOutput] = {}
 
-    # 訪問済み局面 (ply無し sfen で管理)
-    visited : set[Sfen] = set()
+    def add_leaf(position_cmd: PositionStr, sfen_with_ply: Sfen) -> None:
+        sfen, _ = trim_sfen_ply(sfen_with_ply)
+        leafs.setdefault(min(sfen, flipped_sfen(sfen)), LeafOutput(position_cmd, sfen_with_ply))
+
+    # 開始局面ごとに評価値の基準が異なる。局面だけで重複排除すると、
+    # 別の基準では辿れる手を見落とす。
+    visited : dict[tuple[Sfen, bool, int, int], int] = {}
 
     # 現周の局面集合: position文字列 -> 探索状態
     current_positions : dict[PositionStr, PetaNextNode] = {}
 
     for root in root_positions:
-        sfen_trim, _ply = trim_sfen_ply(root.sfen_with_ply)
+        sfen_trim, root_ply = trim_sfen_ply(root.sfen_with_ply)
+        if root_ply > max_ply:
+            continue
         pos, _flipped = lookup(peta_book, sfen_trim)
         if pos is None:
             # root 自体が定跡に無い。これも leaf として記録する。
-            leafs[root.position_cmd] = LeafOutput(root.position_cmd, root.sfen_with_ply)
+            add_leaf(root.position_cmd, root.sfen_with_ply)
             continue
         root_best = get_best_eval(pos)
         if root_best is None:
-            leafs[root.position_cmd] = LeafOutput(root.position_cmd, root.sfen_with_ply)
+            add_leaf(root.position_cmd, root.sfen_with_ply)
             continue
         current_positions[root.position_cmd] = PetaNextNode(root.sfen_with_ply, root_best, peta_eval_diff)
         if verbose:
@@ -310,30 +317,32 @@ def peta_next_one_turn(
             if ply > max_ply:
                 continue
 
+            is_my_turn = (sfen_trim.split()[1] == 'b') == (turn == 1)
             sfen_f = flipped_sfen(sfen_trim)
-            if sfen_trim in visited or sfen_f in visited:
+            visit_key = (min(sfen_trim, sfen_f), is_my_turn, node.root_best_eval, node.eval_diff)
+            if visit_key in visited and visited[visit_key] <= ply:
                 continue
-            visited.add(sfen_trim)
+            visited[visit_key] = ply
             plys_this_step.append(ply)
 
             pos, flipped_hit = lookup(peta_book, sfen_trim)
             if pos is None:
                 # 定跡ツリーを出た -> leaf
-                leafs[position_cmd] = LeafOutput(position_cmd, node.sfen_with_ply)
+                add_leaf(position_cmd, node.sfen_with_ply)
                 continue
 
             moveinfos = pos.moveinfos
             if not moveinfos:
+                add_leaf(position_cmd, node.sfen_with_ply)
                 continue
             best_eval = moveinfos[0].eval
             if not isinstance(best_eval, int):
                 continue
 
-            is_my_turn = (ply % 2 == turn)
             # 手番側: bestmove のみ。非手番側: root_best_eval - eval_diff 以上の eval を持つ手すべて。
             eval_low = best_eval if is_my_turn else (node.root_best_eval - node.eval_diff)
 
-            for mi in moveinfos:
+            for mi in (moveinfos[:1] if is_my_turn else moveinfos):
                 if not isinstance(mi.eval, int):
                     continue
                 if mi.eval < eval_low:
