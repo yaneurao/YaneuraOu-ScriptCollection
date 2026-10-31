@@ -71,7 +71,7 @@ def convert_to_apery(src: str, dst: str) -> None:
 
     keyed_entries = []
     board = cshogi.Board()
-    for sfen, moves in book.items():
+    for sfen, moves in BookLib.normalized_book_entries(book):
         board.set_sfen(sfen)
         keyed_entries.append((int(board.book_key()), moves))
 
@@ -91,8 +91,8 @@ def convert_to_apery(src: str, dst: str) -> None:
                     )
                 )
 
-    print(f"positions = {len(book)}")
-    print(f"entries   = {sum(len(moves) for moves in book.values())}")
+    print(f"positions = {len(keyed_entries)}")
+    print(f"entries   = {sum(len(moves) for _, moves in keyed_entries)}")
     print(f"wrote     = {dst}")
 
 
