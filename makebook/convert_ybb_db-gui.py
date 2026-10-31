@@ -166,6 +166,8 @@ class BookConverterGui(tk.Tk):
         self.worker: threading.Thread | None = None
 
         self._build_widgets()
+        self.input_var.trace_add("write", lambda *_: self._refresh_direction())
+        self._refresh_direction()
         self.after(100, self._poll_messages)
 
     def _build_widgets(self) -> None:
@@ -237,7 +239,6 @@ class BookConverterGui(tk.Tk):
         input_path = Path(path)
         self.input_var.set(str(input_path))
         self.output_var.set(str(default_output_path(input_path)))
-        self._refresh_direction()
 
     def _choose_output(self) -> None:
         input_text = self.input_var.get().strip()
@@ -305,6 +306,8 @@ class BookConverterGui(tk.Tk):
         self.log_text.delete("1.0", "end")
         self.convert_button.configure(state="disabled")
         self.status_var.set("running")
+        include_depth = self.include_depth_var.get()
+        keep_temp = self.keep_temp_var.get()
 
         def log(text: str) -> None:
             self.message_queue.put(("log", text))
@@ -318,8 +321,8 @@ class BookConverterGui(tk.Tk):
                         input_path=input_path,
                         output_path=output_path,
                         tmp_dir=tmp_dir,
-                        include_depth=self.include_depth_var.get(),
-                        keep_temp=self.keep_temp_var.get(),
+                        include_depth=include_depth,
+                        keep_temp=keep_temp,
                         log=log,
                     )
                 writer.flush()
