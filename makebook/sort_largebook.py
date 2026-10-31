@@ -56,7 +56,8 @@ def merge_move_lists(dst: list[BookMove], src: list[BookMove]) -> None:
 
 
 def flush_run(
-    chunk: dict[str, list[BookMove]], run_path: Path, *, run_index: int
+    chunk: dict[str, list[BookMove]], run_path: Path, *, run_index: int,
+    preserve_move_order: bool = False,
 ) -> tuple[Path, int, int]:
     normalized: dict[str, list[BookMove]] = {}
     for sfen, moves in chunk.items():
@@ -70,7 +71,7 @@ def flush_run(
     with open(run_path, "w", encoding="utf-8", newline="\r\n") as out:
         write_yaneuraou_header(out)
         for sfen, moves in records:
-            entries += write_yaneuraou_book_block(out, sfen, moves)
+            entries += write_block(out, sfen, moves, preserve_move_order)
 
     print(
         f"run {run_index}: positions = {len(records)}, "
@@ -80,7 +81,8 @@ def flush_run(
 
 
 def make_sorted_runs(
-    src: str, work_dir: Path, *, chunk_positions: int, ignore_book_ply: bool
+    src: str, work_dir: Path, *, chunk_positions: int, ignore_book_ply: bool,
+    preserve_move_order: bool = False,
 ) -> tuple[list[Path], SortStats]:
     chunk: dict[str, list[BookMove]] = {}
     runs: list[Path] = []
@@ -90,7 +92,8 @@ def make_sorted_runs(
         if not chunk:
             return
         run_path = work_dir / f"run-{len(runs):06d}.db"
-        path, positions, entries = flush_run(chunk, run_path, run_index=len(runs))
+        path, positions, entries = flush_run(chunk, run_path, run_index=len(runs),
+                                             preserve_move_order=preserve_move_order)
         runs.append(path)
         stats.positions += positions
         stats.entries += entries
@@ -119,9 +122,19 @@ class BlockStream:
             return None
 
 
+def write_block(out, sfen: str, moves: list[BookMove], preserve_move_order: bool) -> int:
+    if not preserve_move_order:
+        return write_yaneuraou_book_block(out, sfen, moves)
+    out.write(f"sfen {sfen}\n")
+    for move in moves:
+        out.write(f"{move.move} {move.ponder} {move.value} {move.depth} {move.move_count}\n")
+    return len(moves)
+
+
 def write_base_group(
     out,
     group: dict[str, list[BookMove]],
+    preserve_move_order: bool = False,
 ) -> tuple[int, int]:
     nonempty = {sfen: moves for sfen, moves in group.items() if moves}
     if not nonempty:
@@ -132,12 +145,12 @@ def write_base_group(
     for sfen in sorted(nonempty):
         if sfen_ply(sfen) != min_ply:
             continue
-        entries += write_yaneuraou_book_block(out, sfen, nonempty[sfen])
+        entries += write_block(out, sfen, nonempty[sfen], preserve_move_order)
         positions += 1
     return positions, entries
 
 
-def merge_runs(runs: list[Path], dst: str) -> tuple[int, int]:
+def merge_runs(runs: list[Path], dst: str, preserve_move_order: bool = False) -> tuple[int, int]:
     streams = [BlockStream(path) for path in runs]
     heap: list[tuple[str, int, list[BookMove]]] = []
 
@@ -160,7 +173,7 @@ def merge_runs(runs: list[Path], dst: str) -> tuple[int, int]:
             base = trim_number(sfen)
 
             if current_base != "" and base != current_base:
-                p, e = write_base_group(out, current_group)
+                p, e = write_base_group(out, current_group, preserve_move_order)
                 positions += p
                 entries += e
                 current_group = {}
@@ -175,7 +188,7 @@ def merge_runs(runs: list[Path], dst: str) -> tuple[int, int]:
                 heapq.heappush(heap, (next_sfen, index, next_moves))
 
         if current_group:
-            p, e = write_base_group(out, current_group)
+            p, e = write_base_group(out, current_group, preserve_move_order)
             positions += p
             entries += e
 
@@ -192,16 +205,18 @@ def sort_largebook(
     max_open_runs: int,
     ignore_book_ply: bool,
     keep_temp: bool,
+    preserve_move_order: bool = False,
 ) -> None:
     tmp_root = tmp_root_from_arg(tmp_dir)
     work_dir = Path(tempfile.mkdtemp(prefix="sort_largebook-", dir=tmp_root))
 
     try:
         runs, run_stats = make_sorted_runs(
-            src, work_dir, chunk_positions=chunk_positions, ignore_book_ply=ignore_book_ply
+            src, work_dir, chunk_positions=chunk_positions, ignore_book_ply=ignore_book_ply,
+            preserve_move_order=preserve_move_order,
         )
         output_db = str(work_dir / "sorted.db") if is_ybb_path(dst) else dst
-        positions, entries = merge_runs(runs, output_db)
+        positions, entries = merge_runs(runs, output_db, preserve_move_order)
         if is_ybb_path(dst):
             convert_db_to_ybb(
                 Path(output_db),
@@ -262,6 +277,7 @@ def main() -> None:
         action="store_true",
         help="keep temporary files after successful or failed execution",
     )
+    parser.add_argument("--preserve-move-order", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.chunk_positions <= 0:
@@ -280,6 +296,7 @@ def main() -> None:
         max_open_runs=args.max_open_runs,
         ignore_book_ply=args.ignore_book_ply,
         keep_temp=args.keep_temp,
+        preserve_move_order=args.preserve_move_order,
     )
 
 

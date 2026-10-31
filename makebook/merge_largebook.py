@@ -23,11 +23,11 @@ from YaneuraOuBookLib import (
     BookMove,
     is_ybb_path,
     read_yaneuraou_book_blocks,
-    write_yaneuraou_book_block,
+    trim_number,
     write_yaneuraou_header,
     ybb_path_from_output,
 )
-from sort_largebook import DEFAULT_CHUNK_POSITIONS, tmp_root_from_arg
+from sort_largebook import DEFAULT_CHUNK_POSITIONS, tmp_root_from_arg, write_base_group
 
 
 MERGE_SIDE_MODES = {"bw", "wb"}
@@ -92,6 +92,7 @@ def run_sort_largebook(
         str(work_dir),
         "--chunk-positions",
         str(chunk_positions),
+        "--preserve-move-order",
     ]
     if ignore_book_ply:
         cmd.append("--ignore-book-ply")
@@ -108,6 +109,8 @@ def merge_sorted_books(src1: Path, src2: Path, dst: str, mode: str) -> tuple[int
     different_nodes2 = 0
     positions = 0
     entries = 0
+    current_base = None
+    current_group: dict[str, list[BookMove]] = {}
 
     with open(dst, "w", encoding="utf-8", newline="\r\n") as out:
         write_yaneuraou_header(out)
@@ -139,8 +142,19 @@ def merge_sorted_books(src1: Path, src2: Path, dst: str, mode: str) -> tuple[int
                     reader1.advance()
                     reader2.advance()
 
-            entries += write_yaneuraou_book_block(out, sfen, moves)
-            positions += 1
+            base = trim_number(sfen)
+            if current_base is not None and base != current_base:
+                group_positions, group_entries = write_base_group(out, current_group)
+                positions += group_positions
+                entries += group_entries
+                current_group = {}
+            current_base = base
+            current_group[sfen] = moves
+
+        if current_group:
+            group_positions, group_entries = write_base_group(out, current_group)
+            positions += group_positions
+            entries += group_entries
 
     return same_nodes, different_nodes1, different_nodes2, positions, entries
 
