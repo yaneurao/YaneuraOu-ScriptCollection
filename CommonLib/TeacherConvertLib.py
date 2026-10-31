@@ -260,14 +260,6 @@ def convert_hcpe3_to_hcpe_file(
                     candidate_num = int(move_info["candidateNum"])
                     selected_move16 = u16(move_info["selectedMove16"])
 
-                    hcpe.fill(0)
-                    board.to_hcp(hcpe["hcp"])
-                    hcpe["eval"][0] = int(move_info["eval"])
-                    hcpe["bestMove16"][0] = i16_from_u16(selected_move16)
-                    hcpe["gameResult"][0] = result
-                    hcpe.tofile(output)
-                    stats.positions += 1
-
                     if candidate_num:
                         visits_bytes = read_exact(
                             f,
@@ -275,6 +267,13 @@ def convert_hcpe3_to_hcpe_file(
                             f"{input_path}: MoveVisits at game {stats.games}, ply {ply}",
                         )
                         update_progress(len(visits_bytes))
+                        hcpe.fill(0)
+                        board.to_hcp(hcpe["hcp"])
+                        hcpe["eval"][0] = int(move_info["eval"])
+                        hcpe["bestMove16"][0] = i16_from_u16(selected_move16)
+                        hcpe["gameResult"][0] = result
+                        hcpe.tofile(output)
+                        stats.positions += 1
 
                     if ply + 1 < move_num:
                         try:
@@ -349,17 +348,6 @@ def convert_hcpe3_to_psv_file(
                     candidate_num = int(move_info["candidateNum"])
                     selected_move16 = u16(move_info["selectedMove16"])
 
-                    psv.fill(0)
-                    board.to_psfen(psv["sfen"])
-                    psv["score"][0] = int(move_info["eval"])
-                    psv["move"][0] = cshogi.move16_to_psv(selected_move16)
-                    psv["gamePly"][0] = ply
-                    psv["game_result"][0] = game_result_for_side_to_move(
-                        int(header["result"]), board.turn
-                    )
-                    psv.tofile(output)
-                    stats.positions += 1
-
                     if candidate_num:
                         visits_bytes = read_exact(
                             f,
@@ -367,6 +355,16 @@ def convert_hcpe3_to_psv_file(
                             f"{input_path}: MoveVisits at game {stats.games}, ply {ply}",
                         )
                         update_progress(len(visits_bytes))
+                        psv.fill(0)
+                        board.to_psfen(psv["sfen"])
+                        psv["score"][0] = int(move_info["eval"])
+                        psv["move"][0] = cshogi.move16_to_psv(selected_move16)
+                        psv["gamePly"][0] = ply
+                        psv["game_result"][0] = game_result_for_side_to_move(
+                            int(header["result"]), board.turn
+                        )
+                        psv.tofile(output)
+                        stats.positions += 1
 
                     if ply + 1 < move_num:
                         try:

@@ -409,6 +409,8 @@ python teacher/convert_teacher.py --input input.psv --output output.hcpe
 
 `hcpe3` から `hcpe`:
 
+候補手数が 0 の局面は学習対象として出力せず、次の局面に進むためだけに指し手を使います。`hcpe3` から `psv` への変換も同様です。
+
 ```bash
 python teacher/convert_teacher.py --input input.hcpe3 --output output.hcpe
 ```

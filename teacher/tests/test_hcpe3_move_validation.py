@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'CommonLib'))
 sys.path.insert(0, str(ROOT / 'teacher'))
 from TeacherConvertLib import convert_hcpe3_to_hcpe_file, convert_hcpe3_to_psv_file
-from TeacherFormatLib import HCPE3_HEADER, MOVE_INFO
+from TeacherFormatLib import HCPE, HCPE3_HEADER, MOVE_INFO, MOVE_VISITS, PSV
 from concat_hcpe3_round_robin import GameRecord, iter_hcpe3_position_records
 
 
@@ -49,7 +49,39 @@ class Hcpe3MoveValidationTests(unittest.TestCase):
             path.write_bytes(data)
             for converter in (convert_hcpe3_to_hcpe_file, convert_hcpe3_to_psv_file):
                 with tempfile.TemporaryFile() as output:
-                    self.assertEqual(converter(path, output, no_progress=True).positions, 2)
+                    self.assertEqual(converter(path, output, no_progress=True).positions, 0)
+
+    def test_no_candidate_position_is_skipped_but_still_played(self):
+        board = cshogi.Board()
+        first_move = cshogi.move16(board.move_from_usi('7g7f'))
+        board.push_usi('7g7f')
+        second_move = cshogi.move16(board.move_from_usi('3c3d'))
+        header = np.zeros(1, dtype=HCPE3_HEADER)
+        cshogi.Board().to_hcp(header['hcp'])
+        header['moveNum'] = 2
+        infos = np.zeros(2, dtype=MOVE_INFO)
+        infos[0]['selectedMove16'] = first_move
+        infos[1]['selectedMove16'] = second_move
+        infos[1]['candidateNum'] = 1
+        infos[1]['eval'] = 123
+        visits = np.zeros(1, dtype=MOVE_VISITS)
+        data = header.tobytes() + infos[0].tobytes() + infos[1].tobytes() + visits.tobytes()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'game.hcpe3'
+            path.write_bytes(data)
+            for converter, dtype, field in ((convert_hcpe3_to_hcpe_file, HCPE, 'eval'),
+                                            (convert_hcpe3_to_psv_file, PSV, 'score')):
+                with self.subTest(converter=converter.__name__), tempfile.TemporaryFile() as output:
+                    self.assertEqual(converter(path, output, no_progress=True).positions, 1)
+                    output.seek(0)
+                    result = np.frombuffer(output.read(), dtype=dtype)
+                    self.assertEqual(int(result[field][0]), 123)
+                    decoded = cshogi.Board()
+                    if dtype == HCPE:
+                        decoded.set_hcp(result['hcp'][0])
+                    else:
+                        decoded.set_psfen(result['sfen'][0])
+                    self.assertEqual(decoded.sfen().rsplit(' ', 1)[0], board.sfen().rsplit(' ', 1)[0])
 
 
 if __name__ == '__main__':
