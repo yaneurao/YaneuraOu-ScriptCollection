@@ -15,6 +15,17 @@ from YaneuraOuBookLib import read_yaneuraou_book
 
 
 class PureYbbTests(unittest.TestCase):
+    def test_positions_with_missing_pieces_match_cshogi(self):
+        for sfen in ('4k4/9/9/9/9/9/9/9/4K4 b - 1',
+                     '4k4/9/9/9/9/9/9/9/4K4 b 2P2p 1'):
+            with self.subTest(sfen=sfen):
+                board = cshogi.Board(sfen)
+                packed = np.empty(1, dtype=cshogi.PackedSfen)
+                board.to_psfen(packed)
+                expected = packed[0]['sfen'].tobytes()
+                self.assertEqual(pure.pack_sfen_text(sfen), expected)
+                self.assertEqual(pure.unpack_sfen_text(expected, 1), sfen)
+
     def test_sfen_invalid_zero_counts_and_trailing_tokens_are_rejected(self):
         start = cshogi.Board().sfen()
         board, turn, _, ply = start.split()
