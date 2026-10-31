@@ -7,9 +7,35 @@ from pathlib import Path
 import cshogi
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'CommonLib'))
+from YaneuraOuBookLib import read_yaneuraou_book, write_ybb_book
 
 
 class LargeBookMergeTests(unittest.TestCase):
+    def test_db_and_ybb_inputs_match_standard_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            board = cshogi.Board()
+            left, right = root / 'left.db', root / 'right.db'
+            left.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {board.sfen()}\n7g7f none 10 30 1\n')
+            board.push_usi('7g7f')
+            right.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {board.sfen()}\n3c3d none 5 20 1\n')
+            for path in (left, right):
+                write_ybb_book(read_yaneuraou_book(str(path)), path.with_suffix('.ybb'))
+            for lhs in (left, left.with_suffix('.ybb')):
+                for rhs in (right, right.with_suffix('.ybb')):
+                    with self.subTest(lhs=lhs.suffix, rhs=rhs.suffix):
+                        small, large = root / 'small.db', root / 'large.db'
+                        for script, dest, extra in (
+                            ('merge.py', small, []),
+                            ('merge_largebook.py', large, ['--tmp-dir', str(root), '--max-open-runs', '2']),
+                        ):
+                            result = subprocess.run([sys.executable, str(ROOT / 'makebook' / script),
+                                                     str(lhs), str(rhs), str(dest), *extra],
+                                                    capture_output=True, text=True)
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(small.read_text(), large.read_text())
+
     def test_same_position_at_different_ply_is_normalized(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
