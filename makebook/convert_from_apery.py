@@ -77,6 +77,10 @@ def insert_book_move(book: dict[str, list[BookMove]], sfen: str, new_move: BookM
 
 
 def read_apery_entries(path: str) -> dict[int, list[BookMove]]:
+    size = Path(path).stat().st_size
+    record_size = np.dtype(cshogi.BookEntry).itemsize
+    if size % record_size:
+        raise ValueError(f"truncated Apery book: {path} ({size} bytes, record size {record_size})")
     entries = np.fromfile(path, dtype=cshogi.BookEntry)
     by_key: dict[int, list[BookMove]] = defaultdict(list)
     for entry in entries:
