@@ -24,6 +24,7 @@ YaneuraOu の旧 `makebook` コマンドのうち、速度要求が比較的低�
 | [`convert_db_to_ybb.py`](convert_db_to_ybb.py) | - | やねうら王定跡DB `.db` を やねうら王 バイナリ定跡DB `.ybb` へ、少ないメモリで変換します。 |
 | [`convert_ybb_to_db.py`](convert_ybb_to_db.py) | - | やねうら王 バイナリ定跡DB `.ybb` を やねうら王定跡DB `.db` へ、少ないメモリで変換します。 |
 | [`book_to_think_sfens.py`](book_to_think_sfens.py) | - | やねうら王定跡DBのleaf局面を、BookMiner用の `think_sfens.txt` 形式で列挙します。`.db` / `.ybb` 入力に対応しています。 |
+| [`book_with_master_to_think_sfens.py`](book_with_master_to_think_sfens.py) | - | 開始局面不明の定跡からleafを探し、マスター定跡で開始局面までの手順を補います。両入力とも `.db` / `.ybb` に対応します。 |
 | [`convert_ybb_db-gui.py`](convert_ybb_db-gui.py) | - | GUI から `.db` と `.ybb` を相互変換します。 |
 | [`peta_shock-gui.py`](peta_shock-gui.py) | `makebook peta_shock` | GUI から `.db` / `.ybb` をペタショック化し、`.db` 入力の場合は続けて `.ybb` へ変換します。 |
 | [`convert_to_apery.py`](convert_to_apery.py) | `makebook convert_to_apery` | やねうら王定跡DBを Apery定跡へ変換します。`.db` / `.ybb` 入力に対応しています。 |
@@ -426,6 +427,21 @@ user_book.ybb
 | `--chunk-bytes N` | `536870912` | 1つの一時runに含める概算byte数の上限。 |
 | `--max-open-runs N` | `64` | k-way mergeで同時にopenするrun数の上限。 |
 | `--keep-temp` | なし | 処理後に一時ファイルを削除せず残します。デバッグ用です。 |
+
+## book_with_master_to_think_sfens.py
+
+開始局面が分からない定跡について、入力定跡内の手のつながりから開始候補を検出し、各候補から leaf まで辿ります。マスター定跡を平手初期局面から辿って開始候補に到達できれば、その手順と入力定跡側の手順をつないで `startpos moves ...` として出力します。到達できない場合は `sfen ... moves ...` のまま出力します。
+
+```bash
+py makebook/book_with_master_to_think_sfens.py master.db input.db think_sfens.txt
+py makebook/book_with_master_to_think_sfens.py master.ybb input.ybb think_sfens.txt
+```
+
+master と input は、それぞれ独立に `.db` または `.ybb` を指定できます。定跡の評価値は使わず、同一局面・先後反転局面はまとめ、leaf ごとに代表手順を一つ出します。leaf は、入力定跡内に子局面がない登録局面です。元の入力や master は変更せず、正常終了時に出力先を置き換えます。
+
+手のつながりに循環があり開始候補がない部分は、その部分から局面を一つ選んで辿ります。循環しかなく leaf に到達できない部分は出力されません。ログの `cycle seeds` とマスターでの `roots matched` / `unmatched` を確認できます。循環部分では選んだ局面がマスターに繋がらない場合もあるため、その場合は `sfen` 形式で残ります。
+
+大きな定跡でも全データを同時にメモリへ展開しないよう、一時 SQLite DB を使用します。一時データは大きくなるため空き容量に余裕が必要です。必要なら既存のフォルダを `--tmp-dir D:/temp` のように指定できます。正常終了時または通常のエラー終了時には一時データを削除します。`--progress-interval 0` で途中経過の表示を抑制できます。
 
 ## book_to_think_sfens.py
 
