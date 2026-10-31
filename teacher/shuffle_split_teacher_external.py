@@ -293,6 +293,11 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
 
+    source = args.src_teacher_folder.resolve()
+    destination = args.dst_teacher_folder.resolve()
+    if destination == source or (args.recursive and source in destination.parents):
+        raise ValueError("destination must be outside the input folder when using --recursive, and must not equal the input folder")
+
     fmt = infer_format(args.src_teacher_folder, args.recursive, args.format)
     format_info = FORMATS[fmt]
     dtype = format_info["dtype"]

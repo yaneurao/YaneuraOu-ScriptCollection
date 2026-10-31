@@ -72,7 +72,8 @@ class ConvertStats:
 
 
 def has_extension(path: Path) -> bool:
-    return path.suffix != ""
+    # Existing directories may have dots in their names, e.g. teacher.v2.
+    return not path.is_dir() and path.suffix != ""
 
 
 def extension_of(path: Path) -> str:
