@@ -123,13 +123,16 @@ def write_base_group(
     out,
     group: dict[str, list[BookMove]],
 ) -> tuple[int, int]:
-    min_ply = min(sfen_ply(sfen) for sfen in group)
+    nonempty = {sfen: moves for sfen, moves in group.items() if moves}
+    if not nonempty:
+        return 0, 0
+    min_ply = min(sfen_ply(sfen) for sfen in nonempty)
     positions = 0
     entries = 0
-    for sfen in sorted(group):
+    for sfen in sorted(nonempty):
         if sfen_ply(sfen) != min_ply:
             continue
-        entries += write_yaneuraou_book_block(out, sfen, group[sfen])
+        entries += write_yaneuraou_book_block(out, sfen, nonempty[sfen])
         positions += 1
     return positions, entries
 
