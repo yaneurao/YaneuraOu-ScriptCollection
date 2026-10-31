@@ -56,7 +56,14 @@ class ThinkSfensRecorder:
                     if key:
                         self.seen.add(key)
 
+        needs_newline = False
+        if self.output_path.exists() and self.output_path.stat().st_size:
+            with self.output_path.open("rb") as existing:
+                existing.seek(-1, 2)
+                needs_newline = existing.read(1) != b"\n"
         self.out = self.output_path.open("a", encoding="utf-8", newline="\n", buffering=1)
+        if needs_newline:
+            self.out.write("\n")
 
     def close(self) -> None:
         if self.out is not None:
@@ -148,7 +155,7 @@ def forward_stream(src, dst, engine_name: str | None = None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    engine_path = Path(args.engine_path).expanduser()
+    engine_path = Path(args.engine_path).expanduser().resolve()
     if not engine_path.is_file():
         print(f"[ThinkSfensRecorder] engine not found: {engine_path}", file=sys.stderr)
         return 1
@@ -197,14 +204,17 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     try:
-        return process.wait(timeout=10)
+        returncode = process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.terminate()
         try:
-            return process.wait(timeout=5)
+            returncode = process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
-            return process.wait()
+            returncode = process.wait()
+    stdout_thread.join(timeout=1)
+    stderr_thread.join(timeout=1)
+    return returncode
 
 
 if __name__ == "__main__":
