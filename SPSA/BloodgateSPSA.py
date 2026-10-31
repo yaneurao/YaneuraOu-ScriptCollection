@@ -145,7 +145,8 @@ class WinManager:
 def format_node_multiplier(value:float)->str:
     if float(value).is_integer():
         return str(int(value))
-    return f"{value:g}"
+    short = f"{value:g}"
+    return short if float(short) == value else repr(float(value))
 
 def node_multiplier_sort_key(value:str)->float:
     try:

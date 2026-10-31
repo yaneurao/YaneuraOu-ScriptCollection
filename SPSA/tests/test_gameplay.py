@@ -12,6 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import BloodgateSPSA as spsa
 from ParamLib import Entry
 class SpsaGameTests(unittest.TestCase):
+    def test_close_node_multipliers_have_separate_result_buckets(self):
+        manager = spsa.WinManager()
+        manager.update(0, 'engine', 1.234567)
+        manager.update(1, 'engine', 1.234568)
+        self.assertEqual(manager.win_count_by_node_multiplier,
+                         {'1.234567': [0], '1.234568': [1]})
+
     def test_duplicate_start_is_rejected(self):
         matcher = spsa.GameMatcher.__new__(spsa.GameMatcher)
         matcher.shogi_matches = [SimpleNamespace(thread=SimpleNamespace(is_alive=lambda: True))]
