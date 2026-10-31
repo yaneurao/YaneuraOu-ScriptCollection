@@ -49,7 +49,12 @@ def retrieve_yanebook(yanebook_path: str, startsfens_path: str):
                 board.move_number = ply
                 for move in moves:
                     # moveで1手進める。
-                    board.push_usi(move)
+                    if move in ("none", "None", "null", "0000", "pass", "resign", "win"):
+                        continue
+                    move32 = board.move_from_usi(move)
+                    if not move32 or move32 not in board.legal_moves:
+                        raise ValueError(f"illegal book move {move!r}: {board.sfen()}")
+                    board.push(move32)
                     next_sfen , next_ply = trim_sfen_ply(board.sfen())
 
                     # 1手進めた結果、flipped sfenのほうが登録されている可能性が出てくる。
@@ -82,26 +87,25 @@ def retrieve_yanebook(yanebook_path: str, startsfens_path: str):
         moves = []
 
     first = True
-    for line in open(yanebook_path, 'r', encoding='utf-8'):
-        if first:
-            # lineの先頭に BOM がついていることがあるので、これと一致するかの判定は in で行う。
-            if YANEURAOU_BOOK_HEADER_V1 not in line:
-                print("warning : illegal YaneuraOu Book Header")
-            first = False
-            continue
-        line = line.rstrip()
-        if line.startswith('sfen '):
-            append_to_book()
-            sfen , ply = trim_sfen_ply(line)
-            if ply == 0:
-                # print(f"warning! : ply = 0 , line = {line}")
-                
-                # ペタショック定跡には、たまーに0のものが混じっている。これは定跡からimportしたためだと思われる。
-                # とりま1に変更しておく。
-                ply = 1
-        else:
-            move_str, *_ = line.split(' ')
-            moves.append(move_str)
+    with open(yanebook_path, 'r', encoding='utf-8-sig') as source:
+        for line in source:
+            if first:
+                if YANEURAOU_BOOK_HEADER_V1 not in line:
+                    print("warning : illegal YaneuraOu Book Header")
+                first = False
+                continue
+            line = line.strip()
+            if not line or line.startswith(('#', '//')):
+                continue
+            if line.startswith('sfen '):
+                append_to_book()
+                sfen, ply = trim_sfen_ply(line)
+                if ply == 0:
+                    # ペタショック定跡の手数0は1として扱う。
+                    ply = 1
+            else:
+                move_str, *_ = line.split()
+                moves.append(move_str)
     append_to_book()
 
     # ファイルに書き出す。

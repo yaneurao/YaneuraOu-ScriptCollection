@@ -365,7 +365,7 @@ class ShogiMatch:
                 move = board.move_from_usi(usi_move)
             except Exception as exc:
                 raise ValueError(f"Invalid bestmove: {usi_move} ({engine_position})") from exc
-            if not move or not board.is_legal(move):
+            if not move or move not in board.legal_moves:
                 raise ValueError(f"Illegal bestmove: {usi_move} ({engine_position})")
             move &= 0xffff
 
@@ -409,7 +409,7 @@ class ShogiMatch:
             except Exception:
                 continue
 
-            if move in seen_moves or not board.is_legal(move):
+            if move in seen_moves or move not in board.legal_moves:
                 continue
 
             seen_moves.add(move)
@@ -514,7 +514,7 @@ class ShogiMatch:
                 selected_move = board.move_from_usi(usi_move)
             except Exception as exc:
                 raise ValueError(f"Invalid bestmove: {usi_move} ({engine_position})") from exc
-            if not selected_move or not board.is_legal(selected_move):
+            if not selected_move or selected_move not in board.legal_moves:
                 raise ValueError(f"Illegal bestmove: {usi_move} ({engine_position})")
 
             selected_eval, candidate_visits = self.make_hcpe3_candidate_visits(

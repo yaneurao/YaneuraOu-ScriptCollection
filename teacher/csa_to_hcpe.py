@@ -148,7 +148,7 @@ def write_game_hcpe(kif: object, output: BinaryIO, teacher_eval: int) -> int:
     records = np.zeros(len(moves), dtype=HCPE)
     p = 0
     for move in moves:
-        if not board.is_legal(move):
+        if move not in board.legal_moves:
             raise ValueError(f"illegal move: {cshogi.move_to_usi(move)}")
 
         record = records[p]

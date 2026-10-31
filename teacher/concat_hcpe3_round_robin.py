@@ -501,7 +501,7 @@ def iter_hcpe3_position_records(record: GameRecord, output_format: str = 'hcpe3'
         move32 = None
         if candidate_num or ply + 1 < move_num:
             move32 = board.move_from_move16(selected_move16)
-            if not move32 or not board.is_legal(move32):
+            if not move32 or move32 not in board.legal_moves:
                 raise RuntimeError(
                     f"illegal selectedMove16 {selected_move16:#06x}: "
                     f"{record.input_file} game={record.file_game_index} ply={ply}"

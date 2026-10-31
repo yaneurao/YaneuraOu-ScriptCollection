@@ -102,7 +102,7 @@ def board_move_from_move16(board: cshogi.Board, move16: int) -> int:
 
 def is_legal_move16(board: cshogi.Board, move16: int) -> bool:
     move = board_move_from_move16(board, move16)
-    return move != 0 and bool(board.is_legal(move))
+    return move != 0 and move in board.legal_moves
 
 
 def convert_from_apery(src: str, dst: str, unreg_depth: int) -> None:

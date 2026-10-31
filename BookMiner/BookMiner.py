@@ -753,7 +753,7 @@ def checked_push_usi(board:cshogi.Board, move:MoveStr, *, context:str = ""):
         detail += f" / {board.sfen()}"
         raise ValueError(detail) from exc
 
-    if not move32 or not board.is_legal(move32):
+    if not move32 or move32 not in board.legal_moves:
         detail = f"illegal usi move: {move}"
         if context:
             detail += f" / {context}"

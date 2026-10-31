@@ -1484,7 +1484,7 @@ def parse_kif_moves_with_board(text: str, sfen: str) -> list[int]:
             legal_move = board.move_from_usi(cshogi.move_to_usi(move))
         except Exception as exc:
             raise ParseError(f"cannot convert move line: {line}") from exc
-        if not board.is_legal(legal_move):
+        if legal_move not in board.legal_moves:
             raise ParseError(f"illegal move line: {line}")
         moves.append(legal_move)
         board.push(legal_move)

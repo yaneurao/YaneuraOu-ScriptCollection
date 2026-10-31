@@ -43,7 +43,7 @@ def load_sfens(path: str, color: int) -> list[tuple[str, int, int]]:
 
 def move_to_usi(board: cshogi.Board, move_usi: str, line_no: int, source: str) -> str | None:
     move = board.move_from_usi(move_usi)
-    if move == 0 or not board.is_legal(move):
+    if move == 0 or move not in board.legal_moves:
         print(
             f"illegal move : line = {line_no} , {source} , move = {move_usi}",
             file=sys.stderr,

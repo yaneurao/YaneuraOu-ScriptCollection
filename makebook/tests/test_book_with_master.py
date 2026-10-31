@@ -13,7 +13,7 @@ from YaneShogiLib import flipped_sfen, flipped_move
 from YaneuraOuBookLib import read_yaneuraou_book, write_ybb_book
 sys.path.insert(0, str(ROOT / 'makebook'))
 import book_with_master_to_think_sfens as compact
-from book_to_think_sfens import decode_position_string, normalize_sfen_key
+from book_to_think_sfens import checked_push_usi, decode_position_string, normalize_sfen_key
 
 SCRIPT = ROOT / 'makebook' / 'book_with_master_to_think_sfens.py'
 
@@ -46,6 +46,29 @@ def run(master, source, output, mode='bidirectional'):
 
 
 class BookWithMasterTest(unittest.TestCase):
+    def test_promotion_legality_and_optional_nonpromotion(self):
+        board = cshogi.Board()
+        with self.assertRaisesRegex(ValueError, 'illegal move'):
+            checked_push_usi(board, '7g7f+', context='test')
+        board.set_sfen('k8/4P4/9/9/9/9/9/9/K8 b - 1')
+        with self.assertRaisesRegex(ValueError, 'illegal move'):
+            checked_push_usi(board, '5b5a', context='test')
+        for move in ('5d5c', '5d5c+'):
+            with self.subTest(move=move):
+                board.set_sfen('k8/9/9/4P4/9/9/9/9/K8 b - 1')
+                checked_push_usi(board, move, context='test')
+
+    def test_illegal_promotion_is_rejected_without_overwriting_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            master, source, output = root / 'master.db', root / 'source.db', root / 'out.txt'
+            write_db(master, [(position([]), [])])
+            write_db(source, [(position([]), ['7g7f+'])])
+            output.write_text('old output')
+            result = run(master, source, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output.read_text(), 'old output')
+
     def test_reverse_index_handles_empty_nodes_and_flipped_edges(self):
         class Book:
             offsets = np.array([0, 0, 2, 2, 3], dtype=np.uint32)

@@ -75,7 +75,7 @@ def convert_to_apery(src: str, dst: str) -> None:
         board.set_sfen(sfen)
         for move in moves:
             move32 = board.move_from_usi(move.move)
-            if not move32 or not board.is_legal(move32):
+            if not move32 or move32 not in board.legal_moves:
                 raise ValueError(f"cannot export illegal or non-board move {move.move!r}: {sfen}")
             if not -(1 << 31) <= move.value < (1 << 31):
                 raise ValueError(f"Apery score is outside int32 range: {move.value}: {sfen}")

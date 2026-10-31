@@ -69,7 +69,7 @@ class CompactBook:
                 board.pop()
                 move = flipped_move(item.move) if flip else item.move
                 move32 = canon.move_from_usi(move)
-                if not move32 or not canon.is_legal(move32):
+                if not move32 or move32 not in canon.legal_moves:
                     raise ValueError(f'illegal canonical move: {move} / {sfen}')
                 raw_moves.append(cshogi.move16(move32))
                 count += 1

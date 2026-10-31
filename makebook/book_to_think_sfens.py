@@ -64,7 +64,7 @@ def checked_push_usi(board: cshogi.Board, move: str, *, context: str) -> None:
     except Exception as exc:
         raise ValueError(f"invalid move: {move} / {context} / {board.sfen()}") from exc
 
-    if not move32 or not board.is_legal(move32):
+    if not move32 or move32 not in board.legal_moves:
         raise ValueError(f"illegal move: {move} / {context} / {board.sfen()}")
 
     board.push(move32)
