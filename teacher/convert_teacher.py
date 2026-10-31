@@ -113,6 +113,19 @@ def print_stats(prefix: str, stats: ConvertStats) -> None:
     print(f"{prefix}: files={stats.files}, positions={stats.positions}")
 
 
+def reject_input_output_aliases(input_files: list[Path], output_files: list[Path]) -> None:
+    """Check every destination before opening any file for writing."""
+    input_paths = {path.resolve() for path in input_files}
+    input_ids = {(stat.st_dev, stat.st_ino) for path in input_files for stat in [path.stat()]}
+    for output in output_files:
+        if output.resolve() in input_paths:
+            raise ValueError(f"output refers to an input file: {output}")
+        if output.exists():
+            stat = output.stat()
+            if (stat.st_dev, stat.st_ino) in input_ids:
+                raise ValueError(f"output refers to an input file: {output}")
+
+
 def convert_to_single_file(
     converter,
     input_files: list[Path],
@@ -122,6 +135,7 @@ def convert_to_single_file(
     no_progress: bool,
 ) -> ConvertStats:
     total = ConvertStats()
+    reject_input_output_aliases(input_files, [output_path])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as output:
         for input_file in input_files:
@@ -148,14 +162,10 @@ def convert_to_output_folder(
     no_progress: bool,
 ) -> ConvertStats:
     total = ConvertStats()
-    for input_file in input_files:
-        output_path = output_for_file(
-            input_file,
-            input_root,
-            output_dir,
-            output_format,
-            recursive,
-        )
+    output_paths = [output_for_file(path, input_root, output_dir, output_format, recursive)
+                    for path in input_files]
+    reject_input_output_aliases(input_files, output_paths)
+    for input_file, output_path in zip(input_files, output_paths):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("wb") as output:
             stats = converter(

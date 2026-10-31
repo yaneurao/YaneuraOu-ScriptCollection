@@ -1,4 +1,5 @@
 import sys
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,10 +9,39 @@ sys.path.insert(0, str(ROOT / "CommonLib"))
 sys.path.insert(0, str(ROOT / "teacher"))
 
 from TeacherFormatLib import classify_input, classify_output
-from convert_teacher import collect_input_files, resolve_output_format
+from convert_teacher import (collect_input_files, resolve_output_format,
+                             convert_to_output_folder, convert_to_single_file)
 
 
 class DottedDirectoryTests(unittest.TestCase):
+    def test_conversion_rejects_output_hardlinked_to_input_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.hcpe'
+            output = root / 'output.psv'
+            data = bytes(range(38))
+            source.write_bytes(data)
+            os.link(source, output)
+            with self.assertRaisesRegex(ValueError, 'output refers to an input'):
+                convert_to_single_file(None, [source], output, batch_size=1, no_progress=True)
+            self.assertEqual(source.read_bytes(), data)
+
+    def test_folder_conversion_checks_all_destinations_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / 'source', root / 'output'
+            source.mkdir()
+            output.mkdir()
+            first, second = source / 'a.hcpe', source / 'b.hcpe'
+            first.write_bytes(bytes(38))
+            second.write_bytes(bytes([1]) * 38)
+            os.link(second, output / 'b.psv')
+            with self.assertRaisesRegex(ValueError, 'output refers to an input'):
+                convert_to_output_folder(None, [first, second], source, output, 'psv',
+                                         recursive=False, batch_size=1, no_progress=True)
+            self.assertFalse((output / 'a.psv').exists())
+            self.assertEqual(second.read_bytes(), bytes([1]) * 38)
+
     def test_existing_directories_with_dots_are_folders(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.v1"
