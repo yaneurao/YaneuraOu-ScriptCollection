@@ -179,8 +179,8 @@ class SharedState:
                 pos = fb.tell()
                 pbar.update(pos - pbar.n)
 
-                line = raw_line.decode("utf-8").strip()
-                if line:
+                line = raw_line.decode("utf-8-sig").strip()
+                if line and not line.startswith(("#", "//")):
                     startpos_sfens.append(line)
 
             pbar.close()

@@ -12,10 +12,18 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'CommonLib'))
 sys.path.insert(0, str(ROOT / 'GenSfen'))
 from YaneShogiLib import Engine, EngineConnectionError, SFEN_START_PLY1, usi_mate_to_yaneuraou_eval
-from gensfen import ShogiMatch
+from gensfen import ShogiMatch, SharedState
 
 
 class EngineScoreTest(unittest.TestCase):
+    def test_start_positions_accept_bom_and_documented_comments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'startpos.txt'
+            source.write_bytes('\ufeff// comment\nstartpos\n# comment\nstartpos moves 7g7f\n'.encode('utf-8'))
+            shared = SimpleNamespace(settings={'START_SFENS_PATH': str(source)})
+            self.assertCountEqual(SharedState.read_startpos_sfens(shared),
+                                  ['startpos', 'startpos moves 7g7f'])
+
     def engine_with_output(self, lines):
         engine = Engine.__new__(Engine)
         engine.receive_usi = Mock(side_effect=lines)
