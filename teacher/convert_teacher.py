@@ -10,8 +10,11 @@ folder, --to is required.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import os
 from pathlib import Path
 import sys
+import tempfile
 
 COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
@@ -126,6 +129,19 @@ def reject_input_output_aliases(input_files: list[Path], output_files: list[Path
                 raise ValueError(f"output refers to an input file: {output}")
 
 
+@contextmanager
+def atomic_output(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            yield output
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def convert_to_single_file(
     converter,
     input_files: list[Path],
@@ -136,8 +152,7 @@ def convert_to_single_file(
 ) -> ConvertStats:
     total = ConvertStats()
     reject_input_output_aliases(input_files, [output_path])
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("wb") as output:
+    with atomic_output(output_path) as output:
         for input_file in input_files:
             stats = converter(
                 input_file,
@@ -166,8 +181,7 @@ def convert_to_output_folder(
                     for path in input_files]
     reject_input_output_aliases(input_files, output_paths)
     for input_file, output_path in zip(input_files, output_paths):
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("wb") as output:
+        with atomic_output(output_path) as output:
             stats = converter(
                 input_file,
                 output,

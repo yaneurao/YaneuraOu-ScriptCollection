@@ -14,6 +14,21 @@ from convert_teacher import (collect_input_files, resolve_output_format,
 
 
 class DottedDirectoryTests(unittest.TestCase):
+    def test_failed_conversion_preserves_existing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'bad.hcpe'
+            output = root / 'result.psv'
+            source.write_bytes(b'bad input')
+            output.write_bytes(b'old result')
+            def broken_converter(path, file, **kwargs):
+                file.write(b'partial')
+                raise ValueError('bad input')
+            with self.assertRaisesRegex(ValueError, 'bad input'):
+                convert_to_single_file(broken_converter, [source], output, batch_size=1, no_progress=True)
+            self.assertEqual(output.read_bytes(), b'old result')
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ['bad.hcpe', 'result.psv'])
+
     def test_conversion_rejects_output_hardlinked_to_input_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
