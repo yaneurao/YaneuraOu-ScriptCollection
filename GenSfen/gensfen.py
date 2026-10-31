@@ -45,6 +45,7 @@ def engine_position_with_moves(start_position: str) -> str:
 
 def repetition_game_result(board) -> int | None:
     """成立した千日手の結果を返す。0:引分、1:先手勝ち、2:後手勝ち。"""
+    # 教師生成では同一局面が2回現れた時点で千日手扱いにする仕様。
     repetition = board.is_draw()
     if repetition == cshogi.REPETITION_DRAW:
         return 0

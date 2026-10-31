@@ -82,18 +82,14 @@ class WinManager:
             lose = results[-n:].count(0) # player 0の勝利回数
             draw = results[-n:].count(2)
 
-            if win + lose == 0:
-                win_rate = "?"
-                rate_diff = "?"
+            win_rate = (win + 0.5 * draw) / n
+            if win_rate == 0:
+                rate_diff = "-INF"
+            elif win_rate == 1:
+                rate_diff = "+INF"
             else:
-                win_rate = win / (win + lose)
-                if win_rate == 0:
-                    rate_diff = "-INF"
-                elif win_rate == 1:
-                    rate_diff = "+INF"
-                else:
-                    rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
-                    win_rate  = f"{win_rate:.3f}"
+                rate_diff = f"{-400 * math.log10(1 / win_rate - 1):.1f}"
+            win_rate = f"{win_rate:.3f}"
 
             # Last N SPSA対象エンジンから見た win-draw-lose 勝率 R差
             summary.append(f"{n} {win}-{draw}-{lose}, {win_rate}, R{rate_diff}")
@@ -254,9 +250,13 @@ class GameMatcher:
         # 対局情報を格納
         self.shared      = shared
         self.threads_all = threads_all
+        self.shogi_matches : list[ShogiMatch] = []
 
     def start_games(self):
         """すべての並列対局を開始させる"""
+
+        if any(match.thread.is_alive() for match in self.shogi_matches):
+            raise RuntimeError("games are already running")
 
         print("start games")
 
@@ -322,8 +322,11 @@ class SharedState:
         # 対局開始局面を読み込む。
 
         print_log(f"Read start sfens, path = {path}")
-        with open(path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            lines = [line.strip() for line in f
+                     if line.strip() and not line.lstrip().startswith(('#', '//'))]
+        if not lines:
+            raise ValueError(f"no start positions found: {path}")
         print_log(f"..done. {len(lines)} positions.")
         return lines
 
@@ -548,9 +551,7 @@ class ShogiMatch:
             while True:
 
                 # 変異させたパラメーターを取得
-                shift = self.generate_shift_params(params)
-                p_shift_plus  = self.add_params(params, shift, +SCALE)
-                p_shift_minus = self.add_params(params, shift, -SCALE)
+                shift, p_shift_plus, p_shift_minus = self.generate_parameter_pair(params)
                 root_sfen = self.pick_root_sfen()
                 node_multiplier = self.next_node_multiplier()
 
@@ -629,34 +630,45 @@ class ShogiMatch:
         winner : int = -1
 
         while True:
+            # 対局では同一局面が2回現れた時点で千日手扱いにする仕様。
+            repetition = board.is_draw()
+            if repetition in (cshogi.REPETITION_DRAW, cshogi.REPETITION_WIN, cshogi.REPETITION_LOSE):
+                if repetition == cshogi.REPETITION_DRAW:
+                    winner = 2
+                    kif += ' draw'
+                else:
+                    winner = player if repetition == cshogi.REPETITION_WIN else player ^ 1
+                    kif += ' repetition_win' if winner == player else ' repetition_lose'
+                break
+            if ply >= 240:
+                winner = 2
+                kif += ' draw'
+                break
+
             nodes = scaled_nodes(self.t[player].engine_nodes, node_multiplier)
-            sfen = board.sfen()
-            bestmove,_ = self.engines[player].go(sfen, nodes)
+            # 手順を含めて渡すことでUSI形式と千日手の履歴を保つ。
+            bestmove,_ = self.engines[player].go(kif, nodes)
 
             # print(nodes)
 
-            # 相手番にする。
-            player ^= 1
-            
-            # 定跡込みで240手を超えたら引き分け扱いでいいや。
-            ply += 1
-            if ply >= 240 or board.is_draw() == 1: # REPETITION_DRAW:
-                bestmove = "draw"
-                winner = 2
-
             if bestmove == "resign":
-                # 投了。勝ったのは、相手番(すでにそうなっている)
-                winner = player
-            elif bestmove == "win":
-                # 宣言勝ち。勝ったのは、元の手番側のプレイヤー
                 winner = player ^ 1
+            elif bestmove == "win":
+                winner = player
+            elif bestmove in ("none", "0000"):
+                if self.shared.standard_board and next(iter(board.legal_moves), None) is None:
+                    winner = player ^ 1
+                else:
+                    raise ValueError(f"engine returned {bestmove} in a non-terminal position: {kif}")
 
             kif += ' ' + bestmove
 
-            if bestmove == "draw" or bestmove == "resign" or bestmove == "win":
+            if winner != -1:
                 break
 
             board.push_usi(bestmove)
+            ply += 1
+            player ^= 1
 
             # print(bestmove)
 
@@ -672,6 +684,14 @@ class ShogiMatch:
         # -1と1の二値変数を1/2の確率でとる(Rademacher分布)
         # ここに、各要素にstepを掛け算(アダマール積)した分だけパラメーターを動かして対局させる。
         return [random.choice([param.step, -param.step]) for param in params]
+
+    def generate_parameter_pair(self, params:list[Entry]):
+        # 他workerが中心値を更新する間に + と - を別々に計算しない。
+        with self.shared.param_lock:
+            shift = self.generate_shift_params(params)
+            scale = SCALE
+            return (shift, self.add_params(params, shift, +scale),
+                    self.add_params(params, shift, -scale))
 
     def add_params(self, params:list[Entry], shift:list[float], k:float)->list[float]:
         # params + shift * k を返す。

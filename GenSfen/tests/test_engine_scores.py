@@ -12,10 +12,18 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'CommonLib'))
 sys.path.insert(0, str(ROOT / 'GenSfen'))
 from YaneShogiLib import Engine, EngineConnectionError, SFEN_START_PLY1, usi_mate_to_yaneuraou_eval
-from gensfen import ShogiMatch, SharedState
+from gensfen import ShogiMatch, SharedState, repetition_game_result
+import cshogi
 
 
 class EngineScoreTest(unittest.TestCase):
+    def test_second_occurrence_is_a_draw_by_design(self):
+        board = cshogi.Board('4k4/9/9/9/9/9/9/9/4K4 b - 1')
+        for move in ('5i6i', '5a6a', '6i5i', '6a5a'):
+            self.assertIsNone(repetition_game_result(board))
+            board.push_usi(move)
+        self.assertEqual(repetition_game_result(board), 0)
+
     def test_start_positions_accept_bom_and_documented_comments(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'startpos.txt'
