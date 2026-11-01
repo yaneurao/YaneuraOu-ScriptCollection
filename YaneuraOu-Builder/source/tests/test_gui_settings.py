@@ -360,6 +360,34 @@ class GuiSettingsTest(unittest.TestCase):
         recipe = gui._release_recipe_from_form()
         self.assertEqual(recipe['material_level'], 9)
 
+    def test_edition_checkboxes_keep_independent_state_through_ui_actions(self):
+        gui = self.gui
+        gui.deiconify()
+        gui.settings_tabs.select(gui.edition_box)
+        gui.update()
+        widgets = {int(widget.grid_info()['row']) - 1: widget
+                   for widget in gui.edition_scroller.inner.winfo_children()
+                   if isinstance(widget, app.ttk.Checkbutton)}
+        expected = [row['enabled'].get() for row in gui.edition_rows]
+        for index in range(len(expected)):
+            widgets[index].invoke()
+            expected[index] = not expected[index]
+            gui.update()
+            self.assertEqual([row['enabled'].get() for row in gui.edition_rows], expected)
+        gui.settings_tabs.select(gui.targets_tab)
+        gui.update()
+        gui.settings_tabs.select(gui.edition_box)
+        gui.update()
+        self.assertEqual([row['enabled'].get() for row in gui.edition_rows], expected)
+        self.assertTrue(gui._save_gui_settings())
+        gui.preset_var.set('yo-material')
+        gui._select_preset()
+        gui.update()
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        gui.update()
+        self.assertEqual([row['enabled'].get() for row in gui.edition_rows], expected)
+
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
         self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
