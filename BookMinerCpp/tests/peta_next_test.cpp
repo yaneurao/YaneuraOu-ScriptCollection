@@ -38,6 +38,32 @@ int main(int argc, char** argv)
             throw std::runtime_error("existing position did not retain a shorter path");
     }
     const std::filesystem::path roots_path(argv[1]);
+    {
+        const auto dir = roots_path.parent_path();
+        const auto output = dir / "merge-preserve.txt";
+        const auto black = dir / "merge-black.txt";
+        { std::ofstream out(output); out << "existing\n"; }
+        { std::ofstream out(black); out << "startpos\n"; }
+        bool failed = false;
+        try { merge_black_white_think_sfens(black, dir / "missing-white.txt", output); }
+        catch (const std::runtime_error&) { failed = true; }
+        std::ifstream in(output);
+        std::string line;
+        std::getline(in, line);
+        if (!failed || line != "existing")
+            throw std::runtime_error("missing merge input damaged existing output");
+#ifndef _WIN32
+        const auto temporary = bookminer::temp_book_path(output);
+        std::filesystem::create_symlink("/dev/full", temporary);
+        failed = false;
+        try { write_position_commands_file(output, {"startpos"}); }
+        catch (const std::runtime_error&) { failed = true; }
+        std::ifstream in2(output);
+        std::getline(in2, line);
+        if (!failed || line != "existing")
+            throw std::runtime_error("failed write damaged existing output or was not reported");
+#endif
+    }
     auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
     bookminer::BookStore book;
     book.merge_position(board.sfen_with_ply(), 1, {

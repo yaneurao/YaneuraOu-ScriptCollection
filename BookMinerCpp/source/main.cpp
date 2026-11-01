@@ -1951,32 +1951,48 @@ std::vector<std::string> peta_next_for_turn(
     return think_sfens;
 }
 
-std::size_t write_position_commands_file(const std::filesystem::path& path, const std::vector<std::string>& position_commands)
+template <typename Writer>
+void write_position_file(const std::filesystem::path& path, Writer write)
 {
     if (path.has_parent_path())
         fs::create_directories(path.parent_path());
 
-    std::ofstream out(path);
-    if (!out)
-        throw std::runtime_error("failed to open output file: " + path.string());
+    const auto temporary = bookminer::temp_book_path(path);
+    try
+    {
+        std::ofstream out(temporary);
+        if (!out)
+            throw std::runtime_error("failed to open output file: " + temporary.string());
+        write(out);
+        out.close();
+        if (!out)
+            throw std::runtime_error("failed to write output file: " + temporary.string());
+        bookminer::replace_book_file(temporary, path);
+    }
+    catch (...)
+    {
+        std::error_code ec;
+        fs::remove(temporary, ec);
+        throw;
+    }
+}
 
-    for (const auto& position_command : position_commands)
-        out << position_command << '\n';
+std::size_t write_position_commands_file(const std::filesystem::path& path, const std::vector<std::string>& position_commands)
+{
+    write_position_file(path, [&](std::ostream& out) {
+        for (const auto& position_command : position_commands)
+            out << position_command << '\n';
+    });
 
     return position_commands.size();
 }
 
 std::size_t write_position_command_entries_file(const std::filesystem::path& path, const std::vector<PositionCommandEntry>& position_commands)
 {
-    if (path.has_parent_path())
-        fs::create_directories(path.parent_path());
-
-    std::ofstream out(path);
-    if (!out)
-        throw std::runtime_error("failed to open output file: " + path.string());
-
-    for (const auto& position_command : position_commands)
-        out << format_position_command_entry(position_command) << '\n';
+    write_position_file(path, [&](std::ostream& out) {
+        for (const auto& position_command : position_commands)
+            out << format_position_command_entry(position_command) << '\n';
+    });
 
     return position_commands.size();
 }
@@ -1998,35 +2014,35 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
 {
     std::ifstream black(black_path);
     std::ifstream white(white_path);
-    std::ofstream out(output_path);
     if (!black)
         throw std::runtime_error("failed to open file: " + black_path.string());
     if (!white)
         throw std::runtime_error("failed to open file: " + white_path.string());
-    if (!out)
-        throw std::runtime_error("failed to open output file: " + output_path.string());
-
     std::size_t count = 0;
-    while (true)
-    {
-        std::string black_line;
-        std::string white_line;
-        const bool has_black = static_cast<bool>(std::getline(black, black_line));
-        const bool has_white = static_cast<bool>(std::getline(white, white_line));
-        if (!has_black && !has_white)
-            break;
+    write_position_file(output_path, [&](std::ostream& out) {
+        while (true)
+        {
+            std::string black_line;
+            std::string white_line;
+            const bool has_black = static_cast<bool>(std::getline(black, black_line));
+            const bool has_white = static_cast<bool>(std::getline(white, white_line));
+            if (!has_black && !has_white)
+                break;
 
-        if (has_black)
-        {
-            out << black_line << '\n';
-            ++count;
+            if (has_black)
+            {
+                out << black_line << '\n';
+                ++count;
+            }
+            if (has_white)
+            {
+                out << white_line << '\n';
+                ++count;
+            }
         }
-        if (has_white)
-        {
-            out << white_line << '\n';
-            ++count;
-        }
-    }
+        if (black.bad() || white.bad())
+            throw std::runtime_error("failed to read think_sfens merge input");
+    });
 
     return count;
 }
