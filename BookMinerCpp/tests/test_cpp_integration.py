@@ -90,7 +90,8 @@ class CppIntegrationTest(unittest.TestCase):
                             'commands = sys.stdin.read()\n'
                             'pathlib.Path("peta-commands.txt").write_text(commands)\n'
                             'command = next(line for line in commands.splitlines() if line.startswith("makebook "))\n'
-                            '(pathlib.Path("book") / command.split()[3]).write_text("#YANEURAOU-DB2016 1.00\\n")\n')
+                            '(pathlib.Path("book") / command.split()[3]).write_text("#YANEURAOU-DB2016 1.00\\n")\n'
+                            'print("Making a peta-shock book has been completed.")\n')
         material.chmod(0o755)
         (root / 'settings' / 'engine_settings.json5').write_text(
             '[{path: "' + str(search) + '", nodes: 100, multi: 1}]')

@@ -20,7 +20,15 @@ int main(int argc, char** argv)
                "commands = sys.stdin.read()\n"
                "pathlib.Path('commands.txt').write_text(commands)\n"
                "command = next(line for line in commands.splitlines() if line.startswith('makebook '))\n"
-               "(pathlib.Path('book') / command.split()[3]).write_text('result')\n";
+               "output = pathlib.Path('book') / command.split()[3]\n"
+               "if pathlib.Path('simulate-error').exists():\n"
+               " output.write_text('partial')\n"
+               " print('info string Error! : write failed')\n"
+               "elif pathlib.Path('simulate-incomplete').exists():\n"
+               " output.write_text('partial')\n"
+               "else:\n"
+               " output.write_text('result')\n"
+               " print('Making a peta-shock book has been completed.')\n";
     }
     std::filesystem::permissions(engine, std::filesystem::perms::owner_all);
     const auto source = root / "book" / "backup" / "book_miner-20261029000000_1.db";
@@ -44,6 +52,24 @@ int main(int argc, char** argv)
     const std::string default_commands((std::istreambuf_iterator<char>(in_default)), {});
     if (default_commands.find(" threads ") != std::string::npos)
         throw std::runtime_error("single-thread default unexpectedly changed the command");
+    { std::ofstream marker(root / "simulate-error"); }
+    bool failed = false;
+    try { (void)run_peta_shock_makebook(root, source, settings); }
+    catch (const std::runtime_error&) { failed = true; }
+    std::ifstream preserved(output);
+    std::string content;
+    preserved >> content;
+    if (!failed || content != "result")
+        throw std::runtime_error("failed peta shock replaced the previous output");
+    std::filesystem::remove(root / "simulate-error");
+    { std::ofstream marker(root / "simulate-incomplete"); }
+    failed = false;
+    try { (void)run_peta_shock_makebook(root, source, settings); }
+    catch (const std::runtime_error&) { failed = true; }
+    std::ifstream preserved_again(output);
+    preserved_again >> content;
+    if (!failed || content != "result")
+        throw std::runtime_error("incomplete peta shock replaced the previous output");
     std::filesystem::current_path(old_cwd);
     return 0;
 #endif

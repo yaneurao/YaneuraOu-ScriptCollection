@@ -3155,15 +3155,25 @@ fs::path find_peta_shock_engine(const fs::path& app_dir, const bookminer::BookMi
     throw std::runtime_error("peta shock engine not found : " + engine_path.string());
 }
 
-void emit_prefixed_output_line(std::string line)
+struct PetaProcessResult {
+    int exit_code = 1;
+    bool completed = false;
+    bool reported_error = false;
+};
+
+void emit_prefixed_output_line(std::string line, PetaProcessResult& result)
 {
     if (!line.empty() && line.back() == '\r')
         line.pop_back();
+    if (line.find("Making a peta-shock book has been completed.") != std::string::npos)
+        result.completed = true;
+    if (line.find("Error!") != std::string::npos)
+        result.reported_error = true;
     if (!line.empty() && !is_yaneuraou_progress_bar_line(line))
         log_line("[peta_shock] " + line);
 }
 
-void emit_output_chunk(std::string& pending, const char* data, std::size_t size)
+void emit_output_chunk(std::string& pending, const char* data, std::size_t size, PetaProcessResult& result)
 {
     pending.append(data, size);
     std::size_t pos = 0;
@@ -3183,7 +3193,7 @@ void emit_output_chunk(std::string& pending, const char* data, std::size_t size)
         pending.erase(0, pos + 1);
         if (separator == '\r' && !pending.empty() && pending.front() == '\n')
             pending.erase(0, 1);
-        emit_prefixed_output_line(std::move(line));
+        emit_prefixed_output_line(std::move(line), result);
     }
 }
 
@@ -3203,9 +3213,10 @@ std::string quote_windows_arg(const fs::path& path)
     return quoted;
 }
 
-int run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
+PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
 {
     constexpr int PetaShockProgressIntervalSeconds = 10;
+    PetaProcessResult result;
 
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -3264,7 +3275,7 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
             DWORD read_size = 0;
             if (!ReadFile(child_stdout_read, buffer, to_read, &read_size, nullptr) || read_size == 0)
                 break;
-            emit_output_chunk(pending, buffer, read_size);
+            emit_output_chunk(pending, buffer, read_size, result);
             available -= std::min(available, read_size);
         }
 
@@ -3288,7 +3299,7 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
     }
 
     if (!pending.empty())
-        emit_prefixed_output_line(std::move(pending));
+        emit_prefixed_output_line(std::move(pending), result);
     CloseHandle(child_stdout_read);
 
     if (exit_code == STILL_ACTIVE)
@@ -3298,7 +3309,8 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
     }
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return static_cast<int>(exit_code);
+    result.exit_code = static_cast<int>(exit_code);
+    return result;
 }
 #else
 void set_nonblocking(int fd)
@@ -3308,9 +3320,10 @@ void set_nonblocking(int fd)
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-int run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
+PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
 {
     constexpr int PetaShockProgressIntervalSeconds = 10;
+    PetaProcessResult process_result;
 
     int stdin_pipe[2]{};
     int stdout_pipe[2]{};
@@ -3372,7 +3385,7 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
                 const ssize_t n = read(stdout_pipe[0], buffer, sizeof(buffer));
                 if (n > 0)
                 {
-                    emit_output_chunk(pending, buffer, static_cast<std::size_t>(n));
+                    emit_output_chunk(pending, buffer, static_cast<std::size_t>(n), process_result);
                     continue;
                 }
                 if (n == 0)
@@ -3402,14 +3415,14 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
 
     close(stdout_pipe[0]);
     if (!pending.empty())
-        emit_prefixed_output_line(std::move(pending));
+        emit_prefixed_output_line(std::move(pending), process_result);
 
     if (!child_done)
         waitpid(pid, &status, 0);
 
     if (WIFEXITED(status))
-        return WEXITSTATUS(status);
-    return 1;
+        process_result.exit_code = WEXITSTATUS(status);
+    return process_result;
 }
 #endif
 
@@ -3444,9 +3457,13 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
         makebook_command + "\n"
         "quit\n";
 
-    const int exit_code = run_process_with_input(engine_path, app_dir, commands);
-    if (exit_code != 0)
-        throw std::runtime_error("peta_shock makebook failed. return code = " + std::to_string(exit_code));
+    const auto result = run_process_with_input(engine_path, app_dir, commands);
+    if (result.exit_code != 0 || result.reported_error || !result.completed)
+    {
+        fs::remove(peta_temp_path, ec);
+        throw std::runtime_error("peta_shock makebook failed or did not report completion. return code = "
+                                 + std::to_string(result.exit_code));
+    }
 
     if (!fs::is_regular_file(peta_temp_path) || fs::file_size(peta_temp_path) == 0)
         throw std::runtime_error("peta_shock makebook failed. output file was not created : " + peta_temp_path.string());
