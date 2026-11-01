@@ -1,8 +1,4 @@
 {
-    // GUIから起動するBookMinerCpp実行ファイル。省略時はBookMinerCpp.exeを自動検出。
-    // 相対パスはBookMinerフォルダ基準。絶対パスも指定できる。
-    // bookminer_cpp_path: "../BookMinerCpp/build/BookMinerCpp.exe",
-
     // 定期自動バックアップの間隔。単位は秒。
     // 10800 = 3時間。
     auto_save_interval_seconds: 10800,
@@ -11,13 +7,18 @@
     // nコマンドでも、この手数以降の局面は次の掘削対象として書き出さない。
     max_book_ply: 200,
 
+    // GUIから起動するBookMinerCpp実行ファイル。省略時はBookMinerCpp.exeを自動検出。
+    // 相対パスはBookMinerフォルダ基準とする。
+    // "../BookMinerCpp/build/BookMinerCpp.exe" のように書ける。絶対パスも指定できる。
+    bookminer_cpp_path: "BookMinerCpp.exe",
+
     // peta_nextの開始局面集合ファイル。
     // このファイルが存在する場合、nコマンドはstartposではなく、
     // ここに書かれた局面集合から定跡ツリーを辿る。
     // nコマンド実行のたびに読み直される。
     peta_next_start_sfens_path: "book/peta_start_sfens.txt",
 
-    // peta shock 用エンジン。相対パスは BookMiner フォルダを基準にする。
+    // peta shock 用エンジン。相対パスは BookMiner フォルダを基準にする。絶対パスも指定できる。
     peta_shock_engine_path: "YO-MATERIAL.exe",
 
     // peta shock の並列数。探索用エンジンの Threads とは独立。
