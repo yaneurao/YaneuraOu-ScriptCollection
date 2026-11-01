@@ -501,6 +501,16 @@ struct BranchTaskSpec {
 
 using EnqueueBranchTask = std::function<void(BranchTaskSpec)>;
 
+struct TaskResume {
+    bool best_line = false;
+    std::string position_command;
+    int rest_ply = 0;
+    int rest_branch_depth = 0;
+    int last_thinking_ply = PlyMin;
+    int engine_id = -1;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+};
+
 std::vector<std::string> thinking_candidate_moves(
     const bookminer::PositionInfo& position,
     int eval_limit,
@@ -570,7 +580,8 @@ TaskResult start_thinking_best_line(
     int branch_width,
     int branch_depth,
     int job_id,
-    const EnqueueBranchTask& enqueue_branch_task)
+    const EnqueueBranchTask& enqueue_branch_task,
+    std::optional<TaskResume>& resume)
 {
     std::string current_sfen = leaf_sfen;
     int current_ply = leaf_ply;
@@ -579,6 +590,18 @@ TaskResult start_thinking_best_line(
     const bool branch_task = branch_width > 0;
     int last_thinking_ply = PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    if (resume && resume->best_line)
+    {
+        const auto parsed = bookminer::parse_position_command(resume->position_command);
+        auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
+        current_sfen = board.sfen();
+        current_ply = board.ply();
+        rest_ply = resume->rest_ply;
+        rest_branch_depth = resume->rest_branch_depth;
+        last_thinking_ply = resume->engine_id == engine.thread_id() ? resume->last_thinking_ply : PlyMin;
+        visited = std::move(resume->visited);
+        resume.reset();
+    }
 
     while (true)
     {
@@ -587,7 +610,11 @@ TaskResult start_thinking_best_line(
 
         auto thought = think_sfen_once(book, engine, current_sfen, current_ply, last_thinking_ply, max_book_ply, visited);
         if (thought.status == ThinkOnceStatus::Deferred)
+        {
+            resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
+                                rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited)};
             return TaskResult::Deferred;
+        }
         if (thought.status != ThinkOnceStatus::Position)
             return TaskResult::Done;
         current_sfen = thought.sfen;
@@ -700,9 +727,16 @@ TaskResult process_position_command(
     int branch_width,
     int branch_depth,
     int job_id,
-    const EnqueueBranchTask& enqueue_branch_task)
+    const EnqueueBranchTask& enqueue_branch_task,
+    std::optional<TaskResume>& resume)
 {
-    const auto parsed = bookminer::parse_position_command(position_command);
+    if (resume && resume->best_line)
+    {
+        engine.usinewgame([](const std::string& message) { log_line(message); });
+        return start_thinking_best_line(book, engine, {}, 0, eval_limit, max_book_ply,
+            think_command_ply, branch_width, branch_depth, job_id, enqueue_branch_task, resume);
+    }
+    const auto parsed = bookminer::parse_position_command(resume ? resume->position_command : position_command);
     if (position_command_hits_searching_position(book, parsed, max_book_ply))
         return TaskResult::Deferred;
 
@@ -712,13 +746,17 @@ TaskResult process_position_command(
         log_line(message);
     });
 
-    int rest_branch_depth = branch_depth;
+    int rest_branch_depth = resume ? resume->rest_branch_depth : branch_depth;
     const bool branch_task = branch_width > 0;
-    int last_thinking_ply = PlyMin;
+    int last_thinking_ply = resume && resume->engine_id == engine.thread_id() ? resume->last_thinking_ply : PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    if (resume)
+        visited = std::move(resume->visited);
+    resume.reset();
 
-    for (const auto& move : parsed.moves)
+    for (std::size_t move_index = 0; move_index < parsed.moves.size(); ++move_index)
     {
+        const auto& move = parsed.moves[move_index];
         const auto current_sfen = board.sfen();
         const int ply = board.ply();
 
@@ -739,7 +777,14 @@ TaskResult process_position_command(
         {
             auto thought = think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, max_book_ply, visited);
             if (thought.status == ThinkOnceStatus::Deferred)
+            {
+                std::string remaining = "sfen " + board.sfen_with_ply() + " moves";
+                for (std::size_t i = move_index; i < parsed.moves.size(); ++i)
+                    remaining += " " + parsed.moves[i];
+                resume = TaskResume{false, std::move(remaining), 0, rest_branch_depth,
+                                    last_thinking_ply, engine.thread_id(), std::move(visited)};
                 return TaskResult::Deferred;
+            }
             if (thought.status != ThinkOnceStatus::Position)
                 return TaskResult::Done;
             current_lookup.position = thought.position;
@@ -816,7 +861,8 @@ TaskResult process_position_command(
         branch_width,
         rest_branch_depth,
         job_id,
-        enqueue_branch_task);
+        enqueue_branch_task,
+        resume);
 }
 
 struct PositionCommandEntry {
@@ -1023,6 +1069,7 @@ struct Task {
     int defer_count = 0;
     int branch_width = 0;
     int branch_depth = 0;
+    std::optional<TaskResume> resume;
 };
 
 class TaskQueue {
@@ -1217,6 +1264,7 @@ public:
                 0,
                 branch_width,
                 branch_depth,
+                std::nullopt,
             });
         }
 
@@ -1292,6 +1340,7 @@ private:
             0,
             spec.branch_width,
             spec.branch_depth,
+            std::nullopt,
         });
     }
 
@@ -1319,7 +1368,7 @@ private:
                     task->job_id,
                     [this](BranchTaskSpec spec) {
                         enqueue_branch_task(std::move(spec));
-                    });
+                    }, task->resume);
             }
             catch (const std::exception& ex)
             {

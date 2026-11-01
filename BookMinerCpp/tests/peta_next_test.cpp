@@ -38,6 +38,65 @@ int main(int argc, char** argv)
             throw std::runtime_error("existing position did not retain a shorter path");
     }
     const std::filesystem::path roots_path(argv[1]);
+#ifndef _WIN32
+    {
+        const auto engine_path = roots_path.parent_path() / "branch-retry-engine";
+        {
+            std::ofstream out(engine_path);
+            out << "#!/usr/bin/env python3\nimport sys\nmove='7g7f'\n"
+                   "for line in sys.stdin:\n"
+                   " line=line.strip()\n"
+                   " if line=='usi': print('usiok',flush=True)\n"
+                   " elif line=='isready': print('readyok',flush=True)\n"
+                   " elif line.startswith('position '): move='3c3d' if ' w ' in line else '7g7f'\n"
+                   " elif line.startswith('go '):\n"
+                   "  print('info multipv 1 score cp 42 pv '+move,flush=True)\n"
+                   "  print('info multipv 2 score cp 20 pv '+('8c8d' if move=='3c3d' else '2g2f'),flush=True)\n"
+                   "  print('bestmove '+move,flush=True)\n"
+                   " elif line=='quit': break\n";
+        }
+        std::filesystem::permissions(engine_path, std::filesystem::perms::owner_all);
+        bookminer::EngineConfig config;
+        config.path = engine_path.string();
+        config.multipv = 100;
+        config.nodes = 100;
+        bookminer::UsiEngine engine(0, config, roots_path.parent_path());
+        engine.start([](const std::string&) {});
+        engine.isready([](const std::string&) {});
+        bookminer::BookStore book;
+        auto child = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        child.push_usi("7g7f");
+        auto lease = book.try_begin_search(child.sfen(), bookminer::flipped_sfen(child.sfen()));
+        std::optional<TaskResume> resume;
+        auto run = [&] {
+            return process_position_command(book, engine, "startpos", 1000, 200, 10,
+                                            1, 1, 1, [](BranchTaskSpec) {}, resume);
+        };
+        if (run() != TaskResult::Deferred || !resume || !resume->best_line)
+            throw std::runtime_error("branch search did not suspend at the occupied child");
+        book.end_search(lease);
+        if (run() != TaskResult::Done || resume || !book.find_position_copy(child.sfen()))
+            throw std::runtime_error("branch search did not resume at the suspended child");
+
+        bookminer::BookStore path_book;
+        std::optional<TaskResume> path_resume;
+        bookminer::SearchLease path_lease;
+        int branches = 0;
+        auto enqueue = [&](BranchTaskSpec) {
+            if (++branches == 1)
+                path_lease = path_book.try_begin_search(child.sfen(), bookminer::flipped_sfen(child.sfen()));
+        };
+        auto run_path = [&] {
+            return process_position_command(path_book, engine, "startpos moves 7g7f 3c3d",
+                                            1000, 200, 10, 2, 2, 1, enqueue, path_resume);
+        };
+        if (run_path() != TaskResult::Deferred || !path_resume || path_resume->best_line || branches != 1)
+            throw std::runtime_error("path search did not suspend after enqueuing its branch");
+        path_book.end_search(path_lease);
+        if (run_path() != TaskResult::Done || path_resume || branches != 2)
+            throw std::runtime_error("path search did not resume without repeating its earlier branch");
+    }
+#endif
     {
         const auto input = roots_path.parent_path() / "think-input.txt";
         {
