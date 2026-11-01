@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -58,6 +59,44 @@ int main(int argc, char** argv)
         book.load_yaneuraou_book(input, false, nullptr, nullptr);
         if (book.find_position_copy(bookminer::StartSfenPly1)->ply != 5)
             throw std::runtime_error("import did not retain the shortest ply");
+        auto probe = bookminer::open_book_probe(input);
+        const auto found = probe->find_position_copy(bookminer::StartSfenPly1);
+        if (!found || found->ply != 5 || found->moves.size() != 2)
+            throw std::runtime_error("db probe did not merge duplicate positions");
+    }
+    {
+        // Check binary search at many offsets, including duplicate SFENs in
+        // the middle of the file and a last line without a newline.
+        std::map<std::string, std::string> entries;
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (int i = 0; i < 30; ++i)
+        {
+            const auto moves = board.legal_moves();
+            if (moves.empty()) break;
+            entries.emplace(board.sfen(), moves.front());
+            board.push_usi(moves.front());
+        }
+        const auto path = dir / "probe-many.db";
+        {
+            std::ofstream out(path);
+            out << bookminer::YaneuraOuBookHeaderV1 << '\n';
+            for (const auto& [sfen, move] : entries)
+                out << "sfen " << sfen << " 20\n" << move << " none 10 0\n"
+                    << "sfen " << sfen << " 5\n" << move << " none 20 0\n";
+            out << "# end without newline";
+        }
+        bookminer::BookStore loaded;
+        loaded.load_yaneuraou_book(path, false, nullptr, nullptr);
+        auto probe = bookminer::open_book_probe(path);
+        for (const auto& [sfen, _move] : entries)
+        {
+            const auto expected = loaded.find_position_copy(sfen);
+            const auto found = probe->find_position_copy(sfen);
+            if (!expected || !found || expected->ply != found->ply
+                || expected->moves.size() != found->moves.size()
+                || found->moves.front().eval != expected->moves.front().eval)
+                throw std::runtime_error("db probe disagrees with loaded book");
+        }
     }
     const auto min = std::numeric_limits<std::int16_t>::min();
     for (const auto& values : std::vector<std::vector<std::int16_t>>{{10, 100, 30}, {100, 100, 20}, {min, min, min}})

@@ -985,7 +985,7 @@ public:
 
         PositionInfo position;
         position.ply = static_cast<std::uint16_t>(std::clamp(entry->ply, 0, 65535));
-        position.moves = read_moves_after(entry->next_pos);
+        read_moves_after(entry->next_pos, target, position);
         sort_moves(position.moves);
         return position;
     }
@@ -1060,11 +1060,21 @@ private:
         }
     }
 
-    std::vector<MoveInfo> read_moves_after(std::uint64_t offset)
+    void read_moves_after(std::uint64_t offset, const std::string& target, PositionInfo& position)
     {
         file_.clear();
         file_.seekg(static_cast<std::streamoff>(std::min(offset, size_)));
-        std::vector<MoveInfo> moves;
+        std::uint16_t section_ply = position.ply;
+        bool section_has_moves = false;
+        bool has_position = false;
+        auto finish_section = [&] {
+            if (section_has_moves)
+            {
+                position.ply = has_position ? std::min(position.ply, section_ply) : section_ply;
+                has_position = true;
+            }
+            section_has_moves = false;
+        };
         std::string line;
         while (std::getline(file_, line))
         {
@@ -1072,15 +1082,27 @@ private:
             if (line.empty())
                 continue;
             if (starts_with(line, "sfen "))
-                break;
+            {
+                finish_section();
+                const auto [key, ply] = trim_sfen_ply(line);
+                if (key != target)
+                    break;
+                section_ply = static_cast<std::uint16_t>(std::clamp(ply, 0, 65535));
+                continue;
+            }
             if (starts_with(line, "#") || starts_with(line, "//"))
                 continue;
 
             const auto parsed = parse_book_move_line(line, normalize_eval_);
             if (parsed.eval.has_value())
-                moves.push_back(MoveInfo{parsed.move16, *parsed.eval, parsed.depth});
+            {
+                position.moves.push_back(MoveInfo{parsed.move16, *parsed.eval, parsed.depth});
+                section_has_moves = true;
+            }
         }
-        return moves;
+        if (file_.bad())
+            throw std::runtime_error("failed to read book: " + path_.string());
+        finish_section();
     }
 
     std::filesystem::path path_;
