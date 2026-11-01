@@ -107,7 +107,8 @@ Release画面では、次を設定できます。
 - optional SPSA preprocessing
 
 Edition一覧は `YaneuraOu-Builder/arch-list.txt` から作ります。1行にarchを1つ記載し、
-空行と `#` から始まるコメント行は無視します。記載順に表示し、初回・新規追加archはONです。
+空行と `#` から始まるコメント行は無視します。記載順に表示し、初回の標準presetではONです。
+保存済みpresetに新しく追加されたarchは、意図しないビルドを避けるためOFFで表示します。
 保存済みpresetからは同じeditionのON/OFFだけを復元し、削除したarchは表示しません。
 editionは `YANEURAOU_ENGINE_`、出力名の接頭辞は `YaneuraOu_` をarchに付けて生成します。
 例外はなく、`MATERIAL` の出力名も `YaneuraOu_MATERIAL` になります。

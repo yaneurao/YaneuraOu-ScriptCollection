@@ -30,7 +30,7 @@ class ArchListTest(unittest.TestCase):
             dict(edition='YANEURAOU_ENGINE_MATERIAL', enabled=False, artifact_prefix='YO-MATERIAL'),
             dict(edition='removed', enabled=True),
         ], self.root)
-        self.assertEqual([row['enabled'] for row in rows], [False, True])
+        self.assertEqual([row['enabled'] for row in rows], [False, False])
         self.assertEqual(rows[0]['artifact_prefix'], 'YaneuraOu_MATERIAL')
         self.path.write_text('SFNN1536\n')
         self.assertEqual(load_release_editions(self.root)[0][0], 'YANEURAOU_ENGINE_SFNN1536')
@@ -57,7 +57,7 @@ class ArchListTest(unittest.TestCase):
             'YANEURAOU_ENGINE_SFNN_halfka2_1024_8_64_progress8',
             'YANEURAOU_ENGINE_MATERIAL',
         ])
-        self.assertEqual([row['enabled'] for row in rows], [True, False])
+        self.assertEqual([row['enabled'] for row in rows], [False, False])
 
     def test_shipped_list_and_plan(self):
         root = Path(__file__).resolve().parents[2]

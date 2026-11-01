@@ -1876,7 +1876,7 @@ def _normalize_editions_for_form(editions: list[dict[str, Any]], yobuild_root: P
                 "artifact_prefix": artifact_prefix,
                 "enabled": bool(saved.get("enabled", True))
                 if saved is not None
-                else True,
+                else False,
             }
         )
     return fixed_editions
