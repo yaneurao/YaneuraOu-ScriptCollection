@@ -391,7 +391,7 @@ class BuildGui(tk.Tk):
         self.notebook.add(self.recipe_tab, text="Recipe")
         self.notebook.add(self.log_tab, text="Logs")
         self.notebook.add(self.shogizone_tab, text="ShogiZone")
-        self.notebook.add(self.paths_tab, text="Paths")
+        self.notebook.add(self.paths_tab, text="Macros")
 
         self._build_recipe_tab()
         self._build_log_tab()
@@ -404,12 +404,12 @@ class BuildGui(tk.Tk):
         default = self.yobuild_root.parent if (self.yobuild_root.parent / "SPSA").is_dir() else ""
         header = ttk.Frame(self.paths_tab)
         header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="Shared path aliases (example: [YOSC]/SPSA/tune.py)").grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text="Shared macros (examples: [YOSC]/SPSA/tune.py, [DEV_OPTIONS])").grid(row=0, column=0, sticky="w")
         alias_scroller = ScrollableFrame(self.paths_tab, height=400)
         alias_scroller.grid(row=1, column=0, sticky="nsew", pady=8)
         self.alias_frame = alias_scroller.inner
         self.alias_frame.columnconfigure(1, weight=1)
-        self.add_path_button = ttk.Button(self.alias_frame, text="Add path", command=self._add_path_alias)
+        self.add_path_button = ttk.Button(self.alias_frame, text="Add macro", command=self._add_path_alias)
         self.add_path_button.pack(anchor="w", pady=(6, 0))
         self.path_alias_rows: list[tuple[tk.StringVar, tk.StringVar]] = []
         saved = self.gui_settings.get("path_aliases")
@@ -441,9 +441,9 @@ class BuildGui(tk.Tk):
             if not name and not path:
                 continue
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-                raise ValueError(f"Invalid path alias name: {name!r}")
+                raise ValueError(f"Invalid macro name: {name!r}")
             if name in result:
-                raise ValueError(f"Duplicate path alias: [{name}]")
+                raise ValueError(f"Duplicate macro: [{name}]")
             result[name] = path
         return result
 
@@ -1902,10 +1902,10 @@ def _expand_alias_path(value: str, aliases: dict[str, str]) -> str:
         raise ValueError(f"Unknown or invalid path alias: {value}")
     name = match.group(1)
     if name not in aliases:
-        raise ValueError(f"Path alias [{name}] is not registered in the Paths tab.")
+        raise ValueError(f"Path alias [{name}] is not registered in the Macros tab.")
     root = aliases[name].strip()
     if not root or not (os.path.isabs(root) or PureWindowsPath(root).is_absolute()):
-        raise ValueError(f"Set an absolute folder for [{name}] in the Paths tab.")
+        raise ValueError(f"Set an absolute folder for [{name}] in the Macros tab.")
     suffix = value[match.end():].lstrip("/\\")
     if not suffix:
         return root
@@ -1914,8 +1914,31 @@ def _expand_alias_path(value: str, aliases: dict[str, str]) -> str:
     return root.rstrip("/\\") + separator + suffix.replace("\\", separator).replace("/", separator)
 
 
+def _expand_flag_macros(value: str, aliases: dict[str, str]) -> str:
+    pattern = re.compile(r"\[([A-Za-z_][A-Za-z0-9_]*)\]")
+
+    def expand(text: str, stack: tuple[str, ...]) -> str:
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in aliases:
+                raise ValueError(f"Macro [{name}] is not registered in the Macros tab.")
+            if name in stack:
+                raise ValueError("Circular macro reference: " + " -> ".join(f"[{item}]" for item in (*stack, name)))
+            return expand(aliases[name], (*stack, name))
+        return pattern.sub(replace, text)
+
+    return expand(value, ())
+
+
 def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
     result = deepcopy(recipe)
+    if isinstance(result.get("common_cppflags"), list):
+        result["common_cppflags"] = [_expand_flag_macros(flag, aliases) if isinstance(flag, str) else flag
+                                     for flag in result["common_cppflags"]]
+    for variant in result.get("variants", []):
+        if isinstance(variant, dict) and isinstance(variant.get("extra_cppflags"), list):
+            variant["extra_cppflags"] = [_expand_flag_macros(flag, aliases) if isinstance(flag, str) else flag
+                                         for flag in variant["extra_cppflags"]]
     for key in ("run_root", "source_dir", "bookminer_cpp_source_dir", "msys2_root", "work_dir", "output_path", "tune_py", "param_lib", "tune_file", "params_file"):
         if isinstance(result.get(key), str):
             result[key] = _expand_alias_path(result[key], aliases)

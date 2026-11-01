@@ -131,11 +131,13 @@ Recipe 画面の左側に preset 一覧が表示され、クリックで切り�
 
 Release settings のテキスト欄や選択欄を右クリックすると、項目の値を他の preset 用にコピーできます。別の preset を一覧から選び、同じ欄を右クリックして `Paste from ...` を選ぶと、表示されているコピー元の値を貼り付けます。コピーした値は項目ごとに保持され、アプリを終了すると消えます。macOS では Control キーを押しながらのクリックでもメニューを開けます。
 
-### 共通パス
+### 共通マクロ
 
-画面上部の `Paths` タブに、全 preset で共通に使うフォルダを名前と絶対パスで登録できます。例えば `YOSC` に `C:\Users\yaneen\CA-misc\work\YaneuraOuWork\YaneuraOu-ScriptCollection` を登録すると、tune.py 欄に `[YOSC]\SPSA\tune.py` と書けます。同様に `YaneuraOuSource` などの名前を追加し、各パス欄の先頭で `[YaneuraOuSource]` を使えます。名前は英字または `_` で始まり、英数字と `_` を使います。
+画面上部の `Macros` タブに、全 preset で共通に使う値を名前とともに登録できます。例えば `YOSC` に `C:\Users\yaneen\CA-misc\work\YaneuraOuWork\YaneuraOu-ScriptCollection` を登録すると、tune.py 欄に `[YOSC]\SPSA\tune.py` と書けます。同様に `YaneuraOuSource` などの名前を追加し、各パス欄の先頭で `[YaneuraOuSource]` を使えます。パスとして使う場合は絶対パスを登録してください。名前は英字または `_` で始まり、英数字と `_` を使います。
 
-設定欄には短い表記が保存され、ビルド計画やスクリプトの生成時に実パスへ展開されます。登録先を変更すると、次に生成するビルドから新しいパスが使われます。登録されていない名前や絶対パスでない登録先を使うと、生成前にエラーを表示します。すでに生成されたスクリプトは変更されません。
+`DEV_OPTIONS` に `-DFOO=1 -DBAR=2` のような文字列を登録すると、Variants の `Extra CPP flags` や共通の CPP flags に `[DEV_OPTIONS]` と書けます。フラグ用のマクロ値には別のマクロも使えます。
+
+設定欄には短い表記が保存され、ビルド計画やスクリプトの生成時に登録値へ展開されます。登録値を変更すると、次に生成するビルドから新しい値が使われます。未登録のマクロ、循環参照、またはパス欄で絶対パスでない値を使うと、生成前にエラーを表示します。すでに生成されたスクリプトは変更されません。
 
 ### ShogiZone へのアップロード
 

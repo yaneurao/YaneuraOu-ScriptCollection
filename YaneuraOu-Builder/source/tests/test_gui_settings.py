@@ -103,6 +103,41 @@ class GuiSettingsTest(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 app._expand_alias_path(path, mapping)
 
+    def test_macros_expand_in_flags_without_changing_presets(self):
+        gui = self.gui
+        gui._add_path_alias('DEV_OPTIONS', '-DFOO=1 -DBAR=2')
+        gui._add_path_alias('COMMON_OPTIONS', '-DCOMMON=1')
+        gui.run_root_var.set(str(Path(self.tmp.name) / 'runs'))
+        gui.release_common_flags_var.set('[COMMON_OPTIONS]')
+        gui.variant_rows[0]['flags'].set('[DEV_OPTIONS] -DEXTRA=3')
+        run = gui._write_scripts(show_message=False)
+        self.assertIsNotNone(run)
+        import json
+        recipe = json.loads((run / 'recipe.json').read_text(encoding='utf8'))
+        self.assertEqual(recipe['common_cppflags'], ['-DCOMMON=1'])
+        self.assertEqual(recipe['variants'][0]['extra_cppflags'], ['-DFOO=1 -DBAR=2', '-DEXTRA=3'])
+        scripts = '\n'.join(p.read_text(encoding='utf8') for p in (run / 'scripts').iterdir())
+        self.assertIn('-DFOO=1 -DBAR=2 -DEXTRA=3', scripts)
+        settings, _ = app.load_gui_settings()
+        preset = settings['presets'][gui.current_preset_name]
+        self.assertEqual(preset['variants'][0]['extra_cppflags'], ['[DEV_OPTIONS]', '-DEXTRA=3'])
+        self.assertEqual(preset['common_cppflags'], ['[COMMON_OPTIONS]'])
+
+    def test_flag_macro_expansion_and_validation(self):
+        aliases = {'DEV_OPTIONS': '-DFOO=1 -DBAR=2', 'NESTED': '[DEV_OPTIONS] -DOTHER'}
+        self.assertEqual(app._expand_flag_macros('prefix=[DEV_OPTIONS] [NESTED]', aliases),
+                         'prefix=-DFOO=1 -DBAR=2 -DFOO=1 -DBAR=2 -DOTHER')
+        for value, macros in [('[MISSING]', aliases), ('[A]', {'A': '[B]', 'B': '[A]'})]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                app._expand_flag_macros(value, macros)
+
+    def test_unknown_flag_macro_is_reported_before_writing(self):
+        self.gui.variant_rows[0]['flags'].set('[MISSING]')
+        with patch.object(app.messagebox, 'showerror') as error:
+            self.assertIsNone(self.gui._write_scripts(show_message=False))
+        self.assertIn('[MISSING]', error.call_args.args[1])
+        self.assertEqual(self.gui.plan, [])
+
     def test_preset_list_copy_field_and_persist_across_switches(self):
         gui = self.gui
         self.assertEqual(tuple(gui.preset_list.get(0, tk.END)), gui.preset_values)
@@ -196,7 +231,7 @@ class GuiSettingsTest(unittest.TestCase):
     def test_shogizone_upload_fields_are_preset_specific(self):
         gui = self.gui
         self.assertEqual([gui.notebook.tab(tab, 'text') for tab in gui.notebook.tabs()],
-                         ['Recipe', 'Logs', 'ShogiZone', 'Paths'])
+                         ['Recipe', 'Logs', 'ShogiZone', 'Macros'])
         gui.shogizone_engine_name_var.set('Engine One')
         gui.shogizone_auto_upload_var.set(True)
         gui.preset_var.set('yo-material')
