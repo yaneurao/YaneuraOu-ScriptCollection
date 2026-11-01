@@ -237,18 +237,29 @@ bool is_none_argument(const std::string& token)
     return lower == "none";
 }
 
+int parse_integer(const std::string& text)
+{
+    std::size_t parsed = 0;
+    int value = 0;
+    try { value = std::stoi(text, &parsed); }
+    catch (const std::exception&) { throw std::invalid_argument("invalid integer: " + text); }
+    if (parsed != text.size())
+        throw std::invalid_argument("invalid integer: " + text);
+    return value;
+}
+
 int parse_int_argument(const std::vector<std::string>& tokens, std::size_t index, int default_value)
 {
     if (tokens.size() <= index || is_none_argument(tokens[index]))
         return default_value;
-    return std::stoi(tokens[index]);
+    return parse_integer(tokens[index]);
 }
 
 std::optional<int> parse_optional_int_argument(const std::vector<std::string>& tokens, std::size_t index)
 {
     if (tokens.size() <= index || is_none_argument(tokens[index]))
         return std::nullopt;
-    return std::stoi(tokens[index]);
+    return parse_integer(tokens[index]);
 }
 
 bool has_considered(const std::optional<bookminer::PositionInfo>& position)
@@ -922,7 +933,7 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
             }
             else
             {
-                const int parsed = std::stoi(value);
+                const int parsed = parse_integer(value);
                 if (parsed < 0)
                     throw std::runtime_error("book_extend_ply must be non-negative integer or None");
                 entry.book_extend_ply = parsed;
@@ -936,7 +947,7 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
             }
             else
             {
-                const int parsed = std::stoi(value);
+                const int parsed = parse_integer(value);
                 if (parsed < 0)
                     throw std::runtime_error("eval_limit must be non-negative integer or None");
                 entry.eval_limit = parsed;
@@ -950,7 +961,7 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
             }
             else
             {
-                const int parsed = std::stoi(value);
+                const int parsed = parse_integer(value);
                 if (parsed <= 0)
                     throw std::runtime_error("game_ply_limit must be positive integer or None");
                 entry.max_book_ply = parsed;
@@ -1011,8 +1022,10 @@ std::vector<PositionCommandEntry> read_position_commands_file(
     std::unordered_map<std::string, std::size_t> indexes;
     std::string line;
     bool first_line = true;
+    std::size_t line_number = 0;
     while (std::getline(in, line))
     {
+        ++line_number;
         if (first_line && line.size() >= 3
             && static_cast<unsigned char>(line[0]) == 0xef
             && static_cast<unsigned char>(line[1]) == 0xbb
@@ -1022,7 +1035,16 @@ std::vector<PositionCommandEntry> read_position_commands_file(
         line = trim_metadata_copy(std::move(line));
         if (line.empty() || line[0] == '#')
             continue;
-        auto entry = parse_position_command_entry(line);
+        PositionCommandEntry entry;
+        try
+        {
+            entry = parse_position_command_entry(line);
+        }
+        catch (const std::exception& ex)
+        {
+            throw std::runtime_error("invalid think_sfens entry at " + path.string() + ":"
+                                     + std::to_string(line_number) + " : " + ex.what());
+        }
         add_position_command_entry(
             commands,
             indexes,
@@ -1192,6 +1214,8 @@ public:
         int branch_depth = 0)
     {
         const auto commands = read_position_commands_file(path, eval_limit, max_book_ply, think_command_ply);
+        if (!commands.empty() && engines_.empty())
+            throw std::runtime_error("no search engines are configured");
         const int job_id = next_job_id_.fetch_add(1);
         const auto added = commands.size();
         const std::string job_eval_limit = summarize_effective_position_command_value(
@@ -3935,6 +3959,8 @@ int main(int argc, char* argv[])
                 return static_cast<char>(std::tolower(ch));
             });
 
+            try
+            {
             if (command == "h")
             {
                 print_help();
@@ -3972,7 +3998,7 @@ int main(int argc, char* argv[])
             {
                 std::optional<int> ply_limit;
                 if (tokens.size() >= 2)
-                    ply_limit = std::stoi(tokens[1]);
+                    ply_limit = parse_integer(tokens[1]);
                 if (!ply_limit.has_value() && auto_save_service)
                     auto_save_service->reset_timer();
                 const auto before_revision = book.revision();
@@ -3994,11 +4020,11 @@ int main(int argc, char* argv[])
                     continue;
                 }
                 CommandDefaults new_defaults;
-                new_defaults.eval_diff = std::stoi(tokens[1]);
-                new_defaults.max_step = std::stoi(tokens[2]);
-                new_defaults.game_ply_limit = std::stoi(tokens[3]);
-                new_defaults.book_extend_ply = std::stoi(tokens[4]);
-                new_defaults.eval_limit = std::stoi(tokens[5]);
+                new_defaults.eval_diff = parse_integer(tokens[1]);
+                new_defaults.max_step = parse_integer(tokens[2]);
+                new_defaults.game_ply_limit = parse_integer(tokens[3]);
+                new_defaults.book_extend_ply = parse_integer(tokens[4]);
+                new_defaults.eval_limit = parse_integer(tokens[5]);
                 if (new_defaults.eval_diff < 0)
                     log_line("Error : default eval_diff must be non-negative integer.");
                 else if (new_defaults.max_step <= 0)
@@ -4041,8 +4067,8 @@ int main(int argc, char* argv[])
                     log_line("Usage : eb branch_width branch_depth");
                     continue;
                 }
-                const int branch_width = std::stoi(tokens[1]);
-                const int branch_depth = std::stoi(tokens[2]);
+                const int branch_width = parse_integer(tokens[1]);
+                const int branch_depth = parse_integer(tokens[2]);
                 if (!task_workers)
                     log_line("Error : task workers are not running.");
                 else if (branch_width <= 0)
@@ -4526,6 +4552,11 @@ int main(int argc, char* argv[])
             else
             {
                 log_line("unknown command: " + command);
+            }
+            }
+            catch (const std::exception& ex)
+            {
+                log_line("Exception : command failed, command=" + command + " : " + ex.what());
             }
         }
     }

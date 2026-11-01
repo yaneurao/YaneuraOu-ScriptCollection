@@ -51,6 +51,36 @@ class CppIntegrationTest(unittest.TestCase):
         subprocess.run([str(self.config_exe), str(self.root / 'settings.json5')],
                        check=True, capture_output=True, text=True, timeout=30)
 
+    def test_bad_command_does_not_stop_the_program(self):
+        for command in ('sd invalid 1 200 0 400', 'sd 1x 1 200 0 400', 'e'):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'book').mkdir()
+                (root / 'book' / 'think_sfens.txt').write_text('startpos, game_ply_limit=200x\n')
+                binary = root / 'bookminer'
+                shutil.copy2(self.binary, binary)
+                result = subprocess.run([str(binary), '--from_gui'], input=command + '\nq\n',
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('Exception : command failed', result.stdout)
+                if command == 'e':
+                    self.assertIn('think_sfens.txt:1', result.stdout)
+                self.assertIn('..save_book_backup has done', result.stdout)
+
+    def test_enqueue_without_engines_reports_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'book').mkdir()
+            (root / 'book' / 'think_sfens.txt').write_text('startpos\n')
+            binary = root / 'bookminer'
+            shutil.copy2(self.binary, binary)
+            result = subprocess.run([str(binary), '--from_gui'], input='e\nq\n',
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('no search engines are configured', result.stdout)
+            self.assertNotIn('[TaskQueueStart]', result.stdout)
+            self.assertIn('..save_book_backup has done', result.stdout)
+
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
                        check=True, capture_output=True, text=True, timeout=30)
