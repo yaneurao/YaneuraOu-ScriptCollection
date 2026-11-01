@@ -1953,6 +1953,10 @@ def _expand_flag_macros(value: str, aliases: dict[str, str]) -> str:
 
 def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
     result = deepcopy(recipe)
+    if isinstance(result.get("version"), str):
+        result["version"] = _expand_flag_macros(result["version"], aliases)
+        if "package_version" in result:
+            result["package_version"] = package_version_from_engine_version(result["version"])
     if isinstance(result.get("engine_name"), str):
         result["engine_name"] = _expand_flag_macros(result["engine_name"], aliases)
     if isinstance(result.get("common_cppflags"), list):

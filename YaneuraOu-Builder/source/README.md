@@ -135,7 +135,7 @@ Release settings のテキスト欄や選択欄を右クリックすると、項
 
 画面上部の `Macros` タブに、全 preset で共通に使う値を名前とともに登録できます。例えば `YOSC` に `C:\Users\yaneen\CA-misc\work\YaneuraOuWork\YaneuraOu-ScriptCollection` を登録すると、tune.py 欄に `[YOSC]\SPSA\tune.py` と書けます。同様に `YaneuraOuSource` などの名前を追加し、各パス欄の先頭で `[YaneuraOuSource]` を使えます。パスとして使う場合は絶対パスを登録してください。名前は英字または `_` で始まり、英数字と `_` を使います。
 
-`DEV_OPTIONS` に `-DFOO=1 -DBAR=2` のような文字列を登録すると、Variants の `Extra CPP flags` や `Common CPP flags` に `[DEV_OPTIONS]` と書けます。`Engine name` にもマクロを使えます。フラグやエンジン名のマクロ値には別のマクロも使えます。Macros の各行の ↑ / ↓ で表示順を変更でき、その順番は保存されます。
+`DEV_OPTIONS` に `-DFOO=1 -DBAR=2` のような文字列を登録すると、Variants の `Extra CPP flags` や `Common CPP flags` に `[DEV_OPTIONS]` と書けます。`Engine name` と `Engine version` にもマクロを使えます。これらのマクロ値には別のマクロも使えます。Macros の各行の ↑ / ↓ で表示順を変更でき、その順番は保存されます。
 
 設定欄には短い表記が保存され、ビルド計画やスクリプトの生成時に登録値へ展開されます。登録値を変更すると、次に生成するビルドから新しい値が使われます。未登録のマクロ、循環参照、またはパス欄で絶対パスでない値を使うと、生成前にエラーを表示します。すでに生成されたスクリプトは変更されません。
 

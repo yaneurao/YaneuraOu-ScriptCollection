@@ -108,8 +108,10 @@ class GuiSettingsTest(unittest.TestCase):
         gui._add_path_alias('DEV_OPTIONS', '-DFOO=1 -DBAR=2')
         gui._add_path_alias('COMMON_OPTIONS', '-DCOMMON=1')
         gui._add_path_alias('ENGINE_NAME', 'MyEngine')
+        gui._add_path_alias('ENGINE_VERSION', 'V9.99')
         gui.run_root_var.set(str(Path(self.tmp.name) / 'runs'))
         gui.release_engine_name_var.set('[ENGINE_NAME]-test')
+        gui.release_version_var.set('[ENGINE_VERSION]-test')
         gui.release_common_flags_var.set('[COMMON_OPTIONS]')
         gui.variant_rows[0]['flags'].set('[DEV_OPTIONS] -DEXTRA=3')
         run = gui._write_scripts(show_message=False)
@@ -118,15 +120,19 @@ class GuiSettingsTest(unittest.TestCase):
         recipe = json.loads((run / 'recipe.json').read_text(encoding='utf8'))
         self.assertEqual(recipe['common_cppflags'], ['-DCOMMON=1'])
         self.assertEqual(recipe['engine_name'], 'MyEngine-test')
+        self.assertEqual(recipe['version'], 'V9.99-test')
+        self.assertEqual(recipe['package_version'], 'V999-test')
         self.assertEqual(recipe['variants'][0]['extra_cppflags'], ['-DFOO=1 -DBAR=2', '-DEXTRA=3'])
         scripts = '\n'.join(p.read_text(encoding='utf8') for p in (run / 'scripts').iterdir())
         self.assertIn('-DFOO=1 -DBAR=2 -DEXTRA=3', scripts)
         self.assertIn('MyEngine-test', scripts)
+        self.assertIn('V999-test', scripts)
         settings, _ = app.load_gui_settings()
         preset = settings['presets'][gui.current_preset_name]
         self.assertEqual(preset['variants'][0]['extra_cppflags'], ['[DEV_OPTIONS]', '-DEXTRA=3'])
         self.assertEqual(preset['common_cppflags'], ['[COMMON_OPTIONS]'])
         self.assertEqual(preset['engine_name'], '[ENGINE_NAME]-test')
+        self.assertEqual(preset['version'], '[ENGINE_VERSION]-test')
 
     def test_macro_order_buttons_save_and_preserve_values(self):
         gui = self.gui
