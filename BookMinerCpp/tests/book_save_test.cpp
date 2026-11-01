@@ -7,12 +7,58 @@
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 int main(int argc, char** argv)
 {
     if (argc != 2) return 2;
     const std::filesystem::path dir(argv[1]);
+    const auto existing = dir / "existing.db";
+    { std::ofstream out(existing); out << "original"; }
+    try
+    {
+        bookminer::replace_book_file(dir / "missing.tmp", existing);
+        throw std::runtime_error("replacement unexpectedly succeeded");
+    }
+    catch (const std::filesystem::filesystem_error&) {}
+    catch (const std::system_error&) {}
+    {
+        std::ifstream in(existing);
+        std::string content;
+        in >> content;
+        if (content != "original")
+            throw std::runtime_error("failed replacement damaged existing book");
+    }
+    {
+        bookminer::BookStore book;
+        const std::vector<bookminer::MoveInfo> moves = {{bookminer::move16_from_usi("7g7f"), 20, 0}};
+        book.merge_position(bookminer::StartSfenPly1, 20, moves);
+        if (book.count_save_positions(10) != 0)
+            throw std::runtime_error("initial ply limit was not applied");
+        book.update_position_ply(bookminer::StartSfenPly1, 5);
+        if (book.count_save_positions(10) != 1 || book.find_position_copy(bookminer::StartSfenPly1)->ply != 5)
+            throw std::runtime_error("shorter path did not update saved ply");
+        const auto revision = book.revision();
+        book.update_position_ply(bookminer::StartSfenPly1, 10);
+        if (book.revision() != revision)
+            throw std::runtime_error("longer path changed stored ply");
+        book.merge_position(bookminer::StartSfenPly1, 3, moves);
+        if (book.find_position_copy(bookminer::StartSfenPly1)->ply != 3)
+            throw std::runtime_error("merge did not retain the shortest ply");
+    }
+    {
+        const auto input = dir / "duplicate-ply.db";
+        std::ofstream out(input);
+        out << bookminer::YaneuraOuBookHeaderV1 << "\nsfen " << bookminer::StartSfen
+            << " 20\n7g7f none 10 0\nsfen " << bookminer::StartSfen
+            << " 5\n2g2f none 5 0\n";
+        out.close();
+        bookminer::BookStore book;
+        book.load_yaneuraou_book(input, false, nullptr, nullptr);
+        if (book.find_position_copy(bookminer::StartSfenPly1)->ply != 5)
+            throw std::runtime_error("import did not retain the shortest ply");
+    }
     const auto min = std::numeric_limits<std::int16_t>::min();
     for (const auto& values : std::vector<std::vector<std::int16_t>>{{10, 100, 30}, {100, 100, 20}, {min, min, min}})
     {

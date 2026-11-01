@@ -9,8 +9,27 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace bookminer {
+
+void replace_book_file(const std::filesystem::path& source, const std::filesystem::path& destination)
+{
+#ifdef _WIN32
+    if (!MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                                "failed to replace book file");
+#else
+    std::filesystem::rename(source, destination);
+#endif
+}
 
 namespace {
 
@@ -756,7 +775,9 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
             const PackedSfen key = PackedSfen::from_sfen(current_sfen);
             auto& position = loaded[key];
             if (position.moves.empty())
-                position.ply = static_cast<std::uint16_t>(std::max(0, current_ply));
+                position.ply = static_cast<std::uint16_t>(std::clamp(current_ply, 0, 65535));
+            else
+                position.ply = std::min(position.ply, static_cast<std::uint16_t>(std::clamp(current_ply, 0, 65535)));
             position.moves.insert(position.moves.end(), current_moves.begin(), current_moves.end());
             sort_moves(position.moves);
         }
@@ -963,7 +984,7 @@ public:
             return std::nullopt;
 
         PositionInfo position;
-        position.ply = static_cast<std::uint16_t>(std::max(0, entry->ply));
+        position.ply = static_cast<std::uint16_t>(std::clamp(entry->ply, 0, 65535));
         position.moves = read_moves_after(entry->next_pos);
         sort_moves(position.moves);
         return position;
@@ -1163,6 +1184,28 @@ void BookStore::end_search(const SearchLease& lease)
     searching_.erase(PackedSfen::from_sfen(lease.flipped_sfen));
 }
 
+void BookStore::update_position_ply(const std::string& sfen, std::uint16_t ply)
+{
+    (void)update_position_ply(PackedSfen::from_sfen(sfen), ply);
+}
+
+bool BookStore::update_position_ply(const PackedSfen& key, std::uint16_t ply)
+{
+    std::scoped_lock lock(mutex_);
+    const auto* existing = find_position_locked(key);
+    if (existing == nullptr)
+        return false;
+    if (existing->ply <= ply)
+        return true;
+    auto [it, inserted] = memtable_.try_emplace(key, *existing);
+    (void)inserted;
+    it->second.ply = ply;
+    ++revision_;
+    if (memtable_.size() >= LsmMemtableFlushThreshold)
+        flush_memtable_locked();
+    return true;
+}
+
 void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const std::vector<MoveInfo>& moves)
 {
     if (moves.empty())
@@ -1191,6 +1234,11 @@ void BookStore::merge_position(const std::string& sfen, std::uint16_t ply, const
         changed = true;
     }
     if (position->moves.empty())
+    {
+        position->ply = ply;
+        changed = true;
+    }
+    else if (ply < position->ply)
     {
         position->ply = ply;
         changed = true;
@@ -1403,9 +1451,7 @@ std::size_t BookStore::save_yaneuraou_book(
             if (!out)
                 throw std::runtime_error("failed to write temp ybb book: " + tmp_path.string());
 
-            std::error_code ec;
-            std::filesystem::remove(path, ec);
-            std::filesystem::rename(tmp_path, path);
+            replace_book_file(tmp_path, path);
             report_progress(progress, user, BookProgressKind::Done, position_count, position_count, path);
         }
         catch (...)
@@ -1477,7 +1523,7 @@ std::size_t BookStore::save_yaneuraou_book(
         if (!out)
             throw std::runtime_error("failed to write temp book: " + tmp_path.string());
 
-        std::filesystem::rename(tmp_path, path);
+        replace_book_file(tmp_path, path);
         report_progress(progress, user, BookProgressKind::Done, positions.size(), positions.size(), path);
     }
     catch (...)

@@ -89,6 +89,8 @@ public:
     bool is_searching(const std::string& sfen, const std::string& flipped_sfen) const;
     SearchLease try_begin_search(const std::string& sfen, const std::string& flipped_sfen);
     void end_search(const SearchLease& lease);
+    void update_position_ply(const std::string& sfen, std::uint16_t ply);
+    bool update_position_ply(const PackedSfen& key, std::uint16_t ply);
     void merge_position(const std::string& sfen, std::uint16_t ply, const std::vector<MoveInfo>& moves);
     std::size_t count_save_positions(std::optional<int> ply_limit) const;
     std::vector<BookEntry> snapshot_entries() const;
@@ -136,6 +138,7 @@ std::int16_t normalize_book_eval(int eval);
 std::string trim_sfen(const std::string& sfen_with_optional_prefix_and_ply);
 std::pair<std::string, int> trim_sfen_ply(const std::string& sfen_with_optional_prefix_and_ply);
 std::filesystem::path temp_book_path(const std::filesystem::path& path);
+void replace_book_file(const std::filesystem::path& source, const std::filesystem::path& destination);
 bool is_yane_bin_book_path(const std::filesystem::path& path);
 std::unique_ptr<BookProbe> open_book_probe(const std::filesystem::path& path, bool normalize_eval = false);
 
