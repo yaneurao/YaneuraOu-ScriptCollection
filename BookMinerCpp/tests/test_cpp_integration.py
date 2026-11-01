@@ -81,6 +81,22 @@ class CppIntegrationTest(unittest.TestCase):
             self.assertNotIn('[TaskQueueStart]', result.stdout)
             self.assertIn('..save_book_backup has done', result.stdout)
 
+    def test_explicit_work_directory_keeps_settings_and_books_together(self):
+        with tempfile.TemporaryDirectory(prefix='book miner work ') as directory:
+            root = Path(directory)
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
+            source = backup / 'book_miner-20261029000000_1.db'
+            source.write_text('#YANEURAOU-DB2016 1.00\n'
+                              'sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\n'
+                              '7g7f none 0 1\n')
+            result = subprocess.run([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                    input='q\n', capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('done..1 positions.', result.stdout)
+            self.assertEqual(len(list(backup.glob('book_miner-*.ybb'))), 1)
+            self.assertTrue((root / 'log').is_dir())
+
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
                        check=True, capture_output=True, text=True, timeout=30)

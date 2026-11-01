@@ -15,10 +15,13 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
+import json5
+
 
 BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 BOOK_MINER_CPP_EXE = BASE_DIR / "BookMinerCpp.exe"
+BOOK_MINER_SETTINGS_PATH = BASE_DIR / "settings" / "book_miner_settings.json5"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
 THINK_SFENS_COMMAND_PATH = "book/think_sfens.txt"
@@ -339,14 +342,32 @@ class Tooltip:
             self.window = None
 
 
+def configured_bookminer_cpp_path(base_dir: Path, settings_path: Path) -> tuple[Path, bool]:
+    if not settings_path.is_file():
+        return base_dir / "BookMinerCpp.exe", False
+    with settings_path.open(encoding="utf-8-sig") as file:
+        settings = json5.load(file)
+    if not isinstance(settings, dict):
+        raise ValueError(f"設定ファイルの内容はオブジェクトである必要があります: {settings_path}")
+    if "bookminer_cpp_path" not in settings:
+        return base_dir / "BookMinerCpp.exe", False
+    value = settings["bookminer_cpp_path"]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("bookminer_cpp_path は空でないパス文字列を指定してください。")
+    path = Path(value.strip()).expanduser()
+    return (path if path.is_absolute() else base_dir / path), True
+
+
 class BookMinerGui(ttk.Frame):
-    def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False, use_cpp: bool = False) -> None:
+    def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False, use_cpp: bool = False,
+                 cpp_executable: Path | None = None) -> None:
         super().__init__(master, padding=12)
         gui_settings = load_gui_settings()
         self.master = master
         self.enable_shogidb = enable_shogidb
         self.use_cpp = use_cpp
-        self.bookminer_name = "BookMinerCpp.exe" if use_cpp else "BookMiner.py"
+        self.cpp_executable = cpp_executable or BOOK_MINER_CPP_EXE
+        self.bookminer_name = self.cpp_executable.name if use_cpp else "BookMiner.py"
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.output_buffer = ""
@@ -1139,12 +1160,12 @@ class BookMinerGui(ttk.Frame):
             return
 
         if self.use_cpp:
-            if not BOOK_MINER_CPP_EXE.is_file():
-                messagebox.showerror("起動失敗", f"BookMinerCpp.exe が見つかりません: {BOOK_MINER_CPP_EXE}")
+            if not self.cpp_executable.is_file():
+                messagebox.showerror("起動失敗", f"BookMinerCpp の実行ファイルが見つかりません: {self.cpp_executable}")
                 return
-            args = [str(BOOK_MINER_CPP_EXE), "--from_gui"]
-            cwd = BOOK_MINER_CPP_EXE.parent
-            command_text = f"{BOOK_MINER_CPP_EXE.name} --from_gui"
+            args = [str(self.cpp_executable), "--from_gui", "--work-dir", str(BASE_DIR)]
+            cwd = BASE_DIR
+            command_text = f"{self.cpp_executable} --from_gui --work-dir {BASE_DIR}"
         else:
             if not BOOK_MINER_SCRIPT.is_file():
                 messagebox.showerror("起動失敗", f"BookMiner.py が見つかりません: {BOOK_MINER_SCRIPT}")
@@ -2872,7 +2893,15 @@ def main() -> int:
         help="force BookMinerCpp.exe instead of BookMiner.py",
     )
     args = parser.parse_args()
-    use_cpp = args.cpp or BOOK_MINER_CPP_EXE.is_file()
+    try:
+        cpp_executable, explicitly_configured = configured_bookminer_cpp_path(BASE_DIR, BOOK_MINER_SETTINGS_PATH)
+    except (OSError, ValueError) as exc:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("設定エラー", f"BookMiner の設定を読み込めません: {exc}")
+        root.destroy()
+        return 1
+    use_cpp = args.cpp or explicitly_configured or cpp_executable.is_file()
 
     root = tk.Tk()
     root.title("BookMiner GUI with BookMiner C++" if use_cpp else "BookMiner GUI with BookMiner Python")
@@ -2880,7 +2909,7 @@ def main() -> int:
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
-    gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=use_cpp)
+    gui = BookMinerGui(root, enable_shogidb=args.shogidb, use_cpp=use_cpp, cpp_executable=cpp_executable)
     configure_initial_window_size(root)
 
     def on_close() -> None:

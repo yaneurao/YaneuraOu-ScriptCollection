@@ -1,4 +1,8 @@
 {
+    // GUIから起動するBookMinerCpp実行ファイル。省略時はBookMinerCpp.exeを自動検出。
+    // 相対パスはBookMinerフォルダ基準。絶対パスも指定できる。
+    // bookminer_cpp_path: "../BookMinerCpp/build/BookMinerCpp.exe",
+
     // 定期自動バックアップの間隔。単位は秒。
     // 10800 = 3時間。
     auto_save_interval_seconds: 10800,

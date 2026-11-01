@@ -176,6 +176,9 @@ settings/book_miner_settings.json5
 
 ```json5
 {
+    // GUIで使用するBookMinerCppの実行ファイル。省略可能。
+    // bookminer_cpp_path: "../BookMinerCpp/build/BookMinerCpp.exe",
+
     // 定期自動バックアップの間隔。単位は秒。
     // 10800 = 3時間。
     auto_save_interval_seconds: 10800,
@@ -195,6 +198,7 @@ settings/book_miner_settings.json5
 
 各項目の意味は次の通りです。
 
+- `bookminer_cpp_path` : GUI から起動する BookMinerCpp の実行ファイルです。ファイル名や絶対パスを指定でき、相対パスは BookMiner フォルダ基準です。指定すると GUI は C++ 版を使用します。省略時は同フォルダの `BookMinerCpp.exe` を自動検出します。別フォルダの実行ファイルを使うには、`--work-dir` に対応した最新版の BookMinerCpp をビルドしてください。
 - `auto_save_interval_seconds` : 定期自動バックアップの間隔です。単位は秒です。
 - `max_book_ply` : この手数に到達したら、それ以上局面を掘りません。
 - `peta_next_start_sfens_path` : `pn` / `pr` コマンドで使う開始局面集合ファイルです。

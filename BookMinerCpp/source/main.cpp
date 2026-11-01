@@ -3867,7 +3867,23 @@ int main(int argc, char* argv[])
     configure_windows_console();
 
     const bool from_gui = has_arg(argc, argv, "--from_gui");
-    const fs::path app_dir = executable_dir(argv[0]);
+    fs::path app_dir = executable_dir(argv[0]);
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::string_view(argv[i]) != "--work-dir")
+            continue;
+        if (i + 1 >= argc)
+        {
+            std::cerr << "--work-dir requires a directory path\n";
+            return 2;
+        }
+        app_dir = fs::absolute(fs::path(argv[++i]));
+        if (!fs::is_directory(app_dir))
+        {
+            std::cerr << "--work-dir is not a directory: " << app_dir.string() << '\n';
+            return 2;
+        }
+    }
     if (!app_dir.empty())
         fs::current_path(app_dir);
 
