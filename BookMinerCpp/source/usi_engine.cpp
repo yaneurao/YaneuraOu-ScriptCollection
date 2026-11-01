@@ -335,7 +335,7 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
             // A value-based resignation may still have a scored PV for legal moves.
             if (tokens[1] == "resign")
                 return EngineGoResult{std::move(node), searched_nodes};
-            if (tokens[1] == "win" || tokens[1] == "none")
+            if (tokens[1] == "win" || tokens[1] == "none" || tokens[1] == "0000")
                 return EngineGoResult{{}, searched_nodes};
 
             if (!previous_node.empty() && node.size() < static_cast<std::size_t>(multipv))

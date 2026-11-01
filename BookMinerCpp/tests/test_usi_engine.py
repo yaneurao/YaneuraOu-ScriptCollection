@@ -91,6 +91,13 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['1a1b -26'])
 
+    def test_no_move_terminal_response_does_not_fail_search(self):
+        for move in ('none', '0000', 'win'):
+            with self.subTest(move=move):
+                result = self.run_engine([[f'bestmove {move}']])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, '')
+
     def test_ranking_updates_replace_earlier_candidates(self):
         result = self.run_engine([["info multipv 1 score cp 100 pv 7g7f",
                                    "info multipv 2 score cp 20 pv 2g2f",
