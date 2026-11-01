@@ -55,7 +55,6 @@ constexpr const char* EngineSettingsPath = "settings/engine_settings.json5";
 constexpr const char* BookMinerSettingsPath = "settings/book_miner_settings.json5";
 constexpr const char* BookMinerCppSettingsPath = "settings/book_miner_cpp_settings.json5";
 constexpr int ThinkCommandPly = 6;
-constexpr int MaxTaskDeferCount = 1000;
 constexpr int TaskDeferSleepMilliseconds = 10;
 constexpr int DefaultEvalLimit = 400;
 constexpr int PlyMin = std::numeric_limits<int>::min();
@@ -475,7 +474,8 @@ ThinkOnceResult think_sfen_once(
         log_line(oss.str());
     }
 
-    const auto engine_result = engine.go(lease.sfen, node_ratio, [](const std::string& message) {
+    const std::string engine_position = "sfen " + lease.sfen + " " + std::to_string(ply);
+    const auto engine_result = engine.go(engine_position, node_ratio, [](const std::string& message) {
         log_line(message);
     });
     last_thinking_ply = ply;
@@ -723,6 +723,18 @@ TaskResult process_position_command(
         const int ply = board.ply();
 
         auto current_lookup = find_book_position_with_flip(book, current_sfen);
+        if (has_considered(current_lookup.position))
+        {
+            const auto current_ply = static_cast<std::uint16_t>(std::clamp(ply, 0, 65535));
+            if (current_ply < current_lookup.position->ply)
+            {
+                auto key = bookminer::PackedSfen::from_sfen(current_sfen);
+                if (current_lookup.flipped)
+                    key.flip();
+                (void)book.update_position_ply(key, current_ply);
+                current_lookup.position->ply = current_ply;
+            }
+        }
         if (!has_considered(current_lookup.position))
         {
             auto thought = think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, max_book_ply, visited);
@@ -785,6 +797,13 @@ TaskResult process_position_command(
 
         board.push_usi(move);
     }
+
+    // Even when book_extend_ply is zero, an already stored leaf may have
+    // been reached here by a shorter path than its recorded ply.
+    const auto leaf_key = bookminer::PackedSfen::from_sfen(board.sfen());
+    const auto leaf_ply = static_cast<std::uint16_t>(std::clamp(board.ply(), 0, 65535));
+    if (!book.update_position_ply(leaf_key, leaf_ply))
+        (void)book.update_position_ply(leaf_key.flipped(), leaf_ply);
 
     return start_thinking_best_line(
         book,
@@ -1003,6 +1022,8 @@ public:
     {
         {
             std::scoped_lock lock(mutex_);
+            if (stopping_)
+                return;
             const int job_id = task.job_id;
             auto it = jobs_.find(job_id);
             if (it == jobs_.end())
@@ -1309,7 +1330,10 @@ private:
 
     void defer_task(Task task)
     {
-        ++task.defer_count;
+        if (stopped_.load())
+            return;
+        if (task.defer_count < std::numeric_limits<int>::max())
+            ++task.defer_count;
         {
             std::scoped_lock lock(progress_mutex_);
             auto it = jobs_.find(task.job_id);
@@ -1317,17 +1341,9 @@ private:
                 ++it->second.deferred;
         }
 
-        if (task.defer_count > MaxTaskDeferCount)
-        {
-            log_line("[TaskQueueDeferLimit] job=" + std::to_string(task.job_id)
-                + " defer_count=" + std::to_string(task.defer_count)
-                + " position=" + task.position_command);
-            report_task_done(task, true);
-            return;
-        }
-
         std::this_thread::sleep_for(std::chrono::milliseconds(TaskDeferSleepMilliseconds));
-        queue_.push_deferred(std::move(task));
+        if (!stopped_.load())
+            queue_.push_deferred(std::move(task));
     }
 
     void progress_reporter_loop()

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -59,6 +60,15 @@ class CppIntegrationTest(unittest.TestCase):
         directory.mkdir()
         subprocess.run([str(self.executables['book_save']), str(directory)],
                        check=True, capture_output=True, text=True, timeout=30)
+
+    def test_worker_shutdown_and_deferred_search(self):
+        if os.environ.get('BOOKMINER_TEST_BINARY'):
+            return  # The same tests run directly in this test process.
+        env = os.environ.copy()
+        env['BOOKMINER_TEST_BINARY'] = str(self.binary)
+        subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'),
+                        '-p', 'test_shutdown.py', '-q'], env=env, check=True,
+                       capture_output=True, text=True, timeout=90)
 
     def test_p_command_uses_shared_peta_settings(self):
         root = self.root / 'p-command'

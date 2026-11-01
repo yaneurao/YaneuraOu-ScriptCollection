@@ -7,6 +7,13 @@ int main(int argc, char** argv)
     if (argc != 2)
         return 2;
     {
+        TaskQueue queue;
+        queue.stop(true);
+        queue.push(Task{});
+        if (queue.pop().has_value())
+            throw std::runtime_error("task was requeued after shutdown");
+    }
+    {
         bookminer::BookStore seen_book;
         seen_book.merge_position(bookminer::StartSfenPly1, 20, {
             {bookminer::move16_from_usi("7g7f"), 10, 0},
