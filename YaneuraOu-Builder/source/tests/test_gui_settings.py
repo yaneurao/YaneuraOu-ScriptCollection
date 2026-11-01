@@ -107,7 +107,9 @@ class GuiSettingsTest(unittest.TestCase):
         gui = self.gui
         gui._add_path_alias('DEV_OPTIONS', '-DFOO=1 -DBAR=2')
         gui._add_path_alias('COMMON_OPTIONS', '-DCOMMON=1')
+        gui._add_path_alias('ENGINE_NAME', 'MyEngine')
         gui.run_root_var.set(str(Path(self.tmp.name) / 'runs'))
+        gui.release_engine_name_var.set('[ENGINE_NAME]-test')
         gui.release_common_flags_var.set('[COMMON_OPTIONS]')
         gui.variant_rows[0]['flags'].set('[DEV_OPTIONS] -DEXTRA=3')
         run = gui._write_scripts(show_message=False)
@@ -115,13 +117,44 @@ class GuiSettingsTest(unittest.TestCase):
         import json
         recipe = json.loads((run / 'recipe.json').read_text(encoding='utf8'))
         self.assertEqual(recipe['common_cppflags'], ['-DCOMMON=1'])
+        self.assertEqual(recipe['engine_name'], 'MyEngine-test')
         self.assertEqual(recipe['variants'][0]['extra_cppflags'], ['-DFOO=1 -DBAR=2', '-DEXTRA=3'])
         scripts = '\n'.join(p.read_text(encoding='utf8') for p in (run / 'scripts').iterdir())
         self.assertIn('-DFOO=1 -DBAR=2 -DEXTRA=3', scripts)
+        self.assertIn('MyEngine-test', scripts)
         settings, _ = app.load_gui_settings()
         preset = settings['presets'][gui.current_preset_name]
         self.assertEqual(preset['variants'][0]['extra_cppflags'], ['[DEV_OPTIONS]', '-DEXTRA=3'])
         self.assertEqual(preset['common_cppflags'], ['[COMMON_OPTIONS]'])
+        self.assertEqual(preset['engine_name'], '[ENGINE_NAME]-test')
+
+    def test_macro_order_buttons_save_and_preserve_values(self):
+        gui = self.gui
+        gui._add_path_alias('SECOND', 'value 2')
+        gui._add_path_alias('THIRD', 'value 3')
+        third = gui.path_alias_rows[2][0]
+        frame = gui.path_alias_frames[str(third)]
+        up = next(child for child in frame.winfo_children()
+                  if isinstance(child, app.ttk.Button) and child.cget('text') == '↑')
+        down = next(child for child in frame.winfo_children()
+                    if isinstance(child, app.ttk.Button) and child.cget('text') == '↓')
+        up.invoke()
+        self.assertEqual([n.get() for n, _ in gui.path_alias_rows], ['YOSC', 'THIRD', 'SECOND'])
+        self.assertEqual(gui.alias_frame.pack_slaves()[:3], [
+            gui.path_alias_frames[str(n)] for n, _ in gui.path_alias_rows])
+        self.assertEqual([v.get() for _, v in gui.path_alias_rows][1:], ['value 3', 'value 2'])
+        settings, _ = app.load_gui_settings()
+        self.assertEqual([row['name'] for row in settings['path_aliases']], ['YOSC', 'THIRD', 'SECOND'])
+        other = app.BuildGui(Path(__file__).resolve().parents[2])
+        other.withdraw()
+        try:
+            self.assertEqual([n.get() for n, _ in other.path_alias_rows], ['YOSC', 'THIRD', 'SECOND'])
+        finally:
+            other.destroy()
+        down.invoke()
+        self.assertEqual([n.get() for n, _ in gui.path_alias_rows], ['YOSC', 'SECOND', 'THIRD'])
+        down.invoke()
+        self.assertEqual([n.get() for n, _ in gui.path_alias_rows], ['YOSC', 'SECOND', 'THIRD'])
 
     def test_flag_macro_expansion_and_validation(self):
         aliases = {'DEV_OPTIONS': '-DFOO=1 -DBAR=2', 'NESTED': '[DEV_OPTIONS] -DOTHER'}

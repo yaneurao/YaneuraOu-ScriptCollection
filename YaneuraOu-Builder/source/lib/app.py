@@ -412,6 +412,7 @@ class BuildGui(tk.Tk):
         self.add_path_button = ttk.Button(self.alias_frame, text="Add macro", command=self._add_path_alias)
         self.add_path_button.pack(anchor="w", pady=(6, 0))
         self.path_alias_rows: list[tuple[tk.StringVar, tk.StringVar]] = []
+        self.path_alias_frames: dict[str, ttk.Frame] = {}
         saved = self.gui_settings.get("path_aliases")
         if not isinstance(saved, list):
             saved = [{"name": "YOSC", "path": str(self.gui_settings.get("yosc_path", default))}]
@@ -423,7 +424,12 @@ class BuildGui(tk.Tk):
         name_var, path_var = tk.StringVar(value=name), tk.StringVar(value=path)
         self.path_alias_rows.append((name_var, path_var))
         frame = ttk.Frame(self.alias_frame)
+        self.path_alias_frames[str(name_var)] = frame
         frame.pack(fill="x", pady=2, before=self.add_path_button)
+        ttk.Button(frame, text="↑", width=3, style="PresetMove.TButton",
+                   command=lambda: self._move_path_alias(name_var, -1)).pack(side="left")
+        ttk.Button(frame, text="↓", width=3, style="PresetMove.TButton",
+                   command=lambda: self._move_path_alias(name_var, 1)).pack(side="left", padx=(0, 6))
         ttk.Label(frame, text="[").pack(side="left")
         ttk.Entry(frame, textvariable=name_var, width=22).pack(side="left")
         ttk.Label(frame, text="]").pack(side="left", padx=(0, 8))
@@ -431,8 +437,23 @@ class BuildGui(tk.Tk):
         ttk.Button(frame, text="Browse", command=lambda: self._browse_dir(path_var)).pack(side="left", padx=4)
         def remove() -> None:
             self.path_alias_rows.remove((name_var, path_var))
+            del self.path_alias_frames[str(name_var)]
             frame.destroy()
         ttk.Button(frame, text="Remove", command=remove).pack(side="left")
+
+    def _move_path_alias(self, name_var: tk.StringVar, offset: int) -> None:
+        index = next((i for i, row in enumerate(self.path_alias_rows) if row[0] is name_var), -1)
+        target = index + offset
+        if index < 0 or not 0 <= target < len(self.path_alias_rows):
+            return
+        frame = self.path_alias_frames[str(name_var)]
+        other = self.path_alias_frames[str(self.path_alias_rows[target][0])]
+        self.path_alias_rows[index], self.path_alias_rows[target] = self.path_alias_rows[target], self.path_alias_rows[index]
+        frame.pack_configure(**({"before": other} if offset < 0 else {"after": other}))
+        if not self._save_gui_settings(update_current_preset=False):
+            self.path_alias_rows[index], self.path_alias_rows[target] = self.path_alias_rows[target], self.path_alias_rows[index]
+            frame.pack_configure(**({"after": other} if offset < 0 else {"before": other}))
+            messagebox.showerror("Macros", "Could not save the macro order.")
 
     def _path_aliases(self) -> dict[str, str]:
         result = {}
@@ -1932,6 +1953,8 @@ def _expand_flag_macros(value: str, aliases: dict[str, str]) -> str:
 
 def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
     result = deepcopy(recipe)
+    if isinstance(result.get("engine_name"), str):
+        result["engine_name"] = _expand_flag_macros(result["engine_name"], aliases)
     if isinstance(result.get("common_cppflags"), list):
         result["common_cppflags"] = [_expand_flag_macros(flag, aliases) if isinstance(flag, str) else flag
                                      for flag in result["common_cppflags"]]
