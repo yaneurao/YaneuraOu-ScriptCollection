@@ -49,7 +49,6 @@ constexpr const char* BookDir = "book";
 constexpr const char* BookBackupDir = "book/backup";
 constexpr const char* BookDbName = "book_miner";
 constexpr const char* PetaBookDbName = "peta_book";
-constexpr const char* PetaShockEngineName = "YO-MATERIAL.exe";
 constexpr const char* ThinkSfensName = "think_sfens.txt";
 constexpr const char* ThinkUnsolvedSfensName = "think_unsolved_sfens.txt";
 constexpr const char* EngineSettingsPath = "settings/engine_settings.json5";
@@ -436,7 +435,12 @@ ThinkOnceResult think_sfen_once(
     const auto sfen_key = bookminer::PackedSfen::from_sfen(sfen);
     const auto sfen_f_key = sfen_key.flipped();
     if (visited.find(sfen_key) != visited.end() || visited.find(sfen_f_key) != visited.end())
+    {
+        const auto current_ply = static_cast<std::uint16_t>(std::clamp(ply, 0, 65535));
+        if (!book.update_position_ply(sfen_key, current_ply))
+            (void)book.update_position_ply(sfen_f_key, current_ply);
         return {};
+    }
 
     const std::string sfen_f = bookminer::flipped_sfen(sfen);
     bookminer::SearchLease lease = book.try_begin_search(sfen, sfen_f);
@@ -453,7 +457,16 @@ ThinkOnceResult think_sfen_once(
     } guard{book, lease};
 
     if (has_considered(lease.position))
-        return ThinkOnceResult{ThinkOnceStatus::Position, *lease.position, lease.sfen, false};
+    {
+        auto position = *lease.position;
+        const auto current_ply = static_cast<std::uint16_t>(std::clamp(ply, 0, 65535));
+        if (current_ply < position.ply)
+        {
+            book.update_position_ply(lease.sfen, current_ply);
+            position.ply = current_ply;
+        }
+        return ThinkOnceResult{ThinkOnceStatus::Position, std::move(position), lease.sfen, false};
+    }
 
     const double node_ratio = last_thinking_ply + 1 == ply ? 0.7 : 1.0;
     {
@@ -467,7 +480,7 @@ ThinkOnceResult think_sfen_once(
     });
     last_thinking_ply = ply;
 
-    book.merge_position(lease.sfen, static_cast<std::uint16_t>(std::max(0, ply)), to_book_moves(engine_result.moves));
+    book.merge_position(lease.sfen, static_cast<std::uint16_t>(std::clamp(ply, 0, 65535)), to_book_moves(engine_result.moves));
     g_mining_stats.report(book.size(), engine_result.searched_nodes);
 
     auto position = book.find_position_copy(lease.sfen);
@@ -1654,12 +1667,72 @@ void append_unique_position_command(std::vector<std::string>& out, std::unordere
         out.push_back(position_command);
 }
 
+bool append_unique_peta_leaf(std::vector<std::string>& out,
+                             std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>& seen,
+                             const std::string& position_command, const std::string& sfen)
+{
+    if (!seen.insert(bookminer::PackedSfen::from_sfen(sfen)).second)
+        return false;
+    out.push_back(position_command);
+    return true;
+}
+
 struct PetaNextNode {
     std::string sfen_with_ply;
     int root_best_eval = 0;
     int eval_diff = 0;
     std::optional<int> leaf_eval;
 };
+
+struct PetaVisitKey {
+    bookminer::PackedSfen position;
+    int root_best_eval;
+    std::optional<int> leaf_eval;
+
+    bool operator==(const PetaVisitKey& other) const noexcept
+    {
+        return position == other.position && root_best_eval == other.root_best_eval
+            && leaf_eval == other.leaf_eval;
+    }
+};
+
+struct PetaVisitKeyHash {
+    std::size_t operator()(const PetaVisitKey& key) const noexcept
+    {
+        std::uint64_t hash = bookminer::PackedSfenHash{}(key.position);
+        hash ^= static_cast<std::uint64_t>(static_cast<std::uint32_t>(key.root_best_eval)) * UINT64_C(0x9e3779b97f4a7c15);
+        hash ^= key.leaf_eval ? static_cast<std::uint64_t>(static_cast<std::uint32_t>(*key.leaf_eval)) * UINT64_C(0xbf58476d1ce4e5b9)
+                              : UINT64_C(0x94d049bb133111eb);
+        hash ^= hash >> 30;
+        hash *= UINT64_C(0xbf58476d1ce4e5b9);
+        hash ^= hash >> 27;
+        hash *= UINT64_C(0x94d049bb133111eb);
+        hash ^= hash >> 31;
+        return static_cast<std::size_t>(hash);
+    }
+};
+
+bool mark_peta_state(std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash>& visited,
+                     const std::string& sfen, int ply, const PetaNextNode& node,
+                     bool use_leaf_eval)
+{
+    PetaVisitKey key{bookminer::PackedSfen::from_sfen(sfen), node.root_best_eval,
+                     use_leaf_eval ? node.leaf_eval : std::nullopt};
+    auto [it, inserted] = visited.emplace(std::move(key), ply);
+    if (!inserted && it->second <= ply)
+        return false;
+    it->second = ply;
+    return true;
+}
+
+bool peta_is_own_turn(const std::string& sfen, int turn)
+{
+    const auto separator = sfen.find(' ');
+    if (separator == std::string::npos || separator + 1 >= sfen.size()
+        || (sfen[separator + 1] != 'b' && sfen[separator + 1] != 'w'))
+        throw std::runtime_error("invalid SFEN side to move: " + sfen);
+    return (sfen[separator + 1] == 'b') == (turn == 1);
+}
 
 class OrderedPetaNextPositions {
 public:
@@ -1696,6 +1769,11 @@ std::vector<std::pair<std::string, std::string>> load_peta_next_root_positions(c
         {
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
+            if (roots.empty() && line.size() >= 3
+                && static_cast<unsigned char>(line[0]) == 0xef
+                && static_cast<unsigned char>(line[1]) == 0xbb
+                && static_cast<unsigned char>(line[2]) == 0xbf)
+                line.erase(0, 3);
             auto first = std::find_if(line.begin(), line.end(), [](unsigned char ch) {
                 return !std::isspace(ch);
             });
@@ -1728,13 +1806,13 @@ std::vector<std::string> peta_next_for_turn(
     std::optional<int> eval_refutation_margin)
 {
     std::vector<std::string> think_sfens;
-    std::unordered_set<std::string> think_seen;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
 
     const std::string turn_str = turn == 1 ? "black" : "white";
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
     log_line(std::string("--- ") + (filter_refutation ? "peta_next_refutation " : "peta_next ") + turn_str + " ---");
 
-    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash> visited;
     const auto root_positions = load_peta_next_root_positions(start_sfens_path);
 
     OrderedPetaNextPositions current_positions;
@@ -1748,7 +1826,7 @@ std::vector<std::string> peta_next_for_turn(
         if (hit.position == nullptr || hit.position->moves.empty())
         {
             if (!filter_refutation)
-                append_unique_position_command(think_sfens, think_seen, position_command);
+                append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
             continue;
         }
 
@@ -1756,7 +1834,7 @@ std::vector<std::string> peta_next_for_turn(
         if (!root_best.has_value())
         {
             if (!filter_refutation)
-                append_unique_position_command(think_sfens, think_seen, position_command);
+                append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
             continue;
         }
 
@@ -1780,16 +1858,14 @@ std::vector<std::string> peta_next_for_turn(
             if (ply >= max_book_ply)
                 continue;
 
-            if (visited_peta_position(visited, sfen))
+            if (!mark_peta_state(visited, sfen, ply, node, false))
                 continue;
-
-            visited.insert(bookminer::PackedSfen::from_sfen(sfen));
 
             const auto hit = find_peta_position_with_flip(peta_book, sfen);
             if (hit.position == nullptr)
             {
                 if (!filter_refutation)
-                    append_unique_position_command(think_sfens, think_seen, position_command);
+                    append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
                 continue;
             }
 
@@ -1798,7 +1874,8 @@ std::vector<std::string> peta_next_for_turn(
                 continue;
 
             const int best_eval = static_cast<int>(moveinfos.front().eval);
-            const int eval_low = (ply % 2 == turn) ? best_eval : node.root_best_eval - node.eval_diff;
+            const std::int64_t eval_low = peta_is_own_turn(sfen, turn)
+                ? best_eval : static_cast<std::int64_t>(node.root_best_eval) - node.eval_diff;
 
             for (std::size_t move_index = 0; move_index < moveinfos.size(); ++move_index)
             {
@@ -1837,7 +1914,7 @@ std::vector<std::string> peta_next_for_turn(
                                 static_cast<int>(moveinfo.eval),
                                 *eval_refutation_margin))
                         {
-                            append_unique_position_command(think_sfens, think_seen, next_position_command);
+                            append_unique_peta_leaf(think_sfens, think_seen, next_position_command, next_sfen_ply.first);
                         }
                         continue;
                     }
@@ -2032,12 +2109,12 @@ std::vector<std::string> peta_rejoin_for_turn(
     PetaRejoinStats& stats)
 {
     std::vector<std::string> think_sfens;
-    std::unordered_set<std::string> think_seen;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
 
     const std::string turn_str = turn == 1 ? "black" : "white";
     log_line("--- peta_rejoin " + turn_str + " ---");
 
-    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash> visited;
     const auto root_positions = load_peta_next_root_positions(start_sfens_path);
 
     OrderedPetaNextPositions current_positions;
@@ -2053,8 +2130,8 @@ std::vector<std::string> peta_rejoin_for_turn(
             ++stats.leaf_nodes;
             if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
-                append_unique_position_command(think_sfens, think_seen, position_command);
-                ++stats.rejoin_nodes;
+                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                    ++stats.rejoin_nodes;
             }
             continue;
         }
@@ -2065,8 +2142,8 @@ std::vector<std::string> peta_rejoin_for_turn(
             ++stats.leaf_nodes;
             if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
-                append_unique_position_command(think_sfens, think_seen, position_command);
-                ++stats.rejoin_nodes;
+                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                    ++stats.rejoin_nodes;
             }
             continue;
         }
@@ -2093,26 +2170,28 @@ std::vector<std::string> peta_rejoin_for_turn(
             if (ply >= max_book_ply)
                 continue;
 
-            if (visited_peta_position(visited, sfen))
+            const auto hit = find_peta_position_with_flip(peta_book, sfen);
+            const bool leaf = hit.position == nullptr || hit.position->moves.empty();
+            const bool needs_leaf_eval = leaf && eval_drop.has_value()
+                && *eval_drop > PetaRejoinEvalDropDisabled;
+            if (!mark_peta_state(visited, sfen, ply, node, needs_leaf_eval))
                 continue;
 
-            visited.insert(bookminer::PackedSfen::from_sfen(sfen));
-
-            const auto hit = find_peta_position_with_flip(peta_book, sfen);
-            if (hit.position == nullptr || hit.position->moves.empty())
+            if (leaf)
             {
                 ++stats.leaf_nodes;
                 if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply, node.leaf_eval, eval_drop))
                 {
-                    append_unique_position_command(think_sfens, think_seen, position_command);
-                    ++stats.rejoin_nodes;
+                    if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                        ++stats.rejoin_nodes;
                 }
                 continue;
             }
 
             const auto& moveinfos = hit.position->moves;
             const int best_eval = static_cast<int>(moveinfos.front().eval);
-            const int eval_low = (ply % 2 == turn) ? best_eval : node.root_best_eval - node.eval_diff;
+            const std::int64_t eval_low = peta_is_own_turn(sfen, turn)
+                ? best_eval : static_cast<std::int64_t>(node.root_best_eval) - node.eval_diff;
 
             for (const auto& moveinfo : moveinfos)
             {
@@ -3035,9 +3114,10 @@ std::string to_book_dir_relative_path(const fs::path& path)
     return rel_string;
 }
 
-fs::path find_peta_shock_engine(const fs::path& app_dir)
+fs::path find_peta_shock_engine(const fs::path& app_dir, const bookminer::BookMinerSettings& settings)
 {
-    const fs::path engine_path = app_dir / PetaShockEngineName;
+    const fs::path configured = fs::u8path(settings.peta_shock_engine_path);
+    const fs::path engine_path = configured.is_absolute() ? configured : app_dir / configured;
     if (fs::is_regular_file(engine_path))
         return engine_path;
     throw std::runtime_error("peta shock engine not found : " + engine_path.string());
@@ -3301,9 +3381,10 @@ int run_process_with_input(const fs::path& executable, const fs::path& cwd, cons
 }
 #endif
 
-fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source_book_path)
+fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source_book_path,
+                                const bookminer::BookMinerSettings& settings)
 {
-    const fs::path engine_path = find_peta_shock_engine(app_dir);
+    const fs::path engine_path = find_peta_shock_engine(app_dir, settings);
     const std::string source_book_rel = to_book_dir_relative_path(source_book_path);
     const fs::path peta_path = peta_book_backup_path_from_source(source_book_path);
     const fs::path peta_temp_path = bookminer::temp_book_path(peta_path);
@@ -3313,7 +3394,9 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     std::error_code ec;
     fs::remove(peta_temp_path, ec);
 
-    const std::string makebook_command = "makebook peta_shock " + source_book_rel + " " + peta_temp_rel;
+    std::string makebook_command = "makebook peta_shock " + source_book_rel + " " + peta_temp_rel;
+    if (settings.peta_shock_threads != 1)
+        makebook_command += " threads " + std::to_string(settings.peta_shock_threads);
 
     log_line("start peta_shock makebook");
     log_line("engine path = " + engine_path.string());
@@ -3336,8 +3419,7 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     if (!fs::is_regular_file(peta_temp_path) || fs::file_size(peta_temp_path) == 0)
         throw std::runtime_error("peta_shock makebook failed. output file was not created : " + peta_temp_path.string());
 
-    fs::remove(peta_path, ec);
-    fs::rename(peta_temp_path, peta_path);
+    bookminer::replace_book_file(peta_temp_path, peta_path);
     log_line("..peta_shock makebook has done, path = " + peta_path.string());
     return peta_path;
 }
@@ -3350,9 +3432,7 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
     log_line("start save_book_backup , path = " + saving_path.string());
     const auto written_count = book.save_yaneuraou_book(saving_path, ply_limit, book_write_progress, nullptr);
     auto path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
-    std::error_code ec;
-    fs::remove(path, ec);
-    fs::rename(saving_path, path);
+    bookminer::replace_book_file(saving_path, path);
     log_line("..save_book_backup has done, " + std::to_string(written_count) + " positions.");
     return path;
 }
@@ -3488,10 +3568,11 @@ void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::st
 
 fs::path make_peta_book(
     const fs::path& app_dir,
-    const std::optional<std::string>& source_book_path)
+    const std::optional<std::string>& source_book_path,
+    const bookminer::BookMinerSettings& settings)
 {
     const fs::path source = resolve_peta_source_book_path(source_book_path);
-    return run_peta_shock_makebook(app_dir, source);
+    return run_peta_shock_makebook(app_dir, source, settings);
 }
 
 class PetaBookReadJob {
@@ -3915,7 +3996,7 @@ int main(int argc, char* argv[])
                 }
                 log_line("start p command : write backup, peta_shock, and read peta book.");
                 log_line("p command source book = " + source_book_path.string());
-                const fs::path peta_path = make_peta_book(app_dir, std::optional<std::string>{source_book_path.string()});
+                const fs::path peta_path = make_peta_book(app_dir, std::optional<std::string>{source_book_path.string()}, book_miner_settings);
                 if (!peta_book_read_job.start(
                         std::optional<std::string>{peta_path.string()},
                         "..p command has done.",
@@ -3930,7 +4011,7 @@ int main(int argc, char* argv[])
                     continue;
 
                 log_line("start pl command : peta_shock latest backup, and read peta book.");
-                const fs::path peta_path = make_peta_book(app_dir, std::nullopt);
+                const fs::path peta_path = make_peta_book(app_dir, std::nullopt, book_miner_settings);
                 if (!peta_book_read_job.start(
                         std::optional<std::string>{peta_path.string()},
                         "..pl command has done.",
