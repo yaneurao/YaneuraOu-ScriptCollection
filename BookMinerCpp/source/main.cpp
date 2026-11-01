@@ -954,7 +954,8 @@ void add_position_command_entry(
     old.max_book_ply = max_optional_int(old.max_book_ply, max_book_ply);
 }
 
-std::vector<PositionCommandEntry> read_position_commands_file(const std::filesystem::path& path)
+std::vector<PositionCommandEntry> read_position_commands_file(
+    const std::filesystem::path& path, int eval_limit, int max_book_ply, int think_command_ply)
 {
     std::ifstream in(path);
     if (!in)
@@ -963,10 +964,16 @@ std::vector<PositionCommandEntry> read_position_commands_file(const std::filesys
     std::vector<PositionCommandEntry> commands;
     std::unordered_map<std::string, std::size_t> indexes;
     std::string line;
+    bool first_line = true;
     while (std::getline(in, line))
     {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
+        if (first_line && line.size() >= 3
+            && static_cast<unsigned char>(line[0]) == 0xef
+            && static_cast<unsigned char>(line[1]) == 0xbb
+            && static_cast<unsigned char>(line[2]) == 0xbf)
+            line.erase(0, 3);
+        first_line = false;
+        line = trim_metadata_copy(std::move(line));
         if (line.empty() || line[0] == '#')
             continue;
         auto entry = parse_position_command_entry(line);
@@ -974,10 +981,12 @@ std::vector<PositionCommandEntry> read_position_commands_file(const std::filesys
             commands,
             indexes,
             entry.position_command,
-            entry.book_extend_ply,
-            entry.eval_limit,
-            entry.max_book_ply);
+            entry.book_extend_ply.value_or(think_command_ply),
+            entry.eval_limit.value_or(eval_limit),
+            entry.max_book_ply.value_or(max_book_ply));
     }
+    if (in.bad())
+        throw std::runtime_error("failed to read think_sfens file: " + path.string());
     return commands;
 }
 
@@ -1135,7 +1144,7 @@ public:
         int branch_width = 0,
         int branch_depth = 0)
     {
-        const auto commands = read_position_commands_file(path);
+        const auto commands = read_position_commands_file(path, eval_limit, max_book_ply, think_command_ply);
         const int job_id = next_job_id_.fetch_add(1);
         const auto added = commands.size();
         const std::string job_eval_limit = summarize_effective_position_command_value(

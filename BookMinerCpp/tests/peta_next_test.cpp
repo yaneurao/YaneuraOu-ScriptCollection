@@ -39,6 +39,30 @@ int main(int argc, char** argv)
     }
     const std::filesystem::path roots_path(argv[1]);
     {
+        const auto input = roots_path.parent_path() / "think-input.txt";
+        {
+            std::ofstream out(input, std::ios::binary);
+            out << "startpos\n"
+                   "startpos, book_extend_ply=3, eval_limit=500, game_ply_limit=100\n";
+        }
+        const auto commands = read_position_commands_file(input, 400, 200, 10);
+        if (commands.size() != 1 || commands[0].position_command != "startpos"
+            || commands[0].book_extend_ply != 10 || commands[0].eval_limit != 500
+            || commands[0].max_book_ply != 200)
+            throw std::runtime_error("duplicate position defaults were not applied before merging");
+        {
+            std::ofstream out(input, std::ios::binary);
+            out << "\xef\xbb\xbf  # comment\n  \nstartpos\n";
+        }
+        const auto bom_commands = read_position_commands_file(input, 400, 200, 10);
+        if (bom_commands.size() != 1 || bom_commands[0].position_command != "startpos")
+            throw std::runtime_error("BOM comment or blank line was not ignored");
+        { std::ofstream out(input, std::ios::binary); out << "\xef\xbb\xbf" << "startpos\n"; }
+        const auto bom_position = read_position_commands_file(input, 400, 200, 10);
+        if (bom_position.size() != 1 || bom_position[0].position_command != "startpos")
+            throw std::runtime_error("UTF-8 BOM was retained in the position command");
+    }
+    {
         const auto dir = roots_path.parent_path();
         const auto output = dir / "merge-preserve.txt";
         const auto black = dir / "merge-black.txt";
