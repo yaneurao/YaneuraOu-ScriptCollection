@@ -327,14 +327,16 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
                 auto it = moves.find(i);
                 if (it == moves.end())
                     break;
-                node.push_back(it->second);
+                // An interrupted MultiPV update can leave an older rank with
+                // the same move. Keep the higher-ranked entry and its score.
+                if (std::none_of(node.begin(), node.end(), [&](const auto& entry) {
+                        return entry.move == it->second.move;
+                    }))
+                    node.push_back(it->second);
             }
 
             if (tokens.size() < 2)
                 throw std::runtime_error("engine returned invalid bestmove: " + *line);
-            // A value-based resignation may still have a scored PV for legal moves.
-            if (tokens[1] == "resign")
-                return EngineGoResult{std::move(node), searched_nodes};
             if (tokens[1] == "win" || tokens[1] == "none" || tokens[1] == "0000")
                 return EngineGoResult{{}, searched_nodes};
 
@@ -343,6 +345,9 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
                 log("[EngineWarning] Re-search returned incomplete MultiPV; using the previous search result.");
                 return EngineGoResult{std::move(previous_node), searched_nodes};
             }
+            // A value-based resignation may still have a scored PV for legal moves.
+            if (tokens[1] == "resign")
+                return EngineGoResult{std::move(node), searched_nodes};
             if (node.empty())
                 throw std::runtime_error("engine returned bestmove without a score and PV: " + *line);
             if (!node.empty() && tokens[1] != node.front().move)

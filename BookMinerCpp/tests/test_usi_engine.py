@@ -107,6 +107,14 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['3g3f 120', '7g7f 25'])
 
+    def test_partial_ranking_update_does_not_repeat_a_move(self):
+        result = self.run_engine([["info multipv 1 score cp 100 pv 7g7f",
+                                   "info multipv 2 score cp 20 pv 2g2f",
+                                   "info multipv 1 score cp 120 pv 2g2f",
+                                   "bestmove 2g2f"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['2g2f 120'])
+
     def test_bestmove_must_match_scored_pv(self):
         result = self.run_engine([["info score cp 100 pv 7g7f", "bestmove 2g2f"]])
         self.assertNotEqual(result.returncode, 0)
@@ -119,6 +127,16 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f 100', '2g2f 95'])
         self.assertIn('incomplete MultiPV', result.stderr)
+
+    def test_resignation_during_incomplete_research_keeps_previous_result(self):
+        for second_search in (["bestmove resign"],
+                              ["info multipv 1 score cp -100 pv 3g3f", "bestmove resign"]):
+            with self.subTest(second_search=second_search):
+                result = self.run_engine([["info multipv 1 score cp 100 pv 7g7f",
+                                           "info multipv 2 score cp 95 pv 2g2f", "bestmove 7g7f"],
+                                          second_search])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), ['7g7f 100', '2g2f 95'])
 
 
 if __name__ == '__main__':
