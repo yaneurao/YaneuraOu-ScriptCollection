@@ -15,6 +15,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from .planner import create_plan, validate_plan
+from .log_format import log_level
 from .presets import (
     PRESET_LABELS,
     PRESET_NAMES,
@@ -786,6 +787,10 @@ class BuildGui(tk.Tk):
         self.log_tab.columnconfigure(0, weight=1)
         self.log_tab.rowconfigure(0, weight=1)
         self.log_text = tk.Text(self.log_tab, wrap="word", font=("Consolas", 10))
+        self.log_text.tag_configure("success", foreground="#17623a", background="#e3f5e9")
+        self.log_text.tag_configure("error", foreground="#a01515", background="#fde8e8")
+        self.log_text.tag_configure("warning", foreground="#805000", background="#fff1cf")
+        self.log_text.tag_configure("stage", foreground="#1a4d80", background="#e7f1fb")
         yscroll = ttk.Scrollbar(self.log_tab, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=yscroll.set)
         self.log_text.grid(row=0, column=0, sticky="nsew")
@@ -1759,7 +1764,8 @@ class BuildGui(tk.Tk):
         self.plan = []
 
     def _log(self, message: str) -> None:
-        self.log_text.insert("end", message + "\n")
+        level = log_level(message)
+        self.log_text.insert("end", message + "\n", (level,) if level else ())
         self.log_text.see("end")
 
 

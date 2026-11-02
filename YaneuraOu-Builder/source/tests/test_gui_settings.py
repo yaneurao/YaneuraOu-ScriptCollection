@@ -23,6 +23,16 @@ class GuiSettingsTest(unittest.TestCase):
         self.gui.withdraw()
         self.addCleanup(self.gui.destroy)
 
+    def test_build_log_highlights_status_without_mislabeling_output(self):
+        text = self.gui.log_text
+        text.delete('1.0', 'end')
+        for line in ('[SPSA] 開始: apply', '[SPSA] 成功: apply', '[BUILD] 成功: test.exe', '[ERROR] 失敗', 'compiler output'):
+            self.gui._log(line)
+        for n, tag in [(1, 'stage'), (2, 'success'), (3, 'success'), (4, 'error')]:
+            self.assertIn(tag, text.tag_names(f'{n}.0'))
+            self.assertTrue(text.tag_cget(tag, 'background'))
+        self.assertEqual(text.tag_names('5.0'), ())
+
     def test_shogizone_settings_persist_outside_recipe(self):
         gui = self.gui
         gui.shogizone_url_var.set('https://zone.example')

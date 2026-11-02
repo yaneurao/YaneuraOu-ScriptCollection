@@ -19,6 +19,7 @@ class SpsaScriptTest(unittest.TestCase):
             (root / 'selected.params').write_text('selected')
             (root / 'ParamLib.py').write_text('')
             (root / 'tune.py').write_text(
+                'SPSA_VALIDATION_VERSION = 1\n'
                 'import pathlib, sys\n'
                 'path = pathlib.Path(sys.argv[2]).with_suffix(".params")\n'
                 'assert path.read_text() == "selected"\n'
@@ -33,6 +34,26 @@ class SpsaScriptTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(str(root / 'selected.params'), result.stdout)
             self.assertEqual((root / 'build' / 'example.params').read_text(), 'selected')
+
+    def test_validation_marker_accepts_windows_line_endings(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'source').mkdir()
+            (root/'tune.py').write_bytes(b'SPSA_VALIDATION_VERSION = 1\r\n')
+            (root/'ParamLib.py').write_text('');(root/'x.tune').write_text('');(root/'x.params').write_text('')
+            recipe={'spsa':{'mode':'apply','tune_py':str(root/'tune.py'),'param_lib':str(root/'ParamLib.py'),'tune_file':str(root/'x.tune'),'params_file':str(root/'x.params')}}
+            script='\n'.join(['set -eu',f'SOURCE_DIR={str(root / "source")!r}',f'PYTHON_CMD={sys.executable!r}']+_release_source_setup(recipe))
+            result=subprocess.run(['bash','-c',script],cwd=root,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_old_tune_script_fails_before_source_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); (root/'source').mkdir(); (root/'old.py').write_text('print("old")\n')
+            recipe={'spsa':{'mode':'apply','tune_py':str(root/'old.py'),'param_lib':'p','tune_file':'t','params_file':'p'}}
+            script='\n'.join(['set -eu', f'SOURCE_DIR={str(root / "source")!r}', f'PYTHON_CMD={sys.executable!r}'] + _release_source_setup(recipe))
+            result=subprocess.run(['bash','-c',script],cwd=root,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('tune.py',result.stderr)
+            self.assertFalse((root/'build').exists())
 
     def test_single_spsa_script_copies_to_expected_name(self):
         with tempfile.TemporaryDirectory() as directory:

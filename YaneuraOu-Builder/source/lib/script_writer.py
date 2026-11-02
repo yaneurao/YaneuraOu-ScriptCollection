@@ -102,10 +102,12 @@ def _write_release_scripts(recipe: dict[str, Any], plan: list[dict[str, Any]], s
                 lines.append('require_command "$WIN32_CLANG_WRAPPER"')
             else:
                 lines.append(f"require_command {_quote_literal(str(job.get('compiler', 'clang++')))}")
+            lines.append('echo ' + _quote_literal(f'[BUILD] 開始: {job["edition"]} / {job["cpu"]}'))
             lines.append(f"make clean YANEURAOU_EDITION={job['edition']}")
             lines.append(job["command"])
             source_executable = job.get("source_executable", "YaneuraOu-by-gcc")
             lines.append(f"cp {source_executable} {_quote('../' + eval_dir + '/' + job['artifact'])}")
+            lines.append('echo ' + _quote_literal(f'[BUILD] 成功: {job["artifact"]}'))
             lines.append("")
 
         lines += [
@@ -144,6 +146,7 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
         f"PARAMS_FILE={_quote(params_file)}",
         f"TUNE_FILE_NAME={_quote(tune_name)}",
         "",
+        'if ! grep -qE "^SPSA_VALIDATION_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py が古いか安全確認に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
         "mkdir -p build",
         "rm -rf build/source",
         'cp -r "$SOURCE_DIR" build/source',
@@ -153,7 +156,9 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
         'echo "[SPSA] params input: $PARAMS_FILE"',
         'cp "$PARAMS_FILE" "build/${TUNE_FILE_NAME%.*}.params"',
         "cd build",
+        f'echo "[SPSA] 開始: {spsa_mode}"',
         f'"$PYTHON_CMD" tune.py {spsa_mode} "$TUNE_FILE_NAME" source',
+        f'echo "[SPSA] 成功: {spsa_mode}"',
         "cd source",
     ]
 
@@ -223,10 +228,12 @@ def _write_single_build_script(recipe: dict[str, Any], job: dict[str, Any], scri
         'rm -rf "$WORK_DIR/source"',
         'cp -r "$SOURCE_DIR" "$WORK_DIR/source"',
         'cd "$WORK_DIR/source"',
+        'echo "[BUILD] 開始: $OUTPUT_PATH"',
         f"make clean YANEURAOU_EDITION={job['edition']}",
         job["command"],
         'mkdir -p "$(dirname "$OUTPUT_PATH")"',
         'cp YaneuraOu-by-gcc "$OUTPUT_PATH"',
+        'echo "[BUILD] 成功: $OUTPUT_PATH"',
     ]
     _write_script(scripts_dir / script_name, lines)
 
@@ -246,6 +253,7 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
         f"TUNE_FILE_NAME={_quote(tune_name)}",
         f"OUTPUT_PATH={_quote(job['output_path'])}",
         "",
+        'if ! grep -qE "^SPSA_VALIDATION_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py が古いか安全確認に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
         'mkdir -p "$WORK_DIR"',
         'rm -rf "$WORK_DIR/source"',
         'cp -r "$SOURCE_DIR" "$WORK_DIR/source"',
@@ -255,12 +263,16 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
         'echo "[SPSA] params input: $PARAMS_FILE"',
         'cp "$PARAMS_FILE" "$WORK_DIR/${TUNE_FILE_NAME%.*}.params"',
         'cd "$WORK_DIR"',
+        f'echo "[SPSA] 開始: {job["tune_mode"]}"',
         f'"$PYTHON_CMD" tune.py {job["tune_mode"]} "$TUNE_FILE_NAME" "$WORK_DIR/source"',
+        f'echo "[SPSA] 成功: {job["tune_mode"]}"',
         "cd source",
+        'echo "[BUILD] 開始: $OUTPUT_PATH"',
         f"make clean YANEURAOU_EDITION={job['edition']}",
         job["command"],
         'mkdir -p "$(dirname "$OUTPUT_PATH")"',
         'cp YaneuraOu-by-gcc "$OUTPUT_PATH"',
+        'echo "[BUILD] 成功: $OUTPUT_PATH"',
     ]
     _write_script(scripts_dir / script_name, lines)
 
@@ -314,6 +326,7 @@ def _script_header(title: str) -> list[str]:
     return [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        "trap 'status=$?; echo \"[ERROR] ビルドまたは前処理に失敗しました (exit $status)\" >&2' ERR",
         'SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"',
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
         'if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then',

@@ -59,6 +59,7 @@ def read_parameters(params_file : str)->list[Entry]:
         raise FileNotFoundError(f"Error : {params_file} not found.")
         
     l : list[Entry] = []
+    names = set()
 
     with open(params_file, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -88,6 +89,14 @@ def read_parameters(params_file : str)->list[Entry]:
                     step = float(values[5]), delta = float(values[6]),
                     comment = comment, not_used = not_used)
 
+        key = e.name.casefold()
+        if not e.name or key in names:
+            raise ValueError(f"{params_file}({lineNo}): パラメーター名が空欄または重複: {e.name}")
+        names.add(key)
+        if not all(math.isfinite(v) for v in (e.v, e.min, e.max, e.step, e.delta)):
+            raise ValueError(f"{params_file}({lineNo}): {e.name} の値は有限数で指定してください")
+        if not e.not_used and (e.min >= e.max or not e.min <= e.v <= e.max or e.step <= 0 or e.delta < 0):
+            raise ValueError(f"{params_file}({lineNo}): {e.name} の初期値・範囲・摂動幅・更新係数が不正です")
         l.append(e)
 
     print(f", {len(l)} parameters.")

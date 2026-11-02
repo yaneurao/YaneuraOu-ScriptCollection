@@ -6,6 +6,8 @@ import copy
 from dataclasses import dataclass, field
 from ParamLib import *
 
+SPSA_VALIDATION_VERSION = 1
+
 @dataclass
 class Block:
     # block種別('set', 'context', 'add)
@@ -376,6 +378,29 @@ def print_block(block:list[str]):
         print(line)
 
 
+def validate_tune_sync(tune_blocks:list[TuneBlock]):
+    """Reject simple global copies of tuning values unless isready refreshes them.
+
+    This is intentionally a narrow check, not a C++ parser; more complex
+    derived values must still be reviewed by the author of the tune file.
+    """
+    copy_decl = re.compile(r"\b(?:int|float|double|long|short)\s+(?!const\b)(\w+)\s*=\s*@([A-Za-z0-9]*)\s*;")
+    for block in tune_blocks:
+        ready = "\n".join(''.join(a.content) for a in block.add_blocks
+                          if a.params and a.params[0] == '%%TUNE_ISREADY%%')
+        ready = re.sub(r'/\*.*?\*/|//[^\n]*', '', ready, flags=re.S)
+        for add in block.add_blocks:
+            if not add.params or add.params[0] != '%%TUNE_DECLARATION%%':
+                continue
+            # Ignore C++ comments; a reference declaration is intentionally not matched.
+            text = re.sub(r'/\*.*?\*/|//[^\n]*', '', ''.join(add.content), flags=re.S)
+            for match in copy_decl.finditer(text):
+                name, suffix = match.groups()
+                assignment = rf"\b{re.escape(name)}\s*=\s*@{re.escape(suffix)}(?![A-Za-z0-9])\s*;"
+                if not re.search(assignment, ready):
+                    raise ValueError(f"{name}: @の値を起動時にコピーしたままです。%%TUNE_ISREADY%%で再代入するか参照にしてください")
+
+
 def apply_parameters(tune_file:str , params_file : str, target_dir:str):
 
     try:
@@ -383,7 +408,22 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     except FileNotFoundError:
         params : list[Entry] = []
 
-    tune_blocks = read_tune_file(tune_file)
+    blocks = parse_tune_file(tune_file)
+    tune_blocks = read_tune_file(tune_file, blocks)
+    validate_tune_sync(tune_blocks)
+    explicit = {p.name for p in read_explicit_params(tune_file, blocks)}
+    unapplied = sorted(p.name for p in params if not p.not_used and p.name in explicit)
+    if unapplied:
+        raise ValueError("#param のUSIオプションは静的にapplyできません: " + ", ".join(unapplied) + "。実行時に別途設定してください")
+    used = set()
+    for block in tune_blocks:
+        context = get_context_block(block)
+        prefix = context.params[0] if context.params else ""
+        if prefix:
+            used.update(parse_content_block(context, prefix)[2])
+    extra = sorted(p.name for p in params if not p.not_used and p.name not in used)
+    if extra:
+        raise ValueError(".tune に対応する箇所がなくapplyされないパラメーター: " + ", ".join(extra))
 
     # 変数名を列挙する。
     for tune_block in tune_blocks:
@@ -461,6 +501,8 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
         param.not_used = True
 
     blocks = parse_tune_file(tune_file)
+    tune_blocks = read_tune_file(tune_file, blocks)
+    validate_tune_sync(tune_blocks)
 
     # `#param`で明示された、既存USI option用のパラメーターを追加する。
     # これはソースコード上の`@`置換とは独立しており、tune対象エンジンへ
@@ -478,8 +520,6 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
             result.comment  = explicit_param.comment
             result.v        = min(result.max, max(result.min, result.v))
             result.not_used = False
-
-    tune_blocks = read_tune_file(tune_file, blocks)
 
     def check_params(tune_block:TuneBlock):
         # linesのなかから、変数(`@`)を探して、なければparamに追加。

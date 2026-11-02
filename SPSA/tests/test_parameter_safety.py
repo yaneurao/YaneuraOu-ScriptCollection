@@ -30,6 +30,7 @@ class ParameterSafetyTests(unittest.TestCase):
         block = tune.TuneBlock(setblock={'file': 'unused'},
                                context_block=tune.Block(params=['test'], content=['old']))
         with patch.object(tune, 'read_parameters', return_value=[param]), \
+             patch.object(tune, 'parse_tune_file', return_value=[]), \
              patch.object(tune, 'read_tune_file', return_value=[block]), \
              patch.object(tune, 'parse_content_block', return_value=(['test'], [], ['test'])), \
              patch.object(tune, 'replace_context') as replace:
@@ -55,6 +56,45 @@ class ParameterSafetyTests(unittest.TestCase):
                 with self.assertRaisesRegex(Exception, 'insufficient params'):
                     tune.apply_parameters('unused.tune', str(path), directory)
                 read_tune.assert_not_called()
+
+    def test_global_parameter_copy_requires_refresh(self):
+        context = tune.Block(params=['test'], content=['const int k = 5@;'])
+        declaration = tune.Block(params=['%%TUNE_DECLARATION%%'], content=['int k = @;'])
+        block = tune.TuneBlock(context_block=context, add_blocks=[declaration])
+        with self.assertRaisesRegex(ValueError, 'k.*起動時'):
+            tune.validate_tune_sync([block])
+        block.add_blocks.append(tune.Block(params=['%%TUNE_ISREADY%%'], content=['k = @;']))
+        tune.validate_tune_sync([block])
+        block.add_blocks = [tune.Block(params=['%%TUNE_DECLARATION%%'], content=['int& k = @;'])]
+        tune.validate_tune_sync([block])
+
+    def test_apply_rejects_unapplied_explicit_option(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root/'x.tune').write_text('#param FV_SCALE int 40 16 64 1 0.002\n')
+            (root/'x.params').write_text('FV_SCALE,int,28,16,64,1,0.002\n')
+            with self.assertRaisesRegex(ValueError, 'FV_SCALE.*実行時'):
+                tune.apply_parameters(str(root/'x.tune'), str(root/'x.params'), d)
+
+    def test_rejects_duplicate_and_nonfinite_parameters(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'x.params'
+            path.write_text('X,int,1,0,10,1,0.1\nx,int,2,0,10,1,0.1\n')
+            with self.assertRaisesRegex(ValueError, '重複'):
+                tune.read_parameters(str(path))
+            path.write_text('X,int,nan,0,10,1,0.1\n')
+            with self.assertRaisesRegex(ValueError, '有限数'):
+                tune.read_parameters(str(path))
+
+    def test_apply_rejects_unused_active_parameter_before_writing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root/'x.tune').write_text('')
+            (root/'x.params').write_text('Extra,int,2,0,10,1,0.1\n')
+            with self.assertRaisesRegex(ValueError, 'Extra'):
+                tune.apply_parameters(str(root/'x.tune'), str(root/'x.params'), d)
+            (root/'x.params').write_text('Extra,int,2,0,10,1,0.1 [[NOT USED]]\n')
+            tune.apply_parameters(str(root/'x.tune'), str(root/'x.params'), d)
 
     def test_missing_parameters_can_be_created(self):
         with tempfile.TemporaryDirectory() as directory:
