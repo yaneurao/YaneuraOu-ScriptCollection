@@ -1905,6 +1905,12 @@ std::vector<std::string> peta_next_for_turn(
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
+    std::size_t skipped_ply = 0, skipped_visited = 0, rejected_own = 0, rejected_opponent = 0;
+    std::size_t missing_roots = 0, duplicate_leaves = 0, limited_frontier = 0;
+    auto record_leaf = [&](const std::string& command, const std::string& sfen) {
+        if (!append_unique_peta_leaf(think_sfens, think_seen, command, sfen))
+            ++duplicate_leaves;
+    };
 
     const std::string turn_str = turn == 1 ? "black" : "white";
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
@@ -1918,13 +1924,17 @@ std::vector<std::string> peta_next_for_turn(
     {
         auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
         if (ply >= max_book_ply)
+        {
+            ++skipped_ply;
             continue;
+        }
 
         const auto hit = find_peta_position_with_flip(peta_book, sfen);
         if (hit.position == nullptr || hit.position->moves.empty())
         {
+            ++missing_roots;
             if (!filter_refutation)
-                append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
+                record_leaf(position_command, sfen);
             continue;
         }
 
@@ -1932,7 +1942,7 @@ std::vector<std::string> peta_next_for_turn(
         if (!root_best.has_value())
         {
             if (!filter_refutation)
-                append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
+                record_leaf(position_command, sfen);
             continue;
         }
 
@@ -1944,7 +1954,10 @@ std::vector<std::string> peta_next_for_turn(
     while (!current_positions.empty())
     {
         if (step > max_step)
+        {
+            limited_frontier = current_positions.order().size();
             break;
+        }
 
         OrderedPetaNextPositions next_positions;
 
@@ -1954,16 +1967,22 @@ std::vector<std::string> peta_next_for_turn(
             auto [sfen, ply] = bookminer::trim_sfen_ply(node.sfen_with_ply);
 
             if (ply >= max_book_ply)
+            {
+                ++skipped_ply;
                 continue;
+            }
 
             if (!mark_peta_state(visited, sfen, ply, node, false))
+            {
+                ++skipped_visited;
                 continue;
+            }
 
             const auto hit = find_peta_position_with_flip(peta_book, sfen);
             if (hit.position == nullptr)
             {
                 if (!filter_refutation)
-                    append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen);
+                    record_leaf(position_command, sfen);
                 continue;
             }
 
@@ -1972,14 +1991,18 @@ std::vector<std::string> peta_next_for_turn(
                 continue;
 
             const int best_eval = static_cast<int>(moveinfos.front().eval);
-            const std::int64_t eval_low = peta_is_own_turn(sfen, turn)
+            const bool own_turn = peta_is_own_turn(sfen, turn);
+            const std::int64_t eval_low = own_turn
                 ? best_eval : static_cast<std::int64_t>(node.root_best_eval) - node.eval_diff;
 
             for (std::size_t move_index = 0; move_index < moveinfos.size(); ++move_index)
             {
                 const auto& moveinfo = moveinfos[move_index];
                 if (static_cast<int>(moveinfo.eval) < eval_low)
+                {
+                    ++(own_turn ? rejected_own : rejected_opponent);
                     continue;
+                }
 
                 const std::uint16_t move16 = hit.flipped ? bookminer::flipped_move16(moveinfo.move16) : moveinfo.move16;
                 const std::string move = bookminer::move16_to_usi(move16);
@@ -1992,7 +2015,10 @@ std::vector<std::string> peta_next_for_turn(
                 const std::string next_sfen_with_ply = board.sfen_with_ply();
                 const auto next_sfen_ply = bookminer::trim_sfen_ply(next_sfen_with_ply);
                 if (next_sfen_ply.second >= max_book_ply)
+                {
+                    ++skipped_ply;
                     continue;
+                }
 
                 const std::string next_position_command = append_position_move(position_command, move);
 
@@ -2012,7 +2038,7 @@ std::vector<std::string> peta_next_for_turn(
                                 static_cast<int>(moveinfo.eval),
                                 *eval_refutation_margin))
                         {
-                            append_unique_peta_leaf(think_sfens, think_seen, next_position_command, next_sfen_ply.first);
+                            record_leaf(next_position_command, next_sfen_ply.first);
                         }
                         continue;
                     }
@@ -2030,6 +2056,16 @@ std::vector<std::string> peta_next_for_turn(
         ++step;
     }
 
+    log_line("peta_next stats " + turn_str
+        + " roots=" + std::to_string(root_positions.size())
+        + " missing_roots=" + std::to_string(missing_roots)
+        + " skipped_ply=" + std::to_string(skipped_ply)
+        + " skipped_visited=" + std::to_string(skipped_visited)
+        + " rejected_own=" + std::to_string(rejected_own)
+        + " rejected_opponent=" + std::to_string(rejected_opponent)
+        + " duplicate_leaves=" + std::to_string(duplicate_leaves)
+        + " max_step_frontier=" + std::to_string(limited_frontier)
+        + " leaves=" + std::to_string(think_sfens.size()));
     return think_sfens;
 }
 
@@ -2149,6 +2185,7 @@ void peta_next(
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", start_sfens_path = " + start_sfens_path.string()
+        + ", peta_book_positions = " + std::to_string(peta_book.size())
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
 
     const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin);

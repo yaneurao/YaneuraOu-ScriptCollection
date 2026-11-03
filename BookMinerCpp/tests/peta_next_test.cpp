@@ -38,6 +38,34 @@ int main(int argc, char** argv)
             throw std::runtime_error("existing position did not retain a shorter path");
     }
     const std::filesystem::path roots_path(argv[1]);
+    {
+        std::ofstream out(roots_path);
+        out << "startpos moves 7g7f 3c3d 2g2f 8c8d\n"
+               "startpos moves 2g2f 8c8d 7g7f 3c3d\n";
+        out.close();
+        bookminer::BookStore empty;
+        std::ostringstream logs;
+        auto* original = std::cout.rdbuf(logs.rdbuf());
+        const auto leaves = peta_next_for_turn(nullptr, empty, 1, 50, 100, 200, roots_path, std::nullopt);
+        std::cout.rdbuf(original);
+        if (leaves.size() != 1 || logs.str().find("roots=2 missing_roots=2") == std::string::npos
+            || logs.str().find("duplicate_leaves=1") == std::string::npos)
+            throw std::runtime_error("peta next duplicate-root statistics are incorrect");
+    }
+    {
+        // Widening eval_diff must include the second move on the opponent's turn.
+        bookminer::BookStore book;
+        book.merge_position(bookminer::StartSfenPly1, 1, {
+            {bookminer::move16_from_usi("7g7f"), 100, 0},
+            {bookminer::move16_from_usi("2g2f"), 60, 0},
+        });
+        std::filesystem::remove(roots_path);
+        const auto narrow = peta_next_for_turn(nullptr, book, 0, 10, 100, 200, roots_path, std::nullopt);
+        const auto wide = peta_next_for_turn(nullptr, book, 0, 50, 100, 200, roots_path, std::nullopt);
+        if (narrow.size() != 1 || wide.size() != 2
+            || std::find(wide.begin(), wide.end(), narrow.front()) == wide.end())
+            throw std::runtime_error("peta next lost a leaf when eval_diff increased");
+    }
 #ifndef _WIN32
     {
         const auto engine_path = roots_path.parent_path() / "branch-retry-engine";
