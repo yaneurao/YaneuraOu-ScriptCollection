@@ -50,23 +50,24 @@ class GridDirectoryTests(unittest.TestCase):
             write_summary(csv_path, rows)
             with csv_path.open(encoding='utf-8', newline='') as stream:
                 saved = list(csv.DictReader(stream))
-            self.assertEqual(saved[0]['lr'], '0.0007000000')
+            self.assertFalse({'lr', 'lr_min', 'lr_warmup'} & saved[0].keys())
             self.assertEqual(saved[0]['lr_start'], '0.0000100000')
             self.assertEqual(saved[0]['lr_end'], '0.0001825000')
 
     def test_summary_keeps_tiny_and_close_learning_rates_distinct(self):
-        rows = [{'lr': '0.001', 'lr_start': '1e-12', 'lr_end': ''},
-                {'lr': '0.001000000000001', 'lr_start': '', 'lr_end': 'nan'}]
+        rows = [{'lr': '0.001', 'lr_start': '1e-12', 'lr_end': '0.001'},
+                {'lr': '0.001000000000001', 'lr_start': '', 'lr_end': '0.001000000000001'},
+                {'lr': '0.001', 'lr_start': '', 'lr_end': 'nan'}]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'summary.csv'
             write_summary(path, rows)
             with path.open(encoding='utf-8', newline='') as stream:
                 saved = list(csv.DictReader(stream))
-        self.assertNotEqual(saved[0]['lr'], saved[1]['lr'])
+        self.assertNotEqual(saved[0]['lr_end'], saved[1]['lr_end'])
         self.assertNotEqual(float(saved[0]['lr_start']), 0.0)
-        self.assertEqual(len(saved[0]['lr'].split('.')[1]), len(saved[0]['lr_start'].split('.')[1]))
-        self.assertEqual(saved[0]['lr_end'], '')
-        self.assertEqual(saved[1]['lr_end'], 'nan')
+        self.assertEqual(len(saved[0]['lr_end'].split('.')[1]), len(saved[0]['lr_start'].split('.')[1]))
+        self.assertEqual(saved[1]['lr_start'], '')
+        self.assertEqual(saved[2]['lr_end'], 'nan')
 
 
 if __name__ == '__main__':

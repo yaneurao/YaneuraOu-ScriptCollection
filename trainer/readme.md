@@ -43,9 +43,9 @@ python trainer/grid_search.py --train-dir C:\shogi\teacher\train --model-root C:
 - 更新が1回だけの場合は `lr` を使用します。完全なmini-batchが1つも作れない場合はエラーです。
 - warmup 後のファイルは `lr` で開始し、残りのファイルでcosine/exponentialの減衰を行います。warmup と同数の教師ファイルなら warmup のみです。
 - `--init_checkpoint` は重みのみからの新規学習なのでwarmupします。`--resume_checkpoint` による継続や2round目以降には繰り返しません。再開時にも同じ `--lr-warmup` を指定してください。
-- gridの出力フォルダには指定時だけ `_warmup...` が付き、CSVにも `lr_warmup` 列を追加します。`--summary-only` でもそのフォルダ名から復元します。
+- gridの出力フォルダには指定時だけ `_warmup...` が付きます。`--summary-only` でもそのフォルダ名から復元します。
 
-`grid_summary.csv` の `lr` は試行時の設定値です。`lr_start` と `lr_end` は各サブエポックについてログに記録された開始・終了学習率を示し、warmup のない場合は同じ値になります。学習率の列は通常、小数点以下10桁に丸めて揃え、小さい値や近い探索値を区別する必要がある場合は桁数を増やします。該当する情報がログにない場合は空欄です。既存のログからは `--summary-only` で再生成できます。
+`grid_summary.csv` の `lr_start` と `lr_end` は各サブエポックについてログに記録された開始・終了学習率を示し、warmup のない場合は同じ値になります。学習率の列は通常、小数点以下10桁に丸めて揃え、小さい値や近い探索値を区別する必要がある場合は桁数を増やします。該当する情報がログにない場合は空欄です。既存のログからは `--summary-only` で再生成できます。
 
 dlshogi側にも対応した `dlshogi/train.py` が必要です。直接実行した場合の `--lr-warmup` は、その呼び出しの最初のepochに適用されます。YOSCが初回ファイルだけに渡すことで上記の動作になります。
 

@@ -532,14 +532,10 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
                   include_temperature: bool = True, include_policy_mix: bool = True,
                   include_value_loss_min_weight: bool = False,
                   include_evalfix: bool = False, include_evalfix_a: bool = False,
-                  include_lr_warmup: bool = False,
                   include_clip_grad_max_norm: bool = False) -> None:
     fieldnames = [
-        "lr",
         "lr_start",
         "lr_end",
-        "lr_min",
-        "lr_warmup",
         "clip_grad_max_norm",
         "val_lambda",
         "temperature",
@@ -562,8 +558,6 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
     ]
     if not include_temperature:
         fieldnames.remove("temperature")
-    if not include_lr_warmup:
-        fieldnames.remove('lr_warmup')
     if not include_clip_grad_max_norm:
         fieldnames.remove('clip_grad_max_norm')
     if not include_policy_mix:
@@ -709,7 +703,6 @@ def main() -> None:
         raise ValueError(f"No trial folders found in {args.model_root}; summary CSV was not changed.")
     summary_csv = args.summary_csv or args.model_root / "grid_summary.csv"
     summary_options = dict(include_temperature=args.include_temperature,
-                           include_lr_warmup=any(trial.lr_warmup is not None for trial in trials),
                            include_clip_grad_max_norm=any(trial.clip_grad_max_norm is not None for trial in trials),
                            include_policy_mix=args.include_policy_mix,
                            include_value_loss_min_weight=args.include_value_loss_min_weight,
