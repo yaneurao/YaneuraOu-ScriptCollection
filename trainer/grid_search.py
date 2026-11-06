@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path, PureWindowsPath
 
@@ -573,6 +574,29 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
         fieldnames.remove('evalfix')
     if not include_evalfix_a:
         fieldnames.remove('evalfix_a')
+    lr_fields = ('lr', 'lr_start', 'lr_end', 'lr_min', 'lr_warmup')
+    decimal_values = {}
+    precision = 10
+    for i, row in enumerate(rows):
+        for key in lr_fields:
+            value = row.get(key, '')
+            if value == '':
+                continue
+            try:
+                number = Decimal(str(value))
+            except InvalidOperation:
+                continue
+            if not number.is_finite():
+                continue
+            decimal_values[i, key] = number
+            if number and number.adjusted() < -10:
+                precision = max(precision, -number.adjusted() + 4)
+
+    # Distinct grid settings must remain distinguishable after formatting.
+    for key in ('lr', 'lr_min', 'lr_warmup'):
+        values = {number for (i, name), number in decimal_values.items() if name == key}
+        while len({f'{value:.{precision}f}' for value in values}) < len(values):
+            precision += 1
     path.parent.mkdir(parents=True, exist_ok=True)
     # Readers see either the previous CSV or the complete new CSV.
     temporary = None
@@ -582,7 +606,12 @@ def write_summary(path: Path, rows: list[dict[str, str | int]], *,
             temporary = Path(f.name)
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows({key: row[key] for key in fieldnames if key in row} for row in rows)
+            for i, row in enumerate(rows):
+                output = {key: row[key] for key in fieldnames if key in row}
+                for key in lr_fields:
+                    if key in output and (i, key) in decimal_values:
+                        output[key] = f'{decimal_values[i, key]:.{precision}f}'
+                writer.writerow(output)
         os.replace(temporary, path)
     finally:
         if temporary is not None:
