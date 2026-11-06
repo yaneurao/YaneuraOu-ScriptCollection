@@ -871,6 +871,12 @@ def finalize_ptl_checkpoint(tmp_checkpoint: Path, target_checkpoint: Path) -> No
     latest.replace(target_checkpoint)
 
 
+def warmup_file_interval(start: float, target: float, file_index: int, files: int) -> tuple[float, float]:
+    delta = target - start
+    return (start + delta * (file_index - 1) / files,
+            start + delta * file_index / files)
+
+
 def run_one_round(
     args: argparse.Namespace,
     *,
@@ -956,8 +962,11 @@ def run_one_round(
         else None
     )
 
-    warmup_round = args.lr_warmup is not None and checkpoint_offset == 0
-    lr_scheduler = lr_scheduler_train_arg(args, max(1, total_epochs - int(warmup_round)))
+    warmup_round = args.lr_warmup is not None and checkpoint_offset == 0 and not resume_checkpoint
+    if warmup_round and args.lr_warmup_files > total_epochs:
+        raise ValueError('--lr-warmup-files exceeds the number of teacher files')
+    warmup_files = args.lr_warmup_files if warmup_round else 0
+    lr_scheduler = lr_scheduler_train_arg(args, max(1, total_epochs - warmup_files))
 
     print(f"DeepLearningShogi: {dlshogi_dir}")
     print(f"teacher files: {len(teacher_files)}")
@@ -1047,9 +1056,9 @@ def run_one_round(
                 "--scheduler_step_mode",
                 "epoch",
                 "--optimizer",
-                "SGD(momentum=0.9,nesterov=True)",
+                args.optimizer,
                 "--weight_decay",
-                "0.0001",
+                str(args.weight_decay),
                 "--clip_grad_max_norm",
                 str(args.clip_grad_max_norm),
                 "--val_lambda",
@@ -1065,12 +1074,17 @@ def run_one_round(
                 "--log",
                 str(out_dir / f"train-{checkpoint_number_for_file:04}.log"),
             ]
+            for route in args.param_optimizer:
+                train_args.extend(['--param_optimizer', route])
+            if args.activation_checkpoint:
+                train_args.append('--activation-checkpoint')
             if args.batches_per_update > 1:
                 train_args.extend(
                     ["--batches-per-update", str(args.batches_per_update)]
                 )
-            if warmup_round and file_index == 1 and not resume_checkpoint and not previous_checkpoint.exists():
-                train_args.extend(['--lr-warmup', str(args.lr_warmup)])
+            if warmup_round and file_index <= warmup_files:
+                start, end = warmup_file_interval(args.lr_warmup, args.lr, file_index, warmup_files)
+                train_args.extend(['--lr-warmup', str(start), '--lr-warmup-end', str(end)])
 
             if previous_checkpoint.exists():
                 train_args.extend(["--resume", str(previous_checkpoint)])
@@ -1231,6 +1245,10 @@ def main() -> None:
         ),
     )
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument('--optimizer', default='SGD(momentum=0.9,nesterov=True)')
+    parser.add_argument('--weight_decay', type=float, default=0.0001)
+    parser.add_argument('--param_optimizer', action='append', default=[], metavar='TAG=OPTIMIZER')
+    parser.add_argument('--activation-checkpoint', action='store_true')
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument(
         "--lr_min",
@@ -1352,9 +1370,16 @@ def main() -> None:
     )
     parser.add_argument('--lr-warmup', type=float, nargs='?', const=1e-7,
                         help='Initial LR for first-file warmup (bare flag: 1e-7; omitted: disabled)')
+    parser.add_argument('--lr-warmup-files', type=int, default=1, help='Number of initial teacher files for linear warmup')
     parser.add_argument('--clip_grad_max_norm', type=float, default=10.0,
                         help='Maximum gradient L2 norm (default: 10; 0 disables clipping)')
     args = parser.parse_args()
+    if args.lr_warmup_files < 1 or (args.lr_warmup_files != 1 and args.lr_warmup is None):
+        parser.error('--lr-warmup-files must be >= 1 and requires --lr-warmup')
+    if args.backend != 'train' and args.param_optimizer:
+        parser.error('--param_optimizer is supported only by the train backend')
+    if args.activation_checkpoint and (args.backend != 'train' or args.use_compile):
+        parser.error('--activation-checkpoint requires the train backend without --use_compile')
     if not math.isfinite(args.clip_grad_max_norm) or args.clip_grad_max_norm < 0:
         parser.error('--clip_grad_max_norm must be finite and >= 0')
     if args.lr_warmup is not None:

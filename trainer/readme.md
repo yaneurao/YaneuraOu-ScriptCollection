@@ -1,3 +1,21 @@
+# exp__by と Muon（Windows）
+
+通常の `py` で起動する PyTorch 2.9 環境を使います。`--muon` は通常パラメータに AdamW、モデルが指定する行列に Muon (`match_rms_adamw`) を適用します。`--weight_decay` は両者に適用し、モデルの除外指定も尊重します。train backend 専用です。
+
+```powershell
+cd C:\shogi\YaneuraOu-ScriptCollection
+py trainer/grid_search.py `
+  --train-dir C:\shogi\teacher\yane\yane20261023hcpe3-suisho11plus1Mn-split20-shuffle `
+  --model-root C:\shogi\model\exp__by20x256_muon `
+  --network exp__by20x256 --muon --activation-checkpoint --weight_decay 0.01 --no_swa `
+  --grid lr 0.0001 --grid lr_min 0.00001 --grid batchsize 128 `
+  --grid batches-per-update 4 --grid val_lambda 0.0
+```
+
+新規学習の例です。既存の exp___i チェックポイントとの互換性は確認されていません。`--dry-run` はコマンドの確認用です。学習率は実験用の初期値です。
+
+`--activation-checkpoint` は逆伝播時に中間値を再計算して GPU メモリを節約します。計算時間は増えます。BatchNorm の統計は再計算時に二重更新されません。現時点では `--use_compile` と併用できません。
+
 # trainer.py
 
 `trainer.py` は、`C:\shogi\DeepLearningShogi` の `dlshogi.train` または `dlshogi.ptl` を、教師ファイル1個ずつ呼び出して学習を進めるためのラッパーです。
@@ -6,7 +24,7 @@
 
 ## 最初の教師ファイルでLRをwarmupする
 
-`--lr-warmup` は、新規学習の最初の教師ファイル内で、LRを指定値から `--lr` まで線形に上げます。省略すると従来どおりで、追加の教師走査やBN再計算は行いません。`--backend train` 用です。
+`--lr-warmup` は、新規学習の最初の教師ファイル内で、LRを指定値から `--lr` まで線形に上げます。`--lr-warmup-files 4` を併用すると、最初の４教師ファイルにわたって上げます。各ファイルに warmup 区間を等分し、ファイル内は更新ごとに線形に変化します。省略すると従来どおりで、追加の教師走査やBN再計算は行いません。`--backend train` 用です。
 
 `--lr-warmup` だけを指定すると、開始LRは `1e-7`（`0.0000001`）になります。`--lr-warmup 0.00001` のように数値を付ければ上書きできます。trainer、grid search、dlshogiのいずれも同じ指定方法です。`--grid lr-warmup` には比較する数値を明示してください。
 
@@ -23,7 +41,7 @@ python trainer/grid_search.py --train-dir C:\shogi\teacher\train --model-root C:
 - `0 <= lr-warmup <= lr` とします。gridではすべての組み合わせがこの条件を満たす必要があります。
 - 読み込み・重複局面の集約後の件数と `batchsize`、`batches-per-update` から更新回数を計算します。最初の更新で開始LR、最後の更新で `lr` を使用します。端数の勾配蓄積も1更新として数えます。
 - 更新が1回だけの場合は `lr` を使用します。完全なmini-batchが1つも作れない場合はエラーです。
-- 2ファイル目は `lr` で開始し、残りのファイルでcosine/exponentialの減衰を行います。教師が1ファイルならwarmupのみです。2ファイルなら2つ目は `lr` のままです。3ファイル以上なら最後のファイルは `lr_min` になります。
+- warmup 後のファイルは `lr` で開始し、残りのファイルでcosine/exponentialの減衰を行います。warmup と同数の教師ファイルなら warmup のみです。
 - `--init_checkpoint` は重みのみからの新規学習なのでwarmupします。`--resume_checkpoint` による継続や2round目以降には繰り返しません。再開時にも同じ `--lr-warmup` を指定してください。
 - gridの出力フォルダには指定時だけ `_warmup...` が付き、CSVにも `lr_warmup` 列を追加します。`--summary-only` でもそのフォルダ名から復元します。
 
