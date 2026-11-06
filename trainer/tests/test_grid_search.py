@@ -1,9 +1,12 @@
 import sys
 import unittest
+import tempfile
+import csv
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from grid_search import float_tag, trial_from_directory
+from grid_search import float_tag, trial_from_directory, summarize_trial, write_summary
 
 
 class GridDirectoryTests(unittest.TestCase):
@@ -21,6 +24,35 @@ class GridDirectoryTests(unittest.TestCase):
     def test_malformed_optional_numeric_tags_are_ignored(self):
         self.assertIsNone(trial_from_directory(Path('network_lr0.1_val0.5_warmupbad')))
         self.assertIsNone(trial_from_directory(Path('network_lr0.1_val0.5_clipbad')))
+
+    def test_summary_uses_each_logged_lr_and_warmup_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trial_dir = Path(tmp) / 'network_lr0.0007_val1_warmup1e-05_warmupfiles4'
+            trial_dir.mkdir()
+            summary_line = ('epoch = {}, steps = 8, train loss avr = 1, 2, 3, 4, '
+                            'test loss = 1, 2, 3, 4, test accuracy = 0.1, 0.2, '
+                            'test entropy = 0.3, 0.4\n')
+            (trial_dir / 'train-0001.log').write_text(
+                'lr=0.0007\nlr warmup start=1e-05 end=0.0001825 updates=8\n'
+                'lr_scheduler lr=1e-05\n' + summary_line.format(1), encoding='utf-8')
+            (trial_dir / 'train-0002.log').write_text(
+                'lr=0.0007\nlr_scheduler lr=0.00042\n' + summary_line.format(2), encoding='utf-8')
+            (trial_dir / 'train-0003.log').write_text(summary_line.format(3), encoding='utf-8')
+            (trial_dir / 'train-0004.log').write_text(
+                'lr=0.0007\nlr warmup start=1e-05 end=0.0001825 updates=1\n'
+                'lr_scheduler lr=0.0001825\n' + summary_line.format(4), encoding='utf-8')
+            trial = trial_from_directory(trial_dir)
+            rows = summarize_trial(SimpleNamespace(train_dir=None), trial, 1)
+            self.assertEqual([(r['lr_start'], r['lr_end']) for r in rows],
+                             [('1e-05', '0.0001825'), ('0.00042', '0.00042'), ('', ''),
+                              ('0.0001825', '0.0001825')])
+            csv_path = Path(tmp) / 'grid_summary.csv'
+            write_summary(csv_path, rows)
+            with csv_path.open(encoding='utf-8', newline='') as stream:
+                saved = list(csv.DictReader(stream))
+            self.assertEqual(saved[0]['lr'], '0.0007')
+            self.assertEqual(saved[0]['lr_start'], '1e-05')
+            self.assertEqual(saved[0]['lr_end'], '0.0001825')
 
 
 if __name__ == '__main__':

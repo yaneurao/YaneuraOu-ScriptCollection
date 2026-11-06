@@ -60,6 +60,8 @@ class TrainLogRow:
     teacher: str = ""
     position_num: int | None = None
     lr: str = "nan"
+    lr_start: str = ""
+    lr_end: str = ""
     val_lambda: str = "nan"
     batchsize: str = "nan"
     train_loss: list[str] = field(default_factory=lambda: ["nan"] * 4)
@@ -273,6 +275,7 @@ def parse_train_log(path: Path, teacher_root: Path | None, *,
     rows_by_epoch: dict[int, TrainLogRow] = {}
     state = TrainLogRow(source=str(path))
     current_lr = "nan"
+    warmup_lr_start = warmup_lr_end = None
 
     fallback_epoch = TRAIN_LOG_INDEX_RE.fullmatch(path.name)
     if fallback_epoch:
@@ -298,6 +301,15 @@ def parse_train_log(path: Path, teacher_root: Path | None, *,
 
         if message.startswith("lr="):
             current_lr = message.split("=", 1)[1]
+            warmup_lr_start = warmup_lr_end = None
+            continue
+
+        if message.startswith('lr warmup start='):
+            match = re.fullmatch(r'lr warmup start=(\S+) end=(\S+) updates=(\d+)', message)
+            if match:
+                warmup_lr_start, warmup_lr_end, updates = match.groups()
+                if int(updates) == 1:
+                    warmup_lr_start = warmup_lr_end
             continue
 
         if message.startswith("train position num ="):
@@ -320,6 +332,8 @@ def parse_train_log(path: Path, teacher_root: Path | None, *,
                 teacher=state.teacher,
                 position_num=state.position_num,
                 lr=current_lr,
+                lr_start=warmup_lr_start or (current_lr if current_lr != 'nan' else ''),
+                lr_end=warmup_lr_end or (current_lr if current_lr != 'nan' else ''),
                 val_lambda=state.val_lambda,
                 batchsize=state.batchsize,
             )
@@ -330,6 +344,7 @@ def parse_train_log(path: Path, teacher_root: Path | None, *,
             row.test_entropy = values[10:12]
             rows.append(row)
             rows_by_epoch[epoch] = row
+            warmup_lr_start = warmup_lr_end = None
             continue
 
         match = SWA_SUMMARY_RE.fullmatch(message)
@@ -344,6 +359,8 @@ def parse_train_log(path: Path, teacher_root: Path | None, *,
                     teacher=state.teacher,
                     position_num=state.position_num,
                     lr=current_lr,
+                    lr_start=warmup_lr_start or (current_lr if current_lr != 'nan' else ''),
+                    lr_end=warmup_lr_end or (current_lr if current_lr != 'nan' else ''),
                     val_lambda=state.val_lambda,
                     batchsize=state.batchsize,
                 )

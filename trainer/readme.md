@@ -45,6 +45,8 @@ python trainer/grid_search.py --train-dir C:\shogi\teacher\train --model-root C:
 - `--init_checkpoint` は重みのみからの新規学習なのでwarmupします。`--resume_checkpoint` による継続や2round目以降には繰り返しません。再開時にも同じ `--lr-warmup` を指定してください。
 - gridの出力フォルダには指定時だけ `_warmup...` が付き、CSVにも `lr_warmup` 列を追加します。`--summary-only` でもそのフォルダ名から復元します。
 
+`grid_summary.csv` の `lr` は試行時の設定値です。`lr_start` と `lr_end` は各サブエポックについてログに記録された開始・終了学習率を示し、warmup のない場合は同じ値になります。該当する情報がログにない場合は空欄です。既存のログからは `--summary-only` で再生成できます。
+
 dlshogi側にも対応した `dlshogi/train.py` が必要です。直接実行した場合の `--lr-warmup` は、その呼び出しの最初のepochに適用されます。YOSCが初回ファイルだけに渡すことで上記の動作になります。
 
 ## 勾配クリッピング
