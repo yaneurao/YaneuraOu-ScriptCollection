@@ -39,6 +39,7 @@ class Trial:
     evalfix_a: float | None = None
     lr_warmup: float | None = None
     clip_grad_max_norm: float | None = None
+    lr_warmup_files: int = 1
 
 
 FLOAT_TAG_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -54,6 +55,7 @@ TRIAL_DIR_RE = re.compile(
     r"(?:_evalfix(?P<evalfix>true|false))?"
     r"(?:_evalfixa(?P<evalfix_a>[^_]+))?"
     r"(?:_warmup(?P<lr_warmup>[^_]+))?"
+    r"(?:_warmupfiles(?P<lr_warmup_files>\d+))?"
     r"(?:_clip(?P<clip_grad_max_norm>[^_]+))?$"
 )
 
@@ -89,6 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=Path,
                         help="Initial model checkpoint. Omit to train from scratch.")
     parser.add_argument("--train-dir", type=Path)
+    parser.add_argument('--test-data', type=Path, help='Validation HCPE file (defaults to trainer setting).')
     parser.add_argument("--network")
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--grid", action="append", nargs="+", default=[], metavar="NAME_OR_VALUE",
@@ -120,6 +123,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hcpe_val_lambda", type=float)
     parser.add_argument("--hcpe3_val_lambda", type=float)
     parser.add_argument("--gpu", type=int)
+    parser.add_argument('--optimizer')
+    parser.add_argument('--weight_decay', type=float)
+    parser.add_argument('--param_optimizer', action='append', default=[], metavar='TAG=OPTIMIZER')
+    parser.add_argument('--muon', action='store_true', help='Use AdamW plus Muon for matrix parameters.')
+    parser.add_argument('--activation-checkpoint', action='store_true', help='Recompute exp__by blocks to reduce GPU memory.')
+    parser.add_argument('--lr-warmup-files', type=int, default=1, help='Number of teacher files for warmup')
     parser.add_argument("--amp_dtype", choices=("bfloat16", "float16"))
     parser.add_argument("--no_amp", action="store_true")
     parser.add_argument("--no_average", action="store_true")
@@ -135,6 +144,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile_fullgraph", action="store_true")
     parser.add_argument("--compile_dynamic", action="store_true")
     args = parser.parse_args()
+    if args.lr_warmup_files < 1:
+        parser.error('--lr-warmup-files must be >= 1')
+    if args.muon:
+        if args.optimizer is not None or args.param_optimizer:
+            parser.error('--muon cannot be combined with --optimizer or --param_optimizer')
+        args.optimizer = 'AdamW'
+        args.param_optimizer = ["matrix=Muon(adjust_lr_fn='match_rms_adamw')"]
     axes = {}
     for group in args.grid:
         name, *values = group
@@ -164,6 +180,8 @@ def parse_args() -> argparse.Namespace:
                 parser.error(f"{name} must be finite and >= {minimum}"
                              + (f" and <= {maximum}" if maximum is not None else ""))
         args.grid_values[name] = list(dict.fromkeys(values))
+    if not args.summary_only and args.lr_warmup_files != 1 and args.grid_values['lr-warmup'] == [None]:
+        parser.error('--lr-warmup-files requires --lr-warmup or --grid lr-warmup')
     if args.grid_values['evalfix-a'] != [None]:
         if any(a <= 0 for a in args.grid_values['evalfix-a']):
             parser.error('evalfix-a must be > 0')
@@ -245,6 +263,8 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                 name += f"_evalfixa{float_tag(evalfix_a)}"
                             if lr_warmup is not None:
                                 name += f"_warmup{float_tag(lr_warmup)}"
+                                if args.lr_warmup_files != 1:
+                                    name += f"_warmupfiles{args.lr_warmup_files}"
                             if clip_grad_max_norm is not None:
                                 name += f"_clip{float_tag(clip_grad_max_norm)}"
                             trials.append(
@@ -261,6 +281,7 @@ def make_trials(args: argparse.Namespace) -> list[Trial]:
                                     evalfix=evalfix,
                                     evalfix_a=evalfix_a,
                                     lr_warmup=lr_warmup,
+                                    lr_warmup_files=args.lr_warmup_files,
                                     clip_grad_max_norm=clip_grad_max_norm,
                                 )
                             )
@@ -302,6 +323,7 @@ def trial_from_directory(path: Path) -> Trial | None:
         evalfix=match.group('evalfix') != 'false',
         evalfix_a=evalfix_a,
         lr_warmup=lr_warmup,
+        lr_warmup_files=int(match.group('lr_warmup_files') or 1),
         clip_grad_max_norm=clip_grad_max_norm,
     )
 
@@ -366,6 +388,8 @@ def trainer_command(args: argparse.Namespace, trial: Trial) -> list[str]:
         command.extend(["--lr_min", str(trial.lr_min)])
     if trial.lr_warmup is not None:
         command.extend(['--lr-warmup', str(trial.lr_warmup)])
+        if trial.lr_warmup_files != 1:
+            command.extend(['--lr-warmup-files', str(trial.lr_warmup_files)])
     if trial.clip_grad_max_norm is not None:
         command.extend(['--clip_grad_max_norm', str(trial.clip_grad_max_norm)])
     if not trial.evalfix:
@@ -382,6 +406,9 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
         ("hcpe_val_lambda", "--hcpe_val_lambda"),
         ("hcpe3_val_lambda", "--hcpe3_val_lambda"),
         ("gpu", "--gpu"),
+        ('test_data', '--test_data'),
+        ('optimizer', '--optimizer'),
+        ('weight_decay', '--weight_decay'),
         ("amp_dtype", "--amp_dtype"),
         ("swa_freq", "--swa_freq"),
         ("swa_n_avr", "--swa_n_avr"),
@@ -394,12 +421,16 @@ def append_optional_trainer_args(args: argparse.Namespace, command: list[str]) -
         if value is not None:
             command.extend([option, str(value)])
 
+    for route in args.param_optimizer:
+        command.extend(['--param_optimizer', route])
+
     flag_options = [
         ("no_amp", "--no_amp"),
         ("no_average", "--no_average"),
         ("use_swa", "--use_swa"),
         ("no_swa", "--no_swa"),
         ("use_compile", "--use_compile"),
+        ('activation_checkpoint', '--activation-checkpoint'),
         ("compile_fullgraph", "--compile_fullgraph"),
         ("compile_dynamic", "--compile_dynamic"),
     ]
