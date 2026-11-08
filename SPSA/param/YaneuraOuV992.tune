@@ -1,4 +1,4 @@
-#param FV_SCALE int 28 16 64 1 0.002
+#param FV_SCALE int 24 16 64 1 0.002
 
 #set file engine\yaneuraou-engine\yaneuraou-search.cpp
 #set declaration %%TUNE_DECLARATION%%
@@ -6,6 +6,7 @@
 #context correction_value
 
     return 12153@ * pcv + 8620@ * micv + 12355@ * (wnpcv + bnpcv) + 7982@ * cntcv;
+
 
 #context update_correction_history_nonPawnWeight // update_correction_history()
 
@@ -18,6 +19,11 @@
 #add %%TUNE_DECLARATION%%
 
     int nonPawnWeight = @;
+
+#add %%TUNE_ISREADY%%
+
+    nonPawnWeight = @;
+
 
 
 #context update_correction_history1 // update_correction_history()
@@ -59,7 +65,7 @@
 #context YaneuraOuWorker_clear3
 
 	// reductions tableの初期化(これはWorkerごとが持つように変更された)
-    for (size_t i = 1; i < reductions.size(); ++i)
+    for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2763@ / 128.0 * std::log(i));
 
 #context Search_tt_lookup1 // search() Step 4.
