@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from .planner import create_plan, validate_plan
-from .log_format import log_level
+from .log_format import build_error_hint, log_level
 from .presets import (
     PRESET_LABELS,
     PRESET_NAMES,
@@ -782,6 +782,24 @@ class BuildGui(tk.Tk):
         ttk.Button(edition_buttons, text="Disable all", command=lambda: self._set_all_editions(False)).pack(side="left", padx=(6, 0))
         self.edition_scroller = ScrollableFrame(edition_box, height=NORMAL_EDITION_HEIGHT)
         self.edition_scroller.grid(row=1, column=0, sticky="nsew")
+        self._build_pgo_page()
+
+    def _build_pgo_page(self) -> None:
+        self.pgo_tab = ScrollableFrame(self.settings_tabs, height=620)
+        self.settings_tabs.add(self.pgo_tab, text="PGO")
+        frame = self.pgo_tab.inner
+        frame.configure(padding=10)
+        frame.columnconfigure(1, weight=1)
+        self.pgo_enabled_var = tk.BooleanVar()
+        self.pgo_eval_dir_var = tk.StringVar(value="eval/[arch]")
+        self.pgo_bench_var = tk.StringVar(value="1024 1 14 default depth")
+        self.pgo_profdata_var = tk.StringVar()
+        ttk.Checkbutton(frame, text="Enable PGO (tournament)", variable=self.pgo_enabled_var).grid(row=0, column=0, columnspan=3, sticky="w")
+        self._path_entry(frame, 1, "Eval folder template", self.pgo_eval_dir_var, "dir",
+                         tooltip="例: eval/[arch]。[arch]をYANEURAOU_ENGINE_を除いたarch名に置換します。相対パスは元のやねうら王フォルダ基準です。[YOSC]等のマクロも使えます。")
+        self._entry(frame, 2, "Bench arguments", self.pgo_bench_var, width=40,
+                    tooltip="benchの後ろの引数です。既定はHash 1024MiB、1スレッド、深さ14。訓練用エンジンを実行できるCPU・環境が必要です。")
+        self._path_entry(frame, 3, "llvm-profdata (auto if empty)", self.pgo_profdata_var, "file")
 
     def _build_log_tab(self) -> None:
         self.log_tab.columnconfigure(0, weight=1)
@@ -1086,6 +1104,10 @@ class BuildGui(tk.Tk):
                 bookminer_cpp_source_dir = str(detected)
         self.form_recipe_kind = "bookminer_cpp"
         self.shogizone_auto_upload_var.set(False)
+        self.pgo_enabled_var.set(False)
+        self.pgo_eval_dir_var.set("")
+        self.pgo_bench_var.set("1024 1 14 default depth")
+        self.pgo_profdata_var.set("")
         self.shogizone_engine_name_var.set("")
         self.name_var.set(str(recipe.get("name", "")))
         self.run_root_var.set(_normalized_run_root_text(recipe.get("run_root", self.yobuild_root / "runs"), self.yobuild_root))
@@ -1160,6 +1182,7 @@ class BuildGui(tk.Tk):
                 "exclude": ["obj"],
             },
             "spsa": spsa,
+            "pgo": deepcopy(recipe.get("pgo", {"enabled": recipe.get("target") == "pgo"})),
         }
 
     def _recipe_platform(self, recipe: dict[str, Any]) -> str:
@@ -1203,6 +1226,11 @@ class BuildGui(tk.Tk):
         self.source_dirs = deepcopy(source_dirs)
         package = release_recipe.get("package", {})
         spsa = release_recipe.get("spsa", {})
+        pgo = release_recipe.get("pgo", {})
+        self.pgo_enabled_var.set(bool(pgo.get("enabled", False) or release_recipe.get("target") == "pgo"))
+        self.pgo_eval_dir_var.set(str(pgo.get("eval_dir", "eval/[arch]")))
+        self.pgo_bench_var.set(str(pgo.get("bench", "1024 1 14 default depth")))
+        self.pgo_profdata_var.set(str(pgo.get("profdata", "")))
 
         self.name_var.set(str(release_recipe.get("name", "")))
         self.run_root_var.set(_normalized_run_root_text(release_recipe.get("run_root", self.yobuild_root / "runs"), self.yobuild_root))
@@ -1238,6 +1266,7 @@ class BuildGui(tk.Tk):
     def _apply_recipe_kind_layout(self, kind: str) -> None:
         bookminer_cpp = kind == "bookminer_cpp"
         self.settings_tabs.tab(self.edition_box, state="hidden" if bookminer_cpp else "normal")
+        self.settings_tabs.tab(self.pgo_tab, state="hidden" if bookminer_cpp else "normal")
         if bookminer_cpp:
             self.variant_box.grid_remove()
         else:
@@ -1422,6 +1451,10 @@ class BuildGui(tk.Tk):
                     "exclude": _split_words(self.package_exclude_var.get()),
                 },
                 "spsa": self._spsa_recipe_from_release_form(validate=validate),
+                "pgo": {"enabled": self.pgo_enabled_var.get(),
+                        "eval_dir": self.pgo_eval_dir_var.get().strip(),
+                        "bench": self.pgo_bench_var.get().strip(),
+                        "profdata": self.pgo_profdata_var.get().strip()},
                 "shogizone": {"auto_upload": self.shogizone_auto_upload_var.get(), "engine_name": self.shogizone_engine_name_var.get().strip()},
             }
         )
@@ -1658,6 +1691,8 @@ class BuildGui(tk.Tk):
     ) -> None:
         success = False
         error_message = ""
+        env = env.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
         try:
             for script in scripts:
                 self.after(0, self._log, f"[run] {script}")
@@ -1677,12 +1712,16 @@ class BuildGui(tk.Tk):
                     self.after(0, self._log, f"[run] failed to start {script}: {exc}")
                     return
                 assert process.stdout is not None
+                failure_hint = None
                 for line in process.stdout:
                     self.after(0, self._log, line.rstrip())
+                    failure_hint = build_error_hint(line) or failure_hint
                 exit_code = process.wait()
                 self.after(0, self._log, f"[run] exit code {exit_code}: {script.name}")
                 if exit_code != 0:
                     error_message = f"{script.name} failed with exit code {exit_code}."
+                    if failure_hint:
+                        error_message += "\n\n" + failure_hint
                     return
             self.after(0, self._log, "[run] all scripts completed")
             if upload is not None:
@@ -1985,6 +2024,14 @@ def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> di
         for key in ("tune_py", "param_lib", "tune_file", "params_file"):
             if isinstance(spsa.get(key), str):
                 spsa[key] = _expand_alias_path(spsa[key], aliases)
+    if result.get("pgo", {}).get("enabled", False) or result.get("target") == "pgo":
+        pgo = result.get("pgo", {})
+        for key in ("eval_dir", "profdata"):
+            if isinstance(pgo.get(key), str):
+                if key != "eval_dir" or not pgo[key].startswith("[arch]"):
+                    pgo[key] = _expand_alias_path(pgo[key], aliases)
+        if isinstance(pgo.get("bench"), str):
+            pgo["bench"] = _expand_flag_macros(pgo["bench"], aliases)
     return result
 
 

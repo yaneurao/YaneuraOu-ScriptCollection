@@ -404,14 +404,67 @@ class GuiSettingsTest(unittest.TestCase):
         gui.update()
         self.assertEqual([row['enabled'].get() for row in gui.edition_rows], expected)
 
+    def test_pgo_template_survives_preset_switch(self):
+        gui = self.gui
+        gui.pgo_enabled_var.set(True)
+        gui.pgo_eval_dir_var.set('[YOSC]/models/[arch]')
+        gui.pgo_bench_var.set('1024 1 10 default depth')
+        gui.pgo_profdata_var.set('llvm-profdata-14')
+        gui.preset_var.set('yo-material')
+        gui._select_preset()
+        self.assertFalse(gui.pgo_enabled_var.get())
+        gui.preset_var.set('release-all')
+        gui._select_preset()
+        self.assertTrue(gui.pgo_enabled_var.get())
+        self.assertEqual(gui.pgo_eval_dir_var.get(), '[YOSC]/models/[arch]')
+        self.assertEqual(gui.pgo_bench_var.get(), '1024 1 10 default depth')
+        self.assertEqual(gui.pgo_profdata_var.get(), 'llvm-profdata-14')
+        self.assertNotIn('pgo_eval_dir', gui.edition_rows[0])
+        raw = gui._release_recipe_from_form()
+        resolved = app._resolve_recipe_paths(raw, {'YOSC': '/tmp/yosc'})
+        self.assertEqual(resolved['pgo']['eval_dir'], '/tmp/yosc/models/[arch]')
+        self.assertEqual(raw['pgo']['eval_dir'], '[YOSC]/models/[arch]')
+
+    def test_missing_pgo_runtime_is_explained_in_failure_dialog(self):
+        gui = self.gui
+        script = Path(self.tmp.name) / 'build.sh'
+        missing = "ld.lld: error: could not open 'C:/clang/22/lib/x86_64-w64-windows-gnu/libclang_rt.profile.a': No such file or directory"
+        for lines, exit_code, expected_hint in [([missing], 2, True),
+                                                (['ld.lld: error: undefined symbol: other'], 2, False),
+                                                ([missing], 0, False)]:
+            with self.subTest(exit_code=exit_code, lines=lines):
+                process = unittest.mock.Mock(stdout=lines, wait=unittest.mock.Mock(return_value=exit_code))
+                with patch.object(app.subprocess, 'Popen', return_value=process), \
+                     patch.object(gui, 'after', side_effect=lambda _delay, func, *args: func(*args)), \
+                     patch.object(app.messagebox, 'showerror') as error, \
+                     patch.object(app.messagebox, 'showinfo'):
+                    gui._run_script_subprocesses([script], lambda _s: ['test'], cwd=lambda _s: self.tmp.name,
+                                                  env={}, completion_title='Build')
+                if exit_code:
+                    error.assert_called_once()
+                    self.assertEqual('pacman -S mingw-w64-x86_64-compiler-rt' in error.call_args.args[1], expected_hint)
+                else:
+                    error.assert_not_called()
+
+    def test_pgo_markers_have_background_tags_in_log_widget(self):
+        gui = self.gui
+        gui.log_text.delete('1.0', 'end')
+        gui._log('[PGO] START: SFNN / AVX512VNNI / all')
+        gui._log('[PGO] DONE: engine.exe')
+        self.assertEqual(tuple(str(index) for index in gui.log_text.tag_ranges('stage')), ('1.0', '2.0'))
+        self.assertEqual(tuple(str(index) for index in gui.log_text.tag_ranges('success')), ('2.0', '3.0'))
+        self.assertTrue(gui.log_text.tag_cget('stage', 'background'))
+        self.assertTrue(gui.log_text.tag_cget('success', 'background'))
+
     def test_tabs_and_bookminer_visibility(self):
         gui = self.gui
         self.assertEqual([gui.settings_tabs.tab(tab, 'text') for tab in gui.settings_tabs.tabs()],
-                         ['Release settings', 'Variants / CPU targets', 'Editions'])
+                         ['Release settings', 'Variants / CPU targets', 'Editions', 'PGO'])
         gui.settings_tabs.select(gui.edition_box)
         gui.preset_var.set('bookminer-cpp')
         gui._select_preset()
         self.assertEqual(gui.settings_tabs.tab(gui.edition_box, 'state'), 'hidden')
+        self.assertEqual(gui.settings_tabs.tab(gui.pgo_tab, 'state'), 'hidden')
         self.assertFalse(gui.variant_box.winfo_manager())
         self.assertEqual(gui.settings_tabs.tab(gui.targets_tab, 'state'), 'normal')
         gui.preset_var.set('release-all')

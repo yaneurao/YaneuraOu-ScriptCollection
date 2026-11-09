@@ -105,6 +105,7 @@ Release画面では、次を設定できます。
 - variant
 - package設定
 - optional SPSA preprocessing
+- optional PGO
 
 Edition一覧は `YaneuraOu-Builder/arch-list.txt` から作ります。1行にarchを1つ記載し、
 空行と `#` から始まるコメント行は無視します。記載順に表示し、初回の標準presetではONです。
@@ -131,6 +132,22 @@ Recipe 画面の左側に preset 一覧が表示され、クリックで切り�
 `Open Build Folder` は、起動後に最後に生成した run の `build` フォルダを開きます。`Write Script` やビルド開始時に空の `build` フォルダを作るため、ビルド中や失敗後も開けます。
 
 Release settings のテキスト欄や選択欄を右クリックすると、項目の値を他の preset 用にコピーできます。別の preset を一覧から選び、同じ欄を右クリックして `Paste from ...` を選ぶと、表示されているコピー元の値を貼り付けます。コピーした値は項目ごとに保持され、アプリを終了すると消えます。macOS では Control キーを押しながらのクリックでもメニューを開けます。
+
+### PGO
+
+`Release settings` の `PGO` タブで `Enable PGO (tournament)` をONにすると、計測用ビルド、benchによる訓練、プロファイル集約、最適化ビルドを順に実行します。両段階とも `tournament` でビルドします。Variantsの追加フラグとSPSAの前処理も通常どおり反映します。
+
+- `Eval folder template` を1つ指定します。既定の `eval/[arch]` は、たとえば `eval/SFNN_halfkahm2_2304_15_64_k9k9_progress8` に展開されます。`[arch]` はedition名から `YANEURAOU_ENGINE_` を除いた名前です。相対パスは、指定した元の `source` フォルダの親（やねうら王のルート）を基準にします。絶対パスや `[YOSC]/eval/[arch]` も使えます。NNUE系は対応する評価関数ファイルをそこに配置してください。MATERIALでは不要です。
+- `Bench arguments` の既定値は `1024 1 14 default depth` です。訓練時のHash、スレッド数、深さなどを指定できます。定跡は訓練時に無効にします。
+- Clangでは対応する `llvm-profdata` が必要です。自動検出できない場合は、そのパスを指定してください。GCCでは不要です。
+- MSYS2 MINGW64のClangではPGOランタイムも必要です。`pacman -S mingw-w64-x86_64-compiler-rt` で導入できます（[パッケージ](https://packages.msys2.org/packages/mingw-w64-x86_64-compiler-rt)）。ビルド前に小さなプログラムでPGOのリンク可否を確認し、失敗した場合はログに原因を表示します。PGOライブラリ不足を検知した場合は、ビルド失敗のダイアログにも導入コマンドを表示します。
+- パス欄では `[YOSC]` などの共通マクロを使えます。設定はpresetに保存します。評価関数ファイルは訓練時に読み込み、成果物には同梱しません。
+
+PGOは生成したエンジンを実行して訓練するため、CPU targetを実行できる環境で使ってください。Windows ARMへのクロスビルドでは使用できません。BookMinerCppではPGO設定を使いません。
+
+対象のやねうら王には、更新済みの `source/Makefile` と `tools/build/pgo.py` が必要です。Builderはビルド用コピーにこの補助スクリプトも配置します。単体のmakeでも `PGO_EVAL_DIR=...` を指定して `make pgo` を実行できます。詳しい変数は、やねうら王の `tools/build/README.md` を参照してください。
+
+ログタブでは `[PGO] START:` を青い背景、`[PGO] DONE:` を緑の背景、エラーを赤い背景で表示します。変更を反映するにはBuilderを再起動してスクリプトを生成し直してください。以前に生成したrunには古いスクリプトが残ります。
 
 ### 共通マクロ
 

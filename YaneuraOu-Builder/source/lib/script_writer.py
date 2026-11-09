@@ -131,6 +131,7 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
             "mkdir -p build",
             "rm -rf build/source",
             'cp -r "$SOURCE_DIR" build/source',
+            *_pgo_helper_setup(recipe.get("pgo", {}).get("enabled", False) or recipe.get("target") == "pgo", "build"),
             "cd build/source",
         ]
 
@@ -150,6 +151,7 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
         "mkdir -p build",
         "rm -rf build/source",
         'cp -r "$SOURCE_DIR" build/source',
+        *_pgo_helper_setup(recipe.get("pgo", {}).get("enabled", False) or recipe.get("target") == "pgo", "build"),
         'cp "$TUNE_PY" build/',
         'cp "$PARAM_LIB" build/',
         'cp "$TUNE_FILE" build/',
@@ -160,6 +162,16 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
         f'"$PYTHON_CMD" tune.py {spsa_mode} "$TUNE_FILE_NAME" source',
         f'echo "[SPSA] 成功: {spsa_mode}"',
         "cd source",
+    ]
+
+
+def _pgo_helper_setup(enabled: bool, destination: str) -> list[str]:
+    if not enabled:
+        return []
+    return [
+        'if [ ! -f "$SOURCE_DIR/../tools/build/pgo.py" ]; then echo "[ERROR] PGO対応のYaneuraOuソースが必要です (tools/build/pgo.py not found)." >&2; exit 1; fi',
+        f"mkdir -p {destination}/tools/build",
+        f'cp "$SOURCE_DIR/../tools/build/pgo.py" {destination}/tools/build/pgo.py',
     ]
 
 
@@ -227,6 +239,7 @@ def _write_single_build_script(recipe: dict[str, Any], job: dict[str, Any], scri
         'mkdir -p "$WORK_DIR"',
         'rm -rf "$WORK_DIR/source"',
         'cp -r "$SOURCE_DIR" "$WORK_DIR/source"',
+        *_pgo_helper_setup(bool(job.get("pgo")), '"$WORK_DIR"'),
         'cd "$WORK_DIR/source"',
         'echo "[BUILD] 開始: $OUTPUT_PATH"',
         f"make clean YANEURAOU_EDITION={job['edition']}",
@@ -257,6 +270,7 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
         'mkdir -p "$WORK_DIR"',
         'rm -rf "$WORK_DIR/source"',
         'cp -r "$SOURCE_DIR" "$WORK_DIR/source"',
+        *_pgo_helper_setup(bool(job.get("pgo")), '"$WORK_DIR"'),
         'cp "$TUNE_PY" "$WORK_DIR"',
         'cp "$PARAM_LIB" "$WORK_DIR"',
         'cp "$TUNE_FILE" "$WORK_DIR"',
@@ -348,6 +362,7 @@ def _script_header(title: str) -> list[str]:
         '  fi',
         '}',
         'require_command make',
+        'export PYTHONIOENCODING=utf-8',
         'if command -v python3 >/dev/null 2>&1; then',
         '  PYTHON_CMD=python3',
         'elif command -v python >/dev/null 2>&1; then',

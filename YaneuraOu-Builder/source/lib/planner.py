@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+import shlex
+import posixpath
+from pathlib import PureWindowsPath
 from typing import Any
 
 from .toolchains import (
@@ -94,6 +97,7 @@ def _create_release_plan(recipe: dict[str, Any]) -> list[dict[str, Any]]:
                 recipe_artifact_prefix = _required_str(edition, "artifact_prefix")
                 artifact_prefix = _artifact_prefix_for_platform(platform, edition_name, recipe_artifact_prefix)
                 eval_dir = artifact_prefix.removeprefix("YaneuraOu_")
+                pgo, pgo_vars, pgo_eval_dir = _pgo_options(recipe, edition_name, platform, source_dir)
                 for cpu in cpus:
                     artifact = f"{artifact_prefix}-{package_version}{variant_name}_{cpu}{_artifact_extension(platform)}"
                     compiler = _compiler_for_platform(platform, recipe_compiler)
@@ -108,14 +112,14 @@ def _create_release_plan(recipe: dict[str, Any]) -> list[dict[str, Any]]:
                     extra_ldflags = _extra_ldflags_for_platform(platform)
                     command = _make_command(
                         jobs=jobs,
-                        target="tournament",
+                        target="pgo" if pgo else "tournament",
                         compiler=compiler,
                         edition=edition_name,
                         engine_name=engine_name,
                         cpu=cpu,
                         extra_cppflags=extra_cppflags,
                         extra_ldflags=extra_ldflags,
-                        make_vars=_make_vars_for_platform(platform),
+                        make_vars=_make_vars_for_platform(platform) + pgo_vars,
                         material_level=recipe.get("material_level") if "MATERIAL" in edition_name else None,
                     )
                     plan.append(
@@ -125,7 +129,9 @@ def _create_release_plan(recipe: dict[str, Any]) -> list[dict[str, Any]]:
                             "platform": platform,
                             "source_dir": source_dir,
                             "variant": variant_name,
-                            "target": "tournament",
+                            "target": "pgo" if pgo else "tournament",
+                            "pgo": pgo,
+                            "pgo_eval_dir": pgo_eval_dir,
                             "edition": edition_name,
                             "artifact_prefix": artifact_prefix,
                             "recipe_artifact_prefix": recipe_artifact_prefix,
@@ -144,6 +150,7 @@ def _create_release_plan(recipe: dict[str, Any]) -> list[dict[str, Any]]:
 def _create_single_build_job(recipe: dict[str, Any]) -> dict[str, Any]:
     edition = _required_str(recipe, "edition")
     version = _required_str(recipe, "version")
+    pgo, pgo_vars, pgo_eval_dir = _pgo_options(recipe, edition, source_dir=_required_str(recipe, "source_dir"))
     extra_cppflags = list(recipe.get("common_cppflags", [])) + [
         f"-DENGINE_VERSION={_engine_version_define(version)}"
     ]
@@ -152,7 +159,9 @@ def _create_single_build_job(recipe: dict[str, Any]) -> dict[str, Any]:
         "script_group": recipe.get("name", "single-build"),
         "source_dir": _required_str(recipe, "source_dir"),
         "work_dir": _required_str(recipe, "work_dir"),
-        "target": recipe.get("target", "tournament"),
+        "target": "pgo" if pgo else recipe.get("target", "tournament"),
+        "pgo": pgo,
+        "pgo_eval_dir": pgo_eval_dir,
         "compiler": recipe.get("compiler", "clang++"),
         "jobs": int(recipe.get("jobs", 8)),
         "edition": edition,
@@ -162,14 +171,14 @@ def _create_single_build_job(recipe: dict[str, Any]) -> dict[str, Any]:
         "output_path": _required_str(recipe, "output_path"),
         "command": _make_command(
             jobs=int(recipe.get("jobs", 8)),
-            target=recipe.get("target", "tournament"),
+            target="pgo" if pgo else recipe.get("target", "tournament"),
             compiler=recipe.get("compiler", "clang++"),
             edition=edition,
             engine_name=recipe.get("engine_name", "YaneuraOu"),
             cpu=_required_str(recipe, "target_cpu"),
             extra_cppflags=extra_cppflags,
             extra_ldflags=[],
-            make_vars=[],
+            make_vars=pgo_vars,
             material_level=recipe.get("material_level") if "MATERIAL" in edition else None,
         ),
     }
@@ -225,6 +234,36 @@ def _create_bookminer_cpp_plan(recipe: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     return plan
+
+
+def _pgo_options(
+    recipe: dict[str, Any], edition: str, platform: str = "", source_dir: str = "",
+) -> tuple[bool, list[str], str]:
+    pgo = recipe.get("pgo", {})
+    enabled = bool(pgo.get("enabled", False) or recipe.get("target") == "pgo")
+    if not enabled:
+        return False, [], ""
+    if platform == "winarm":
+        raise ValueError("PGO training requires a runnable engine; Windows arm cross builds are not supported.")
+    arch = edition.removeprefix("YANEURAOU_ENGINE_")
+    eval_dir = str(pgo.get("eval_dir", "eval/[arch]")).strip().replace("[arch]", arch)
+    eval_dir = eval_dir.replace("\\", "/")
+    if eval_dir and not (posixpath.isabs(eval_dir) or PureWindowsPath(eval_dir).is_absolute()):
+        # ビルド用コピーではなく、元のリポジトリのeval/を使う。
+        eval_dir = posixpath.normpath(posixpath.join(posixpath.dirname(posixpath.normpath(source_dir.replace("\\", "/"))), eval_dir))
+    if any(name in edition for name in ("NNUE", "SFNN", "KPPT", "KPP_KKPT", "DEEP")) and not eval_dir:
+        raise ValueError(f"PGO eval folder is required for {edition}. Set it in the PGO tab.")
+    bench = str(pgo.get("bench", "1024 1 14 default depth")).strip()
+    if not bench or any(c in bench + eval_dir for c in "\r\n"):
+        raise ValueError("PGO bench and eval folder must each be a single nonempty line.")
+    values = {"PGO_BENCH": bench}
+    if eval_dir:
+        values["PGO_EVAL_DIR"] = eval_dir.replace("\\", "/")
+    if str(pgo.get("profdata", "")).strip():
+        values["PGO_PROFDATA"] = str(pgo["profdata"]).replace("\\", "/")
+    variables = [shlex.quote(key + "=" + value) for key, value in values.items()]
+    variables.append('PYTHON="$PYTHON_CMD"')
+    return True, variables, eval_dir
 
 
 def _make_command(
