@@ -3,6 +3,7 @@ import os
 import re
 import traceback
 import copy
+import math
 from dataclasses import dataclass, field
 from ParamLib import *
 
@@ -179,7 +180,7 @@ def read_explicit_params(tune_file:str, blocks:list[Block] | None = None)->list[
     return result
 
 
-def parse_content_block(block:Block, prefix:str):
+def parse_content_block(block:Block, prefix:str, ranges:dict | None = None):
     """
         blockを与えて、`123@234`のような文字列を
         removedのほうに`@`の左側の数値を格納していき、
@@ -212,25 +213,62 @@ def parse_content_block(block:Block, prefix:str):
     def replace_at(match):
         nonlocal param_no
         suffix = match.group(1) # "@"の後ろの文字。なければ空。
+        bounds_text = match.group(2)
+        if bounds_text is None and match.string[match.end():].startswith('{'):
+            raise ValueError("閉じていないパラメーター範囲: " + match.string[match.start():])
         if not suffix:
             suffix = str(param_no)
             param_no += 1
         param_name = f"{param_prefix}_{suffix}"
         params_name.append(param_name)
+        if bounds_text is not None:
+            parts = bounds_text[1:-1].split(',')
+            try:
+                if len(parts) != 2:
+                    raise ValueError()
+                lower, upper = map(float, parts)
+                if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError(f"{param_name}: 範囲は有限数で最小値 < 最大値としてください: {bounds_text}") from None
+            if ranges is not None:
+                bounds = (lower, upper)
+                if param_name in ranges and ranges[param_name] != bounds:
+                    raise ValueError(f"{param_name}: 範囲指定が一致しません")
+                ranges[param_name] = bounds
         return param_name
     
     for line in lines:
         # 数字(小数含む)を削除しつつ removed_numbers に格納
         modified = re.sub(r'-?\d+(?:\.\d+)?(?=@)', collect_and_remove, line)
         # "@"とその後の英数字を順番に置換
-        modified = re.sub(r'@([A-Za-z0-9]*)', replace_at, modified)
+        modified = re.sub(r'@([A-Za-z0-9_]*)(\{[^}]*\})?', replace_at, modified)
         modified_block.append(modified)
 
     return modified_block, removed_numbers, params_name
 
-NUMBER_WITH_AT_RE = re.compile(r'-?\d+(?:\.\d+)?@[A-Za-z0-9]*')
+NUMBER_WITH_AT_RE = re.compile(r'-?\d+(?:\.\d+)?@[A-Za-z0-9_]*(?:\{[^}]*\})?')
 NUMBER_CAPTURE_RE = r'(-?\d+(?:\.\d+)?)'
 PARAMETER_NAME_CHAR_RE = r'[A-Za-z0-9_]'
+
+
+def collect_parameter_ranges(tune_blocks)->dict:
+    """@{min,max}を全contextから集め、同名の矛盾も書換前に検出する。"""
+    ranges = {}
+    for tune_block in tune_blocks:
+        block = get_context_block(tune_block)
+        prefix = block.params[0] if block.params else ""
+        parse_content_block(block, prefix, ranges)
+    return ranges
+
+
+def validate_parameter_range(param:Entry, bounds:tuple):
+    """初期値と、実際にエンジンへ渡す整数丸め後の値を検査する。"""
+    lower, upper = bounds
+    effective = round_parameter_int(param.v) if param.type == "int" else param.v
+    if (not math.isfinite(param.v) or not lower <= param.v <= upper
+        or not lower <= effective <= upper):
+        raise ValueError(f"{param.name}: 値 {param.v} (適用値 {effective}) は範囲 [{lower}, {upper}] 外です")
 
 
 def get_target_path(filename:str)->str:
@@ -384,7 +422,7 @@ def validate_tune_sync(tune_blocks:list[TuneBlock]):
     This is intentionally a narrow check, not a C++ parser; more complex
     derived values must still be reviewed by the author of the tune file.
     """
-    copy_decl = re.compile(r"\b(?:int|float|double|long|short)\s+(?!const\b)(\w+)\s*=\s*@([A-Za-z0-9]*)\s*;")
+    copy_decl = re.compile(r"\b(?:int|float|double|long|short)\s+(?!const\b)(\w+)\s*=\s*@([A-Za-z0-9_]*)(?:\{[^}]*\})?\s*;")
     for block in tune_blocks:
         ready = "\n".join(''.join(a.content) for a in block.add_blocks
                           if a.params and a.params[0] == '%%TUNE_ISREADY%%')
@@ -411,6 +449,7 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     blocks = parse_tune_file(tune_file)
     tune_blocks = read_tune_file(tune_file, blocks)
     validate_tune_sync(tune_blocks)
+    parameter_ranges = collect_parameter_ranges(tune_blocks)
     explicit = {p.name for p in read_explicit_params(tune_file, blocks)}
     unapplied = sorted(p.name for p in params if not p.not_used and p.name in explicit)
     if unapplied:
@@ -424,6 +463,11 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     extra = sorted(p.name for p in params if not p.not_used and p.name not in used)
     if extra:
         raise ValueError(".tune に対応する箇所がなくapplyされないパラメーター: " + ", ".join(extra))
+
+    # apply先を一部だけ書き換えてから失敗しないよう、先に全範囲を検査する。
+    for param in params:
+        if param.name in used and param.name in parameter_ranges:
+            validate_parameter_range(param, parameter_ranges[param.name])
 
     # 変数名を列挙する。
     for tune_block in tune_blocks:
@@ -503,6 +547,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
     blocks = parse_tune_file(tune_file)
     tune_blocks = read_tune_file(tune_file, blocks)
     validate_tune_sync(tune_blocks)
+    parameter_ranges = collect_parameter_ranges(tune_blocks)
 
     # `#param`で明示された、既存USI option用のパラメーターを追加する。
     # これはソースコード上の`@`置換とは独立しており、tune対象エンジンへ
@@ -551,6 +596,9 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                     else:
                         min_, max_ = number * 2 , 0.0
 
+                    if param_name in parameter_ranges:
+                        min_, max_ = parameter_ranges[param_name]
+
                     # stepが1未満だとint化すると同じ値になってしまうので、
                     # 少なくとも1以上でなければならない
                     step  = max((max_ - min_) / 20 , 1)
@@ -568,6 +616,11 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
                     # print(f"..found")
                     # 使っていた。
                     result.not_used = False
+                result = next(p for p in params if p.name == param_name)
+                if param_name in parameter_ranges:
+                    bounds = parameter_ranges[param_name]
+                    validate_parameter_range(result, bounds)
+                    result.min, result.max = bounds
             except Exception as e:
                 raise Exception(f"{e} , param_name = {param_name}")
 
@@ -627,7 +680,7 @@ def tune_parameters(tune_file:str, params_file : str, target_dir:str):
             p = next((p for p in params if p.name == param_name), None)
             if p is None:
                 raise Exception() # この可能性はないはず..
-            v = int(p.v) if p.type == 'int' else p.v
+            v = round_parameter_int(p.v) if p.type == 'int' else p.v
             tune_params_to_declare.append(f"{p.type} {p.name} = {v}; {'//' + p.comment if p.comment else ''}\n")
             tune_params_to_options.append(f"TUNE(SetRange({p.min}, {p.max}), {p.name}, SetDefaultRange);\n")
 
