@@ -177,7 +177,9 @@
 
 #context Search_Decrease_reduction_for_PvNodes_2
 
-        r += 691@;  // Base reduction offset to compensate for other tweaks
+        r += 691@;
+
+        r -= moveCount * 65;
 
 #context Search_Decrease_reduction_for_PvNodes_3
 
@@ -226,9 +228,7 @@
 
 #context Search_Full_depth_search_threshold_2b
 
-            // Note that if expected reduction is high, we reduce search depth here
-            // 期待される削減が大きい場合、ここで探索深さを1減らすことに注意してください。
-			value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
+            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
                                    newDepth - (r > 4628@) - (r > 5772@ && newDepth > 2), !cutNode);
 
 #context Search_ttMoveHistoryBonus // search() Step 21.
@@ -274,7 +274,10 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
     captureHistory.fill(-678@);
 
-    // Each thread is responsible for clearing their part of shared history
+    // Each thread clears its part of the dynamically-sized shared histories.
+    // The constant-size continuation history is initialized by thread 0 of each NUMA node.
+    // 各スレッドは、動的な共有履歴のうち自分の担当範囲を初期化する。
+    // 固定サイズのcontinuation historyは、各NUMAノードの先頭スレッドだけが初期化する。
     sharedHistory.correctionHistory.clear_range(0, numaThreadIdx, numaTotal);
     sharedHistory.pawnHistory.clear_range(-1238@, numaThreadIdx, numaTotal);
 
@@ -309,9 +312,8 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
                 int margin = std::max(167@ * depth + captHist * 34@ / 1024, 0);
 
-#context Search_All_node_reduction_scale // search() Step 16.
+#context Search_All_node_reduction_scale
 
-        // Scale up reductions for expected ALL nodes
         if (allNode)
             r += r * 273@ / (256 * depth + 260);
 
@@ -434,7 +436,6 @@ int& mainHistoryDefault = @;
 
 #context history_nonPV_bonus
 
-    if (!PvNode)
         bonus += int(i64(bonus) * int(quietsSearched.size() + capturesSearched.size()) / 256@);
 
 #context root_score_EMA_ratio
