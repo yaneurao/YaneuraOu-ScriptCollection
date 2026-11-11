@@ -146,8 +146,10 @@
 
 #context Search_Continuation_history_based_pruning3
 
-        if (!pos.see_ge(move, -25@ * lmrDepth * lmrDepth))
-            continue;
+                const Value seeMargin =
+                  Value(std::max<i64>(i64(-25@) * lmrDepth * lmrDepth, -VALUE_INFINITE));
+                if (!pos.see_ge(move, seeMargin))
+                    continue;
 
 #context Search_Extensions1 // Step 15.
 
