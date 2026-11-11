@@ -1,7 +1,7 @@
 // Q8係数は256倍の整数。名前末尾Q8の項目には旧単位のparamsを使用しない。
 #param FV_SCALE int 24 16 64 1 0.002
 
-// 除数の調整範囲の下限はparamsで1とする。古いparamsの0も本体側のstd::maxで防ぐ。
+// 除数の調整範囲の下限は@{min,max}で1とする。古いparamsの0も本体側のstd::maxで防ぐ。
 
 #set file engine\yaneuraou-engine\yaneuraou-search.cpp
 #set declaration %%TUNE_DECLARATION%%
@@ -55,7 +55,7 @@
 #context aspiration_window
 
             delta = std::max(1, 5@ + int(threadIdx % 8)
-                                 + std::abs(rootMoves[pvIdx].meanSquaredScore) / std::max(9000@, 1));
+                                 + std::abs(rootMoves[pvIdx].meanSquaredScore) / std::max(9000@{1,18000}, 1));
 
 
 #context YaneuraOuWorker_clear2
@@ -108,7 +108,7 @@
 
             return futilityMult * d //
                  - (2686@3 * improving + 362@4 * opponentWorsening) * futilityMult / 1024
-                 + std::abs(correctionValue) / std::max(180600@5, 1);
+                 + std::abs(correctionValue) / std::max(180600@5{1,361200}, 1);
         };
 
 #context Search_nullmove_1
@@ -156,12 +156,12 @@
 
 #context Search_Extensions1 // Step 15.
 
-            Value singularBeta  = ttData.value - (60@ + 66@ * (ss->ttPv && !PvNode)) * depth / std::max(55@, 1);
+            Value singularBeta  = ttData.value - (60@ + 66@ * (ss->ttPv && !PvNode)) * depth / std::max(55@{1,110}, 1);
             Depth singularDepth = newDepth / 2;
 
 #context Search_Extensions2
 
-                int corrValAdj   = std::abs(correctionValue) / std::max(210590@, 1);
+                int corrValAdj   = std::abs(correctionValue) / std::max(210590@{1,421180}, 1);
 
 #context Search_Extensions3
 
@@ -189,7 +189,7 @@
 #context Search_Decrease_reduction_for_PvNodes_3
 
 		r -= moveCount * 65@;
-        r -= std::abs(correctionValue) / std::max(25600@, 1);
+        r -= std::abs(correctionValue) / std::max(25600@{1,51200}, 1);
 
 #context Search_Decrease_reduction_for_PvNodes_4
 
@@ -310,7 +310,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_IIR
 
-    if (!ss->followPV && !allNode && depth >= 6@1 && !ttData.move)
+    if (!ss->followPV && !allNode && depth >= 6@1{2,12} && !ttData.move)
         depth--;
 
 #context Search_Capture_SEE_pruning_margin // Search step 14.
@@ -330,7 +330,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 #context Search_fail_low_quiet_bonus // search() Step 21.
 
         int bonusScale = -232@;
-        bonusScale -= (ss - 1)->statScore / std::max(108@, 1);
+        bonusScale -= (ss - 1)->statScore / std::max(108@{1,216}, 1);
         bonusScale += std::min(59@ * depth, 454@);
         bonusScale += 169@ * ((ss - 1)->moveCount > 8@);
         bonusScale += 145@ * (!ss->inCheck && bestValue <= ss->staticEval - 110@);
@@ -519,7 +519,7 @@ using Eval::PieceValue;
 
 #context MovePicker_good_capture_see
 
-				if (pos.see_ge(*cur, -cur->value / std::max(18@, 1)))
+				if (pos.see_ge(*cur, -cur->value / std::max(18@{1,36}, 1)))
 					return true;
 
 #context MovePicker_quiet_partial_sort
