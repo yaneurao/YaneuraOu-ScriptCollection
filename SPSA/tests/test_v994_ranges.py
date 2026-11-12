@@ -186,6 +186,22 @@ class V994RangeTests(test_v993_ranges.V993RangeTests):
                     'Search_fail_low_quiet_bonus', 'CMHC_bonus', 'history_nonPV_bonus'):
                 self.assertNotIn('i64(', ''.join(context.content))
 
+    def test_stand_pat_blend_is_bounded_and_half_weight_preserves_old_rounding(self):
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
+        ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
+        self.assertEqual(ranges['QSearch_stand_pat_blend_weight'], (0, 1024))
+        self.assertEqual(ranges['QSearch_stand_pat_storage_store'], (0, 1))
+        def divide(n, d):
+            return (1 if n >= 0 else -1) * (abs(n) // d)
+        values = (-32001, -32000, -3, -2, -1, 0, 1, 2, 3, 32000, 32001)
+        for best in values:
+            for beta in values:
+                old = divide(best + beta, 2)
+                self.assertEqual(divide(512 * best + 512 * beta, 1024), old)
+                for weight in (0, 441, 512, 1024):
+                    numerator = weight * best + (1024 - weight) * beta
+                    self.assertLessEqual(abs(numerator), 2**31 - 1)
+
 
 
 if __name__ == '__main__':

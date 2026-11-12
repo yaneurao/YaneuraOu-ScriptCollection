@@ -559,6 +559,10 @@ using Eval::PieceValue;
 
             if (depth >= 7@depth{1,32} && ttData.move
 
+#context QSearch_stand_pat_blend
+
+            const int standPatWeight = 441@weight{0,1024};
+
 #context QSearch_stand_pat_storage
 
             const int storeStandPatValue = 0@store{0,1};
