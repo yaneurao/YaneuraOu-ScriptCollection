@@ -462,7 +462,7 @@ class BuildGui(tk.Tk):
             name, path = name_var.get().strip(), path_var.get().strip()
             if not name and not path:
                 continue
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", name):
                 raise ValueError(f"Invalid macro name: {name!r}")
             if name in result:
                 raise ValueError(f"Duplicate macro: [{name}]")
@@ -1960,32 +1960,37 @@ def _normalized_run_root_text(value: Any, yobuild_root: Path) -> str:
     return str(resolve_run_root(text, yobuild_root))
 
 
-def _expand_alias_path(value: str, aliases: dict[str, str]) -> str:
-    if not value.startswith("["):
-        return value
-    match = re.match(r"^\[([A-Za-z_][A-Za-z0-9_]*)\](?=$|[/\\])", value)
-    if match is None:
-        raise ValueError(f"Unknown or invalid path alias: {value}")
-    name = match.group(1)
-    if name not in aliases:
-        raise ValueError(f"Path alias [{name}] is not registered in the Macros tab.")
-    root = aliases[name].strip()
-    if not root or not (os.path.isabs(root) or PureWindowsPath(root).is_absolute()):
-        raise ValueError(f"Set an absolute folder for [{name}] in the Macros tab.")
-    suffix = value[match.end():].lstrip("/\\")
-    if not suffix:
-        return root
-    separator = "\\" if PureWindowsPath(root).is_absolute() else "/"
-    # Keep drive roots such as C:\\ and POSIX / intact.
-    return root.rstrip("/\\") + separator + suffix.replace("\\", separator).replace("/", separator)
+def _expand_alias_path(value: str, aliases: dict[str, str], *, preserve_arch: bool = False) -> str:
+    preserved = {"arch"} if preserve_arch else set()
+    if value.startswith("[") and not (preserve_arch and value.startswith("[arch]")):
+        match = re.match(r"^\[([A-Za-z_][A-Za-z0-9_-]*)\](?=$|[/\\])", value)
+        if match is None:
+            raise ValueError(f"Unknown or invalid path alias: {value}")
+        name = match.group(1)
+        if name not in aliases:
+            raise ValueError(f"Path alias [{name}] is not registered in the Macros tab.")
+        root = _expand_flag_macros(aliases[name], aliases, preserved).strip()
+        if not root or not (os.path.isabs(root) or PureWindowsPath(root).is_absolute()):
+            raise ValueError(f"Set an absolute folder for [{name}] in the Macros tab.")
+        if PureWindowsPath(root).is_absolute():
+            root = root.replace("/", "\\")
+        suffix = _expand_flag_macros(value[match.end():], aliases, preserved).lstrip("/\\")
+        if not suffix:
+            return root
+        separator = "\\" if PureWindowsPath(root).is_absolute() else "/"
+        return root.rstrip("/\\") + separator + suffix.replace("\\", separator).replace("/", separator)
+    return _expand_flag_macros(value, aliases, preserved)
 
 
-def _expand_flag_macros(value: str, aliases: dict[str, str]) -> str:
-    pattern = re.compile(r"\[([A-Za-z_][A-Za-z0-9_]*)\]")
+def _expand_flag_macros(value: str, aliases: dict[str, str], preserved: set[str] | None = None) -> str:
+    pattern = re.compile(r"\[([A-Za-z_][A-Za-z0-9_-]*)\]")
+    preserved = preserved or set()
 
     def expand(text: str, stack: tuple[str, ...]) -> str:
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
+            if name in preserved:
+                return match.group(0)
             if name not in aliases:
                 raise ValueError(f"Macro [{name}] is not registered in the Macros tab.")
             if name in stack:
@@ -2028,8 +2033,7 @@ def _resolve_recipe_paths(recipe: dict[str, Any], aliases: dict[str, str]) -> di
         pgo = result.get("pgo", {})
         for key in ("eval_dir", "profdata"):
             if isinstance(pgo.get(key), str):
-                if key != "eval_dir" or not pgo[key].startswith("[arch]"):
-                    pgo[key] = _expand_alias_path(pgo[key], aliases)
+                pgo[key] = _expand_alias_path(pgo[key], aliases, preserve_arch=(key == "eval_dir"))
         if isinstance(pgo.get("bench"), str):
             pgo["bench"] = _expand_flag_macros(pgo["bench"], aliases)
     return result

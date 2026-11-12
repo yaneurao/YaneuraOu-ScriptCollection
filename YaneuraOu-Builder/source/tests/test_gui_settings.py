@@ -49,13 +49,14 @@ class GuiSettingsTest(unittest.TestCase):
         source = Path(self.tmp.name) / 'engine source'
         gui.path_alias_rows[0][1].set(str(root))
         gui._add_path_alias('YaneuraOuSource', str(source))
+        gui._add_path_alias('params-file', 'example.params')
         gui.run_root_var.set('[YOSC]/runs')
         gui.release_source_var.set('[YaneuraOuSource]')
         gui.spsa_mode_var.set('apply')
         gui.spsa_tune_py_var.set('[YOSC]\\SPSA\\tune.py')
         gui.spsa_param_lib_var.set('[YOSC]/SPSA/ParamLib.py')
         gui.spsa_tune_file_var.set('[YOSC]/SPSA/param/example.tune')
-        gui.spsa_params_file_var.set('[YOSC]/SPSA/param/example.params')
+        gui.spsa_params_file_var.set(r'[YOSC]\SPSA\param\[params-file]')
         run = gui._write_scripts(show_message=False)
         self.assertIsNotNone(run)
         self.assertEqual(run.parent, root / 'runs')
@@ -63,12 +64,14 @@ class GuiSettingsTest(unittest.TestCase):
         recipe = json.loads((run / 'recipe.json').read_text(encoding='utf8'))
         self.assertEqual(recipe['source_dirs']['win'], str(source))
         self.assertEqual(recipe['spsa']['tune_py'], str(root / 'SPSA' / 'tune.py'))
+        self.assertEqual(recipe['spsa']['params_file'], str(root / 'SPSA' / 'param' / 'example.params'))
         scripts = list((run / 'scripts').iterdir())
         self.assertTrue(scripts)
         self.assertIn(str(root / 'SPSA' / 'tune.py'), scripts[0].read_text(encoding='utf8'))
         settings, _ = app.load_gui_settings()
         self.assertEqual(settings['presets'][gui.current_preset_name]['spsa']['tune_py'], '[YOSC]\\SPSA\\tune.py')
         self.assertEqual(settings['presets'][gui.current_preset_name]['run_root'], '[YOSC]/runs')
+        self.assertEqual(settings['presets'][gui.current_preset_name]['spsa']['params_file'], r'[YOSC]\SPSA\param\[params-file]')
         self.assertIn({'name': 'YaneuraOuSource', 'path': str(source)}, settings['path_aliases'])
 
     def test_open_latest_build_folder(self):
@@ -112,6 +115,19 @@ class GuiSettingsTest(unittest.TestCase):
         for path, mapping in [('[Unknown]/file', aliases), ('[YOSC]suffix', aliases), ('[YOSC]/file', {'YOSC': 'relative'})]:
             with self.subTest(path=path), self.assertRaises(ValueError):
                 app._expand_alias_path(path, mapping)
+
+    def test_multiple_and_nested_path_macros(self):
+        aliases = {'ROOT': r'C:\work', 'YOSC': '[ROOT]/YOSC', 'params-file': 'test.params',
+                   'filename': '[params-file]'}
+        self.assertEqual(app._expand_alias_path(r'[YOSC]\SPSA\param\[filename]', aliases),
+                         r'C:\work\YOSC\SPSA\param\test.params')
+        self.assertEqual(app._expand_alias_path(r'C:\work\[params-file]', aliases), r'C:\work\test.params')
+        with self.assertRaisesRegex(ValueError, 'MISSING'):
+            app._expand_alias_path(r'[YOSC]\[MISSING]', aliases)
+        with self.assertRaisesRegex(ValueError, 'Circular'):
+            app._expand_alias_path('[A]/file', {'A': '[B]', 'B': '[A]'})
+        self.assertEqual(app._expand_alias_path('[YOSC]/[arch]/[filename]', aliases, preserve_arch=True),
+                         r'C:\work\YOSC\[arch]\test.params')
 
     def test_macros_expand_in_flags_without_changing_presets(self):
         gui = self.gui

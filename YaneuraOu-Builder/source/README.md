@@ -151,11 +151,11 @@ PGOは生成したエンジンを実行して訓練するため、CPU targetを�
 
 ### 共通マクロ
 
-画面上部の `Macros` タブに、全 preset で共通に使う値を名前とともに登録できます。例えば `YOSC` に `C:\Users\yaneen\CA-misc\work\YaneuraOuWork\YaneuraOu-ScriptCollection` を登録すると、tune.py 欄に `[YOSC]\SPSA\tune.py` と書けます。同様に `YaneuraOuSource` などの名前を追加し、各パス欄の先頭で `[YaneuraOuSource]` を使えます。パスとして使う場合は絶対パスを登録してください。名前は英字または `_` で始まり、英数字と `_` を使います。
+画面上部の `Macros` タブに、全 preset で共通に使う値を名前とともに登録できます。例えば `YOSC` に `C:\Users\yaneen\CA-misc\work\YaneuraOuWork\YaneuraOu-ScriptCollection` を登録すると、tune.py 欄に `[YOSC]\SPSA\tune.py` と書けます。同様に `YaneuraOuSource` などの名前を追加し、各パス欄で `[YaneuraOuSource]` を使えます。例えば `params-file` に `example.params` を登録すれば、`[YOSC]\SPSA\param\[params-file]` のように複数のマクロを組み合わせられます。パス先頭のフォルダ用マクロは展開結果を絶対パスにしてください。名前は英字または `_` で始まり、英数字、`_`、`-` を使います。
 
 `DEV_OPTIONS` に `-DFOO=1 -DBAR=2` のような文字列を登録すると、Variants の `Extra CPP flags` や `Common CPP flags` に `[DEV_OPTIONS]` と書けます。`Engine name` と `Engine version` にもマクロを使えます。これらのマクロ値には別のマクロも使えます。Macros の各行の ↑ / ↓ で表示順を変更でき、その順番は保存されます。
 
-設定欄には短い表記が保存され、ビルド計画やスクリプトの生成時に登録値へ展開されます。登録値を変更すると、次に生成するビルドから新しい値が使われます。未登録のマクロ、循環参照、またはパス欄で絶対パスでない値を使うと、生成前にエラーを表示します。すでに生成されたスクリプトは変更されません。
+設定欄には短い表記が保存され、ビルド計画やスクリプトの生成時に登録値へ展開されます。登録値を変更すると、次に生成するビルドから新しい値が使われます。未登録のマクロ、循環参照、またはパス先頭のマクロが絶対パスに展開されないと、生成前にエラーを表示します。すでに生成されたスクリプトは変更されません。
 
 ### ShogiZone へのアップロード
 
