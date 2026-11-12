@@ -11,8 +11,12 @@ from ParamLib import Entry, round_parameter_int
 
 
 class V993RangeTests(unittest.TestCase):
+    tune_filename = 'YaneuraOuV993.tune'
+    has_lmr_history_switch = True
+    has_lmr_slope_parameter = True
+
     def test_search_invariants_have_explicit_ranges(self):
-        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
         blocks = tune.read_tune_file(str(path), tune.parse_tune_file(str(path)))
         ranges = tune.collect_parameter_ranges(blocks)
         required = {
@@ -49,6 +53,8 @@ class V993RangeTests(unittest.TestCase):
             'main_history_initial_1': (-256, 256),
             'Search_futility_blend_1': (0, 1024),
         }
+        if not self.has_lmr_slope_parameter:
+            del required['Search_lmr_divisor_slope']
         for name in (
             'Search_razoring_policy',
             'Search_child_futility_policy',
@@ -66,6 +72,8 @@ class V993RangeTests(unittest.TestCase):
             'Search_CMHC_feedback',
             'Time_best_move_effort_policy',
         ):
+            if name == 'Search_LMR_history_divisor' and not self.has_lmr_history_switch:
+                continue
             required[name + '_enable'] = (0, 1)
         for name, bounds in required.items():
             with self.subTest(parameter=name):
@@ -80,7 +88,7 @@ class V993RangeTests(unittest.TestCase):
 
 
     def test_aspiration_width_range_guarantees_progress(self):
-        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
         ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
         minimum_width = ranges['aspiration_window_1'][0]
         minimum_growth = ranges['aspiration_window_growth_1'][0]
@@ -89,7 +97,7 @@ class V993RangeTests(unittest.TestCase):
 
     def test_lmr_int_arithmetic_at_domain_extremes(self):
         import math
-        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
         blocks = tune.read_tune_file(str(path))
         ranges = tune.collect_parameter_ranges(blocks)
         for block in blocks:
@@ -111,9 +119,13 @@ class V993RangeTests(unittest.TestCase):
         stat_score = max(capture_score, quiet_numerator // 1024)
         stat_product = stat_score * hi('Search_Decrease_reduction_for_PvNodes_9_1')
         self.assertLess(stat_product, int_max)
-        correction_max = 1024 * (hi('correction_value_1') + hi('correction_value_2')
-                                + 2 * hi('correction_value_3') + 2 * hi('correction_value_4')
-                                + hi('correction_value_6ply'))
+        cntcv_max = 1024 * (2 * hi('correction_value_4') + hi('correction_value_6ply'))
+        fallback_max = (hi('correction_value_fallback') if 'correction_value_fallback' in ranges
+                        else 8 * hi('correction_value_4'))
+        correction_max = (1024 * (hi('correction_value_1') + hi('correction_value_2')
+                                   + 2 * hi('correction_value_3'))
+                          + max(cntcv_max, fallback_max))
+        self.assertLess(correction_max, int_max)
         table_max = math.ceil(hi('YaneuraOuWorker_clear3_1') / 128 * math.log(600))
         scale = table_max ** 2
         reduction = (scale + scale * hi('YaneuraOuWorker_reduction_2') // 512
@@ -140,7 +152,7 @@ class V993RangeTests(unittest.TestCase):
         self.assertLess(see_magnitude + 32001, int_max)
 
     def test_probcut_stored_depth_is_representable(self):
-        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
         ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
         # ProbCut starts at depth=3 and stores probCutDepth + 1.
         # TT depth8 encodes depth - DEPTH_NONE, with DEPTH_NONE=-3;

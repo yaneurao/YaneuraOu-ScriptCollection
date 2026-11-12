@@ -9,6 +9,36 @@ SPSAするためのツール類。
 - 参考 OpenBenchのSPSA : https://github.com/AndyGrant/OpenBench/wiki/SPSA-Tuning-Workloads
 
 
+## YaneuraOuV994への移行
+
+`param/YaneuraOuV994.tune`は現行ソースに対応する調整定義。V993の定義はそのまま残す。
+既存の調整済みV994.paramsについては、Q8係数を再度256倍しない。ALLノードのLMR補正式の分母変更やquietのstatScoreの重み変更は、単位の変更とは区別する。
+
+新しい調整項目はquiet statScoreの3係数、ProbCutの削減深さ2項目、aspiration windowの拡大量1項目。`Search_capture_SEE_floor_minimum`は削除する。既存係数の値・step・deltaを引き継ぎ、範囲情報を現在の定義に合わせる。LMR除数のON/OFFと傾きの調整項目は削除し、基準値だけを調整する。
+
+補正履歴の計算も現行Stockfishの形に揃え、`correction_value_1`～`4`と`6ply`の名前・調整済み値は引き継ぐ。無効手時の補正は独立した`correction_value_fallback`（ソース初期値80695、範囲0～161390）で調整する。今回のparamsでは旧式の `8 * round(correction_value_4)` に相当する110288を初期値として追加し、旧paramsを整数applyしたときの無効手時の補正値を維持した。
+
+V994では、調整結果を受けて次の2スイッチをソース上の既定値0とする。範囲0～1は維持し、継続調整用paramsの小数値は保持する。
+
+- `Search_TT_LMR_exclusive_enable`: cutoffCntによる加算後にもTT手の割引を適用する。
+- `Search_CMHC_feedback_enable`: 正履歴の連続数による増幅を使わず、乗数64を使う。
+
+LMR除数は `base + 7 * (min(depth, 16) - 8)^2` とし、7は固定する。`Search_lmr_divisor_base`（16～6000）だけを調整する。既存paramsの基準値3083.912174409699は保持し、`Search_LMR_history_divisor_enable`と`Search_lmr_divisor_slope`を削除した。基準値だけの調整では旧固定値3220の経路を全深さで再現することはできず、新しい式で継続調整する。
+
+0付近への収束はOFFを選ぶ根拠になるが、単独のSPSA結果から統計的な棋力差が確定するわけではない。ShogiZoneでの確率的丸めを使う継続調整では、小数値をそのまま引き継ぐ。静的applyでは整数丸めにより、今回の2項目はいずれも0になる。
+
+#paramのFV_SCALEは既存のUSIオプションであり、静的applyする係数とは別に扱う。tuneコマンドで生成されるparamsには追加されるが、apply用paramsではその行を除外するか`[[NOT USED]]`にし、実行時に別途設定する。
+
+### V994の時間配分とmainHistory初期値
+
+最善手が安定したときの時間補正は、Stockfishと同じくシグモイドから線形補間へ変更した。effort補正の比較用Stockfish分岐も現行の式に揃えた。
+
+将棋側のeffort補正では既存の4項目の名前・値・step・deltaを維持する。`Time_best_move_effort_start`と`span`は補間の開始点と幅、`minimumQ10`は補間終点の重み（1024倍）、`depth`は適用開始深さ。終点の重みは新しい式ではclampの下限とは別になるが、params名は引き継ぐ。補間開始側の重みは0.969、clampの範囲は0.693～0.838でStockfishに合わせた。`depth`の範囲を0～32とし、0なら深さによる制限を設けない。ソース初期値はstart=75800、span=28710、minimumQ10=731（0.714のQ10近似）、depth=0。
+
+`main_history_initial_1`は `mainHistory.fill(-5)` の数値を直接調整する。範囲-256～256と既存の調整済み値を維持し、共通定数や参照変数による間接化は廃止した。
+
+これらの時間配分の変更は固定ノードbenchでは検証できないため、持ち時間を指定した探索も動作確認する。
+
 ## YaneuraOuV993の探索候補の調整
 
 `param/YaneuraOuV993.tune`には、Stockfishから取り込んだ追加候補のために、次の項目がある。既存の探索係数は引き継ぎ、新規項目だけを追加する。
