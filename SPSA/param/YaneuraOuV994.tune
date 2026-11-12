@@ -272,6 +272,10 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context conthist_bonuses
 
+    static constexpr std::array<ConthistBonus, 5> conthist_bonuses = {
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
+
+#add
     const std::array<ConthistBonus, 5> conthist_bonuses = {
       {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
 
@@ -431,6 +435,9 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context CMHC_multipliers
 
+    constexpr int CMHCMultipliers[] = {94@0{0,126}, 103@1{0,126}, 110@2{0,126}, 106@3{0,126}, 119@4{0,126}, 126@5{0,126}};
+
+#add
     const int CMHCMultipliers[] = {94@0{0,126}, 103@1{0,126}, 110@2{0,126}, 106@3{0,126}, 119@4{0,126}, 126@5{0,126}};
 
 #context CMHC_bonus
