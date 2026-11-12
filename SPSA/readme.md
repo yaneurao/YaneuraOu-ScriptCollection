@@ -11,18 +11,21 @@ SPSAするためのツール類。
 
 ## YaneuraOuV993の探索候補の調整
 
-`param/YaneuraOuV993.tune`には、Stockfishから取り込んだ追加候補のために、次の8項目がある。既存の探索係数は引き継ぎ、新規項目だけを追加する。
+`param/YaneuraOuV993.tune`には、Stockfishから取り込んだ追加候補のために、次の項目がある。既存の探索係数は引き継ぎ、新規項目だけを追加する。
 
 | params名 | 初期値 | 範囲 | 意味 |
 | --- | ---: | --- | --- |
 | `Search_NMP_beta_limit_minimum` | -2000 | -32000～0 | NMPを使うbetaの下限。-32000なら既存の決着値除外だけになる。 |
-| `Search_TT_child_probe_depth` | 7 | 0～32 | TTカット前に子局面の保存値を検査する開始深さ。0で検査しない。 |
+| `Search_TT_child_probe_depth` | 7 | 1～32 | TTカット前に子局面の保存値を検査する開始深さ。 |
 | `QSearch_stand_pat_storage_store` | 0 | 0～1 | 0はstand patの探索値を保存せず生の静的評価だけを保存、1は従来の保存方法。 |
-| `Search_capture_SEE_floor_minimum` | -1024 | -1024～0 | 捕獲SEEのmargin下限。0で従来の下限に戻る。 |
 | `Time_best_move_effort_start` | 78000 | 0～100000 | 最善手へのノード集中率に応じた時間補正の開始点。100000が100%。 |
 | `Time_best_move_effort_span` | 16000 | 1～100000 | 上記の補間幅。開始点に加えて終点になる。 |
 | `Time_best_move_effort_minimumQ10` | 682 | 0～1024 | 時間補正の最小係数。1024で割るので682は約0.666。1024なら時間短縮しない。 |
 | `Time_best_move_effort_depth` | 10 | 1～32 | この時間補正を適用する完了探索深さ。 |
+
+quietの`statScore`はStockfishと同じく、main historyと1・2手前のcontinuation historyを重み付けし、合計を1024で割る。`Search_quiet_stat_score_main`（2252、0～4504）、`Search_quiet_stat_score_continuation0`（1126、0～2252）、`Search_quiet_stat_score_continuation1`（1093、0～2186）で調整する。ProbCutの深さは`depth - (improving ? 5 : 3)`とし、`Search_probcut_depth_improving`（2～6）と`Search_probcut_depth_other`（2～6）で調整する。
+
+SPSA値の保護用のmin・max・64bitキャスト・条件分岐は探索コードに追加せず、必要な範囲をtune・params側で制限する。ALLノードのLMR倍率はStockfishの`r * 276 / (256 * depth + 268)`に揃え、係数を0～552で調整する。関連する補正履歴の除数は64～51200、historyによるLMR除数の基準値は16～6000とし、許容範囲全体で乗算・二乗がintに収まるようにする。捕獲SEEのmargin下限とその調整項目は廃止した。
 
 LMRのTT手割引はStockfishの`else if`へ変更し、既存の`Search_Decrease_reduction_for_PvNodes_7_1`で割引量を調整する。
 

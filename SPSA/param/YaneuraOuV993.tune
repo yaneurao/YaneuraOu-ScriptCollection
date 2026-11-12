@@ -68,7 +68,7 @@
 #context YaneuraOuWorker_clear3
 
     for (usize i = 1; i < reductions.size(); ++i)
-        reductions[i] = int(2763@ / 128.0 * std::log(i));
+        reductions[i] = int(2763@{0,5526} / 128.0 * std::log(i));
 
 #context Search_tt_lookup1
 
@@ -77,7 +77,7 @@
 
 #context Search_tt_lookup2
 
-            if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 4 && !priorCapture)
+            if (prevSq != SQ_NONE && (ss - 1)->moveCount < 5 && !priorCapture)
                 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2142@);
 
 #context Search_static_evaluation_1a // search Step 6.
@@ -125,7 +125,7 @@
 #context Search_decrease_reduction_for_tt_pv // search() Step 13.
 
         if (ss->ttPv)
-            r += 1013@;
+            r += 1013@{0,2026};
 
 #context Search_futility_value // search() Step 14.
 
@@ -137,7 +137,7 @@
                 if (history < -4097@1 * depth)
                     continue;
 
-                history += 71@2 * mainHistory[us][move.raw()] / 32;
+                history += 71@2{0,142} * mainHistory[us][move.raw()] / 32;
 
 #context Search_Continuation_history_based_pruning2
 
@@ -147,9 +147,7 @@
 
 #context Search_Continuation_history_based_pruning3
 
-                const Value seeMargin =
-                  Value(std::max<i64>(i64(-25@) * lmrDepth * lmrDepth, -VALUE_INFINITE));
-                if (!pos.see_ge(move, seeMargin))
+                if (!pos.see_ge(move, -25@{-50,0} * lmrDepth * lmrDepth))
                     continue;
 
 #context Search_Extensions1 // Step 15.
@@ -187,7 +185,7 @@
 #context Search_Decrease_reduction_for_PvNodes_3
 
 		r -= moveCount * 65@;
-        r -= std::abs(correctionValue) / 25600@{1,51200};
+        r -= std::abs(correctionValue) / 25600@{64,51200};
 
 #context Search_Decrease_reduction_for_PvNodes_4
 
@@ -221,6 +219,13 @@
 
         r -= ss->statScore * 428@ / 4096;
 
+#context Search_quiet_stat_score
+
+            ss->statScore =
+              (2252@main{0,4504} * mainHistory[us][move.raw()] + 1126@continuation0{0,2252} * (*contHist[0])[movedPiece][move.to_sq()]
+               + 1093@continuation1{0,2186} * (*contHist[1])[movedPiece][move.to_sq()])
+              / 1024;
+
 #context Search_Post_LMR_continuation_history_updates // search() Step 17.
 
         update_continuation_histories(ss, movedPiece, move.to_sq(), 1426@);
@@ -248,7 +253,7 @@
 
 int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
     int reductionScale = reductions[d] * reductions[mn];
-    return reductionScale + !i * reductionScale * 206@2 / 512 + 1133@3;
+    return reductionScale + !i * reductionScale * 206@2{0,412} / 512 + 1133@3{0,2266};
 
 #context update_all_stats_1c // update_all_stats()
 
@@ -315,12 +320,16 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_Capture_SEE_pruning_margin // Search step 14.
 
-                int margin = std::max(167@ * depth + captHist * 34@ / 1024, captureSeeMarginFloor);
+                int margin = 167@{0,334} * depth + captHist * 34@{0,68} / 1024;
+
+#context Search_probcut_depth
+
+        Depth      probCutDepth = depth - (improving ? 5@improving{2,6} : 3@other{2,6});
 
 #context Search_All_node_reduction_scale
 
         if (allNode)
-            r += int(i64(r) * 273@ / (256 * depth + 260));
+            r += r * 276@{0,552} / (256 * depth + 268);
 
 #context Search_LMR_research_thresholds // search() Step 17.
 
@@ -388,11 +397,11 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 #context Search_PV_reduction
 
         if (PvNode)
-            r -= 512@;
+            r -= 512@{0,1024};
 
 #context Search_lmr_divisor
 
-        return 3000@base{1,6000} + 7@slope{0,14} * (d - 8) * (d - 8);
+        return 3000@base{16,6000} + 7@slope{0,14} * (d - 8) * (d - 8);
 
 #context Search_LMR_eval_margin
 
@@ -534,7 +543,7 @@ using Eval::PieceValue;
 #set options %%TUNE_OPTIONS%%
 
 // Stockfishの追加候補。既存の係数値は維持し、新しい制御だけを調整する。
-// NMPの下限-32000、TT子検査の深さ0、stand pat保存1、SEE下限0で各従来経路を比較できる。
+// NMPの下限-32000、stand pat保存1で各従来経路を比較できる。
 #context Search_NMP_beta_limit
 
         && beta >= -2000@minimum{-32000,0}
@@ -542,15 +551,11 @@ using Eval::PieceValue;
 
 #context Search_TT_child_probe
 
-            const int ttChildProbeDepth = 7@depth{0,32};
+            if (depth >= 7@depth{1,32} && ttData.move
 
 #context QSearch_stand_pat_storage
 
             const int storeStandPatValue = 0@store{0,1};
-
-#context Search_capture_SEE_floor
-
-                const int captureSeeMarginFloor = -1024@minimum{-1024,0};
 
 #context Time_best_move_effort
 

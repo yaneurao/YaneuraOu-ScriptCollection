@@ -25,14 +25,22 @@ class V993RangeTests(unittest.TestCase):
             'Search_futility_1_5': (1, 361200),
             'Search_Extensions1_3': (1, 110),
             'Search_Extensions2_1': (1, 421180),
-            'Search_Decrease_reduction_for_PvNodes_3_2': (1, 51200),
+            'Search_Decrease_reduction_for_PvNodes_3_2': (64, 51200),
             'Search_fail_low_quiet_bonus_2': (1, 216),
             'MovePicker_good_capture_see_1': (1, 36),
             'Search_nullmove_2_1': (2, 14),
             'Search_lmr_divisor_slope': (0, 14),
+            'Search_TT_child_probe_depth': (1, 32),
+            'Search_probcut_depth_improving': (2, 6),
+            'Search_probcut_depth_other': (2, 6),
+            'Search_quiet_stat_score_main': (0, 4504),
+            'Search_quiet_stat_score_continuation0': (0, 2252),
+            'Search_quiet_stat_score_continuation1': (0, 2186),
+            'Search_All_node_reduction_scale_1': (0, 552),
+            'Search_Continuation_history_based_pruning3_1': (-50, 0),
             'Time_best_move_effort_span': (1, 100000),
             'Time_best_move_effort_minimumQ10': (0, 1024),
-            'Search_lmr_divisor_base': (1, 6000),
+            'Search_lmr_divisor_base': (16, 6000),
             'Search_nullmove_2_margin': (1, 512),
             'history_nonPV_bonus_1': (1, 512),
             'root_score_EMA_ratio_numerator': (1, 6),
@@ -78,6 +86,67 @@ class V993RangeTests(unittest.TestCase):
         minimum_growth = ranges['aspiration_window_growth_1'][0]
         # A zero increment would retry the same failed window indefinitely.
         self.assertGreaterEqual(int(minimum_width * minimum_growth) // 128, 1)
+
+    def test_lmr_int_arithmetic_at_domain_extremes(self):
+        import math
+        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        blocks = tune.read_tune_file(str(path))
+        ranges = tune.collect_parameter_ranges(blocks)
+        for block in blocks:
+            context = tune.get_context_block(block)
+            _, numbers, names = tune.parse_content_block(context, context.params[0] if context.params else '')
+            for number, name in zip(numbers, names):
+                value = float(number)
+                ranges.setdefault(name, (min(0, 2 * value), max(0, 2 * value)))
+        # Standard search: MAX_PLY=246, MAX_MOVES=600; history saturation
+        # limits: main=7183, continuation=30000, pawn=8192, capture=10692.
+        hi = lambda name: ranges[name][1]
+        lo = lambda name: ranges[name][0]
+        int_max = (1 << 31) - 1
+        quiet_numerator = (hi('Search_quiet_stat_score_main') * 7183
+                           + (hi('Search_quiet_stat_score_continuation0')
+                              + hi('Search_quiet_stat_score_continuation1')) * 30000)
+        self.assertLess(quiet_numerator, int_max)
+        capture_score = hi('Search_Decrease_reduction_for_PvNodes_8_1') * 32001 // 128 + 10692
+        stat_score = max(capture_score, quiet_numerator // 1024)
+        stat_product = stat_score * hi('Search_Decrease_reduction_for_PvNodes_9_1')
+        self.assertLess(stat_product, int_max)
+        correction_max = 1024 * (hi('correction_value_1') + hi('correction_value_2')
+                                + 2 * hi('correction_value_3') + 2 * hi('correction_value_4')
+                                + hi('correction_value_6ply'))
+        table_max = math.ceil(hi('YaneuraOuWorker_clear3_1') / 128 * math.log(600))
+        scale = table_max ** 2
+        reduction = (scale + scale * hi('YaneuraOuWorker_reduction_2') // 512
+                     + hi('YaneuraOuWorker_reduction_3'))
+        self.assertLess(scale * hi('YaneuraOuWorker_reduction_2'), int_max)
+        # Sum absolute bounds, even for branches which cannot occur together.
+        r_bound = (reduction + hi('Search_PV_reduction_1')
+                   + hi('Search_decrease_reduction_for_tt_pv_1')
+                   + sum(hi('Search_Decrease_reduction_for_PvNodes_1_' + str(i)) for i in range(1, 6))
+                   + hi('Search_Decrease_reduction_for_PvNodes_2_1')
+                   + 600 * hi('Search_Decrease_reduction_for_PvNodes_3_1')
+                   + correction_max // lo('Search_Decrease_reduction_for_PvNodes_3_2')
+                   + sum(hi('Search_Decrease_reduction_for_PvNodes_4_' + str(i)) for i in (1, 2))
+                   + hi('Search_Decrease_reduction_for_PvNodes_5_1')
+                   + sum(hi('Search_Decrease_reduction_for_PvNodes_6a_' + str(i)) for i in (1, 2, 3))
+                   + hi('Search_Decrease_reduction_for_PvNodes_7_1')
+                   + stat_product // 4096
+                   + hi('Search_LMR_eval_margin_scale')
+                     * max(abs(lo('Search_LMR_eval_margin_min')), hi('Search_LMR_eval_margin_max')))
+        self.assertLess(r_bound * hi('Search_All_node_reduction_scale_1'), int_max)
+        history_max = 2 * 30000 + 8192 + hi('Search_Continuation_history_based_pruning1_2') * 7183 // 32
+        lmr_depth_max = 244 + hi('Search_PV_reduction_1') // 1024 + history_max // lo('Search_lmr_divisor_base')
+        see_magnitude = abs(lo('Search_Continuation_history_based_pruning3_1')) * lmr_depth_max ** 2
+        self.assertLess(see_magnitude + 32001, int_max)
+
+    def test_probcut_stored_depth_is_representable(self):
+        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
+        # ProbCut starts at depth=3 and stores probCutDepth + 1.
+        # TT depth8 encodes depth - DEPTH_NONE, with DEPTH_NONE=-3;
+        # zero is reserved for an empty entry.
+        for name in ('Search_probcut_depth_improving', 'Search_probcut_depth_other'):
+            self.assertGreater(3 - ranges[name][1] + 1, -3)
 
     def test_binary_generation_compares_both_integer_states(self):
         with tempfile.TemporaryDirectory() as directory:
