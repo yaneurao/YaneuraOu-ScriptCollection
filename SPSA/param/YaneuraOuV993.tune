@@ -294,7 +294,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_nullmove_2
 
-        Depth R = 7@1 + depth / 3 + std::max((ss->staticEval - beta) / 256@margin, 0) - int(threadIdx & 1);
+        Depth R = 7@1 + depth / 3 + std::max((ss->staticEval - beta) / std::max(256@margin{1,512}, 1), 0) - int(threadIdx & 1);
 
 #context Search_nullmove_3
 
@@ -376,7 +376,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_futility_blend
 
-            const int betaWeight = 661@;
+            const int betaWeight = std::clamp(661@{0,1024}, 0, 1024);
             return (betaWeight * beta + (1024 - betaWeight) * eval) / 1024;
 
 #context Search_PV_reduction
@@ -388,7 +388,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 inline int lmr_divisor(int depth) {
     int d = std::min(depth, 16);
-    return 3000@base + 7@slope * (d - 8) * (d - 8);
+    return std::max(3000@base{1,6000} + 7@slope * (d - 8) * (d - 8), 1);
 }
 
 #context Search_LMR_eval_margin
@@ -431,7 +431,7 @@ inline int lmr_divisor(int depth) {
 
 #context main_history_decay
 
-            mainHistory[c][i] = mainHistory[c][i] * 729@ / 1024;
+            mainHistory[c][i] = mainHistory[c][i] * std::clamp(729@{0,1024}, 0, 1024) / 1024;
 
 #context main_history_initial
 
@@ -443,12 +443,12 @@ int& mainHistoryDefault = @;
 
 #context history_nonPV_bonus
 
-        bonus += int(i64(bonus) * int(quietsSearched.size() + capturesSearched.size()) / 256@);
+        bonus += int(i64(bonus) * int(quietsSearched.size() + capturesSearched.size()) / std::max(256@{1,512}, 1));
 
 #context root_score_EMA_ratio
 
-            const u64     ChiNumerator   = 3@numerator;
-            const u64     ChiDenominator = 2@denominator;   // Chi = 3/2 = 1.5
+            const u64     ChiNumerator   = std::max(3@numerator{1,6}, 1);
+            const u64     ChiDenominator = std::max(2@denominator{1,4}, 1);   // Chi = 3/2 = 1.5
 
 #context Search_razoring_linear
 
