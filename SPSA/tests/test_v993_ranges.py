@@ -14,6 +14,7 @@ class V993RangeTests(unittest.TestCase):
     tune_filename = 'YaneuraOuV993.tune'
     has_lmr_history_switch = True
     has_lmr_slope_parameter = True
+    range_overrides = {}
 
     def test_search_invariants_have_explicit_ranges(self):
         path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
@@ -75,6 +76,7 @@ class V993RangeTests(unittest.TestCase):
             if name == 'Search_LMR_history_divisor' and not self.has_lmr_history_switch:
                 continue
             required[name + '_enable'] = (0, 1)
+        required.update(self.range_overrides)
         for name, bounds in required.items():
             with self.subTest(parameter=name):
                 self.assertEqual(ranges.get(name), bounds)

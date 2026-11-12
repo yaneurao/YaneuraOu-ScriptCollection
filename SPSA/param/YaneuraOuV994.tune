@@ -81,7 +81,7 @@
 #context Search_tt_lookup1
 
                 update_quiet_histories(pos, ss, *this, ttData.move,
-                                       131@ * depth);
+                                       131@{0,131} * depth);
 
 #context Search_tt_lookup2
 
@@ -91,15 +91,15 @@
 #context Search_static_evaluation_1a // search Step 6.
 
         const int evalDiffQ8 =
-          std::clamp(-int((ss - 1)->staticEval + ss->staticEval) * 256, -54784@1Q8, 43776@2Q8) + 15360@3Q8;
-        mainHistory[~us][((ss - 1)->currentMove).raw()] << int(i64(evalDiffQ8) * 2560@4Q8 / 65536);
+          std::clamp(-int((ss - 1)->staticEval + ss->staticEval) * 256, -48384@1Q8{-96768,0}, 49664@2Q8{0,99328}) + 15360@3Q8{0,30720};
+        mainHistory[~us][((ss - 1)->currentMove).raw()] << evalDiffQ8 * 2816@4Q8{0,5632} / 65536;
 
 #context Search_static_evaluation_2a
 
         if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
             && ((ss - 1)->currentMove).type_of() != PROMOTION)
             sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq]
-              << int(i64(evalDiffQ8) * 3072@1Q8 / 65536);
+              << evalDiffQ8 * 3328@1Q8{0,6656} / 65536;
 
 
 #context Search_static_evaluation3
@@ -230,8 +230,8 @@
 #context Search_quiet_stat_score
 
             ss->statScore =
-              (2252@main{0,4504} * mainHistory[us][move.raw()] + 1126@continuation0{0,2252} * (*contHist[0])[movedPiece][move.to_sq()]
-               + 1093@continuation1{0,2186} * (*contHist[1])[movedPiece][move.to_sq()])
+              (2252@main{0,2252} * mainHistory[us][move.raw()] + 1126@continuation0{0,1126} * (*contHist[0])[movedPiece][move.to_sq()]
+               + 1093@continuation1{0,1093} * (*contHist[1])[movedPiece][move.to_sq()])
               / 1024;
 
 #context Search_Post_LMR_continuation_history_updates // search() Step 17.
@@ -273,14 +273,14 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 #context conthist_bonuses
 
     const std::array<ConthistBonus, 5> conthist_bonuses = {
-      {{1, 520@ply1}, {2, 390@ply2}, {3, 145@ply3}, {4, 251@ply4}, {6, 209@ply6}}};
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
 
 #context update_quiet_histories_1a // update_quiet_histories()
 
     if (ss->ply < LOW_PLY_HISTORY_SIZE)
         workerThread.lowPlyHistory[ss->ply][move.raw()] << bonus * 761@ / 1024;
 
-    update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@ / 1024);
+    update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@{0,1000} / 1024);
 
 #context update_quiet_histories_2b
 
@@ -295,8 +295,12 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
     // The constant-size continuation history is initialized by thread 0 of each NUMA node.
     // 各スレッドは、動的な共有履歴のうち自分の担当範囲を初期化する。
     // 固定サイズのcontinuation historyは、各NUMAノードの先頭スレッドだけが初期化する。
-    sharedHistory.correctionHistory.clear_range(0, numaThreadIdx, numaTotal);
+    sharedHistory.correctionHistory.clear_range(-5, numaThreadIdx, numaTotal);
     sharedHistory.pawnHistory.clear_range(-1238@, numaThreadIdx, numaTotal);
+
+#context correction_history_initial
+
+    sharedHistory.correctionHistory.clear_range(-5@{-32,32}, numaThreadIdx, numaTotal);
 
 #context YaneuraOuWorker_clear1
 
@@ -346,33 +350,27 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_fail_low_quiet_bonus // search() Step 21.
 
-        int bonusScale = -232@;
-        bonusScale -= (ss - 1)->statScore / 108@{1,216};
-        bonusScale += std::min(59@ * depth, 454@);
-        bonusScale += 169@ * ((ss - 1)->moveCount > 8@);
-        bonusScale += 145@ * (!ss->inCheck && bestValue <= ss->staticEval - 110@);
-        bonusScale += 154@ * (!(ss - 1)->inCheck && bestValue <= -(ss - 1)->staticEval - 73@);
+        int bonusScale = -241@{-482,-241};
+        bonusScale -= (ss - 1)->statScore / 98@{98,216};
+        bonusScale += std::min(59@{0,118} * depth, 420@{0,420});
+        bonusScale += 186@{0,186} * ((ss - 1)->moveCount > 9@{0,18});
+        bonusScale += 142@{0,142} * (!ss->inCheck && bestValue <= ss->staticEval - 106@{0,212});
+        bonusScale += 159@{0,159} * (!(ss - 1)->inCheck && bestValue <= -(ss - 1)->staticEval - 68@{0,146});
 
         bonusScale = std::max(bonusScale, 0);
 
-    #if STOCKFISH
-        // scaledBonus ranges from 0 to roughly 2.3M, overflows happen for multipliers larger than 900
+        // scaledBonus ranges from 0 to roughly 2.3M, overflows happen for
+        // multipliers larger than 900
         // scaledBonusはおよそ0〜230万で、900を超える乗数では桁あふれが起きる。
-        const int scaledBonus = std::min(150 * depth - 85, 1337) * bonusScale;
-    #else
-        // Widen before multiplying; SPSA can make bonusScale much larger.
-        // SPSAでbonusScaleが大きくなる場合も、乗算前に64bitへ拡張して桁あふれを防ぐ。
-        const i64 scaledBonus = i64(std::min(135@ * depth - 80@, 1400@)) * bonusScale;
-    #endif
+        const int scaledBonus = std::min(150@{85,300} * depth - 85@{0,85}, 1337@{0,1337}) * bonusScale;
 
         update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
-                                      int(scaledBonus * 221@ / 16384));
+                                      scaledBonus * 263@{0,263} / 16384);
 
-        mainHistory[~us][((ss - 1)->currentMove).raw()] << int(scaledBonus * 235@ / 32768);
+        mainHistory[~us][((ss - 1)->currentMove).raw()] << scaledBonus * 215@{0,430} / 32768;
 
-		// TODO : これで合ってるか？あとで検証する。
         if (type_of(pos.piece_on(prevSq)) != PAWN && ((ss - 1)->currentMove).type_of() != PROMOTION)
-            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq] << int(scaledBonus * 290@ / 8192);
+            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq] << scaledBonus * 324@{0,500} / 8192;
 
 #context Search_fail_low_capture_bonus // search() Step 21.
 
@@ -433,11 +431,11 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context CMHC_multipliers
 
-    const int CMHCMultipliers[] = {94@0, 103@1, 110@2, 106@3, 119@4, 126@5};
+    const int CMHCMultipliers[] = {94@0{0,126}, 103@1{0,126}, 110@2{0,126}, 106@3{0,126}, 119@4{0,126}, 126@5{0,126}};
 
 #context CMHC_bonus
 
-            historyEntry << int(i64(bonus) * weight * multiplier / 65536) + 73@ * (i < 2);
+            historyEntry << bonus * weight * multiplier / 65536 + 73@ * (i < 2);
 
 #context Search_fail_high_recovery_decay
 
@@ -459,10 +457,14 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context history_nonPV_bonus
 
-        bonus += int(i64(bonus) * int(quietsSearched.size() + capturesSearched.size()) / 256@{1,512});
+        bonus += bonus * int(quietsSearched.size() + capturesSearched.size()) / 256@{128,512};
 
 #context root_score_EMA_ratio
 
+            constexpr u64 ChiNumerator   = 3@numerator{1,6};
+            constexpr u64 ChiDenominator = 2@denominator{1,4};   // Chi = 3/2 = 1.5
+
+#add
             const u64     ChiNumerator   = 3@numerator{1,6};
             const u64     ChiDenominator = 2@denominator{1,4};   // Chi = 3/2 = 1.5
 
