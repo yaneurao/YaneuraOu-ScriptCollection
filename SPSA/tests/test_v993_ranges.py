@@ -19,8 +19,9 @@ class V993RangeTests(unittest.TestCase):
             'Search_capture_futility_gain_enable': (0, 1),
             'QSearch_capture_futility_gain_enable': (0, 1),
             'Search_negative_capture_SEE_enable': (0, 1),
-            'aspiration_window_1': (1, 10),
+            'aspiration_window_1': (3, 10),
             'aspiration_window_2': (1, 18000),
+            'aspiration_window_growth_1': (43, 94),
             'Search_futility_1_5': (1, 361200),
             'Search_Extensions1_3': (1, 110),
             'Search_Extensions2_1': (1, 421180),
@@ -69,6 +70,14 @@ class V993RangeTests(unittest.TestCase):
                         tune.validate_parameter_range(
                             Entry(name, 'int', value, *bounds, 1, 0.002, '', False), bounds)
 
+
+    def test_aspiration_width_range_guarantees_progress(self):
+        path = Path(__file__).resolve().parents[1] / 'param' / 'YaneuraOuV993.tune'
+        ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
+        minimum_width = ranges['aspiration_window_1'][0]
+        minimum_growth = ranges['aspiration_window_growth_1'][0]
+        # A zero increment would retry the same failed window indefinitely.
+        self.assertGreaterEqual(int(minimum_width * minimum_growth) // 128, 1)
 
     def test_binary_generation_compares_both_integer_states(self):
         with tempfile.TemporaryDirectory() as directory:

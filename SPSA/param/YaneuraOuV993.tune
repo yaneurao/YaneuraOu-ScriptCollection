@@ -54,8 +54,7 @@
 
 #context aspiration_window
 
-            delta = 5@{1,10} + int(threadIdx % 8)
-                      + std::abs(rootMoves[pvIdx].meanSquaredScore) / 9000@{1,18000};
+            delta     = 5@{3,10} + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 9000@{1,18000};
 
 
 #context YaneuraOuWorker_clear2
@@ -339,9 +338,15 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
         bonusScale = std::max(bonusScale, 0);
 
+    #if STOCKFISH
+        // scaledBonus ranges from 0 to roughly 2.3M, overflows happen for multipliers larger than 900
+        // scaledBonusはおよそ0〜230万で、900を超える乗数では桁あふれが起きる。
+        const int scaledBonus = std::min(150 * depth - 85, 1337) * bonusScale;
+    #else
         // Widen before multiplying; SPSA can make bonusScale much larger.
         // SPSAでbonusScaleが大きくなる場合も、乗算前に64bitへ拡張して桁あふれを防ぐ。
         const i64 scaledBonus = i64(std::min(135@ * depth - 80@, 1400@)) * bonusScale;
+    #endif
 
         update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
                                       int(scaledBonus * 221@ / 16384));
@@ -649,3 +654,7 @@ using Eval::PieceValue;
 
     // 最善手への集中度による時間配分の補間を0/1で比較する。
     if (1@enable{0,1})
+
+#context aspiration_window_growth
+
+                delta += 47@{43,94} * delta / 128;
