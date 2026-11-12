@@ -30,10 +30,10 @@
 
 #context update_correction_history1 // update_correction_history()
 
-    shared.pawn_correction_entry(pos).at(us).pawn << bonus;
-    shared.minor_piece_correction_entry(pos).at(us).minor << bonus * 153@ / 128;
-    shared.nonpawn_correction_entry<WHITE>(pos).at(us).nonPawnWhite << bonus * nonPawnWeight / 128;
-    shared.nonpawn_correction_entry<BLACK>(pos).at(us).nonPawnBlack << bonus * nonPawnWeight / 128;
+    shared.pawn_correction_entry(pos)[us].pawn << bonus;
+    shared.minor_piece_correction_entry(pos)[us].minor << bonus * 153@ / 128;
+    shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite << bonus * nonPawnWeight / 128;
+    shared.nonpawn_correction_entry<BLACK>(pos)[us].nonPawnBlack << bonus * nonPawnWeight / 128;
 
 #context update_correction_history2
 
@@ -102,14 +102,12 @@
 
 #context Search_futility_1
 
-        auto futility_margin = [&](Depth d) {
-            Value futilityMult = std::min(45@base + d * 4@slope, 85@cap);
-            futilityMult -= 21@2 * !ss->ttHit;
+        Value futilityMult = std::min(45@base + depth * 4@slope, 85@cap);
+        futilityMult -= 21@2 * !ss->ttHit;
 
-            return futilityMult * d //
-                 - (2686@3 * improving + 362@4 * opponentWorsening) * futilityMult / 1024
-                 + std::abs(correctionValue) / 180600@5{1,361200};
-        };
+        Value futilityMargin = futilityMult * depth
+                             - (2686@3 * improving + 362@4 * opponentWorsening) * futilityMult / 1024
+                             + std::abs(correctionValue) / 180600@5{1,361200};
 
 #context Search_nullmove_1
 
@@ -288,11 +286,13 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
     sharedHistory.correctionHistory.clear_range(0, numaThreadIdx, numaTotal);
     sharedHistory.pawnHistory.clear_range(-1238@, numaThreadIdx, numaTotal);
 
-	ttMoveHistory = 0;
+#context YaneuraOuWorker_clear1
+
+    ttMoveHistory = 0;
 
     for (auto& to : continuationCorrectionHistory)
         for (auto& h : to)
-            h.fill(6@);
+            h.fill(6@3);
 
 #context Search_nullmove_2
 
