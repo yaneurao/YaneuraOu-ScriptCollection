@@ -203,6 +203,23 @@ class V994RangeTests(test_v993_ranges.V993RangeTests):
                     self.assertLessEqual(abs(numerator), 2**31 - 1)
 
 
+    def test_nmp_beta_threshold_alone_excludes_decisive_losses(self):
+        path = Path(__file__).resolve().parents[1] / 'param' / self.tune_filename
+        ranges = tune.collect_parameter_ranges(tune.read_tune_file(str(path)))
+        lower, upper = ranges['Search_NMP_beta_limit_minimum']
+        loss_threshold = -(32000 - 246)
+        self.assertEqual((lower, upper), (loss_threshold + 1, 0))
+        # The old conjunction is identical after expressing its effective
+        # lower bound in the SPSA domain. Include both old/out-of-range
+        # thresholds and the exact mate-score boundary.
+        for limit in (-32000, loss_threshold, loss_threshold + 1, -3409, -2000, 0):
+            migrated = max(lower, limit)
+            for beta in (loss_threshold - 1, loss_threshold, loss_threshold + 1,
+                         -3410, -3409, -2001, -2000, -1, 0, 1):
+                old = beta > loss_threshold and beta >= limit
+                self.assertEqual(beta >= migrated, old)
+
+
 
 if __name__ == '__main__':
     unittest.main()

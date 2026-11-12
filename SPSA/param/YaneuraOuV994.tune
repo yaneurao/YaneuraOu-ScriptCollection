@@ -549,10 +549,10 @@ using Eval::PieceValue;
 #set options %%TUNE_OPTIONS%%
 
 // Stockfishの追加候補。既存の係数値は維持し、新しい制御だけを調整する。
-// NMPの下限-32000、stand pat保存1で各従来経路を比較できる。
+// NMPの下限は非詰み範囲に制限する。stand pat保存1で従来の保存経路を比較できる。
 #context Search_NMP_beta_limit
 
-        && beta >= -2000@minimum{-32000,0}
+        && beta >= -2000@minimum{-31753,0}
     )
 
 #context Search_TT_child_probe
