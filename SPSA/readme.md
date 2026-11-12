@@ -9,6 +9,28 @@ SPSAするためのツール類。
 - 参考 OpenBenchのSPSA : https://github.com/AndyGrant/OpenBench/wiki/SPSA-Tuning-Workloads
 
 
+## YaneuraOuV993の探索候補の調整
+
+`param/YaneuraOuV993.tune`には、Stockfishから取り込んだ追加候補のために、次の8項目がある。既存の探索係数は引き継ぎ、新規項目だけを追加する。
+
+| params名 | 初期値 | 範囲 | 意味 |
+| --- | ---: | --- | --- |
+| `Search_NMP_beta_limit_minimum` | -2000 | -32000～0 | NMPを使うbetaの下限。-32000なら既存の決着値除外だけになる。 |
+| `Search_TT_child_probe_depth` | 7 | 0～32 | TTカット前に子局面の保存値を検査する開始深さ。0で検査しない。 |
+| `QSearch_stand_pat_storage_store` | 0 | 0～1 | 0はstand patの探索値を保存せず生の静的評価だけを保存、1は従来の保存方法。 |
+| `Search_capture_SEE_floor_minimum` | -1024 | -1024～0 | 捕獲SEEのmargin下限。0で従来の下限に戻る。 |
+| `Time_best_move_effort_start` | 78000 | 0～100000 | 最善手へのノード集中率に応じた時間補正の開始点。100000が100%。 |
+| `Time_best_move_effort_span` | 16000 | 1～100000 | 上記の補間幅。開始点に加えて終点になる。 |
+| `Time_best_move_effort_minimumQ10` | 682 | 0～1024 | 時間補正の最小係数。1024で割るので682は約0.666。1024なら時間短縮しない。 |
+| `Time_best_move_effort_depth` | 10 | 1～32 | この時間補正を適用する完了探索深さ。 |
+
+LMRのTT手割引はStockfishの`else if`へ変更し、既存の`Search_Decrease_reduction_for_PvNodes_7_1`で割引量を調整する。
+
+`Time_best_move_effort_*`の4項目は、持ち時間を配分する探索で調整する。固定ノード対局では時間配分が使われないため、調整に効果が出ない。対局・SPSA実行環境側で持ち時間方式を使用する。
+
+`.params`はGit管理対象外。既存のローカル`YaneuraOuV993.params`へ新規項目が追加されているか確認する。新しい`tune`で生成するときも既存の調整値は維持される。`#param FV_SCALE`は実行時のUSIオプションであり、paramsを静的applyする場合は別途設定する（`#param`の説明も参照）。
+
+
 # 使い方
 
 1. チューニングするパラメーターをファイルに書き出し、ソースコードにパッチを当てる。

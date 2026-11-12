@@ -209,7 +209,7 @@
 
 #context Search_Decrease_reduction_for_PvNodes_7
 
-        if (move == ttData.move)
+        else if (move == ttData.move)
             r -= 2239@;
 
 #context Search_Decrease_reduction_for_PvNodes_8
@@ -315,7 +315,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_Capture_SEE_pruning_margin // Search step 14.
 
-                int margin = std::max(167@ * depth + captHist * 34@ / 1024, 0);
+                int margin = std::max(167@ * depth + captHist * 34@ / 1024, captureSeeMarginFloor);
 
 #context Search_All_node_reduction_scale
 
@@ -525,3 +525,33 @@ using Eval::PieceValue;
 #context MovePicker_quiet_partial_sort
 
 			partial_insertion_sort(cur, endCur, -3560@ * depth);
+
+#set file engine\yaneuraou-engine\yaneuraou-search.cpp
+#set declaration %%TUNE_DECLARATION%%
+#set options %%TUNE_OPTIONS%%
+
+// Stockfishの追加候補。既存の係数値は維持し、新しい制御だけを調整する。
+// NMPの下限-32000、TT子検査の深さ0、stand pat保存1、SEE下限0で各従来経路を比較できる。
+#context Search_NMP_beta_limit
+
+        && beta >= -2000@minimum{-32000,0}
+    )
+
+#context Search_TT_child_probe
+
+            const int ttChildProbeDepth = 7@depth{0,32};
+
+#context QSearch_stand_pat_storage
+
+            const int storeStandPatValue = 0@store{0,1};
+
+#context Search_capture_SEE_floor
+
+                const int captureSeeMarginFloor = -1024@minimum{-1024,0};
+
+#context Time_best_move_effort
+
+            const int effortStart = 78000@start{0,100000};
+            const int effortSpan = 16000@span{1,100000};
+            const int effortMinimumQ10 = 682@minimumQ10{0,1024};
+            const int effortMinDepth = 10@depth{1,32};
