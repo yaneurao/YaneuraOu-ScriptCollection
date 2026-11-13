@@ -140,14 +140,17 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
     tune_file = str(spsa.get("tune_file", ""))
     params_file = str(spsa.get("params_file", ""))
     tune_name = _basename(tune_file)
+    params_name = _basename(params_file)
     return [
         f"TUNE_PY={_quote(tune_py)}",
         f"PARAM_LIB={_quote(param_lib)}",
         f"TUNE_FILE={_quote(tune_file)}",
         f"PARAMS_FILE={_quote(params_file)}",
         f"TUNE_FILE_NAME={_quote(tune_name)}",
+        f"PARAMS_FILE_NAME={_quote(params_name)}",
         "",
         'if ! grep -qE "^SPSA_VALIDATION_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py が古いか安全確認に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
+        'if ! grep -qE "^SPSA_PARAMS_PATH_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py がparamsファイルの明示指定に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
         "mkdir -p build",
         "rm -rf build/source",
         'cp -r "$SOURCE_DIR" build/source',
@@ -156,10 +159,10 @@ def _release_source_setup(recipe: dict[str, Any]) -> list[str]:
         'cp "$PARAM_LIB" build/',
         'cp "$TUNE_FILE" build/',
         'echo "[SPSA] params input: $PARAMS_FILE"',
-        'cp "$PARAMS_FILE" "build/${TUNE_FILE_NAME%.*}.params"',
+        'cp "$PARAMS_FILE" "build/$PARAMS_FILE_NAME"',
         "cd build",
         f'echo "[SPSA] 開始: {spsa_mode}"',
-        f'"$PYTHON_CMD" tune.py {spsa_mode} "$TUNE_FILE_NAME" source',
+        f'"$PYTHON_CMD" tune.py {spsa_mode} "$TUNE_FILE_NAME" source "$PARAMS_FILE_NAME"',
         f'echo "[SPSA] 成功: {spsa_mode}"',
         "cd source",
     ]
@@ -255,6 +258,7 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
     script_name = f"{recipe.get('name', 'spsa-build')}.sh"
     work_dir = job["work_dir"]
     tune_name = _basename(job["tune_file"])
+    params_name = _basename(job["params_file"])
     lines = _script_header(str(recipe.get("name", "spsa build")))
     lines += [
         f"SOURCE_DIR={_quote(job['source_dir'])}",
@@ -264,9 +268,11 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
         f"TUNE_FILE={_quote(job['tune_file'])}",
         f"PARAMS_FILE={_quote(job['params_file'])}",
         f"TUNE_FILE_NAME={_quote(tune_name)}",
+        f"PARAMS_FILE_NAME={_quote(params_name)}",
         f"OUTPUT_PATH={_quote(job['output_path'])}",
         "",
         'if ! grep -qE "^SPSA_VALIDATION_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py が古いか安全確認に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
+        'if ! grep -qE "^SPSA_PARAMS_PATH_VERSION = 1[[:space:]]*$" "$TUNE_PY"; then echo "[ERROR] [SPSA] tune.py がparamsファイルの明示指定に未対応です。YOSC付属の最新版を指定してください。" >&2; exit 1; fi',
         'mkdir -p "$WORK_DIR"',
         'rm -rf "$WORK_DIR/source"',
         'cp -r "$SOURCE_DIR" "$WORK_DIR/source"',
@@ -275,10 +281,10 @@ def _write_spsa_build_script(recipe: dict[str, Any], job: dict[str, Any], script
         'cp "$PARAM_LIB" "$WORK_DIR"',
         'cp "$TUNE_FILE" "$WORK_DIR"',
         'echo "[SPSA] params input: $PARAMS_FILE"',
-        'cp "$PARAMS_FILE" "$WORK_DIR/${TUNE_FILE_NAME%.*}.params"',
+        'cp "$PARAMS_FILE" "$WORK_DIR/$PARAMS_FILE_NAME"',
         'cd "$WORK_DIR"',
         f'echo "[SPSA] 開始: {job["tune_mode"]}"',
-        f'"$PYTHON_CMD" tune.py {job["tune_mode"]} "$TUNE_FILE_NAME" "$WORK_DIR/source"',
+        f'"$PYTHON_CMD" tune.py {job["tune_mode"]} "$TUNE_FILE_NAME" "$WORK_DIR/source" "$PARAMS_FILE_NAME"',
         f'echo "[SPSA] 成功: {job["tune_mode"]}"',
         "cd source",
         'echo "[BUILD] 開始: $OUTPUT_PATH"',

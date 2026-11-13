@@ -146,6 +146,10 @@ shuffle順を再現したい場合だけ、整数や文字列でseedを指定す
 
 > python tune.py apply param/suisho10.tune YaneuraOu/source
 
+`.params`のファイル名を別に指定する場合は、最後にパスを追加する。省略時は従来どおり、`.tune`と同じ名前の`.params`を使用する。`tune`コマンドでも同じように指定できる。
+
+> python tune.py apply param/suisho10.tune YaneuraOu/source param/selected.params
+
 ⚠ 本番ソースコードが書き換わるのでソースコードを別のフォルダなどにコピーして、そのコピーしたフォルダを対象にするようにしてください。
 
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from ParamLib import *
 
 SPSA_VALIDATION_VERSION = 1
+SPSA_PARAMS_PATH_VERSION = 1
 
 @dataclass
 class Block:
@@ -714,8 +715,7 @@ if __name__ == "__main__":
     tune_file  = args[2] if len(args) >= 3 else "param/checkshogi.tune"
     command    = args[1] if len(args) >= 2 else "apply"
 
-    params_file, _ = os.path.splitext(tune_file)
-    params_file += ".params"
+    params_file = args[4] if len(args) >= 5 else os.path.splitext(tune_file)[0] + ".params"
 
     print(f"command     : {command}")
     print(f"tune_file   : {tune_file}")
@@ -734,7 +734,7 @@ if __name__ == "__main__":
         elif command == "tune":
             tune_parameters(tune_file, params_file, target_dir)
         else:
-            print("Usage : python tune.py [apply|tune] tune_file target_dir")
+            print("Usage : python tune.py [apply|tune] tune_file target_dir [params_file]")
             # tune_fileとtarget_dirのデフォルト値は、"suisho10.tune", "source"
     except Exception as e:
         error_msg = traceback.format_exc()
