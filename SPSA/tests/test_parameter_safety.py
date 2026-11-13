@@ -68,13 +68,33 @@ class ParameterSafetyTests(unittest.TestCase):
         block.add_blocks = [tune.Block(params=['%%TUNE_DECLARATION%%'], content=['int& k = @;'])]
         tune.validate_tune_sync([block])
 
-    def test_apply_rejects_unapplied_explicit_option(self):
+    def test_apply_skips_explicit_option_and_applies_context(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root/'x.tune').write_text('#param FV_SCALE int 40 16 64 1 0.002\n')
-            (root/'x.params').write_text('FV_SCALE,int,28,16,64,1,0.002\n')
-            with self.assertRaisesRegex(ValueError, 'FV_SCALE.*実行時'):
-                tune.apply_parameters(str(root/'x.tune'), str(root/'x.params'), d)
+            source = root / 'x.cpp'
+            source.write_text('int x = 6;\n')
+            (root / 'x.tune').write_text('#param FV_SCALE int 24 16 64 1 0.002\n'
+                                         '#set file x.cpp\n#context X\nint x = 6@;\n')
+            params = root / 'x.params'
+            original = 'FV_SCALE,int,24.090369020902383,16,64,1,0.002\nX_1,int,8,0,20,1,0.002\n'
+            params.write_text(original)
+            with patch.object(tune, 'target_dir', str(root), create=True):
+                tune.apply_parameters(str(root / 'x.tune'), str(params), d)
+            self.assertEqual(source.read_text().strip(), 'int x = 8;')
+            self.assertEqual(params.read_text(), original)
+
+    def test_apply_rejects_explicit_and_context_name_collision(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source = root / 'x.cpp'
+            source.write_text('int x = 6;\n')
+            (root / 'x.tune').write_text('#param X_1 int 6 0 20 1 0.002\n'
+                                         '#set file x.cpp\n#context X\nint x = 6@;\n')
+            (root / 'x.params').write_text('X_1,int,8,0,20,1,0.002\n')
+            with patch.object(tune, 'target_dir', str(root), create=True):
+                with self.assertRaisesRegex(ValueError, 'X_1'):
+                    tune.apply_parameters(str(root / 'x.tune'), str(root / 'x.params'), d)
+            self.assertEqual(source.read_text(), 'int x = 6;\n')
 
     def test_rejects_duplicate_and_nonfinite_parameters(self):
         with tempfile.TemporaryDirectory() as d:

@@ -451,16 +451,19 @@ def apply_parameters(tune_file:str , params_file : str, target_dir:str):
     validate_tune_sync(tune_blocks)
     parameter_ranges = collect_parameter_ranges(tune_blocks)
     explicit = {p.name for p in read_explicit_params(tune_file, blocks)}
-    unapplied = sorted(p.name for p in params if not p.not_used and p.name in explicit)
-    if unapplied:
-        raise ValueError("#param のUSIオプションは静的にapplyできません: " + ", ".join(unapplied) + "。実行時に別途設定してください")
     used = set()
     for block in tune_blocks:
         context = get_context_block(block)
         prefix = context.params[0] if context.params else ""
         if prefix:
             used.update(parse_content_block(context, prefix)[2])
-    extra = sorted(p.name for p in params if not p.not_used and p.name not in used)
+    overlap = sorted(explicit & used)
+    if overlap:
+        raise ValueError("#param と #context の両方に定義されたパラメーター: " + ", ".join(overlap))
+    skipped = sorted(p.name for p in params if not p.not_used and p.name in explicit)
+    if skipped:
+        print("#param は静的applyの対象外: " + ", ".join(skipped))
+    extra = sorted(p.name for p in params if not p.not_used and p.name not in used and p.name not in explicit)
     if extra:
         raise ValueError(".tune に対応する箇所がなくapplyされないパラメーター: " + ", ".join(extra))
 
