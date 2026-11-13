@@ -1,0 +1,521 @@
+// Q8係数は256倍の整数。名前末尾Q8の項目には旧単位のparamsを使用しない。
+#param FV_SCALE int 24 16 64 1 0.002
+
+// 除数や重みの安全な調整範囲は@{min,max}で指定し、tune/apply時に検査する。
+
+#set file engine\yaneuraou-engine\yaneuraou-search.cpp
+#set declaration %%TUNE_DECLARATION%%
+#set options %%TUNE_OPTIONS%%
+#context correction_value
+
+    const int   cntcv =
+      m.is_ok()
+          ? 7885@4{0,15770}
+              * ((*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
+                 + (*(ss - 4)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()])
+            + 6307@6ply{0,12614} * (*(ss - 6)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
+          : 80695@fallback{0,161390};
+
+    return 13806@1{0,27612} * pcv + 9512@2{0,19024} * micv + 11615@3{0,23230} * (wnpcv + bnpcv) + cntcv;
+
+#context update_correction_history_nonPawnWeight // update_correction_history()
+
+    constexpr int nonPawnWeight = 187@;
+
+#add
+
+    // constexpr int nonPawnWeight = 187;
+
+#add %%TUNE_DECLARATION%%
+
+    int nonPawnWeight = @;
+
+#add %%TUNE_ISREADY%%
+
+    nonPawnWeight = @;
+
+
+
+#context update_correction_history1 // update_correction_history()
+
+    shared.pawn_correction_entry(pos)[us].pawn << bonus;
+    shared.minor_piece_correction_entry(pos)[us].minor << bonus * 153@ / 128;
+    shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite << bonus * nonPawnWeight / 128;
+    shared.nonpawn_correction_entry<BLACK>(pos)[us].nonPawnBlack << bonus * nonPawnWeight / 128;
+
+#context update_correction_history2
+
+    if (m.is_ok())
+    {
+        const Square to = m.to_sq();
+        const Piece  pc = pos.piece_on(to);
+        (*(ss - 2)->continuationCorrectionHistory)[pc][to] << bonus * 126@1 / 128;
+        (*(ss - 4)->continuationCorrectionHistory)[pc][to] << bonus * 63@2 / 128;
+        (*(ss - 6)->continuationCorrectionHistory)[pc][to] << bonus * 35@6ply / 128;
+    }
+
+#context lowPlyHistory_fill
+
+    // 💡 lowPlyHistoryは、試合開始時に1回だけではなく、"go"の度に初期化したほうが強い。
+    lowPlyHistory.fill(98@);
+
+
+#context aspiration_window
+
+            delta     = 5@{3,10} + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 9000@{1,18000};
+
+
+#context YaneuraOuWorker_clear2
+
+	for (bool inCheck : {false, true})
+        for (StatsType c : {NoCaptures, Captures})
+            for (auto& to : continuationHistory[inCheck][c])
+                for (auto& h : to)
+                    h.fill(-523@);
+
+#context YaneuraOuWorker_clear3
+
+    for (usize i = 1; i < reductions.size(); ++i)
+        reductions[i] = int(2763@{0,5526} / 128.0 * std::log(i));
+
+#context Search_tt_lookup1
+
+                update_quiet_histories(pos, ss, *this, ttData.move,
+                                       131@{0,131} * depth);
+
+#context Search_tt_lookup2
+
+            if (prevSq != SQ_NONE && (ss - 1)->moveCount < 5 && !priorCapture)
+                update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -2142@);
+
+#context Search_static_evaluation_1a // search Step 6.
+
+        const int evalDiffQ8 =
+          std::clamp(-int((ss - 1)->staticEval + ss->staticEval) * 256, -48384@1Q8{-96768,0}, 49664@2Q8{0,99328}) + 15360@3Q8{0,30720};
+        mainHistory[~us][((ss - 1)->currentMove).raw()] << evalDiffQ8 * 2816@4Q8{0,5632} / 65536;
+
+#context Search_static_evaluation_2a
+
+        if (!ttHit && type_of(pos.piece_on(prevSq)) != PAWN
+            && ((ss - 1)->currentMove).type_of() != PROMOTION)
+            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq]
+              << evalDiffQ8 * 3328@1Q8{0,6656} / 65536;
+
+
+#context Search_static_evaluation3
+
+    if (priorReduction >= 2 && depth >= 2 && ss->staticEval + (ss - 1)->staticEval > 173@)
+        depth--;
+
+#context Search_futility_1
+
+        Value futilityMult = std::min(45@base + depth * 4@slope, 85@cap);
+        futilityMult -= 21@2 * !ss->ttHit;
+
+        Value futilityMargin = futilityMult * depth
+                             - (2686@3 * improving + 362@4 * opponentWorsening) * futilityMult / 1024
+                             + std::abs(correctionValue) / 180600@5{1,361200};
+
+#context Search_nullmove_1
+
+    if (cutNode
+        && ss->staticEval + 50@failHigh * ss->priorNMPFailHigh >= beta - 16@1 * depth - 53@2 * improving + 378@3
+        && !excludedMove
+
+#context Search_Probcut // Search step 11.
+
+    probCutBeta = beta + 224@{123,247} - 61@{0,122} * improving;
+
+#context Search_small_Probcut // search() Step 12.
+
+    probCutBeta = beta + 416@;
+
+#context Search_decrease_reduction_for_tt_pv // search() Step 13.
+
+        if (ss->ttPv)
+            r += 1013@{0,2026};
+
+#context Search_futility_value // search() Step 14.
+
+        Value futilityValue = ss->staticEval + 218@ + 223@ * lmrDepth
+                            + PieceValue[capturedPiece] + 131@ * captHist / 1024;
+
+#context Search_Continuation_history_based_pruning1
+
+                if (history < -4097@1 * depth)
+                    continue;
+
+                history += 71@2{0,142} * mainHistory[us][move.raw()] / 32;
+
+#context Search_Continuation_history_based_pruning2
+
+                Value futilityValue =
+                  ss->staticEval + 119@1 * lmrDepth + 90@2 * (ss->staticEval > alpha) + 164@base;
+
+#context Search_Continuation_history_based_pruning3
+
+                if (!pos.see_ge(move, -25@{-50,0} * lmrDepth * lmrDepth))
+                    continue;
+
+#context Search_Extensions1 // Step 15.
+
+            Value singularBeta  = ttData.value - (59@ + 66@ * (ss->ttPv && !PvNode)) * depth / 63;
+            Depth singularDepth = newDepth / 2;
+
+#context Search_Extensions2
+
+                int corrValAdj   = std::abs(correctionValue) / 210590@{1,421180};
+
+#context Search_Extensions3
+
+                int doubleMargin = -4@ + 212@ * PvNode - 182@ * !ttCapture - corrValAdj
+                                 - 906@ * ttMoveHistory / 116517 - (ss->ply > rootDepth) * 44@;
+
+#context Search_Extensions4
+
+                int tripleMargin = 73@ + 320@ * PvNode - 218@ * !ttCapture + 92@ * ss->ttPv - corrValAdj
+                                 - (ss->ply > rootDepth) * 45@;
+
+
+#context Search_Decrease_reduction_for_PvNodes_1 // search() Step 16.
+
+		if (ss->ttPv)
+            r -= 2819@ + PvNode * 973@ + (ttData.value > alpha) * 905@
+               + (ttData.depth >= depth) * (935@ + cutNode * 959@);
+
+#context Search_Decrease_reduction_for_PvNodes_2
+
+        r += 691@;
+
+        r -= moveCount * 65;
+
+#context Search_Decrease_reduction_for_PvNodes_3
+
+		r -= moveCount * 65@;
+        r -= std::abs(correctionValue) / 25600@{64,51200};
+
+#context Search_Decrease_reduction_for_PvNodes_4
+
+        if (cutNode)
+            r += 3611@ + 985@ * !ttData.move;
+
+#context Search_Decrease_reduction_for_PvNodes_5
+
+        if (ttCapture)
+            r += 1054@;
+
+#context Search_Decrease_reduction_for_PvNodes_6a
+
+        if ((ss + 1)->cutoffCnt > 1)
+            r += 251@ + 1124@ * ((ss + 1)->cutoffCnt > 2) + 1042@ * allNode;
+
+
+#context Search_Decrease_reduction_for_PvNodes_7
+
+        else if (move == ttData.move)
+            r -= 2179@;
+
+#context Search_Decrease_reduction_for_PvNodes_8
+
+        if (capture)
+            ss->statScore = 863@ * int(PieceValue[pos.captured_piece()]) / 128
+                          + captureHistory[movedPiece][move.to_sq()][type_of(pos.captured_piece())];
+
+#context Search_Decrease_reduction_for_PvNodes_9
+
+        r -= ss->statScore * 428@ / 4096;
+
+#context Search_quiet_stat_score
+
+            ss->statScore =
+              (2252@main{0,2252} * mainHistory[us][move.raw()] + 1126@continuation0{0,1126} * (*contHist[0])[movedPiece][move.to_sq()]
+               + 1093@continuation1{0,1093} * (*contHist[1])[movedPiece][move.to_sq()])
+              / 1024;
+
+#context Search_Post_LMR_continuation_history_updates // search() Step 17.
+
+        update_continuation_histories(ss, movedPiece, move.to_sq(), 1426@);
+
+#context Search_Full_depth_search_threshold_1a // Step 18.
+
+            if (!ttData.move)
+                r += 1057@;
+
+#context Search_Full_depth_search_threshold_2b
+
+            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
+                                   newDepth - (r > 4628@) - (r > 5772@ && newDepth > 2), !cutNode);
+
+#context Search_ttMoveHistoryBonus // search() Step 21.
+
+        if (!PvNode)
+            ttMoveHistory << (bestMove == ttData.move ? 805@ : -787@);
+
+#context Search_standPat // qsearch() Step 4.
+
+		futilityBase = ss->staticEval + 328@;
+
+#context YaneuraOuWorker_reduction
+
+int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
+    int reductionScale = reductions[d] * reductions[mn];
+    return reductionScale + !i * reductionScale * 206@2{0,412} / 512 + 1133@3{0,2266};
+
+#context update_all_stats_1c // update_all_stats()
+
+    int bonus =
+      std::min(128@ * depth - 77@, 1529@) + 353@ * (bestMove == ttMove) + (ss - 1)->statScore / 32;
+    int malus = std::min(882@ * depth - 204@, 2122@);
+
+
+#context conthist_bonuses
+
+    static constexpr std::array<ConthistBonus, 5> conthist_bonuses = {
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
+
+#add
+    const std::array<ConthistBonus, 5> conthist_bonuses = {
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
+
+#context update_quiet_histories_1a // update_quiet_histories()
+
+    if (ss->ply < LOW_PLY_HISTORY_SIZE)
+        workerThread.lowPlyHistory[ss->ply][move.raw()] << bonus * 761@ / 1024;
+
+    update_continuation_histories(ss, pos.moved_piece(move), move.to_sq(), bonus * 955@{0,1000} / 1024);
+
+#context update_quiet_histories_2b
+
+    workerThread.sharedHistory.pawn_entry(pos)[pos.moved_piece(move)][move.to_sq()]
+      << bonus * (bonus > -4@threshold ? 850@1 : 550@2) / 1024;
+
+#context YaneuraOuWorker_clear1
+
+    captureHistory.fill(-678@);
+
+    // Each thread clears its part of the dynamically-sized shared histories.
+    // The constant-size continuation history is initialized by thread 0 of each NUMA node.
+    // 各スレッドは、動的な共有履歴のうち自分の担当範囲を初期化する。
+    // 固定サイズのcontinuation historyは、各NUMAノードの先頭スレッドだけが初期化する。
+    sharedHistory.correctionHistory.clear_range(-5, numaThreadIdx, numaTotal);
+    sharedHistory.pawnHistory.clear_range(-1238@, numaThreadIdx, numaTotal);
+
+#context correction_history_initial
+
+    sharedHistory.correctionHistory.clear_range(-5@{-32,32}, numaThreadIdx, numaTotal);
+
+#context YaneuraOuWorker_clear1
+
+    ttMoveHistory = 0;
+
+    for (auto& to : continuationCorrectionHistory)
+        for (auto& h : to)
+            h.fill(6@3);
+
+#context Search_nullmove_2
+
+        Depth R = 7 + depth / 3 + std::max((ss->staticEval - beta) / 256@margin{1,512}, 0) - int(threadIdx & 1);
+
+#context Search_Capture_SEE_pruning_margin // Search step 14.
+
+                int margin = 167@{0,334} * depth + captHist * 34@{0,68} / 1024;
+
+#context Search_All_node_reduction_scale
+
+        if (allNode)
+            r += r * 276@{0,552} / (256 * depth + 268);
+
+#context Search_LMR_research_thresholds // search() Step 17.
+
+                const bool doDeeperSearch    = d < newDepth && value > bestValue + 48@;
+                const bool doShallowerSearch = value < bestValue + 9@;
+
+#context Search_fail_low_quiet_bonus // search() Step 21.
+
+        int bonusScale = -241@{-482,-241};
+        bonusScale -= (ss - 1)->statScore / 98@{98,216};
+        bonusScale += std::min(59@{0,118} * depth, 420@{0,420});
+        bonusScale += 186@{0,186} * ((ss - 1)->moveCount > 9@{0,18});
+        bonusScale += 142@{0,142} * (!ss->inCheck && bestValue <= ss->staticEval - 106@{0,212});
+        bonusScale += 159@{0,159} * (!(ss - 1)->inCheck && bestValue <= -(ss - 1)->staticEval - 68@{0,146});
+
+        bonusScale = std::max(bonusScale, 0);
+
+        // scaledBonus ranges from 0 to roughly 2.3M, overflows happen for
+        // multipliers larger than 900
+        // scaledBonusはおよそ0〜230万で、900を超える乗数では桁あふれが起きる。
+        const int scaledBonus = std::min(150@{85,300} * depth - 85@{0,85}, 1337@{0,1337}) * bonusScale;
+
+        update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
+                                      scaledBonus * 263@{0,263} / 16384);
+
+        mainHistory[~us][((ss - 1)->currentMove).raw()] << scaledBonus * 215@{0,430} / 32768;
+
+        if (type_of(pos.piece_on(prevSq)) != PAWN && ((ss - 1)->currentMove).type_of() != PROMOTION)
+            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq] << scaledBonus * 324@{0,500} / 8192;
+
+#context Search_fail_low_capture_bonus // search() Step 21.
+
+        captureHistory[pos.piece_on(prevSq)][prevSq][type_of(capturedPiece)] << 1018@;
+
+#context Search_correction_history_bonus // search() Step 21.
+
+        auto bonus =
+          std::clamp(int(bestValue - ss->staticEval) * depth * (bestMove ? 12@ : 17@) / 128,
+                     -CORRECTION_HISTORY_LIMIT / 4, CORRECTION_HISTORY_LIMIT / 4);
+
+        update_correction_history(pos, ss, *this, 1069@ * bonus / 1024);
+
+#context QSearch_SEE_pruning // qsearch() Step 6.
+
+            if (!pos.see_ge(move, -73@))
+                continue;
+
+
+#context Search_futility_blend
+
+            const int betaWeight = 661@{0,1024};
+            return (betaWeight * beta + (1024 - betaWeight) * eval) / 1024;
+
+#context Search_PV_reduction
+
+        if (PvNode)
+            r -= 512@{0,1024};
+
+#context Search_lmr_divisor
+
+    return 3000@base{16,6000} + 7 * (d - 8) * (d - 8);
+
+#context Search_LMR_eval_margin
+
+        if (!capture && !is_decisive(alpha))
+            r += 3@scale * std::clamp(alpha - eval, -64@min, 96@max);
+
+#context Search_ttMoveHistoryPenalty
+
+                ttMoveHistory << -424@1 - 107@2 * depth;
+
+#context Search_multicut_correction
+
+                    const int bonus =
+                      std::clamp(int(value - ss->staticEval) * 664@ / 1024,
+                                 -CORRECTION_HISTORY_LIMIT / 4, CORRECTION_HISTORY_LIMIT / 4);
+
+#context CMHC_bonus
+
+            historyEntry << bonus * weight * multiplier / 65536 + 73@ * (i < 2);
+
+#context main_history_decay
+
+            mainHistory[c][i] = mainHistory[c][i] * 729@{0,1024} / 1024;
+
+#context main_history_initial
+
+    mainHistory.fill(-5@{-256,256});
+
+#context history_nonPV_bonus
+
+        bonus += bonus * int(quietsSearched.size() + capturesSearched.size()) / 256@{128,512};
+
+#context Search_razoring_linear
+
+    if (allNode && eval < alpha - 342@ * depth && !seekMate)
+        return qsearch<NonPV>(pos, ss, alpha, beta);
+
+
+#set file movepick.cpp
+#set declaration %%MOVEPICK_TUNE_DECLARATION%%
+#set options %%MOVEPICK_TUNE_OPTIONS%%
+
+#context
+
+ #include "position.h"
+
+namespace YaneuraOu {
+ #if !STOCKFISH
+using Eval::PieceValue;
+ #endif
+
+#add
+
+ #include "position.h"
+ #include "tune.h"
+
+namespace YaneuraOu {
+ #if !STOCKFISH
+using Eval::PieceValue;
+ #endif
+
+// %%MOVEPICK_TUNE_DECLARATION%%
+// %%MOVEPICK_TUNE_OPTIONS%%
+
+#context MovePicker_capture_score
+
+            const int captureScoreQ8 =
+              256 * int((*captureHistory)[pc][to][type_of(capturedPiece)])
+              + 1792@1Q8 * PieceValue[capturedPiece];
+            m.value = captureScoreQ8 / 256;
+
+#context MovePicker_quiet_score
+
+            int quietScoreQ8 = 512@1Q8 * int((*mainHistory)[us][m.raw()]);
+            quietScoreQ8 += 512@2Q8 * int(sharedHistory->pawn_entry(pos)[pc][to]);
+            quietScoreQ8 += 256 * int((*continuationHistory[0])[pc][to]);
+            quietScoreQ8 += 256 * int((*continuationHistory[1])[pc][to]);
+            quietScoreQ8 += 256 * int((*continuationHistory[2])[pc][to]);
+            quietScoreQ8 += 256 * int((*continuationHistory[3])[pc][to]);
+            quietScoreQ8 += 256 * int((*continuationHistory[5])[pc][to]);
+
+            // SEEの閾値と王手ボーナス自体の単位は従来どおり。
+            quietScoreQ8 += ((pos.check_squares(pt) & to) && pos.see_ge(m, -75@3)) * 256 * 16384@4;
+            int value = quietScoreQ8 / 256;
+
+
+#context MovePicker_low_ply_history_score
+
+			if (ply < LOW_PLY_HISTORY_SIZE)
+                value += 2048@1Q8 * int((*lowPlyHistory)[ply][m.raw()]) / (256 * (1 + ply));
+
+#context MovePicker_good_quiet_threshold
+
+	constexpr int goodQuietThreshold = -14000@;
+
+#add
+
+	const int goodQuietThreshold = @;
+
+#context MovePicker_good_capture_see
+
+				if (pos.see_ge(*cur, -cur->value / 18@{1,36}))
+					return true;
+
+#context MovePicker_quiet_partial_sort
+
+			partial_insertion_sort(cur, endCur, -3560@ * depth);
+
+#set file engine\yaneuraou-engine\yaneuraou-search.cpp
+#set declaration %%TUNE_DECLARATION%%
+#set options %%TUNE_OPTIONS%%
+
+// Stockfishの追加候補。既存の係数値は維持し、新しい制御だけを調整する。
+// NMPの下限は非詰み範囲に制限する。旧Stockfishの保存方針との切り替えは設けない。
+#context Search_NMP_beta_limit
+
+        && beta >= -2000@minimum{-31753,0}
+    )
+
+#context QSearch_stand_pat_blend
+
+            const int standPatWeight = 441@weight{0,1024};
+
+#context Time_best_move_effort
+
+            const int effortStart = 75800@start{0,80000};
+            const int effortSpan = 28710;
+            // The historical parameter name denotes the interpolation endpoint.
+            // 従来のパラメーター名を引き継ぐが、この値は補間終点の係数を表す。
+            const int effortMinimumQ10 = 731@minimumQ10{0,768};
+
+#context aspiration_window_growth
+
+                delta += 47@{43,94} * delta / 128;
