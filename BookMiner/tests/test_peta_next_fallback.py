@@ -13,6 +13,25 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_refutation_does_not_output_missing_start_position(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos, 50\n')
+            miner.peta_next(10, 10, 100, str(roots), refutation_book=miner.Book(), eval_refutation_margin=1)
+            self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
+
+    def test_start_positions_are_loaded_once_per_command(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos, 50\n')
+            for command in (miner.peta_next, miner.peta_rejoin):
+                with self.subTest(command=command.__name__), \
+                     patch.object(miner, 'load_peta_root_positions', wraps=miner.load_peta_root_positions) as load:
+                    command(10, 10, 100, str(roots))
+                    load.assert_called_once_with(str(roots))
+
     def test_start_position_eval_diff_overrides_default(self):
         book = miner.Book()
         book.body[miner.SFEN_START] = miner.PositionInfo([

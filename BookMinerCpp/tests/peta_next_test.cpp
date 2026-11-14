@@ -40,6 +40,13 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        bool rejected = false;
+        try { (void)load_peta_next_root_positions(roots_path.parent_path()); }
+        catch (const std::runtime_error&) { rejected = true; }
+        if (!rejected)
+            throw std::runtime_error("directory start path was silently treated as a missing file");
+    }
+    {
         // The normal book extends the old peta frontier, without changing legacy pn.
         bookminer::BookStore peta, normal;
         const auto board0 = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);

@@ -1928,10 +1928,12 @@ struct PetaRootPosition {
 std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesystem::path& start_sfens_path)
 {
     std::vector<PetaRootPosition> roots;
-    const bool has_start_sfens_file = fs::is_regular_file(start_sfens_path);
+    const bool has_start_sfens_file = fs::exists(start_sfens_path);
 
     if (has_start_sfens_file)
     {
+        if (!fs::is_regular_file(start_sfens_path))
+            throw std::runtime_error("peta_next start sfens path is not a file: " + path_to_utf8(start_sfens_path));
         log_line("read start sfens , path = " + path_to_utf8(start_sfens_path));
         std::ifstream in(start_sfens_path);
         if (!in)
@@ -1978,6 +1980,8 @@ std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesyste
             log_line("start sfen = " + sfen_with_ply + (eval_diff ? " , eval_diff = " + std::to_string(*eval_diff) : ""));
             roots.push_back({position_command, sfen_with_ply, eval_diff});
         }
+        if (in.bad())
+            throw std::runtime_error("failed to read peta_next start sfens file: " + path_to_utf8(start_sfens_path));
     }
 
     if (!has_start_sfens_file)
@@ -2018,7 +2022,8 @@ std::vector<std::string> peta_next_for_turn(
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
     std::optional<int> eval_refutation_margin,
-    const bookminer::BookStore* fallback_book = nullptr)
+    const bookminer::BookStore* fallback_book = nullptr,
+    const std::vector<PetaRootPosition>* loaded_roots = nullptr)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
@@ -2034,7 +2039,8 @@ std::vector<std::string> peta_next_for_turn(
     log_line(std::string("--- ") + (filter_refutation ? "peta_next_refutation " : "peta_next ") + turn_str + " ---");
 
     std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash> visited;
-    const auto root_positions = load_peta_next_root_positions(start_sfens_path);
+    const auto local_roots = loaded_roots ? std::vector<PetaRootPosition>{} : load_peta_next_root_positions(start_sfens_path);
+    const auto& root_positions = loaded_roots ? *loaded_roots : local_roots;
 
     OrderedPetaNextPositions current_positions;
     for (const auto& [position_command, sfen_with_ply, root_eval_diff] : root_positions)
@@ -2314,14 +2320,15 @@ void peta_next(
         + ", peta_book_positions = " + std::to_string(peta_book.size())
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
 
-    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book);
+    const auto roots = load_peta_next_root_positions(start_sfens_path);
+    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
-    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book);
+    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(
@@ -2383,7 +2390,8 @@ std::vector<std::string> peta_rejoin_for_turn(
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
     std::optional<int> eval_drop,
-    PetaRejoinStats& stats)
+    PetaRejoinStats& stats,
+    const std::vector<PetaRootPosition>* loaded_roots = nullptr)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
@@ -2392,7 +2400,8 @@ std::vector<std::string> peta_rejoin_for_turn(
     log_line("--- peta_rejoin " + turn_str + " ---");
 
     std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash> visited;
-    const auto root_positions = load_peta_next_root_positions(start_sfens_path);
+    const auto local_roots = loaded_roots ? std::vector<PetaRootPosition>{} : load_peta_next_root_positions(start_sfens_path);
+    const auto& root_positions = loaded_roots ? *loaded_roots : local_roots;
 
     OrderedPetaNextPositions current_positions;
     for (const auto& [position_command, sfen_with_ply, root_eval_diff] : root_positions)
@@ -2527,14 +2536,15 @@ void peta_rejoin(
         + ", start_sfens_path = " + path_to_utf8(start_sfens_path));
 
     PetaRejoinStats stats;
-    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats);
+    const auto roots = load_peta_next_root_positions(start_sfens_path);
+    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
-    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats);
+    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(

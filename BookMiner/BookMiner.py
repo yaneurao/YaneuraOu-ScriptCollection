@@ -3142,6 +3142,7 @@ def peta_next(
 
     # 先手の定跡を考えるのか？
     # turn == 1 なら 先手、0なら後手
+    root_positions = load_peta_root_positions(start_sfens_path)
     for turn in [1, 0]:
 
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
@@ -3158,8 +3159,6 @@ def peta_next(
         # bfs
 
         # 今回辿る局面集合。(position文字列, plyつきsfen)
-        root_positions = load_peta_root_positions(start_sfens_path)
-
         # PositionStr -> Sfen with ply,RootBest,EvalDiffが並んでいる。
         current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
 
@@ -3172,13 +3171,15 @@ def peta_next(
 
             position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen)
             if position_info is None:
-                add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
+                if refutation_book is None:
+                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             # root_bestは手番側から見たスコアなのでflip hitでも気にしなくて良い。
             root_best, _ = get_best(position_info)
             if root_best is None:
-                add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
+                if refutation_book is None:
+                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
@@ -3444,6 +3445,7 @@ def peta_rejoin(
     total_leaf_nodes = 0
     total_rejoin_nodes = 0
 
+    root_positions = load_peta_root_positions(start_sfens_path)
     for turn in [1, 0]:
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
         leaf_sfens : set[Sfen] = set()
@@ -3453,7 +3455,7 @@ def peta_rejoin(
         visited : dict[tuple[Sfen, int, int|None, int], int] = {}
         current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None]] = {}
 
-        for position_cmd, sfen_with_ply, root_eval_diff in load_peta_root_positions(start_sfens_path):
+        for position_cmd, sfen_with_ply, root_eval_diff in root_positions:
             sfen, ply = trim_sfen_ply(sfen_with_ply)
 
             if ply >= max_book_ply:
