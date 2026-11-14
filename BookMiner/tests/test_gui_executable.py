@@ -13,6 +13,59 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_automatic_peta_read_messages_go_to_peta_log(self):
+        instance = Mock()
+        instance.peta_makebook_active = False
+        instance.reading_peta_book = False
+        instance.busy_action = 'auto_peta_shock'
+        self.assertEqual(gui.BookMinerGui._classify_log_line(instance, '[BookReadDone] 100/100'), 'peta')
+        self.assertEqual(gui.BookMinerGui._classify_log_line(instance, '[PetaBookPositions] positions=100'), 'peta')
+        instance.busy_action = None
+        self.assertEqual(gui.BookMinerGui._classify_log_line(instance, '[BookReadDone] 100/100'), 'other')
+
+    def test_out_of_order_mining_progress_preserves_cumulative_counts(self):
+        instance = Mock()
+        instance.latest_mining_positions = 100
+        instance.latest_mining_searched_positions = 50
+        instance.latest_mining_nodes = 5000
+        instance.mining_samples = [object()]
+        instance._parse_optional_int_field.side_effect = lambda fields, key: int(fields[key]) if key in fields else None
+        gui.BookMinerGui._handle_mining_progress_line(
+            instance, '[MiningProgress] positions=99 searched_positions=49 nodes=4900')
+        self.assertEqual(instance.book_positions_text, '定跡局面数 100')
+        self.assertEqual(instance.latest_mining_searched_positions, 50)
+        self.assertEqual(instance.latest_mining_nodes, 5000)
+        self.assertEqual(len(instance.mining_samples), 1)
+
+    def test_stale_job_events_do_not_clear_or_resurrect_tasks(self):
+        instance = Mock()
+        instance.task_job_items = {}
+        instance.completed_task_jobs = set()
+        instance.task_queue_total_highwater = 3
+        instance.task_queue_taken_highwater = 1
+        instance.task_queue_remaining = 2
+        instance._parse_task_job_remaining.side_effect = lambda value, taken, total: int(value) if value else total - taken
+        instance._parse_task_job_deferred.side_effect = lambda value: int(value) if value else None
+        instance._parse_task_job_eval_limit.side_effect = lambda value: int(value) if value else None
+        gui.BookMinerGui._handle_task_job_list_line(
+            instance, '[TaskQueueStart] 1/3 job=2 job_progress=0/2 job_remaining=2 remaining=2')
+        self.assertIn(2, instance.task_job_items)
+        gui.BookMinerGui._handle_task_job_list_line(
+            instance, '[TaskQueueProgress] 2/3 job=2 job_progress=1/2 job_remaining=1 deferred=3')
+        gui.BookMinerGui._handle_task_job_list_line(
+            instance, '[TaskQueueProgress] 1/3 job=2 job_progress=0/2 job_remaining=2 deferred=1')
+        self.assertEqual(instance.task_job_items[2].taken, 1)
+        self.assertEqual(instance.task_job_items[2].remaining, 1)
+        self.assertEqual(instance.task_job_items[2].deferred, 3)
+        gui.BookMinerGui._handle_task_job_list_line(instance, '[TaskQueueDone] 2/2 job=1 remaining=0')
+        self.assertIn(2, instance.task_job_items)
+        self.assertEqual(instance.task_queue_remaining, 2)
+        gui.BookMinerGui._handle_task_job_list_line(instance, '[TaskQueueJobDone] 3/3 job=2 job_remaining=0')
+        self.assertNotIn(2, instance.task_job_items)
+        gui.BookMinerGui._handle_task_job_list_line(
+            instance, '[TaskQueueProgress] 1/3 job=2 job_progress=1/2 job_remaining=1 remaining=2')
+        self.assertNotIn(2, instance.task_job_items)
+
     def test_peta_read_progress_does_not_overwrite_normal_book_count(self):
         instance = Mock()
         instance.book_positions_text = '定跡局面数 12,345,678'

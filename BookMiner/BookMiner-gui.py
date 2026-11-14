@@ -521,6 +521,7 @@ class BookMinerGui(ttk.Frame):
             )
         )
         self.task_job_items: dict[int, TaskJobListItem] = {}
+        self.completed_task_jobs: set[int] = set()
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.backup_status = tk.StringVar(value="次回自動保存 -")
         self.book_positions_text = "定跡局面数 -"
@@ -1212,6 +1213,7 @@ class BookMinerGui(ttk.Frame):
         self.task_queue_total_highwater = 0
         self.task_queue_taken_highwater = 0
         self.task_job_items.clear()
+        self.completed_task_jobs.clear()
         self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.auto_backup_count = 0
@@ -1783,70 +1785,45 @@ class BookMinerGui(ttk.Frame):
         if match is None:
             return
 
-        phase, _count_text, _total_text, rest = match.groups()
+        phase, count_text, total_text, rest = match.groups()
         fields = dict(TASK_QUEUE_FIELD_RE.findall(rest))
-        state_changed = False
-        remaining_text = fields.get("remaining")
-        if phase == "Done":
-            remaining = 0
-        elif remaining_text is not None:
-            remaining = self._parse_task_job_deferred(remaining_text)
-        else:
-            remaining = None
-        if remaining is not None and remaining != self.task_queue_remaining:
-            self.task_queue_remaining = remaining
-            state_changed = True
 
         if phase == "Done":
+            if total_text != "?" and (int(total_text) < self.task_queue_total_highwater
+                                      or int(count_text) < self.task_queue_taken_highwater):
+                return
+            self.completed_task_jobs.update(self.task_job_items)
+            job_text = fields.get("job")
+            if job_text and job_text.isdigit():
+                self.completed_task_jobs.add(int(job_text))
             self.task_job_items.clear()
             self._refresh_task_job_views()
-            if self.busy_action == "manual_enqueue":
-                self.busy_action = None
-                state_changed = True
-            if self.enqueue_pending:
-                self.enqueue_pending = False
-                state_changed = True
-            if state_changed:
-                self._update_buttons()
             return
 
         job_text = fields.get("job")
         if job_text is None:
-            if state_changed:
-                self._update_buttons()
             return
 
         try:
             job_id = int(job_text)
         except ValueError:
-            if state_changed:
-                self._update_buttons()
             return
 
         if phase == "JobDone":
+            self.completed_task_jobs.add(job_id)
             self.task_job_items.pop(job_id, None)
             self._refresh_task_job_views()
-            if self.task_queue_remaining == 0:
-                if self.busy_action == "manual_enqueue":
-                    self.busy_action = None
-                    state_changed = True
-                if self.enqueue_pending:
-                    self.enqueue_pending = False
-                    state_changed = True
-            if state_changed:
-                self._update_buttons()
+            return
+
+        if job_id in self.completed_task_jobs:
             return
 
         progress_text = fields.get("job_progress")
         if progress_text is None:
-            if state_changed:
-                self._update_buttons()
             return
 
         progress_match = re.fullmatch(r"(\d+)/(\d+|\?)", progress_text)
         if progress_match is None:
-            if state_changed:
-                self._update_buttons()
             return
 
         taken_text, total_text = progress_match.groups()
@@ -1854,6 +1831,13 @@ class BookMinerGui(ttk.Frame):
         total = None if total_text == "?" else int(total_text)
         remaining = self._parse_task_job_remaining(fields.get("job_remaining"), taken, total)
         deferred = self._parse_task_job_deferred(fields.get("deferred"))
+        previous = self.task_job_items.get(job_id)
+        if previous is not None and total is not None and previous.total is not None:
+            taken = max(taken, previous.taken)
+            total = max(total, previous.total)
+            remaining = max(total - taken, 0)
+        if previous is not None and deferred is not None:
+            deferred = max(deferred, previous.deferred)
         if deferred is None and job_id in self.task_job_items:
             deferred = self.task_job_items[job_id].deferred
         if deferred is None:
@@ -1873,8 +1857,7 @@ class BookMinerGui(ttk.Frame):
 
         if total == 0 or remaining == 0 or (total is not None and taken >= total):
             self.task_job_items.pop(job_id, None)
-            if remaining == 0:
-                state_changed = True
+            self.completed_task_jobs.add(job_id)
         else:
             self.task_job_items[job_id] = TaskJobListItem(
                 job_id=job_id,
@@ -1888,8 +1871,6 @@ class BookMinerGui(ttk.Frame):
                 remaining=remaining,
             )
         self._refresh_task_job_views()
-        if state_changed:
-            self._update_buttons()
 
     def _parse_task_job_eval_limit(self, eval_limit_text: str | None) -> int | str | None:
         if eval_limit_text is None:
@@ -1937,6 +1918,9 @@ class BookMinerGui(ttk.Frame):
         except ValueError:
             return
 
+        if self.latest_mining_positions is not None:
+            positions = max(positions, self.latest_mining_positions)
+
         searched_positions = self._parse_optional_int_field(fields, "searched_positions")
         nodes = self._parse_optional_int_field(fields, "nodes")
         if (
@@ -1949,13 +1933,14 @@ class BookMinerGui(ttk.Frame):
             searched_positions = 0
             nodes = 0
         if searched_positions is not None:
+            if self.latest_mining_searched_positions is not None:
+                searched_positions = max(searched_positions, self.latest_mining_searched_positions)
             self.latest_mining_searched_positions = searched_positions
         if nodes is not None:
+            if self.latest_mining_nodes is not None:
+                nodes = max(nodes, self.latest_mining_nodes)
             self.latest_mining_nodes = nodes
         self.book_positions_text = f"定跡局面数 {positions:,}"
-
-        if self.latest_mining_positions is not None and positions < self.latest_mining_positions:
-            self.mining_samples.clear()
 
         self.latest_mining_positions = positions
         self._record_mining_sample(time.time())
@@ -2435,7 +2420,8 @@ class BookMinerGui(ttk.Frame):
             and book_progress_match.group(1) == "Read"
             and (
                 self.peta_makebook_active
-                or self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read", "auto_enqueue"}
+                or self.reading_peta_book
+                or self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read", "auto_peta_shock"}
             )
         ):
             return "peta"
@@ -2444,6 +2430,7 @@ class BookMinerGui(ttk.Frame):
             or "p command" in lower
             or "[petacommanddone]" in lower
             or "[petareaddone]" in lower
+            or "[petabookpositions]" in lower
             or "[petanextdone]" in lower
             or "[petarefutationdone]" in lower
             or "[petanextrefutationdone]" in lower
