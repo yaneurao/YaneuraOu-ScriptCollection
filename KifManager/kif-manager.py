@@ -436,6 +436,11 @@ class ExtractorPane(ttk.Frame):
             "both-player-listと両方指定した場合は、どちらかの条件を満たせば抽出します。",
         )
 
+        ttk.Label(self, text="両方とも空欄なら、プレイヤー名では絞り込みません。").grid(
+            row=row, column=1, columnspan=3, sticky="w", pady=(0, 6)
+        )
+        row += 1
+
         if self.kind.key in {"wcsc", "denryu"}:
             if self.kind.key == "wcsc":
                 finalist_help = (
@@ -2175,6 +2180,8 @@ class KifManager(tk.Tk):
             self._put_log(f"[{job.kind.title}] start\n")
             self._put_log(f"[{job.kind.title}] input  : {job.input_dir}\n")
             self._put_log(f"[{job.kind.title}] output : {job.output_path}\n")
+            if job.both_player_list is None and job.either_player_list is None:
+                self._put_log(f"[{job.kind.title}] player filter: なし\n")
             if job.both_player_list is not None:
                 self._put_log(f"[{job.kind.title}] both   : {job.both_player_list}\n")
             if job.either_player_list is not None:

@@ -1355,7 +1355,8 @@ def extract_eval_records(path: Path) -> list[EvalRecord]:
 
 
 def parse_csa(
-    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False,
+    require_names: bool = True,
 ) -> list[GameRecord]:
     parsed_games = CSA.Parser.parse_file(str(path))
     if not parsed_games:
@@ -1368,7 +1369,7 @@ def parse_csa(
     if game_date is None:
         game_date = header.game_date
     for parsed in parsed_games:
-        names = read_names(parsed.names, path)
+        names = read_names(parsed.names, path, required=require_names)
         if not allow_non_startpos:
             ensure_startpos(parsed.sfen)
         moves = moves_to_usi(parsed.moves)
@@ -1395,10 +1396,11 @@ def parse_csa(
 
 
 def parse_kif(
-    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False,
+    require_names: bool = True,
 ) -> list[GameRecord]:
     parsed, initial_sfen, raw_moves = parse_kif_text(read_text(path))
-    names = read_names(parsed.names, path)
+    names = read_names(parsed.names, path, required=require_names)
     if not allow_non_startpos:
         ensure_startpos(initial_sfen)
     moves = moves_to_usi(raw_moves)
@@ -1492,9 +1494,12 @@ def parse_kif_moves_with_board(text: str, sfen: str) -> list[int]:
     return moves
 
 
-def read_names(names: Sequence[str | None], path: Path) -> tuple[str, str]:
+def read_names(names: Sequence[str | None], path: Path, *, required: bool = True) -> tuple[str, str]:
     if len(names) < 2 or not names[0] or not names[1]:
-        raise ParseError(f"missing player name: {path}")
+        if required:
+            raise ParseError(f"missing player name: {path}")
+        return (str(names[0] or "") if names else "",
+                str(names[1] or "") if len(names) > 1 else "")
     return str(names[0]), str(names[1])
 
 
@@ -1551,7 +1556,8 @@ def csa_is_draw(endgame: object, win: object) -> bool:
 
 
 def parse_games(
-    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False
+    path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False,
+    require_names: bool = True,
 ) -> list[GameRecord]:
     suffix = path.suffix.lower()
     if suffix in {".kif", ".kifu"}:
@@ -1559,12 +1565,14 @@ def parse_games(
             path,
             include_eval_records=include_eval_records,
             allow_non_startpos=allow_non_startpos,
+            require_names=require_names,
         )
     if suffix in {".csa", ".csv"}:
         return parse_csa(
             path,
             include_eval_records=include_eval_records,
             allow_non_startpos=allow_non_startpos,
+            require_names=require_names,
         )
     raise ParseError(f"unsupported suffix: {path.suffix}")
 
@@ -1656,6 +1664,7 @@ def collect_games_from_roots(
                 path,
                 include_eval_records=reversal_threshold is not None,
                 allow_non_startpos=allow_non_startpos,
+                require_names=(source_kind is not None or bool(player_filters.both_patterns or player_filters.either_patterns)),
             )
         except Exception as exc:
             stats.skipped_parse += 1
