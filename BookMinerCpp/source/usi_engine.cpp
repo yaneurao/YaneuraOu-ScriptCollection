@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <exception>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -408,9 +409,17 @@ void UsiEngine::send_line(const std::string& command)
 {
     const std::string line = command + "\n";
 #ifdef _WIN32
-    DWORD written = 0;
-    if (!WriteFile(child_stdin_write_, line.data(), static_cast<DWORD>(line.size()), &written, nullptr))
-        throw std::runtime_error("failed to write to engine stdin");
+    const char* data = line.data();
+    std::size_t remaining = line.size();
+    while (remaining > 0)
+    {
+        const auto chunk = static_cast<DWORD>(std::min<std::size_t>(remaining, std::numeric_limits<DWORD>::max()));
+        DWORD written = 0;
+        if (!WriteFile(child_stdin_write_, data, chunk, &written, nullptr) || written == 0)
+            throw std::runtime_error("failed to write to engine stdin");
+        data += written;
+        remaining -= written;
+    }
 #else
     const char* data = line.data();
     std::size_t remaining = line.size();
