@@ -2039,6 +2039,7 @@ std::vector<std::string> peta_next_for_turn(
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
     std::size_t skipped_ply = 0, skipped_visited = 0, rejected_own = 0, rejected_opponent = 0;
     std::size_t missing_roots = 0, duplicate_leaves = 0, limited_frontier = 0, fallback_hits = 0;
+    std::size_t fallback_nonbest_moves = 0;
     auto record_leaf = [&](const std::string& command, const std::string& sfen) {
         if (!append_unique_peta_leaf(think_sfens, think_seen, command, sfen))
             ++duplicate_leaves;
@@ -2083,7 +2084,8 @@ std::vector<std::string> peta_next_for_turn(
 
         const int effective_diff = root_eval_diff.value_or(peta_eval_diff);
         current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt});
-        log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first));
+        log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first)
+                 + " , eval_diff = " + std::to_string(effective_diff));
     }
 
     int step = 1;
@@ -2161,6 +2163,8 @@ std::vector<std::string> peta_next_for_turn(
                 }
 
                 const std::string next_position_command = append_position_move(position_command, move);
+                if (hit.normal && static_cast<int>(moveinfo.eval) < best_eval)
+                    ++fallback_nonbest_moves;
 
                 if (filter_refutation)
                 {
@@ -2190,7 +2194,8 @@ std::vector<std::string> peta_next_for_turn(
 
         log_line("step = " + std::to_string(step)
             + " , len(next_positions) = " + std::to_string(next_positions.order().size())
-            + ", think_sfens = " + std::to_string(think_sfens.size()));
+            + ", think_sfens = " + std::to_string(think_sfens.size())
+            + ", fallback_nonbest = " + std::to_string(fallback_nonbest_moves));
 
         current_positions = std::move(next_positions);
         ++step;
@@ -2204,6 +2209,7 @@ std::vector<std::string> peta_next_for_turn(
         + " rejected_own=" + std::to_string(rejected_own)
         + " rejected_opponent=" + std::to_string(rejected_opponent)
         + " fallback_hits=" + std::to_string(fallback_hits)
+        + " fallback_nonbest=" + std::to_string(fallback_nonbest_moves)
         + " duplicate_leaves=" + std::to_string(duplicate_leaves)
         + " max_step_frontier=" + std::to_string(limited_frontier)
         + " leaves=" + std::to_string(think_sfens.size()));
@@ -2333,7 +2339,7 @@ void peta_next(
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
     log_line(
         std::string(filter_refutation ? "peta_next_refutation" : "peta_next")
-        + ", peta_eval_diff = " + std::to_string(peta_eval_diff)
+        + ", default_eval_diff = " + std::to_string(peta_eval_diff)
         + ", max_step = " + std::to_string(max_step)
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
@@ -2463,7 +2469,8 @@ std::vector<std::string> peta_rejoin_for_turn(
 
         const int effective_diff = root_eval_diff.value_or(peta_eval_diff);
         current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt});
-        log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first));
+        log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first)
+                 + " , eval_diff = " + std::to_string(effective_diff));
     }
 
     int step = 1;
@@ -2554,7 +2561,7 @@ void peta_rejoin(
     std::optional<int> eval_drop = std::nullopt)
 {
     log_line(
-        "peta_rejoin, peta_eval_diff = " + std::to_string(peta_eval_diff)
+        "peta_rejoin, default_eval_diff = " + std::to_string(peta_eval_diff)
         + ", max_step = " + std::to_string(max_step)
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", eval_drop = " + (eval_drop.has_value() ? std::to_string(*eval_drop) : std::string("None"))

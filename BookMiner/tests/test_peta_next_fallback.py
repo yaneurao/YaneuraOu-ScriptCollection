@@ -14,6 +14,23 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_root_zero_overrides_default_five_and_is_logged(self):
+        book = miner.Book()
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('7g7f', 100, 0), miner.MoveInfo('2g2f', 97, 0)], 1)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', book), patch.object(miner, 'BOOK_DIR', directory), \
+             patch.object(miner, 'print') as log:
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos,0\n')
+            miner.peta_next(5, 10, 100, str(roots))
+            lines = (Path(directory) / 'think_sfens-white.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertTrue(any('root_best = 100 , eval_diff = 0' in str(call) for call in log.call_args_list))
+            roots.write_text('startpos\n')
+            miner.peta_next(5, 10, 100, str(roots))
+            self.assertEqual(len((Path(directory) / 'think_sfens-white.txt').read_text().splitlines()), 2)
+
     def test_cancellation_during_merge_preserves_previous_output(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -40,6 +40,41 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        const std::string moves = "5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g 6a5b";
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto& move : split_ws(moves)) board.push_usi(move);
+        const auto legal = board.legal_moves();
+        bookminer::BookStore normal, empty;
+        normal.merge_position(board.sfen(), 13, {
+            {bookminer::move16_from_usi(legal[0]), 100, 0},
+            {bookminer::move16_from_usi(legal[1]), 97, 0},
+        });
+        { std::ofstream out(roots_path); out << "startpos moves " << moves << ",0\n"; }
+        const auto zero = peta_next_for_turn(nullptr, empty, 0, 5, 10, 200, roots_path, std::nullopt, &normal);
+        { std::ofstream out(roots_path); out << "startpos moves " << moves << "\n"; }
+        const auto five = peta_next_for_turn(nullptr, empty, 0, 5, 10, 200, roots_path, std::nullopt, &normal);
+        if (zero.size() != 1 || five.size() != 2)
+            throw std::runtime_error("per-root zero eval_diff did not override the default of five");
+        bookminer::BookStore unpropagated;
+        unpropagated.merge_position(board.sfen(), 13, {{bookminer::move16_from_usi(legal[0]), 100, 0}});
+        auto child = board;
+        child.push_usi(legal[0]);
+        const auto replies = child.legal_moves();
+        unpropagated.merge_position(child.sfen(), 14, {
+            {bookminer::move16_from_usi(replies[0]), 0, 0},
+            {bookminer::move16_from_usi(replies[1]), -10, 0},
+            {bookminer::move16_from_usi(replies[2]), -20, 0},
+        });
+        { std::ofstream out(roots_path); out << "startpos moves " << moves << ",0\n"; }
+        std::ostringstream log;
+        auto* original = std::cout.rdbuf(log.rdbuf());
+        const auto expanded = peta_next_for_turn(nullptr, empty, 1, 5, 10, 200, roots_path, std::nullopt, &unpropagated);
+        std::cout.rdbuf(original);
+        if (expanded.size() != 3 || log.str().find("fallback_nonbest=2") == std::string::npos)
+            throw std::runtime_error("unpropagated normal scores were not reported accurately");
+        std::filesystem::remove(roots_path);
+    }
+    {
         bool rejected = false;
         try { (void)load_peta_next_root_positions(roots_path.parent_path()); }
         catch (const std::runtime_error&) { rejected = true; }

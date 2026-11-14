@@ -3140,7 +3140,7 @@ def peta_next(
 
     next_name = "peta_refutation" if refutation_book is not None else "peta_next"
     print(
-        f"{next_name}, peta_eval_diff = {peta_eval_diff}, "
+        f"{next_name}, default_eval_diff = {peta_eval_diff}, "
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
@@ -3200,7 +3200,7 @@ def peta_next(
             if position_cmd in current_positions:
                 effective_diff = max(effective_diff, current_positions[position_cmd][2])
             current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff)
-            print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
+            print(f"root sfen : {sfen_with_ply} , root_best = {root_best} , eval_diff = {effective_diff}")
 
         # 何回目のwhileループか。
         step = 1
@@ -3449,7 +3449,7 @@ def peta_rejoin(
     global peta_book
 
     print(
-        f"peta_rejoin, peta_eval_diff = {peta_eval_diff}, "
+        f"peta_rejoin, default_eval_diff = {peta_eval_diff}, "
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
         f"eval_drop = {'None' if eval_drop is None else eval_drop}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
@@ -3497,7 +3497,7 @@ def peta_rejoin(
             if position_cmd in current_positions:
                 effective_diff = max(effective_diff, current_positions[position_cmd][2])
             current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff, None)
-            print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
+            print(f"root sfen : {sfen_with_ply} , root_best = {root_best} , eval_diff = {effective_diff}")
 
         step = 1
         while current_positions:
