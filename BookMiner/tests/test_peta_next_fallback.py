@@ -13,6 +13,93 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_peta_next_deduplicates_same_leaf_from_different_paths(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos moves 7g7f 3c3d 2g2f 8c8d\n'
+                             'startpos moves 2g2f 8c8d 7g7f 3c3d\n')
+            miner.peta_next(100, 10, 100, str(roots))
+            black = (Path(directory) / 'think_sfens-black.txt').read_text().splitlines()
+            white = (Path(directory) / 'think_sfens-white.txt').read_text().splitlines()
+        self.assertEqual(len(black), 1, black)
+        self.assertEqual(len(white), 1, white)
+
+    def test_position_output_preserves_existing_file_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, black, white = root / 'think_sfens.txt', root / 'black.txt', root / 'white.txt'
+            output.write_text('existing\n')
+            black.write_text('startpos\n')
+            with self.assertRaises(FileNotFoundError):
+                miner.merge_position_command_files(str(black), str(white), str(output))
+            self.assertEqual(output.read_text(), 'existing\n')
+            white.write_text('startpos moves 7g7f\n')
+            entries = {'startpos': miner.PositionCommandEntry('startpos')}
+            with patch.object(miner.os, 'replace', side_effect=OSError('failed')):
+                with self.assertRaises(OSError):
+                    miner.write_position_command_entries(str(output), entries)
+                with self.assertRaises(OSError):
+                    miner.merge_position_command_files(str(black), str(white), str(output))
+            with patch.object(miner, 'format_position_command_entry', side_effect=OSError('write failed')):
+                with self.assertRaises(OSError):
+                    miner.write_position_command_entries(str(output), entries)
+            self.assertEqual(output.read_text(), 'existing\n')
+            self.assertEqual({p.name for p in root.iterdir()}, {'think_sfens.txt', 'black.txt', 'white.txt'})
+            self.assertEqual(miner.merge_position_command_files(str(black), str(white), str(output)), 2)
+            self.assertEqual(output.read_text(), 'startpos\nstartpos moves 7g7f\n')
+
+    def test_peta_rejoin_distinguishes_incoming_leaf_evaluations(self):
+        a, b = miner.cshogi.Board(), miner.cshogi.Board()
+        for move in ('7g7f', '3c3d', '2g2f'):
+            a.push_usi(move)
+        for move in ('2g2f', '8c8d', '7g7f'):
+            b.push_usi(move)
+        book = miner.Book()
+        sfen_a, _ = miner.trim_sfen_ply(a.sfen())
+        sfen_b, _ = miner.trim_sfen_ply(b.sfen())
+        book.body[sfen_a] = miner.PositionInfo([miner.MoveInfo('4c4d', 100), miner.MoveInfo('8c8d', -50)], 4)
+        book.body[sfen_b] = miner.PositionInfo([miner.MoveInfo('4c4d', 100), miner.MoveInfo('3c3d', 20)], 4)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', book), patch.object(miner, 'BOOK_DIR', directory), \
+             patch.object(miner, 'peta_leaf_rejoins_peta_book', side_effect=lambda _sfen, value, _drop: value == 20):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'sfen {a.sfen()}\nsfen {b.sfen()}\n')
+            miner.peta_rejoin(200, 10, 100, str(roots), eval_drop=10)
+            lines = (Path(directory) / 'think_sfens-black.txt').read_text().splitlines()
+        self.assertTrue(any(line.startswith(f'sfen {b.sfen()} moves 3c3d,') for line in lines), lines)
+
+    def test_peta_next_overlapping_roots_keep_distinct_evaluation_context(self):
+        book = miner.Book()
+        board = miner.cshogi.Board()
+        book.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 100, 0)], 1)
+        board.push_usi('7g7f')
+        child, _ = miner.trim_sfen_ply(board.sfen())
+        book.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', 0, 0), miner.MoveInfo('8c8d', -50, 0)], 2)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', book), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'startpos\nsfen {board.sfen()}\n')
+            miner.peta_next(10, 10, 100, str(roots))
+            lines = (Path(directory) / 'think_sfens-black.txt').read_text().splitlines()
+        self.assertTrue(any(line.startswith('startpos moves 7g7f 8c8d,') for line in lines), lines)
+
+    def test_peta_next_and_rejoin_use_sfen_side_not_ply_parity(self):
+        white_sfen = miner.SFEN_START.replace(' b ', ' w ')
+        book = miner.Book()
+        book.body[white_sfen] = miner.PositionInfo([miner.MoveInfo('3c3d', 100, 0), miner.MoveInfo('8c8d', 60, 0)], 1)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', book), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'sfen {white_sfen} 1\n')
+            miner.peta_next(50, 10, 100, str(roots))
+            lines = (Path(directory) / 'think_sfens-black.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 2, lines)
+            with patch.object(miner, 'peta_leaf_rejoins_peta_book', return_value=True):
+                miner.peta_rejoin(50, 10, 100, str(roots))
+            lines = (Path(directory) / 'think_sfens-black.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 2, lines)
+
     def test_peta_opponent_uses_loaded_book_not_replaced_disk_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

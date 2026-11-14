@@ -3,6 +3,7 @@ import datetime
 import os
 import time
 import subprocess
+import tempfile
 import traceback
 import queue
 import cshogi
@@ -16,6 +17,7 @@ from typing import TypeAlias, Any, Callable, Generic, TypeVar
 from collections import deque
 from threading import Condition, Lock, Thread
 from itertools import zip_longest
+from contextlib import contextmanager
 
 try:
     import json5
@@ -950,10 +952,39 @@ def add_position_command_entry(
     entries[position_cmd] = merge_position_command_entries(entries.get(position_cmd), new_entry)
 
 
+@contextmanager
+def atomic_position_output(path:str):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='\n',
+                                         dir=os.path.dirname(path) or '.', delete=False) as output:
+            temporary = output.name
+            yield output
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.remove(temporary)
+
+
 def write_position_command_entries(path:str, entries:dict[PositionStr, PositionCommandEntry]):
-    with open(path, 'w') as w:
+    with atomic_position_output(path) as w:
         for entry in entries.values():
             w.write(format_position_command_entry(entry) + '\n')
+
+
+def merge_position_command_files(black_path:str, white_path:str, output_path:str)->int:
+    count = 0
+    with open(black_path, 'r', encoding='utf-8') as black, \
+         open(white_path, 'r', encoding='utf-8') as white, \
+         atomic_position_output(output_path) as output:
+        for line_a, line_b in zip_longest(black, white, fillvalue=''):
+            if line_a:
+                output.write(line_a)
+                count += 1
+            if line_b:
+                output.write(line_b)
+                count += 1
+    return count
 
 
 def clamp_eval(x:int)->int:
@@ -2946,6 +2977,23 @@ def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[Pos
     return position, flipped
 
 
+def peta_is_own_turn(sfen:Sfen, turn:int)->bool:
+    parts = sfen.split()
+    if len(parts) < 2 or parts[1] not in ('b', 'w'):
+        raise ValueError(f"invalid SFEN side to move: {sfen}")
+    return (parts[1] == 'b') == (turn == 1)
+
+
+def add_unique_peta_leaf(entries:dict[PositionStr, PositionCommandEntry], seen:set[Sfen],
+                         position_cmd:PositionStr, sfen:Sfen, book_extend_ply:int|None,
+                         eval_limit:int|None, max_book_ply:int)->bool:
+    if sfen in seen:
+        return False
+    seen.add(sfen)
+    add_position_command_entry(entries, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+    return True
+
+
 def peta_next(
     peta_eval_diff:int,
     max_step:int,
@@ -2994,6 +3042,7 @@ def peta_next(
     for turn in [1, 0]:
 
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
+        leaf_sfens : set[Sfen] = set()
 
         # 手番文字列
         turn_str = ['white','black'][turn]
@@ -3001,7 +3050,7 @@ def peta_next(
         print(f"--- {next_name} {turn_str} ---")
 
         # 訪問済み局面
-        visited : set[Sfen] = set()
+        visited : dict[tuple[Sfen, int], int] = {}
 
         # bfs
 
@@ -3020,13 +3069,13 @@ def peta_next(
 
             position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen)
             if position_info is None:
-                add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             # root_bestは手番側から見たスコアなのでflip hitでも気にしなくて良い。
             root_best, _ = get_best(position_info)
             if root_best is None:
-                add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff)
@@ -3050,13 +3099,11 @@ def peta_next(
                 if ply >= max_book_ply:
                     continue
 
-                sfen_f = flipped_sfen(sfen)
-
-                # 訪問済みならskip
-                if sfen in visited or sfen_f in visited:
+                # 同じ評価基準で同じ局面に再訪したら千日手として扱う。
+                visit_key = (sfen, root_best_eval)
+                if visit_key in visited and visited[visit_key] <= ply:
                     continue
-
-                visited.add(sfen)
+                visited[visit_key] = ply
 
                 # 定跡DB上のsfenは、flipしたものがhitしているのか？
                 flipped_bookhit : bool
@@ -3066,7 +3113,7 @@ def peta_next(
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
-                        add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                        add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -3081,7 +3128,7 @@ def peta_next(
 
                 # この局面の手番が turn と一致するなら(手番側)、bestmoveだけを辿る。
                 # さもなくば(非手番側)、root_best_eval - peta_eval_diff2 の指し手までなら辿る。
-                eval_low = besteval if ply % 2 == turn else root_best_eval - peta_eval_diff0
+                eval_low = besteval if peta_is_own_turn(sfen, turn) else root_best_eval - peta_eval_diff0
 
                 for move_index, moveinfo in enumerate(moveinfos):
                     # 評価値を持っている枝でなければskip
@@ -3123,7 +3170,8 @@ def peta_next(
                                         eval_refutation_margin,
                                     )
                                 ):
-                                    add_position_command_entry(think_sfens, next_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                                    add_unique_peta_leaf(think_sfens, leaf_sfens, next_position_cmd, next_sfen_trimmed,
+                                                         book_extend_ply, eval_limit, max_book_ply)
                                 continue
 
                         # 次の局面では、root_best_evalは反転する。(手番側から見たevalで管理しているため)
@@ -3146,17 +3194,7 @@ def peta_next(
     bw_path = os.path.join(BOOK_DIR, f"think_sfens.txt")
     b_path  = os.path.join(BOOK_DIR, f"think_sfens-black.txt")
     w_path  = os.path.join(BOOK_DIR, f"think_sfens-white.txt")
-    bw_count = 0
-    with open(bw_path, 'w') as fbw,\
-        open(b_path, 'r') as fb, \
-        open(w_path, 'r') as fw:
-        for line_a, line_b in zip_longest(fb, fw, fillvalue=''):
-            if line_a:
-                fbw.write(line_a)
-                bw_count += 1
-            if line_b:
-                fbw.write(line_b)
-                bw_count += 1
+    bw_count = merge_position_command_files(b_path, w_path, bw_path)
 
     print(f"{next_name} done.")
     done_tag = "PetaRefutationDone" if refutation_book is not None else "PetaNextDone"
@@ -3296,10 +3334,11 @@ def peta_rejoin(
 
     for turn in [1, 0]:
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
+        leaf_sfens : set[Sfen] = set()
         turn_str = ['white','black'][turn]
         print(f"--- peta_rejoin {turn_str} ---")
 
-        visited : set[Sfen] = set()
+        visited : dict[tuple[Sfen, int, int|None], int] = {}
         current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None]] = {}
 
         for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
@@ -3311,16 +3350,16 @@ def peta_rejoin(
             position_info, _ = find_book_position_with_flip(peta_book, sfen)
             if position_info is None or not position_info.moveinfos:
                 total_leaf_nodes += 1
-                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop):
-                    add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop) and add_unique_peta_leaf(
+                        think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
                     total_rejoin_nodes += 1
                 continue
 
             root_best, _ = get_best(position_info)
             if root_best is None:
                 total_leaf_nodes += 1
-                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop):
-                    add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop) and add_unique_peta_leaf(
+                        think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
                     total_rejoin_nodes += 1
                 continue
 
@@ -3342,16 +3381,17 @@ def peta_rejoin(
                 if ply >= max_book_ply:
                     continue
 
-                if sfen in visited or flipped_sfen(sfen) in visited:
-                    continue
-
-                visited.add(sfen)
-
                 position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
+                is_leaf = position_info is None or not position_info.moveinfos
+                needs_leaf_eval = is_leaf and eval_drop is not None and eval_drop > PETA_REJOIN_EVAL_DROP_DISABLED
+                visit_key = (sfen, root_best_eval, leaf_eval if needs_leaf_eval else None)
+                if visit_key in visited and visited[visit_key] <= ply:
+                    continue
+                visited[visit_key] = ply
                 if position_info is None or not position_info.moveinfos:
                     total_leaf_nodes += 1
-                    if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop):
-                        add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                    if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop) and add_unique_peta_leaf(
+                            think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
                         total_rejoin_nodes += 1
                     continue
 
@@ -3360,7 +3400,7 @@ def peta_rejoin(
                 if not isinstance(besteval, int):
                     continue
 
-                eval_low = besteval if ply % 2 == turn else root_best_eval - peta_eval_diff0
+                eval_low = besteval if peta_is_own_turn(sfen, turn) else root_best_eval - peta_eval_diff0
 
                 for moveinfo in moveinfos:
                     if not isinstance(moveinfo.eval, int):
@@ -3393,17 +3433,7 @@ def peta_rejoin(
     bw_path = os.path.join(BOOK_DIR, f"think_sfens.txt")
     b_path  = os.path.join(BOOK_DIR, f"think_sfens-black.txt")
     w_path  = os.path.join(BOOK_DIR, f"think_sfens-white.txt")
-    bw_count = 0
-    with open(bw_path, 'w') as fbw,\
-        open(b_path, 'r') as fb, \
-        open(w_path, 'r') as fw:
-        for line_a, line_b in zip_longest(fb, fw, fillvalue=''):
-            if line_a:
-                fbw.write(line_a)
-                bw_count += 1
-            if line_b:
-                fbw.write(line_b)
-                bw_count += 1
+    bw_count = merge_position_command_files(b_path, w_path, bw_path)
 
     print("peta_rejoin done.")
     print(
