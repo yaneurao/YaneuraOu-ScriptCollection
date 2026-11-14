@@ -287,7 +287,7 @@ class BookMinerSettings:
 
     # peta_shock 用エンジンのパスは BookMiner.py のあるフォルダからの相対パス、または絶対パス。
     peta_shock_engine_path : str = PETA_SHOCK_ENGINE_NAME
-    peta_shock_threads : int = 1
+    peta_shock_threads : int = 4
 
 # ============================================================
 
@@ -4140,7 +4140,10 @@ def user_input(from_gui:bool = False):
             print("[BackupStart]")
             save_book_backup(book, BOOK_BACKUP_DIR)
             print("[BackupDone]")
-            reset_auto_backup_timer()
+            with backup_condition:
+                if next_backup_timestamp == next_backup_snapshot:
+                    next_backup_timestamp = time.time() + book_miner_settings.auto_save_interval_seconds
+                backup_condition.notify_all()
 
     # backup用のタスクを開始。
     next_backup_time = scheduled_time_text(next_backup_timestamp)
@@ -4214,6 +4217,13 @@ def user_input(from_gui:bool = False):
                     reset_auto_backup_timer()
                 path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
                 print(f"[ManualBackupDone] path={path}")
+
+            elif i == 'reload-settings':
+                updated = load_book_miner_settings()
+                book_miner_settings.__dict__.update(updated.__dict__)
+                command_defaults.game_ply_limit = updated.max_book_ply
+                reset_auto_backup_timer()
+                print('[SettingsApplied]')
 
             elif i == 'sd' or i == 'set-default':
                 if len(inp) != 6:

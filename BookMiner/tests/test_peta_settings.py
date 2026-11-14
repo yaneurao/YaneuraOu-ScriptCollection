@@ -20,7 +20,7 @@ class PetaSettingsTests(unittest.TestCase):
             path.write_text('{}', encoding='utf8')
             settings = bookminer.load_book_miner_settings(str(path))
             self.assertEqual(settings.peta_shock_engine_path, 'YO-MATERIAL.exe')
-            self.assertEqual(settings.peta_shock_threads, 1)
+            self.assertEqual(settings.peta_shock_threads, 4)
             path.write_text('{peta_shock_engine_path: "engines/custom.exe", peta_shock_threads: 4}', encoding='utf8')
             settings = bookminer.load_book_miner_settings(str(path))
             self.assertEqual((settings.peta_shock_engine_path, settings.peta_shock_threads), ('engines/custom.exe', 4))

@@ -12,7 +12,7 @@ int main(int argc, char** argv)
         out << "{}";
     }
     const auto defaults = bookminer::load_book_miner_settings({path});
-    if (defaults.peta_shock_engine_path != "YO-MATERIAL.exe" || defaults.peta_shock_threads != 1)
+    if (defaults.peta_shock_engine_path != "YO-MATERIAL.exe" || defaults.peta_shock_threads != 4)
         throw std::runtime_error("peta shock defaults changed");
     {
         std::ofstream out(path);

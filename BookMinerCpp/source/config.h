@@ -21,7 +21,7 @@ struct BookMinerSettings {
     int max_book_ply = 200;
     std::string peta_next_start_sfens_path = "book/peta_start_sfens.txt";
     std::string peta_shock_engine_path = "YO-MATERIAL.exe";
-    std::uint32_t peta_shock_threads = 1;
+    std::uint32_t peta_shock_threads = 4;
 };
 
 std::vector<EngineConfig> load_engine_settings(const std::filesystem::path& path);

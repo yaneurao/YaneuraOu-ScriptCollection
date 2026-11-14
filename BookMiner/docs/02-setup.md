@@ -192,7 +192,7 @@ settings/book_miner_settings.json5
 
     // peta shock 用エンジンと並列数。
     peta_shock_engine_path: "YO-MATERIAL.exe",
-    peta_shock_threads: 1,
+    peta_shock_threads: 4,
 }
 ```
 
@@ -203,7 +203,10 @@ settings/book_miner_settings.json5
 - `max_book_ply` : この手数に到達したら、それ以上局面を掘りません。
 - `peta_next_start_sfens_path` : `pn` / `pr` コマンドで使う開始局面集合ファイルです。
 - `peta_shock_engine_path` : peta shock 用実行ファイルのパスです。相対パスは BookMiner フォルダ基準で、絶対パスも指定できます。省略時は `YO-MATERIAL.exe` です。
-- `peta_shock_threads` : peta shock の並列数です。正の整数を指定し、省略時は `1` です。探索用エンジンの `Threads` とは別の設定です。
+- `peta_shock_threads` : peta shock の並列数です。正の整数を指定し、省略時は `4` です。探索用エンジンの `Threads` とは別の設定です。
+- `auto_peta_shock_every_n_saves` : GUI起動中、成功した定期自動保存が指定回数に達するたびに、保存済みDBをpeta shock化して読み込みます。省略時は `3`、`0` で無効です。手動保存は数えません。回数はGUI起動時と設定適用時にリセットされます。
+
+GUIの「設定」タブでは、自動保存の間隔、peta shockの頻度・並列数、peta nextの開始局面ファイル、最大手数を変更できます。「適用」を押すとこの設定ファイルに保存され、対応版のBookMinerには実行中にも反映されます。実行中・enqueue済みの探索は元の条件で続行します。GUI起動中のキュー補充時にはpeta shock化を待たずに手順2を実行しますが、peta shockの実行中は完了を待ちます。「通常DBも」を選択したpeta nextは、peta bookにない局面を通常DBからたどります。
 
 例えば Windows の別フォルダにあるエンジンで 8 スレッドを使う場合は、次のように指定します。パス区切りには `/` を使えます。
 

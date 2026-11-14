@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+import json
 import os
 import pickle
 import queue
@@ -11,9 +13,10 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import json5
 
@@ -22,12 +25,103 @@ BASE_DIR = Path(__file__).resolve().parent
 BOOK_MINER_SCRIPT = BASE_DIR / "BookMiner.py"
 BOOK_MINER_CPP_EXE = BASE_DIR / "BookMinerCpp.exe"
 BOOK_MINER_SETTINGS_PATH = BASE_DIR / "settings" / "book_miner_settings.json5"
+BOOK_MINER_CPP_SETTINGS_PATH = BASE_DIR / "settings" / "book_miner_cpp_settings.json5"
 KIF_MANAGER_SCRIPT = BASE_DIR.parent / "KifManager" / "kif-manager.py"
 GUI_SETTINGS_PATH = BASE_DIR / "BookMiner-gui.pickle"
 THINK_SFENS_COMMAND_PATH = "book/think_sfens.txt"
 AUTO_THINK_SFENS_COMMAND_PATH = "book/think_sfens-tmp.txt"
 THINK_SFENS_PATH = BASE_DIR / THINK_SFENS_COMMAND_PATH
 AUTO_THINK_SFENS_PATH = BASE_DIR / AUTO_THINK_SFENS_COMMAND_PATH
+MINING_SETTING_DEFAULTS = {
+    "auto_save_interval_seconds": 10800,
+    "auto_peta_shock_every_n_saves": 3,
+    "peta_next_start_sfens_path": "book/peta_start_sfens.txt",
+    "max_book_ply": 200,
+    "peta_shock_threads": 4,
+}
+
+
+def load_mining_settings(path: Path) -> dict:
+    if not path.exists():
+        return dict(MINING_SETTING_DEFAULTS)
+    with path.open(encoding="utf-8-sig") as file:
+        raw = json5.load(file, allow_duplicate_keys=False)
+    if not isinstance(raw, dict):
+        raise ValueError("設定ファイルのルートはオブジェクトである必要があります。")
+    result = {key: raw.get(key, value) for key, value in MINING_SETTING_DEFAULTS.items()}
+    for key in ("auto_save_interval_seconds", "auto_peta_shock_every_n_saves", "max_book_ply", "peta_shock_threads"):
+        value = result[key]
+        minimum = 0 if key == "auto_peta_shock_every_n_saves" else 1
+        maximum = 4294967295 if key == "peta_shock_threads" else 2147483647
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"{key} の値が不正です: {value}")
+    if not isinstance(result["peta_next_start_sfens_path"], str) or not result["peta_next_start_sfens_path"].strip():
+        raise ValueError("peta_next_start_sfens_path は空にできません。")
+    return result
+
+
+_JSON5_TOKEN = re.compile(r'''\s+|//[^\r\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}\[\]:,]|[^\s{}\[\]:,]+''')
+
+
+def save_mining_settings(path: Path, updates: dict, source: Path | None = None) -> None:
+    """Update top-level scalar fields while preserving comments and unrelated settings."""
+    source = path if path.exists() else source
+    original = source.read_text(encoding="utf-8-sig") if source and source.exists() else "{}\n"
+    parsed = json5.loads(original, allow_duplicate_keys=False)
+    if not isinstance(parsed, dict):
+        raise ValueError("設定ファイルのルートはオブジェクトである必要があります。")
+    tokens = [m for m in _JSON5_TOKEN.finditer(original)
+              if not m.group().isspace() and not m.group().startswith(("//", "/*"))]
+    if not tokens or tokens[0].group() != "{":
+        raise ValueError("設定ファイルの形式を認識できません。")
+    depth = 0
+    replacements = []
+    found = set()
+    closing = None
+    for index, token in enumerate(tokens):
+        text = token.group()
+        if depth == 1 and index + 2 < len(tokens) and tokens[index + 1].group() == ":":
+            try:
+                key = next(iter(json5.loads("{" + text + ":null}")))
+            except Exception:
+                key = None
+            if key in updates:
+                value_token = tokens[index + 2]
+                if value_token.group() in ("{", "[", "}", "]", ","):
+                    raise ValueError(f"{key} は単一の値で指定してください。")
+                replacements.append((value_token.start(), value_token.end(), json.dumps(updates[key], ensure_ascii=False)))
+                found.add(key)
+        if text in ("{", "["):
+            depth += 1
+        elif text in ("}", "]"):
+            depth -= 1
+            if depth == 0:
+                closing = index
+                break
+    if closing is None:
+        raise ValueError("設定ファイルの形式を認識できません。")
+    missing = [key for key in updates if key not in found]
+    if missing:
+        previous = tokens[closing - 1].group()
+        prefix = "" if previous in ("{", ",") else ","
+        addition = prefix + "\n" + "".join(f"    {key}: {json.dumps(updates[key], ensure_ascii=False)},\n" for key in missing)
+        replacements.append((tokens[closing].start(), tokens[closing].start(), addition))
+    edited = original
+    for start, end, value in sorted(replacements, reverse=True):
+        edited = edited[:start] + value + edited[end:]
+    verified = json5.loads(edited, allow_duplicate_keys=False)
+    if any(verified.get(key) != value for key, value in updates.items()):
+        raise ValueError("設定ファイルの更新を確認できません。")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False, newline="") as file:
+            temporary = file.name
+            file.write(edited)
+        os.replace(temporary, path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 GUI_SETTING_DEFAULTS = {
     "default_eval_diff": "30",
     "default_max_step": "99999",
@@ -122,7 +216,6 @@ LOG_TRIM_THRESHOLD = 1200
 MINING_STATS_SAMPLE_INTERVAL_MS = 60 * 1000
 MINING_STATS_WINDOW_SECONDS = 10 * 60
 AUTO_ENQUEUE_IDLE = "idle"
-AUTO_ENQUEUE_PETA = "peta_shock"
 AUTO_ENQUEUE_NEXT = "peta_next"
 AUTO_ENQUEUE_ENQUEUE = "enqueue"
 AUTO_STEP2_PETA_NEXT = "peta_next"
@@ -364,6 +457,25 @@ class BookMinerGui(ttk.Frame):
                  cpp_executable: Path | None = None) -> None:
         super().__init__(master, padding=12)
         gui_settings = load_gui_settings()
+        try:
+            initial_settings_path = (BOOK_MINER_CPP_SETTINGS_PATH if use_cpp and not BOOK_MINER_SETTINGS_PATH.exists()
+                                     and BOOK_MINER_CPP_SETTINGS_PATH.exists() else BOOK_MINER_SETTINGS_PATH)
+            mining_settings = load_mining_settings(initial_settings_path)
+        except Exception as exc:
+            messagebox.showerror("設定エラー", f"BookMiner設定を読み込めません: {exc}")
+            mining_settings = dict(MINING_SETTING_DEFAULTS)
+        self.mining_settings = mining_settings
+        self.setting_minutes = tk.StringVar(value=str(Decimal(str(mining_settings["auto_save_interval_seconds"])) / 60))
+        self.setting_shock_every = tk.StringVar(value=str(mining_settings["auto_peta_shock_every_n_saves"]))
+        self.setting_start_path = tk.StringVar(value=str(mining_settings["peta_next_start_sfens_path"]))
+        self.setting_max_ply = tk.StringVar(value=str(mining_settings["max_book_ply"]))
+        self.setting_threads = tk.StringVar(value=str(mining_settings["peta_shock_threads"]))
+        self.setting_status = tk.StringVar(value="")
+        self.auto_backup_count = 0
+        self.auto_peta_pending = False
+        self.backup_in_progress = False
+        self.ignore_current_backup = False
+        self.settings_apply_pending = False
         self.master = master
         self.enable_shogidb = enable_shogidb
         self.use_cpp = use_cpp
@@ -526,9 +638,7 @@ class BookMinerGui(ttk.Frame):
             )
         )
         self.eval_limit = tk.StringVar(value=gui_settings.get("eval_limit", GUI_SETTING_DEFAULTS["eval_limit"]))
-        self.game_ply_limit = tk.StringVar(
-            value=gui_settings.get("game_ply_limit", GUI_SETTING_DEFAULTS["game_ply_limit"])
-        )
+        self.game_ply_limit = tk.StringVar(value=str(mining_settings["max_book_ply"]))
         self.enqueue_book_extend_ply = tk.StringVar(
             value=gui_settings.get("enqueue_book_extend_ply", GUI_SETTING_DEFAULTS["enqueue_book_extend_ply"])
         )
@@ -617,12 +727,94 @@ class BookMinerGui(ttk.Frame):
         self._poll_mining_stats()
         self.after(100, self.start_process)
 
+    def _build_mining_settings(self, parent: ttk.Frame) -> None:
+        rows = [
+            ("DB自動保存の間隔", self.setting_minutes, "分ごと"),
+            ("DB自動保存", self.setting_shock_every, "回ごとに peta shock化する（0で無効）"),
+            ("peta nextの開始局面ファイル", self.setting_start_path, ""),
+            ("定跡を掘るときの最大手数", self.setting_max_ply, "手目まで"),
+            ("peta shock の並列数", self.setting_threads, "スレッド"),
+        ]
+        parent.columnconfigure(1, weight=1)
+        for row, (label, variable, suffix) in enumerate(rows):
+            ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=7)
+            entry = ttk.Entry(parent, textvariable=variable, width=60 if row == 2 else 12)
+            entry.grid(row=row, column=1, sticky="ew" if row == 2 else "w", pady=7)
+            if row == 2:
+                ttk.Button(parent, text="選択", command=self._choose_start_sfens).grid(row=row, column=2, padx=(8, 0))
+            else:
+                ttk.Label(parent, text=suffix).grid(row=row, column=2, sticky="w", padx=(8, 0))
+        ttk.Button(parent, text="適用", command=self.apply_mining_settings).grid(row=6, column=0, sticky="w", pady=(18, 0))
+        ttk.Label(parent, textvariable=self.setting_status).grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+    def _choose_start_sfens(self) -> None:
+        selected = filedialog.askopenfilename(parent=self.master, initialdir=BASE_DIR / "book",
+                                              filetypes=[("テキスト", "*.txt"), ("すべて", "*.*")])
+        if selected:
+            path = Path(selected)
+            try:
+                path = path.relative_to(BASE_DIR)
+            except ValueError:
+                pass
+            self.setting_start_path.set(str(path))
+
+    def apply_mining_settings(self) -> None:
+        try:
+            seconds_decimal = Decimal(self.setting_minutes.get().strip()) * 60
+            if (not seconds_decimal.is_finite()
+                    or abs(seconds_decimal - seconds_decimal.to_integral_value()) > Decimal('0.000000001')):
+                raise ValueError("自動保存の間隔は秒単位に換算できる正の数を指定してください。")
+            seconds = int(seconds_decimal.to_integral_value())
+            every = int(self.setting_shock_every.get().strip())
+            max_ply = int(self.setting_max_ply.get().strip())
+            threads = int(self.setting_threads.get().strip())
+            path = self.setting_start_path.get().strip()
+            if not 1 <= seconds <= 2147483647 or not 0 <= every <= 2147483647:
+                raise ValueError("保存間隔は正の数、保存回数は0以上で指定してください。")
+            if not 1 <= max_ply <= 2147483647 or not 1 <= threads <= 4294967295 or not path:
+                raise ValueError("最大手数・並列数には正の整数、開始局面ファイルにはパスを指定してください。")
+            updates = {"auto_save_interval_seconds": seconds, "auto_peta_shock_every_n_saves": every,
+                       "peta_next_start_sfens_path": path, "max_book_ply": max_ply, "peta_shock_threads": threads}
+            fallback = BOOK_MINER_CPP_SETTINGS_PATH if self.use_cpp else None
+            save_mining_settings(BOOK_MINER_SETTINGS_PATH, updates, fallback)
+        except (OSError, ValueError, InvalidOperation, OverflowError) as exc:
+            messagebox.showerror("設定エラー", f"設定を適用できません: {exc}")
+            return
+        self.mining_settings = updates
+        self.game_ply_limit.set(str(max_ply))
+        self.auto_backup_count = 0
+        self.auto_peta_pending = False
+        self.ignore_current_backup = self.backup_in_progress
+        if self.is_running():
+            self.settings_apply_pending = True
+            if self.send_command("reload-settings"):
+                self.setting_status.set("保存しました。実行中のBookMinerへの反映を待っています。")
+                self.after(15000, self._settings_apply_timeout)
+            else:
+                self.settings_apply_pending = False
+                self.setting_status.set("保存しましたが、実行中のBookMinerには反映できませんでした。")
+        else:
+            self.setting_status.set("保存しました。次回起動時に反映されます。")
+
+    def _settings_apply_timeout(self) -> None:
+        if self.settings_apply_pending:
+            self.setting_status.set("保存済みです。反映の応答待ちです（長時間の処理中なら完了後に反映）。")
+
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(0, weight=1)
         ttk.Style(self).configure(PETA_BUTTON_STYLE, anchor="w")
+        notebook = ttk.Notebook(self)
+        notebook.grid(row=0, column=0, sticky="nsew")
+        mining = ttk.Frame(notebook, padding=4)
+        settings = ttk.Frame(notebook, padding=16)
+        notebook.add(mining, text="mining")
+        notebook.add(settings, text="設定")
+        mining.columnconfigure(0, weight=1)
+        mining.rowconfigure(2, weight=1)
+        self._build_mining_settings(settings)
 
-        commands = ttk.Frame(self)
+        commands = ttk.Frame(mining)
         commands.grid(row=0, column=0, sticky="ew")
         commands.columnconfigure(15, weight=1)
 
@@ -856,7 +1048,7 @@ class BookMinerGui(ttk.Frame):
             command=self.on_auto_enqueue_toggled,
         )
         self.auto_check.grid(row=9, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、peta_shock後に手順2で自動チェックされた抽出を順に実行し、結果をまとめてenqueueします。")
+        Tooltip(self.auto_check, "queueの残りが指定値より少なくなったら、手順2で自動チェックされた抽出を実行し、結果をまとめてenqueueします。")
         ttk.Label(commands, text="queueの残りが").grid(row=9, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.auto_enqueue_threshold, width=8).grid(row=9, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="より少なくなったら、自動チェックされた手順2をまとめてenqueue").grid(
@@ -899,7 +1091,7 @@ class BookMinerGui(ttk.Frame):
             self.write_button,
         ]
 
-        progress = ttk.Frame(self)
+        progress = ttk.Frame(mining)
         progress.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(progress, textvariable=self.mining_status).grid(
             row=0,
@@ -907,7 +1099,7 @@ class BookMinerGui(ttk.Frame):
             sticky="w",
         )
 
-        log_area = ttk.Frame(self)
+        log_area = ttk.Frame(mining)
         log_area.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
         log_area.columnconfigure(0, weight=1)
         log_area.rowconfigure(1, weight=1)
@@ -945,6 +1137,10 @@ class BookMinerGui(ttk.Frame):
         self.task_job_items.clear()
         self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
+        self.auto_backup_count = 0
+        self.auto_peta_pending = False
+        self.backup_in_progress = False
+        self.ignore_current_backup = False
         self.busy_action = None
         self.manual_backup_pending = False
         self.command_ready = False
@@ -1244,7 +1440,22 @@ class BookMinerGui(ttk.Frame):
                 self._on_process_ended()
             else:
                 self._handle_output(item)
+        self._maybe_start_auto_peta()
         self.after(100, self._poll_output)
+
+    def _maybe_start_auto_peta(self) -> None:
+        if (not self.auto_peta_pending or not self.is_running() or not self.command_ready
+                or self.busy_action is not None or self.enqueue_pending or self.peta_makebook_active
+                or self.auto_enqueue_state != AUTO_ENQUEUE_IDLE):
+            return
+        self.auto_peta_pending = False
+        self.busy_action = "auto_peta_shock"
+        self._update_buttons()
+        self._append_log("task", "[GUI] 自動保存済みDBの peta shock を開始します。\n")
+        if not self.send_command("pl", origin="AUTO"):
+            self.busy_action = None
+            self._append_log("task", "[GUI] 自動 peta shock の開始に失敗しました。\n")
+            self._update_buttons()
 
     def _on_process_ended(self) -> None:
         self._flush_output_buffer()
@@ -1717,6 +1928,28 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
         lower = line.lower()
+        if "[SettingsApplied]" in line:
+            self.settings_apply_pending = False
+            self.setting_status.set("保存して実行中のBookMinerに反映しました。")
+        elif self.settings_apply_pending and ("unknown command: reload-settings" in lower
+                                               or "command=reload-settings" in lower):
+            self.settings_apply_pending = False
+            self.setting_status.set("保存しましたが反映に失敗しました。BookMinerを更新してください。")
+        if "[BackupStart]" in line:
+            self.backup_in_progress = True
+        if "[BackupDone]" in line:
+            self.backup_in_progress = False
+            every = self.mining_settings["auto_peta_shock_every_n_saves"]
+            if not self.ignore_current_backup and isinstance(every, int) and every > 0:
+                self.auto_backup_count += 1
+                if self.auto_backup_count >= every:
+                    self.auto_backup_count = 0
+                    self.auto_peta_pending = True
+                    self._append_log("task", "[GUI] 自動保存が指定回数に達しました。peta shock を予約します。\n")
+            self.ignore_current_backup = False
+        elif "auto save failed" in lower:
+            self.backup_in_progress = False
+            self.ignore_current_backup = False
         if self.busy_action == "manual_enqueue" and (
             "put position commands error" in lower
             or "error : task workers are not running" in lower
@@ -1729,11 +1962,15 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
             return
 
-        if "Exception :" in line and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+        if "Exception :" in line and "auto save failed" not in lower and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
             return
-        if "Exception :" in line and self.busy_action is not None:
-            self._append_log("other", "[GUI] BookMiner command failed. manual busy state was cleared.\n")
+        if ("Exception :" in line and self.busy_action == "auto_peta_shock"
+                and "command=pl" not in lower and "peta" not in lower):
+            # A search worker can fail while the independent peta job is still running.
+            return
+        if "Exception :" in line and "auto save failed" not in lower and self.busy_action is not None:
+            self._append_log("other", "[GUI] BookMiner command failed. busy state was cleared.\n")
             if self.busy_action == "manual_backup":
                 self.manual_backup_pending = False
             self.busy_action = None
@@ -1753,17 +1990,15 @@ class BookMinerGui(ttk.Frame):
                 return
 
         if PETA_COMMAND_DONE_RE.search(line):
+            if self.busy_action == "auto_peta_shock":
+                self.busy_action = None
+                self._append_log("task", "[GUI] 自動 peta shock が完了しました。\n")
+                self._update_buttons()
+                self._maybe_start_auto_enqueue()
+                return
             if self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest"}:
                 self.busy_action = None
                 self._update_buttons()
-                return
-
-            if self.auto_enqueue_state == AUTO_ENQUEUE_PETA:
-                if not self.auto_enqueue_enabled.get():
-                    self._abort_auto_enqueue("auto enqueue stopped: disabled after peta_shock.")
-                    return
-                self.auto_enqueue_state = AUTO_ENQUEUE_NEXT
-                self._start_next_auto_step2()
                 return
 
         if PETA_READ_DONE_RE.search(line):
@@ -1854,6 +2089,8 @@ class BookMinerGui(ttk.Frame):
             return
         if self.busy_action is not None:
             return
+        if self.auto_peta_pending:
+            return
         if self.task_queue_remaining is None:
             return
 
@@ -1877,7 +2114,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_step2_queue = selected_methods
         self.auto_current_step2 = None
         self.auto_tmp_seen = {}
-        self.auto_enqueue_state = AUTO_ENQUEUE_PETA
+        self.auto_enqueue_state = AUTO_ENQUEUE_NEXT
         self.busy_action = "auto_enqueue"
         self._update_buttons()
         self._append_log(
@@ -1885,8 +2122,7 @@ class BookMinerGui(ttk.Frame):
             f"[GUI] auto enqueue started. remaining={self.task_queue_remaining}, "
             f"threshold={threshold}, step2={','.join(selected_methods)}\n",
         )
-        if not self.send_command("p", origin="AUTO"):
-            self._abort_auto_enqueue("auto enqueue stopped: failed to send peta_shock.")
+        self._start_next_auto_step2()
 
     def _abort_auto_enqueue(self, message: str) -> None:
         self._append_log("task", f"[GUI] {message}\n")
@@ -2028,7 +2264,7 @@ class BookMinerGui(ttk.Frame):
         if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             messagebox.showinfo("実行中", "自動enqueueの処理中です。完了してから操作してください。")
             return False
-        if action == "manual_enqueue" and self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read"}:
+        if action == "manual_enqueue" and self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read", "auto_peta_shock"}:
             if self.enqueue_pending:
                 messagebox.showinfo("実行中", "enqueueコマンドは送信済みです。処理開始まで待ってください。")
                 return False
@@ -2852,6 +3088,7 @@ class BookMinerGui(ttk.Frame):
                 "manual_peta_shock",
                 "manual_peta_shock_latest",
                 "manual_peta_read",
+                "auto_peta_shock",
                 "manual_peta_next",
                 "manual_peta_refutation",
                 "manual_peta_rejoin",
@@ -2861,7 +3098,7 @@ class BookMinerGui(ttk.Frame):
             }
         )
         any_busy = command_busy
-        enqueue_allowed_during_peta = self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read"}
+        enqueue_allowed_during_peta = self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest", "manual_peta_read", "auto_peta_shock"}
 
         def configure_state(name: str, state: str) -> None:
             widget = getattr(self, name, None)

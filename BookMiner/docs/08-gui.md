@@ -114,7 +114,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 branch指定時は、入力局面を掘ることが確定してから上位手を展開します。最善手側は同じworkerがそのまま進め、2番手以降は残り手数を1つ減らしたtaskとしてqueue末尾へ積みます。branch指定時の展開深さは `手先まで` の値で決まり、`book_extend_ply` を追加で足して延長するわけではありません。
 
 `自動enqueue` を有効にすると、`enqueue進捗` の残りタスク数を GUI が監視します。
-残りタスク数が指定値より少なくなったら、GUI が自動的に `peta_shock` を実行し、そのあと手順2で `自動` にチェックされている抽出を上から順に実行します。
+残りタスク数が指定値より少なくなったら、手順2で `自動` にチェックされている抽出を上から順に実行します。peta shock化は補充のたびには行わず、「設定」タブで指定した自動保存の回数ごとに行います。
 各抽出が `book/think_sfens.txt` に書き出した内容は、GUI が `book/think_sfens-tmp.txt` に追記します。重複行はこの追記時に除外します。行末メタ情報が付いている同一局面が複数ある場合は、より大きい値を持つ行を残します。
 チェックされた手順2をすべて実行したら、GUI は `book/think_sfens-tmp.txt` を `book/think_sfens.txt` に置き換えてから `enqueue` します。
 自動実行中に同じ処理が二重に走らないよう、次の段階へ進むのは BookMiner.py の完了タグを受け取ってからです。
@@ -134,14 +134,16 @@ branch指定時は、入力局面を掘ることが確定してから上位手�
 - `peta unsolved`: `book/think_unsolved_sfens.txt` の棋譜の各途中局面からPV leafを `book/think_sfens.txt` に書き出します。
 - `peta opponent`: `book/book_opponent/` の相手定跡と現行 peta_book の best 進行から、対策候補leafを `book/think_sfens.txt` に書き出します。
 - `enqueue`: `book/think_sfens.txt` の行メタ情報に従って、棋譜上の局面を探索キューへ積みます。右側のbranch指定を使うと、掘った局面からMultiPV上位手を指定手数先まで展開します。
-- `自動enqueue`: queue残数が指定値より少なくなったときに `peta_shock`、手順2で `自動` チェックされた抽出、`enqueue` を自動実行します。
+- `自動enqueue`: queue残数が指定値より少なくなったときに、手順2で `自動` チェックされた抽出と `enqueue` を自動実行します。
 - `DB手動保存`: 現在の定跡 DB を `book/backup/` に書き出します。
 
 ボタンにマウスを乗せると、簡単な説明が表示されます。
 
 ## GUI設定の保存
 
-GUI の数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
+「設定」タブの項目は「適用」で `settings/book_miner_settings.json5` に保存し、実行中の対応版BookMinerへも反映します。自動保存の間隔、保存何回ごとのpeta shock化、peta nextの開始局面ファイル、最大手数、peta shockの並列数を設定できます。
+
+mining タブの数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
 保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。

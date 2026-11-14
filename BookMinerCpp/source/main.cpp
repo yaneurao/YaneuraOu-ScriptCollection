@@ -1850,6 +1850,12 @@ private:
     std::unordered_map<std::string, PetaNextNode> values_;
 };
 
+std::string path_to_utf8(const fs::path& path)
+{
+    const auto text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
 std::vector<std::pair<std::string, std::string>> load_peta_next_root_positions(const std::filesystem::path& start_sfens_path)
 {
     std::vector<std::pair<std::string, std::string>> roots;
@@ -1857,10 +1863,10 @@ std::vector<std::pair<std::string, std::string>> load_peta_next_root_positions(c
 
     if (has_start_sfens_file)
     {
-        log_line("read start sfens , path = " + start_sfens_path.string());
+        log_line("read start sfens , path = " + path_to_utf8(start_sfens_path));
         std::ifstream in(start_sfens_path);
         if (!in)
-            throw std::runtime_error("failed to open peta_next start sfens file: " + start_sfens_path.string());
+            throw std::runtime_error("failed to open peta_next start sfens file: " + path_to_utf8(start_sfens_path));
 
         std::string line;
         while (std::getline(in, line))
@@ -2214,7 +2220,7 @@ void peta_next(
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
-        + ", start_sfens_path = " + start_sfens_path.string()
+        + ", start_sfens_path = " + path_to_utf8(start_sfens_path)
         + ", normal_book_fallback = " + std::string(fallback_book ? "on" : "off")
         + ", peta_book_positions = " + std::to_string(peta_book.size())
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
@@ -2428,7 +2434,7 @@ void peta_rejoin(
         + ", eval_drop = " + (eval_drop.has_value() ? std::to_string(*eval_drop) : std::string("None"))
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
-        + ", start_sfens_path = " + start_sfens_path.string());
+        + ", start_sfens_path = " + path_to_utf8(start_sfens_path));
 
     PetaRejoinStats stats;
     const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats);
@@ -3296,10 +3302,14 @@ std::string to_book_dir_relative_path(const fs::path& path)
     return rel_string;
 }
 
+fs::path path_from_utf8(const std::string& text)
+{
+    return fs::path(std::u8string(text.begin(), text.end()));
+}
+
 fs::path find_peta_shock_engine(const fs::path& app_dir, const bookminer::BookMinerSettings& settings)
 {
-    const auto& path_utf8 = settings.peta_shock_engine_path;
-    const fs::path configured(std::u8string(path_utf8.begin(), path_utf8.end()));
+    const fs::path configured = path_from_utf8(settings.peta_shock_engine_path);
     const fs::path engine_path = configured.is_absolute() ? configured : app_dir / configured;
     if (fs::is_regular_file(engine_path))
         return engine_path;
@@ -3690,6 +3700,17 @@ public:
         cv_.notify_all();
     }
 
+    void set_interval(int seconds)
+    {
+        {
+            std::scoped_lock lock(mutex_);
+            interval_seconds_ = std::max(1, seconds);
+            if (started_ && !stopping_)
+                next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+        }
+        cv_.notify_all();
+    }
+
 private:
     void run()
     {
@@ -3700,10 +3721,9 @@ private:
                 std::scoped_lock lock(mutex_);
                 next = next_backup_time_;
             }
+            std::unique_lock lock(mutex_);
             log_line("[BackupNext] next=" + scheduled_time_text(next)
                 + " interval=" + std::to_string(interval_seconds_));
-
-            std::unique_lock lock(mutex_);
             if (cv_.wait_until(lock, next, [&] { return stopping_ || next_backup_time_ != next; }))
             {
                 if (stopping_)
@@ -3727,7 +3747,8 @@ private:
                 std::scoped_lock next_lock(mutex_);
                 if (stopping_)
                     return;
-                next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
+                if (next_backup_time_ == next)
+                    next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
             }
         }
     }
@@ -3979,7 +4000,7 @@ int main(int argc, char* argv[])
 
     try
     {
-        const auto book_miner_settings = bookminer::load_book_miner_settings({
+        auto book_miner_settings = bookminer::load_book_miner_settings({
             BookMinerSettingsPath,
             BookMinerCppSettingsPath,
         });
@@ -4096,6 +4117,15 @@ int main(int argc, char* argv[])
                 log_line("write path = " + path.string());
                 log_line("..w command write has done. path = " + path.string());
                 log_line("[ManualBackupDone] path=" + path.string());
+            }
+            else if (command == "reload-settings")
+            {
+                const auto updated = bookminer::load_book_miner_settings({BookMinerSettingsPath, BookMinerCppSettingsPath});
+                book_miner_settings = updated;
+                max_book_ply = updated.max_book_ply;
+                command_defaults.game_ply_limit = updated.max_book_ply;
+                auto_save_service->set_interval(updated.auto_save_interval_seconds);
+                log_line("[SettingsApplied]");
             }
             else if (command == "sd" || command == "set-default")
             {
@@ -4279,7 +4309,7 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                const fs::path start_sfens_path = path_from_utf8(book_miner_settings.peta_next_start_sfens_path);
                 if (!peta_command_job.start([
                         &peta_book,
                         &book,
@@ -4347,7 +4377,7 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                const fs::path start_sfens_path = path_from_utf8(book_miner_settings.peta_next_start_sfens_path);
                 if (!peta_command_job.start([
                         &peta_book,
                         peta_eval_diff,
@@ -4397,7 +4427,7 @@ int main(int argc, char* argv[])
                         log_line("Error : max_step must be positive integer.");
                         continue;
                     }
-                    const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                    const fs::path start_sfens_path = path_from_utf8(book_miner_settings.peta_next_start_sfens_path);
                     if (!peta_command_job.start([
                             &book,
                             &peta_book,
@@ -4464,7 +4494,7 @@ int main(int argc, char* argv[])
                     log_line("Error : eval_limit must be non-negative integer.");
                     continue;
                 }
-                const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
+                const fs::path start_sfens_path = path_from_utf8(book_miner_settings.peta_next_start_sfens_path);
                 if (!peta_command_job.start([
                         &book,
                         &peta_book,

@@ -3,6 +3,9 @@
     // 10800 = 3時間。
     auto_save_interval_seconds: 10800,
 
+    // 自動保存の成功回数がこの値に達したら、GUIが保存済みDBをpeta shock化する。0で無効。
+    auto_peta_shock_every_n_saves: 3,
+
     // この手数に到達したら、それ以上局面を掘らない。
     // nコマンドでも、この手数以降の局面は次の掘削対象として書き出さない。
     max_book_ply: 200,
@@ -22,5 +25,5 @@
     peta_shock_engine_path: "YO-MATERIAL.exe",
 
     // peta shock の並列数。探索用エンジンの Threads とは独立。
-    peta_shock_threads: 1,
+    peta_shock_threads: 4,
 }

@@ -136,6 +136,49 @@ class CppIntegrationTest(unittest.TestCase):
                     process.wait(timeout=30)
                     process.stdin.close()
 
+    def test_reload_settings_changes_live_timer_and_start_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'book').mkdir()
+            (root / 'settings').mkdir()
+            (root / 'book' / '開始 局面.txt').write_text('startpos moves 7g7f\n', encoding='utf8')
+            settings = root / 'settings' / 'book_miner_settings.json5'
+            settings.write_text('{auto_save_interval_seconds: 3600, max_book_ply: 200}', encoding='utf8')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                try:
+                    deadline = time.monotonic() + 30
+                    while '[CommandReady]' not in log.read_text():
+                        if process.poll() is not None or time.monotonic() > deadline:
+                            self.fail('startup failed: ' + log.read_text())
+                        time.sleep(0.05)
+                    settings.write_text('{auto_save_interval_seconds: 1, max_book_ply: 99, '
+                                        'peta_next_start_sfens_path: "book/開始 局面.txt", peta_shock_threads: 2}',
+                                        encoding='utf8')
+                    process.stdin.write('reload-settings\npn 100 100 99 6 400 1\n')
+                    process.stdin.flush()
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        contents = log.read_text()
+                        if '[SettingsApplied]' in contents and '[PetaNextDone]' in contents and '[BackupDone]' in contents:
+                            break
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.05)
+                    self.assertIn('[SettingsApplied]', contents)
+                    self.assertIn('[BackupDone]', contents)
+                    self.assertIn('max_book_ply = 99', contents)
+                    self.assertIn('開始 局面.txt', contents)
+                    self.assertIn('startpos moves 7g7f', (root / 'book' / 'think_sfens.txt').read_text())
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('q\n')
+                        process.stdin.flush()
+                    process.wait(timeout=30)
+                    process.stdin.close()
+
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
                        check=True, capture_output=True, text=True, timeout=30)
