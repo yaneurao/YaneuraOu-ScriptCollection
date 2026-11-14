@@ -101,6 +101,21 @@ int main(int argc, char** argv)
         if (narrow.size() != 1 || wide.size() != 2
             || std::find(wide.begin(), wide.end(), narrow.front()) == wide.end())
             throw std::runtime_error("peta next lost a leaf when eval_diff increased");
+        { std::ofstream out(roots_path); out << "startpos, 50\nstartpos, 0\n"; }
+        const auto overridden = peta_next_for_turn(nullptr, book, 0, 10, 100, 200, roots_path, std::nullopt);
+        if (overridden.size() != 2)
+            throw std::runtime_error("per-root eval_diff did not override the default");
+        { std::ofstream out(roots_path); out << "startpos, 0\nsfen " << bookminer::StartSfenPly1 << ", 50\n"; }
+        const auto overlapping = peta_next_for_turn(nullptr, book, 0, 10, 100, 200, roots_path, std::nullopt);
+        if (overlapping.size() != 2)
+            throw std::runtime_error("overlapping roots with different eval_diff lost a branch");
+        { std::ofstream out(roots_path); out << "startpos, -1\n"; }
+        bool invalid_rejected = false;
+        try { (void)load_peta_next_root_positions(roots_path); }
+        catch (const std::runtime_error&) { invalid_rejected = true; }
+        if (!invalid_rejected)
+            throw std::runtime_error("invalid per-root eval_diff was accepted");
+        std::filesystem::remove(roots_path);
     }
 #ifndef _WIN32
     {

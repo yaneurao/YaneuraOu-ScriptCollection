@@ -3153,7 +3153,7 @@ def peta_next(
         print(f"--- {next_name} {turn_str} ---")
 
         # 訪問済み局面
-        visited : dict[tuple[Sfen, int], int] = {}
+        visited : dict[tuple[Sfen, int, int], int] = {}
 
         # bfs
 
@@ -3164,7 +3164,7 @@ def peta_next(
         current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
 
         # root_positionsのroot_bestを調べてcurrent_positionsに突っ込む。
-        for position_cmd, sfen_with_ply in root_positions:
+        for position_cmd, sfen_with_ply, root_eval_diff in root_positions:
             sfen, ply = trim_sfen_ply(sfen_with_ply)
 
             if ply >= max_book_ply:
@@ -3181,7 +3181,10 @@ def peta_next(
                 add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
-            current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff)
+            effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
+            if position_cmd in current_positions:
+                effective_diff = max(effective_diff, current_positions[position_cmd][2])
+            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff)
             print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
 
         # 何回目のwhileループか。
@@ -3203,7 +3206,7 @@ def peta_next(
                     continue
 
                 # 同じ評価基準で同じ局面に再訪したら千日手として扱う。
-                visit_key = (sfen, root_best_eval)
+                visit_key = (sfen, root_best_eval, peta_eval_diff0)
                 if visit_key in visited and visited[visit_key] <= ply:
                     continue
                 visited[visit_key] = ply
@@ -3353,20 +3356,26 @@ def peta_best_moveinfo_for_sfen(sfen:Sfen)->tuple[MoveInfo|None, MoveStr]:
     return best, best_move
 
 
-def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen]]:
-    root_positions : list[tuple[PositionStr, Sfen]] = []
+def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen, int|None]]:
+    root_positions : list[tuple[PositionStr, Sfen, int|None]] = []
     if os.path.exists(start_sfens_path):
         print(f"read start sfens , path = {start_sfens_path}")
         with open(start_sfens_path, 'r', encoding='utf-8-sig', errors='replace') as source:
-            for line in source:
+            for line_number, line in enumerate(source, 1):
                 position_cmd = line.strip()
                 if not position_cmd or position_cmd.startswith('#'):
                     continue
+                root_eval_diff = None
+                if ',' in position_cmd:
+                    position_cmd, raw_diff = (part.strip() for part in position_cmd.split(',', 1))
+                    if not position_cmd or not re.fullmatch(r'[0-9]+', raw_diff) or int(raw_diff) > 2147483647:
+                        raise ValueError(f"{start_sfens_path}:{line_number}: eval_diff must be a non-negative integer")
+                    root_eval_diff = int(raw_diff)
                 sfen_with_ply = decode_position_string(position_cmd)
-                print(f"start sfen = {sfen_with_ply}")
-                root_positions.append((position_cmd, sfen_with_ply))
+                print(f"start sfen = {sfen_with_ply}" + (f" , eval_diff = {root_eval_diff}" if root_eval_diff is not None else ''))
+                root_positions.append((position_cmd, sfen_with_ply, root_eval_diff))
     else:
-        root_positions.append(('startpos', SFEN_START_PLY1))
+        root_positions.append(('startpos', SFEN_START_PLY1, None))
 
     return root_positions
 
@@ -3441,10 +3450,10 @@ def peta_rejoin(
         turn_str = ['white','black'][turn]
         print(f"--- peta_rejoin {turn_str} ---")
 
-        visited : dict[tuple[Sfen, int, int|None], int] = {}
+        visited : dict[tuple[Sfen, int, int|None, int], int] = {}
         current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None]] = {}
 
-        for position_cmd, sfen_with_ply in load_peta_root_positions(start_sfens_path):
+        for position_cmd, sfen_with_ply, root_eval_diff in load_peta_root_positions(start_sfens_path):
             sfen, ply = trim_sfen_ply(sfen_with_ply)
 
             if ply >= max_book_ply:
@@ -3466,7 +3475,10 @@ def peta_rejoin(
                     total_rejoin_nodes += 1
                 continue
 
-            current_positions[position_cmd] = (sfen_with_ply, root_best, peta_eval_diff, None)
+            effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
+            if position_cmd in current_positions:
+                effective_diff = max(effective_diff, current_positions[position_cmd][2])
+            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff, None)
             print(f"root sfen : {sfen_with_ply} , root_best = {root_best}")
 
         step = 1
@@ -3487,7 +3499,7 @@ def peta_rejoin(
                 position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
                 is_leaf = position_info is None or not position_info.moveinfos
                 needs_leaf_eval = is_leaf and eval_drop is not None and eval_drop > PETA_REJOIN_EVAL_DROP_DISABLED
-                visit_key = (sfen, root_best_eval, leaf_eval if needs_leaf_eval else None)
+                visit_key = (sfen, root_best_eval, leaf_eval if needs_leaf_eval else None, peta_eval_diff0)
                 if visit_key in visited and visited[visit_key] <= ply:
                     continue
                 visited[visit_key] = ply

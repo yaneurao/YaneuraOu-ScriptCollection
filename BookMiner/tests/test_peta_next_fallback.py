@@ -13,6 +13,31 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_start_position_eval_diff_overrides_default(self):
+        book = miner.Book()
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('7g7f', 100, 0), miner.MoveInfo('2g2f', 60, 0)], 1)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', book), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            for root_line, expected in [('startpos', 1), ('startpos, 50', 2), ('startpos, 0', 1),
+                                        ('startpos, 50\nstartpos, 0', 2),
+                                        (f'startpos, 0\nsfen {miner.SFEN_START_PLY1}, 50', 2)]:
+                with self.subTest(root_line=root_line):
+                    roots.write_text(root_line + '\n')
+                    miner.peta_next(10, 10, 100, str(roots))
+                    lines = (Path(directory) / 'think_sfens-white.txt').read_text().splitlines()
+                    self.assertEqual(len(lines), expected, lines)
+                    self.assertTrue(all(', 50' not in line for line in lines))
+                    with patch.object(miner, 'peta_leaf_rejoins_peta_book', return_value=True):
+                        miner.peta_rejoin(10, 10, 100, str(roots))
+                    lines = (Path(directory) / 'think_sfens-white.txt').read_text().splitlines()
+                    self.assertEqual(len(lines), expected, lines)
+            for invalid in ('-1', 'abc', '', '1,2', '2147483648'):
+                roots.write_text('startpos, ' + invalid + '\n')
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'roots.txt:1'):
+                    miner.load_peta_root_positions(str(roots))
+
     def test_merge_removes_duplicate_entries_preserving_order_and_conditions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -143,13 +168,13 @@ class PetaNextFallbackTest(unittest.TestCase):
              patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
             roots = Path(directory) / 'roots.txt'
             roots.write_text('# コメント\nstartpos\n', encoding='utf-8-sig')
-            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1)])
+            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1, None)])
             miner.peta_next(100, 100, 200, str(roots))
             lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
             self.assertTrue(lines)
             self.assertTrue(all(line.startswith('startpos,') for line in lines))
             roots.write_text('# コメント\nstartpos\n', encoding='cp932')
-            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1)])
+            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1, None)])
 
     def test_current_book_extends_old_frontier_and_peta_takes_priority(self):
         peta, normal = miner.Book(), miner.Book()
