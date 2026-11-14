@@ -1,4 +1,5 @@
 #include "position.h"
+#include "testcmd/unit_test.h"
 #include "tt.h"
 #include "types.h"
 #include "usi.h"
@@ -137,7 +138,8 @@ void UnitTester::test(const std::string&, bool)
 
 } // namespace Test
 
-TTEntry* TranspositionTable::first_entry(const Key&, Color) const
+// BookMiner は探索用の置換表を使わない。
+Cluster* TranspositionTable::get_cluster(const Key, Color) const
 {
     return nullptr;
 }
