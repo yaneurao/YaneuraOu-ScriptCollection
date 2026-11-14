@@ -32,6 +32,7 @@ CSA_WHITE_NAME_RE = re.compile(r"^N-(.*)$")
 CSA_BLACK_RATE_RE = re.compile(r"^'black_rate\s*:\s*(.+)$", re.IGNORECASE)
 CSA_WHITE_RATE_RE = re.compile(r"^'white_rate\s*:\s*(.+)$", re.IGNORECASE)
 KIF_MOVE_LINE_RE = re.compile(r"^\s*(\d+)\s")
+KIF_VARIATION_RE = re.compile(r"^[ \t\u3000]*変化[：:][ \t\u3000]*(\d+)[ \t\u3000]*手[^\r\n]*$", re.MULTILINE)
 SEPARATED_DATE_RE = re.compile(r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})")
 SEPARATED_DATETIME_RE = re.compile(
     r"(20\d{2})[-_/](\d{1,2})[-_/](\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?"
@@ -1323,26 +1324,29 @@ def extract_csa_eval_records(path: Path) -> list[EvalRecord]:
     return records
 
 
-def extract_kif_eval_records(path: Path) -> list[EvalRecord]:
-    records: list[EvalRecord] = []
-    current_side: int | None = None
+def extract_kif_eval_records_with_ply(text: str) -> list[tuple[int, EvalRecord]]:
+    records: list[tuple[int, EvalRecord]] = []
+    current_ply: int | None = None
 
-    for raw_line in read_text(path).splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.rstrip()
         move_match = KIF_MOVE_LINE_RE.match(line)
         if move_match:
-            ply = int(move_match.group(1))
-            current_side = cshogi.BLACK if ply % 2 == 1 else cshogi.WHITE
+            current_ply = int(move_match.group(1))
             value = parse_eval_from_comment(line)
             if value is not None:
-                records.append(EvalRecord(current_side, value))
+                side = cshogi.BLACK if current_ply % 2 == 1 else cshogi.WHITE
+                records.append((current_ply, EvalRecord(side, value)))
             continue
-
         value = parse_eval_from_comment(line)
-        if value is not None and current_side is not None:
-            records.append(EvalRecord(current_side, value))
-
+        if value is not None and current_ply is not None:
+            side = cshogi.BLACK if current_ply % 2 == 1 else cshogi.WHITE
+            records.append((current_ply, EvalRecord(side, value)))
     return records
+
+
+def extract_kif_eval_records(path: Path) -> list[EvalRecord]:
+    return [record for _, record in extract_kif_eval_records_with_ply(read_text(path))]
 
 
 def extract_eval_records(path: Path) -> list[EvalRecord]:
@@ -1399,30 +1403,58 @@ def parse_kif(
     path: Path, *, include_eval_records: bool = False, allow_non_startpos: bool = False,
     require_names: bool = True,
 ) -> list[GameRecord]:
-    parsed, initial_sfen, raw_moves = parse_kif_text(read_text(path))
+    text = read_text(path)
+    headers = list(KIF_VARIATION_RE.finditer(text))
+    mainline_text = text[:headers[0].start()] if headers else text
+    parsed, initial_sfen, raw_moves = parse_kif_text(mainline_text)
     names = read_names(parsed.names, path, required=require_names)
     if not allow_non_startpos:
         ensure_startpos(initial_sfen)
-    moves = moves_to_usi(raw_moves)
-    if not moves:
+    if not raw_moves:
         raise ParseError("no moves found")
-    eval_records = extract_eval_records(path) if include_eval_records else []
+
+    main_evals = extract_kif_eval_records_with_ply(mainline_text) if include_eval_records else []
+    lines: list[tuple[list[int], list[tuple[int, EvalRecord]]]] = [(list(raw_moves), main_evals)]
+    # 変化の手数が増えれば直前の変化の子、同じか減れば親へ戻る。
+    branch_stack = [(0, list(raw_moves), main_evals)]
+    for index, header in enumerate(headers):
+        start_ply = int(header.group(1))
+        if start_ply < 1:
+            raise ParseError(f"invalid KIF variation move number: {start_ply}")
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(text)
+        variation = text[header.end():end]
+        first_move = next((KIF_MOVE_LINE_RE.match(line) for line in variation.splitlines()
+                           if KIF_MOVE_LINE_RE.match(line)), None)
+        if first_move is None or int(first_move.group(1)) != start_ply:
+            raise ParseError(f"KIF variation has no move at {start_ply}")
+        while len(branch_stack) > 1 and branch_stack[-1][0] >= start_ply:
+            branch_stack.pop()
+        _, parent_moves, parent_evals = branch_stack[-1]
+        if len(parent_moves) < start_ply - 1:
+            raise ParseError(f"missing parent for KIF variation at {start_ply}")
+        prefix = parent_moves[:start_ply - 1]
+        continuation = parse_kif_moves_with_board(variation, initial_sfen, prefix=prefix)
+        if not continuation:
+            raise ParseError(f"KIF variation has no moves at {start_ply}")
+        branch_evals = ([item for item in parent_evals if item[0] < start_ply]
+                        + extract_kif_eval_records_with_ply(variation)) if include_eval_records else []
+        branch_moves = prefix + continuation
+        lines.append((branch_moves, branch_evals))
+        branch_stack.append((start_ply, branch_moves, branch_evals))
+
+
     return [
-        GameRecord(
-            path,
-            names[0],
-            names[1],
-            initial_sfen,
-            moves,
-            eval_records=eval_records,
-            game_date=infer_game_date_from_path(path),
-        )
+        GameRecord(path, names[0], names[1], initial_sfen, moves_to_usi(moves),
+                   eval_records=[record for _, record in evals],
+                   game_date=infer_game_date_from_path(path))
+        for moves, evals in lines
     ]
+
 
 
 def parse_kif_text(text: str) -> tuple[object, str, Sequence[int]]:
     # KIFの「変化」は本譜の続きではないため、本譜だけを解析する。
-    mainline_text = re.split(r"^\s*変化[：:]\s*\d+\s*手", text, maxsplit=1, flags=re.MULTILINE)[0]
+    mainline_text = KIF_VARIATION_RE.split(text, maxsplit=1)[0]
     normalized_text = normalize_kif_text(mainline_text)
     try:
         parsed = KIF.Parser.parse_str(normalized_text)
@@ -1467,8 +1499,10 @@ def replace_kif_handicap_label(text: str, label: str) -> str:
     return re.sub(r"^手合割：.*$", f"手合割：{label}", text, count=1, flags=re.MULTILINE)
 
 
-def parse_kif_moves_with_board(text: str, sfen: str) -> list[int]:
+def parse_kif_moves_with_board(text: str, sfen: str, *, prefix: Sequence[int] = ()) -> list[int]:
     board = cshogi.Board(sfen)
+    for move in prefix:
+        board.push(move)
     moves: list[int] = []
     for line in normalize_kif_move_notation(text).splitlines():
         if not KIF_MOVE_LINE_RE.match(line):
