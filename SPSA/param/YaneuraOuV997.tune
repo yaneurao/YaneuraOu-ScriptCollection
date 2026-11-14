@@ -415,7 +415,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context history_nonPV_bonus
 
-        bonus += bonus * int(quietsSearched.size() + capturesSearched.size()) / 256@{128,512};
+    bonus += int(bonus * u64(quietsSearched.size() + capturesSearched.size()) / 256@{128,512});
 
 #context Search_razoring_linear
 
