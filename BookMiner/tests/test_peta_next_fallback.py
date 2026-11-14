@@ -13,6 +13,33 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_peta_opponent_uses_loaded_book_not_replaced_disk_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            disk = root / 'previous-peta.db'
+            opponent = root / 'opponent.db'
+            disk.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {miner.SFEN_START_PLY1}\n2g2f none 0 0\n')
+            opponent.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {miner.SFEN_START_PLY1}\n7g7f none 0 0\n')
+            with patch.object(miner, 'peta_book', miner.Book()), \
+                 patch.object(miner, 'collect_opponent_book_paths', return_value=[str(opponent)]), \
+                 patch.object(miner, 'BOOK_DIR', str(root)):
+                miner.read_peta_book(str(disk))
+                disk.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {miner.SFEN_START_PLY1}\n7g7f none 0 0\n')
+                miner.peta_opponent(eval_diff=0, max_book_ply=200, max_step=5)
+            lines = (root / 'think_sfens.txt').read_text().splitlines()
+            self.assertTrue(any(line.startswith('startpos moves 2g2f,') for line in lines), lines)
+
+    def test_peta_opponent_does_not_load_peta_book_implicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            opponent = root / 'opponent.db'
+            opponent.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {miner.SFEN_START_PLY1}\n7g7f none 0 0\n')
+            with patch.object(miner, 'peta_book', miner.Book()), \
+                 patch.object(miner, 'resolve_peta_book_path', side_effect=AssertionError('unexpected peta disk lookup')), \
+                 patch.object(miner, 'collect_opponent_book_paths', return_value=[str(opponent)]), \
+                 patch.object(miner, 'BOOK_DIR', str(root)):
+                miner.peta_opponent(eval_diff=0, max_book_ply=200, max_step=5)
+
     def test_start_positions_accept_utf8_bom(self):
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):

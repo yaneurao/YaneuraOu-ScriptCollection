@@ -16,7 +16,6 @@ from typing import TypeAlias, Any, Callable, Generic, TypeVar
 from collections import deque
 from threading import Condition, Lock, Thread
 from itertools import zip_longest
-from contextlib import nullcontext
 
 try:
     import json5
@@ -2552,7 +2551,6 @@ def read_regular_book_fast(book:Book, path:str, label:str):
 
 # `peta_read`コマンドで読み込まれた定跡ファイル
 peta_book = Book()
-peta_book_probe_path : str | None = None
 
 
 def collect_book_backup_paths()->list[str]:
@@ -2863,16 +2861,14 @@ def read_peta_book(peta_book_path:str|None = None):
     peta_path = resolve_peta_book_path(peta_book_path)
 
     print(f"prepare to read peta shocked book , path = {peta_path}")
-    global peta_book, peta_book_probe_path
+    global peta_book
     peta_book = Book()
-    peta_book_probe_path = None
     try:
         read_regular_book_fast(peta_book, peta_path, "peta shocked book")
     except Exception:
         peta_book = Book()
         print("[PetaBookPositions] positions=0")
         raise
-    peta_book_probe_path = peta_path
     print(f"[PetaBookPositions] positions={len(peta_book.body)}")
     print("reading the peta_book has done.")
 
@@ -3667,16 +3663,6 @@ def candidate_best_moves_for_probe(probe:BookLib.BookProbe, sfen:Sfen, eval_diff
     return moves
 
 
-def candidate_best_moves_for_current_peta(
-    current_probe:BookLib.BookProbe | None,
-    sfen:Sfen,
-    eval_diff:int,
-)->list[tuple[MoveStr, int]]:
-    if current_probe is not None:
-        return candidate_best_moves_for_probe(current_probe, sfen, eval_diff)
-    return candidate_best_moves_for_sfen(peta_book, sfen, eval_diff)
-
-
 def choose_random_candidate_move(
     moves:list[tuple[MoveStr, int]],
     rng:random.Random,
@@ -3693,7 +3679,6 @@ def peta_pv_leaf_position_cmd_from_position_random(
     max_step:int,
     eval_diff:int,
     rng:random.Random,
-    current_probe:BookLib.BookProbe | None = None,
 )->PositionStr|None:
     if max_step <= 0:
         return None
@@ -3714,7 +3699,7 @@ def peta_pv_leaf_position_cmd_from_position_random(
             return None
         visited.add(current_sfen)
 
-        moves = candidate_best_moves_for_current_peta(current_probe, current_sfen, eval_diff)
+        moves = candidate_best_moves_for_sfen(peta_book, current_sfen, eval_diff)
         selected = choose_random_candidate_move(moves, rng)
         if selected is None:
             return current_cmd
@@ -3766,91 +3751,75 @@ def peta_opponent(
     retired_repetition = 0
     retired_max_step = 0
 
-    current_peta_probe_path = peta_book_probe_path
-    if current_peta_probe_path is None:
-        try:
-            current_peta_probe_path = resolve_peta_book_path(None)
-        except Exception:
-            current_peta_probe_path = None
+    # The current peta book is the in-memory snapshot shown by the GUI.
+    for opponent_path in opponent_paths:
+        print(f"peta_opponent open opponent book probe : {opponent_path}")
 
-    current_probe_context = (
-        BookLib.open_book_probe(current_peta_probe_path)
-        if current_peta_probe_path is not None and os.path.isfile(current_peta_probe_path)
-        else nullcontext(None)
-    )
-    if current_peta_probe_path is not None:
-        print(f"peta_opponent current peta book probe path : {current_peta_probe_path}")
+        with BookLib.open_book_probe(opponent_path) as opponent_probe:
+            # current_side: 1なら現行bookが先手、0なら現行bookが後手。
+            for current_side in [1, 0]:
+                side_name = "black" if current_side == 1 else "white"
+                print(f"--- peta_opponent {os.path.basename(opponent_path)} current={side_name} ---")
+                position_cmd = "startpos"
+                sfen_with_ply = SFEN_START_PLY1
+                visited : set[Sfen] = set()
+                step = 0
 
-    with current_probe_context as current_probe:
-        for opponent_path in opponent_paths:
-            print(f"peta_opponent open opponent book probe : {opponent_path}")
+                while True:
+                    if step >= max_step:
+                        retired_max_step += 1
+                        break
 
-            with BookLib.open_book_probe(opponent_path) as opponent_probe:
-                # current_side: 1なら現行bookが先手、0なら現行bookが後手。
-                for current_side in [1, 0]:
-                    side_name = "black" if current_side == 1 else "white"
-                    print(f"--- peta_opponent {os.path.basename(opponent_path)} current={side_name} ---")
-                    position_cmd = "startpos"
-                    sfen_with_ply = SFEN_START_PLY1
-                    visited : set[Sfen] = set()
-                    step = 0
+                    processed_nodes += 1
+                    if processed_nodes % PETA_OPPONENT_PROGRESS_INTERVAL == 0:
+                        print(
+                            f"opponent progress nodes = {processed_nodes} , "
+                            f"cuts = {cut_nodes} , think_sfens = {len(think_sfens)}"
+                        )
 
-                    while True:
-                        if step >= max_step:
-                            retired_max_step += 1
-                            break
+                    sfen, ply = trim_sfen_ply(sfen_with_ply)
+                    if ply >= max_book_ply:
+                        skipped_by_ply += 1
+                        break
+                    if sfen in visited:
+                        retired_repetition += 1
+                        break
+                    visited.add(sfen)
 
-                        processed_nodes += 1
-                        if processed_nodes % PETA_OPPONENT_PROGRESS_INTERVAL == 0:
-                            print(
-                                f"opponent progress nodes = {processed_nodes} , "
-                                f"cuts = {cut_nodes} , think_sfens = {len(think_sfens)}"
-                            )
+                    if ply % 2 == current_side:
+                        moves = candidate_best_moves_for_sfen(peta_book, sfen, eval_diff)
+                    else:
+                        moves = candidate_best_moves_for_probe(opponent_probe, sfen, eval_diff)
 
-                        sfen, ply = trim_sfen_ply(sfen_with_ply)
-                        if ply >= max_book_ply:
-                            skipped_by_ply += 1
-                            break
-                        if sfen in visited:
-                            retired_repetition += 1
-                            break
-                        visited.add(sfen)
+                    if not moves:
+                        cut_nodes += 1
+                        leaf_position_cmd = peta_pv_leaf_position_cmd_from_position_random(
+                            position_cmd,
+                            sfen_with_ply,
+                            max_book_ply,
+                            max_step,
+                            eval_diff,
+                            rng,
+                        )
+                        if leaf_position_cmd is not None:
+                            add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                            leaf_nodes += 1
+                        break
 
-                        if ply % 2 == current_side:
-                            moves = candidate_best_moves_for_current_peta(current_probe, sfen, eval_diff)
-                        else:
-                            moves = candidate_best_moves_for_probe(opponent_probe, sfen, eval_diff)
+                    selected = choose_random_candidate_move(moves, rng)
+                    if selected is None:
+                        break
 
-                        if not moves:
-                            cut_nodes += 1
-                            leaf_position_cmd = peta_pv_leaf_position_cmd_from_position_random(
-                                position_cmd,
-                                sfen_with_ply,
-                                max_book_ply,
-                                max_step,
-                                eval_diff,
-                                rng,
-                                current_probe,
-                            )
-                            if leaf_position_cmd is not None:
-                                add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply, eval_limit, max_book_ply)
-                                leaf_nodes += 1
-                            break
-
-                        selected = choose_random_candidate_move(moves, rng)
-                        if selected is None:
-                            break
-
-                        move, _eval = selected
-                        board = cshogi.Board(sfen_with_ply)
-                        checked_push_usi(board, move, context=position_cmd)
-                        sfen_with_ply = board.sfen()
-                        _next_sfen, next_ply = trim_sfen_ply(sfen_with_ply)
-                        if next_ply >= max_book_ply:
-                            skipped_by_ply += 1
-                            break
-                        position_cmd = append_position_move(position_cmd, move)
-                        step += 1
+                    move, _eval = selected
+                    board = cshogi.Board(sfen_with_ply)
+                    checked_push_usi(board, move, context=position_cmd)
+                    sfen_with_ply = board.sfen()
+                    _next_sfen, next_ply = trim_sfen_ply(sfen_with_ply)
+                    if next_ply >= max_book_ply:
+                        skipped_by_ply += 1
+                        break
+                    position_cmd = append_position_move(position_cmd, move)
+                    step += 1
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")

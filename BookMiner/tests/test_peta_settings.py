@@ -15,9 +15,8 @@ spec.loader.exec_module(bookminer)
 
 class PetaSettingsTests(unittest.TestCase):
     def test_failed_peta_read_clears_partial_book_and_stale_probe(self):
-        old_book, old_path = bookminer.peta_book, bookminer.peta_book_probe_path
+        old_book = bookminer.peta_book
         try:
-            bookminer.peta_book_probe_path = 'old-peta.ybb'
             def failed_read(book, _path, _label):
                 book.body['partial'] = object()
                 raise ValueError('corrupt')
@@ -25,10 +24,9 @@ class PetaSettingsTests(unittest.TestCase):
                  patch.object(bookminer, 'read_regular_book_fast', side_effect=failed_read):
                 with self.assertRaisesRegex(ValueError, 'corrupt'):
                     bookminer.read_peta_book('broken.ybb')
-            self.assertIsNone(bookminer.peta_book_probe_path)
             self.assertFalse(bookminer.peta_book.body)
         finally:
-            bookminer.peta_book, bookminer.peta_book_probe_path = old_book, old_path
+            bookminer.peta_book = old_book
 
     def test_defaults_and_validation(self):
         with tempfile.TemporaryDirectory() as directory:
