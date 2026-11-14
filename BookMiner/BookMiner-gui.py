@@ -32,6 +32,7 @@ GUI_SETTING_DEFAULTS = {
     "default_eval_diff": "30",
     "default_max_step": "99999",
     "peta_next_eval_diff": "",
+    "peta_next_normal_fallback": "0",
     "peta_refutation_eval_diff": "",
     "peta_rejoin_eval_drop": "",
     "peta_rejoin_eval_diff": "",
@@ -579,6 +580,9 @@ class BookMinerGui(ttk.Frame):
         self.peta_opponent_eval_limit = tk.StringVar(
             value=gui_settings.get("peta_opponent_eval_limit", GUI_SETTING_DEFAULTS["peta_opponent_eval_limit"])
         )
+        self.peta_next_normal_fallback = tk.BooleanVar(
+            value=settings_bool(gui_settings.get("peta_next_normal_fallback"), GUI_SETTING_DEFAULTS["peta_next_normal_fallback"])
+        )
         self.auto_step2_peta_next_enabled = tk.BooleanVar(
             value=settings_bool(gui_settings.get("auto_step2_peta_next"), GUI_SETTING_DEFAULTS["auto_step2_peta_next"])
         )
@@ -692,6 +696,9 @@ class BookMinerGui(ttk.Frame):
             command=self.send_peta_next,
         )
         self.next_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
+        fallback_check = ttk.Checkbutton(commands, text="通常DBも", variable=self.peta_next_normal_fallback)
+        fallback_check.grid(row=3, column=2, columnspan=2, sticky="w", padx=(4, 0), pady=3)
+        Tooltip(fallback_check, "peta book にない局面は通常DBも調べ、探索済みならその先まで辿ります。通常DBの評価値はペタショック化されていません。")
         Tooltip(self.next_button, "`pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。空欄はデフォルト値行を使います。")
         ttk.Label(commands, text="eval_diff").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_eval_diff, width=8).grid(row=3, column=5, sticky="w", pady=3)
@@ -2136,6 +2143,7 @@ class BookMinerGui(ttk.Frame):
             "default_eval_diff": self.default_eval_diff.get(),
             "default_max_step": self.default_max_step.get(),
             "peta_next_eval_diff": self.peta_next_eval_diff.get(),
+            "peta_next_normal_fallback": "1" if self.peta_next_normal_fallback.get() else "0",
             "peta_refutation_eval_diff": self.peta_refutation_eval_diff.get(),
             "peta_rejoin_eval_drop": self.peta_rejoin_eval_drop.get(),
             "peta_rejoin_eval_diff": self.peta_rejoin_eval_diff.get(),
@@ -2364,7 +2372,7 @@ class BookMinerGui(ttk.Frame):
                 self._update_buttons()
             return False
         if self.send_command(
-            f"pn {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}",
+            f"pn {eval_diff} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit} {int(self.peta_next_normal_fallback.get())}",
             origin=origin,
         ):
             return True

@@ -1893,6 +1893,29 @@ std::vector<std::pair<std::string, std::string>> load_peta_next_root_positions(c
     return roots;
 }
 
+struct PetaNextLookup {
+    const bookminer::PositionInfo* peta = nullptr;
+    std::optional<bookminer::PositionInfo> normal;
+    bool flipped = false;
+    const bookminer::PositionInfo* position() const { return normal ? &*normal : peta; }
+};
+
+PetaNextLookup find_peta_next_position(const bookminer::BookStore& peta_book,
+                                       const bookminer::BookStore* fallback_book,
+                                       const std::string& sfen)
+{
+    const auto hit = find_peta_position_with_flip(peta_book, sfen);
+    if (hit.position != nullptr && !hit.position->moves.empty())
+        return {hit.position, std::nullopt, hit.flipped};
+    if (fallback_book != nullptr)
+    {
+        auto normal = find_book_position_with_flip(*fallback_book, sfen);
+        if (has_considered(normal.position))
+            return {nullptr, std::move(normal.position), normal.flipped};
+    }
+    return {hit.position, std::nullopt, hit.flipped};
+}
+
 std::vector<std::string> peta_next_for_turn(
     const bookminer::BookStore* source_book,
     const bookminer::BookStore& peta_book,
@@ -1901,12 +1924,13 @@ std::vector<std::string> peta_next_for_turn(
     int max_step,
     int max_book_ply,
     const std::filesystem::path& start_sfens_path,
-    std::optional<int> eval_refutation_margin)
+    std::optional<int> eval_refutation_margin,
+    const bookminer::BookStore* fallback_book = nullptr)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
     std::size_t skipped_ply = 0, skipped_visited = 0, rejected_own = 0, rejected_opponent = 0;
-    std::size_t missing_roots = 0, duplicate_leaves = 0, limited_frontier = 0;
+    std::size_t missing_roots = 0, duplicate_leaves = 0, limited_frontier = 0, fallback_hits = 0;
     auto record_leaf = [&](const std::string& command, const std::string& sfen) {
         if (!append_unique_peta_leaf(think_sfens, think_seen, command, sfen))
             ++duplicate_leaves;
@@ -1929,8 +1953,9 @@ std::vector<std::string> peta_next_for_turn(
             continue;
         }
 
-        const auto hit = find_peta_position_with_flip(peta_book, sfen);
-        if (hit.position == nullptr || hit.position->moves.empty())
+        const auto hit = find_peta_next_position(peta_book, fallback_book, sfen);
+        const auto* position = hit.position();
+        if (position == nullptr || position->moves.empty())
         {
             ++missing_roots;
             if (!filter_refutation)
@@ -1938,7 +1963,7 @@ std::vector<std::string> peta_next_for_turn(
             continue;
         }
 
-        const auto root_best = get_best(*hit.position);
+        const auto root_best = get_best(*position);
         if (!root_best.has_value())
         {
             if (!filter_refutation)
@@ -1978,19 +2003,22 @@ std::vector<std::string> peta_next_for_turn(
                 continue;
             }
 
-            const auto hit = find_peta_position_with_flip(peta_book, sfen);
-            if (hit.position == nullptr)
+            const auto hit = find_peta_next_position(peta_book, fallback_book, sfen);
+            const auto* position = hit.position();
+            if (position == nullptr || (fallback_book != nullptr && position->moves.empty()))
             {
                 if (!filter_refutation)
                     record_leaf(position_command, sfen);
                 continue;
             }
 
-            const auto& moveinfos = hit.position->moves;
+            if (hit.normal)
+                ++fallback_hits;
+            const auto& moveinfos = position->moves;
             if (moveinfos.empty())
                 continue;
 
-            const int best_eval = static_cast<int>(moveinfos.front().eval);
+            const int best_eval = hit.normal ? get_best(*position)->first : static_cast<int>(moveinfos.front().eval);
             const bool own_turn = peta_is_own_turn(sfen, turn);
             const std::int64_t eval_low = own_turn
                 ? best_eval : static_cast<std::int64_t>(node.root_best_eval) - node.eval_diff;
@@ -2031,7 +2059,7 @@ std::vector<std::string> peta_next_for_turn(
                             && moveinfo.depth == 0
                             && is_refuted_move_by_peta_impact(
                                 *source_book,
-                                *hit.position,
+                                *position,
                                 hit.flipped,
                                 sfen,
                                 move16,
@@ -2063,6 +2091,7 @@ std::vector<std::string> peta_next_for_turn(
         + " skipped_visited=" + std::to_string(skipped_visited)
         + " rejected_own=" + std::to_string(rejected_own)
         + " rejected_opponent=" + std::to_string(rejected_opponent)
+        + " fallback_hits=" + std::to_string(fallback_hits)
         + " duplicate_leaves=" + std::to_string(duplicate_leaves)
         + " max_step_frontier=" + std::to_string(limited_frontier)
         + " leaves=" + std::to_string(think_sfens.size()));
@@ -2174,7 +2203,8 @@ void peta_next(
     const std::filesystem::path& start_sfens_path,
     std::optional<int> eval_refutation_margin,
     std::optional<int> book_extend_ply,
-    std::optional<int> eval_limit)
+    std::optional<int> eval_limit,
+    const bookminer::BookStore* fallback_book = nullptr)
 {
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
     log_line(
@@ -2185,17 +2215,18 @@ void peta_next(
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
         + ", start_sfens_path = " + start_sfens_path.string()
+        + ", normal_book_fallback = " + std::string(fallback_book ? "on" : "off")
         + ", peta_book_positions = " + std::to_string(peta_book.size())
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
 
-    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin);
+    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
-    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin);
+    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(
@@ -3869,7 +3900,7 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  PL: make and read peta shocked book from latest backup");
-    log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
+    log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit) (normal_fallback:0|1)");
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PJ : peta rejoin             , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PNF: peta next refutation   , pnf peta_eval_diff (max_book_ply) (max_step) (eval_refutation_margin)");
@@ -4216,6 +4247,12 @@ int main(int argc, char* argv[])
                 const int command_max_book_ply = parse_int_argument(tokens, 3, command_defaults.game_ply_limit);
                 const int book_extend_ply = parse_int_argument(tokens, 4, command_defaults.book_extend_ply);
                 const int eval_limit = parse_int_argument(tokens, 5, command_defaults.eval_limit);
+                const int normal_fallback = parse_int_argument(tokens, 6, 0);
+                if (normal_fallback != 0 && normal_fallback != 1)
+                {
+                    log_line("Error : normal book fallback must be 0 or 1.");
+                    continue;
+                }
                 if (peta_eval_diff < 0)
                 {
                     log_line("Error : peta_eval_diff must be non-negative integer.");
@@ -4244,6 +4281,8 @@ int main(int argc, char* argv[])
                 const fs::path start_sfens_path = book_miner_settings.peta_next_start_sfens_path;
                 if (!peta_command_job.start([
                         &peta_book,
+                        &book,
+                        normal_fallback,
                         peta_eval_diff,
                         max_step,
                         command_max_book_ply,
@@ -4260,7 +4299,8 @@ int main(int argc, char* argv[])
                             start_sfens_path,
                             std::nullopt,
                             book_extend_ply,
-                            eval_limit);
+                            eval_limit,
+                            normal_fallback ? &book : nullptr);
                     }))
                 {
                     log_line("Error : peta command is running. wait for peta command completion.");

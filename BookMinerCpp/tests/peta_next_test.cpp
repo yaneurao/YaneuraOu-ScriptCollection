@@ -38,6 +38,42 @@ int main(int argc, char** argv)
             throw std::runtime_error("existing position did not retain a shorter path");
     }
     const std::filesystem::path roots_path(argv[1]);
+    std::filesystem::remove(roots_path);
+    {
+        // The normal book extends the old peta frontier, without changing legacy pn.
+        bookminer::BookStore peta, normal;
+        const auto board0 = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        auto board1 = board0;
+        board1.push_usi("7g7f");
+        peta.merge_position(board0.sfen(), 1, {{bookminer::move16_from_usi("7g7f"), 0, 0}});
+        normal.merge_position(board1.sfen(), 2, {{bookminer::move16_from_usi("3c3d"), 0, 0}});
+        const auto legacy = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200, roots_path, std::nullopt);
+        const auto extended = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200, roots_path, std::nullopt, &normal);
+        if (legacy != std::vector<std::string>{"startpos moves 7g7f"}
+            || extended != std::vector<std::string>{"startpos moves 7g7f 3c3d"})
+            throw std::runtime_error("peta next did not extend normal book frontier");
+
+        // When both books have the root, the peta book must remain authoritative.
+        normal.merge_position(board0.sfen(), 1, {{bookminer::move16_from_usi("2g2f"), 100, 0}});
+        const auto priority = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200, roots_path, std::nullopt, &normal);
+        if (priority != extended)
+            throw std::runtime_error("normal book overrode existing peta position");
+
+        // A flipped normal-book hit must produce moves in the original orientation.
+        bookminer::BookStore flipped_normal;
+        flipped_normal.merge_position(bookminer::flipped_sfen(board1.sfen()), 2, {
+            {bookminer::move16_from_usi("7g7f"), 0, 0},
+        });
+        const auto flipped_leaves = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200, roots_path, std::nullopt, &flipped_normal);
+        if (flipped_leaves != extended)
+            throw std::runtime_error("flipped normal book hit was not restored");
+
+        // A root missing from peta may be supplied by the current normal book.
+        bookminer::BookStore empty;
+        const auto normal_root = peta_next_for_turn(nullptr, empty, 1, 100, 100, 200, roots_path, std::nullopt, &normal);
+        if (normal_root != std::vector<std::string>{"startpos moves 2g2f"})
+            throw std::runtime_error("peta next did not use normal book root");
+    }
     {
         std::ofstream out(roots_path);
         out << "startpos moves 7g7f 3c3d 2g2f 8c8d\n"

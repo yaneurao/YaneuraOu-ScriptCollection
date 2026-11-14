@@ -2909,6 +2909,21 @@ def is_refuted_move_by_peta_impact(
     return peta_move_eval - peta_old_best.eval >= eval_refutation_margin
 
 
+def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[PositionInfo|None, bool]:
+    position, flipped = find_book_position_with_flip(peta, sfen)
+    if position is not None and position.moveinfos:
+        return position, flipped
+    if fallback is not None:
+        # 掘削スレッドが更新する通常DBは、ロック中に局面単位でコピーする。
+        with fallback.lock:
+            normal, normal_flipped = find_book_position_with_flip(fallback, sfen)
+            if normal is not None and normal.moveinfos:
+                moves = [MoveInfo(m.move, m.eval, m.depth) for m in normal.moveinfos]
+                moves.sort(key=lambda m: m.eval if isinstance(m.eval, int) else -float('inf'), reverse=True)
+                return PositionInfo(moves, normal.ply), normal_flipped
+    return position, flipped
+
+
 def peta_next(
     peta_eval_diff:int,
     max_step:int,
@@ -2918,6 +2933,7 @@ def peta_next(
     refutation_book:Book|None = None,
     eval_refutation_margin:int|None = None,
     eval_limit:int|None = None,
+    fallback_book:Book|None = None,
 ):
     """
     r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
@@ -2943,7 +2959,7 @@ def peta_next(
         f"max_step = {max_step}, max_book_ply = {max_book_ply}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
-        f"start_sfens_path = {start_sfens_path}"
+        f"start_sfens_path = {start_sfens_path}, normal_book_fallback = {'on' if fallback_book is not None else 'off'}"
         + (
             ""
             if refutation_book is None
@@ -2993,12 +3009,8 @@ def peta_next(
             if ply >= max_book_ply:
                 continue
 
-            sfen_f = flipped_sfen(sfen)
-            if sfen in peta_book.body:
-                position_info = peta_book.body[sfen]
-            elif sfen_f in peta_book.body:
-                position_info = peta_book.body[sfen_f]
-            else:
+            position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen)
+            if position_info is None:
                 add_position_command_entry(think_sfens, position_cmd, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
@@ -3040,13 +3052,8 @@ def peta_next(
                 # 定跡DB上のsfenは、flipしたものがhitしているのか？
                 flipped_bookhit : bool
                 
-                if sfen in peta_book.body:
-                    position_info = peta_book.body[sfen]
-                    flipped_bookhit = False
-                elif sfen_f in peta_book.body:
-                    position_info = peta_book.body[sfen_f]
-                    flipped_bookhit = True
-                else:
+                position_info, flipped_bookhit = find_peta_next_position(peta_book, fallback_book, sfen)
+                if position_info is None or (fallback_book is not None and not position_info.moveinfos):
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
@@ -4328,6 +4335,10 @@ def user_input(from_gui:bool = False):
                 max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
                 book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
                 eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
+                normal_fallback = parse_int_argument(inp, 6, 0)
+                if normal_fallback not in (0, 1):
+                    print("Error : normal book fallback must be 0 or 1.")
+                    continue
                 if peta_eval_diff < 0:
                     print("Error : peta_eval_diff must be non-negative integer.")
                     continue
@@ -4350,6 +4361,7 @@ def user_input(from_gui:bool = False):
                     book_miner_settings.peta_next_start_sfens_path,
                     book_extend_ply,
                     eval_limit=eval_limit,
+                    fallback_book=book if normal_fallback else None,
                 )
 
             elif i == 'pj' or i == 'peta_rejoin':

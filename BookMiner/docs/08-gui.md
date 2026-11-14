@@ -47,6 +47,8 @@ book/think_sfens.txt
 
 `enqueue` の右側にある `上位N手` と `M手先まで` を両方0にすると従来通りの `e` です。両方を1以上にすると、`eb 上位手数 手先まで` を送信し、各入力局面を掘ったあとMultiPV上位手で枝分かれして掘ります。このbranch設定はenqueue時の指定で、`think_sfens.txt` には書き込みません。
 
+`peta next` の `通常DBも` をオンにすると、peta book にない局面を現在の通常 DB からもたどります。オフ（初期値）は従来どおりです。詳細は [peta next](11-peta-operations.md#peta-next) を参照してください。
+
 `enqueue` は、`book/think_sfens.txt` の局面を探索キューへ積む操作です。queue は、これから探索する局面を入れておく待ち行列です。queue に積まれた局面は、BookMiner の探索スレッドによって順に処理されます。
 
 次に掘る局面を `book/think_sfens.txt` に用意する方法はいくつかあります。
