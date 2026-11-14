@@ -13,6 +13,20 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_mining_status_is_one_line(self):
+        instance = Mock()
+        instance.latest_mining_positions = None
+        instance.book_positions_text = '定跡局面数 12,345,678'
+        instance.peta_positions_text = 'peta定跡局面数 12,000,000'
+        instance.engine_status_text = 'エンジン起動数 4/4'
+        instance.enqueue_status_text = 'enqueue 1/100'
+        gui.BookMinerGui._update_mining_status(instance)
+        text = instance.mining_status.set.call_args.args[0]
+        self.assertNotIn('\n', text)
+        for item in (instance.book_positions_text, instance.peta_positions_text,
+                     instance.engine_status_text, instance.enqueue_status_text, '現在の採掘速度'):
+            self.assertIn(item, text)
+
     def test_auto_enqueue_stops_when_backend_cannot_enqueue(self):
         instance = Mock()
         instance.settings_apply_pending = False

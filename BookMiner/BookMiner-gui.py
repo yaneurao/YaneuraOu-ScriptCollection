@@ -2020,9 +2020,9 @@ class BookMinerGui(ttk.Frame):
                         current_nps_text = f"{round(positions_per_second * avg_nodes):,}"
 
         self.mining_status.set(
-            f"{self.book_positions_text}    {self.peta_positions_text}    {self.engine_status_text}    {self.enqueue_status_text}\n"
-            f"現在の採掘速度 {speed_text} 局面/日    "
-            f"平均探索nodes {avg_nodes_text}    現在のnps {current_nps_text}"
+            f"{self.book_positions_text}  {self.peta_positions_text}  {self.engine_status_text}  {self.enqueue_status_text}  "
+            f"現在の採掘速度 {speed_text} 局面/日  "
+            f"平均探索nodes {avg_nodes_text}  現在のnps {current_nps_text}"
         )
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
