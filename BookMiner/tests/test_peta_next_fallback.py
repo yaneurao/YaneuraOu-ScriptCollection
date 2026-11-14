@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import tempfile
+from threading import Event
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +14,19 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_cancellation_during_merge_preserves_previous_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            black, white, output = root / 'black', root / 'white', root / 'output'
+            black.write_text('startpos\n')
+            white.write_text('startpos moves 7g7f\n')
+            output.write_text('previous\n')
+            cancel = Event()
+            cancel.set()
+            with self.assertRaises(miner.PetaNextCancelled):
+                miner.merge_position_command_files(str(black), str(white), str(output), cancel)
+            self.assertEqual(output.read_text(), 'previous\n')
+
     def test_fallback_does_not_hide_unscored_frontier(self):
         peta, normal = miner.Book(), miner.Book()
         board = miner.cshogi.Board()
@@ -44,7 +58,8 @@ class PetaNextFallbackTest(unittest.TestCase):
                 with self.subTest(command=command.__name__), \
                      patch.object(miner, 'load_peta_root_positions', wraps=miner.load_peta_root_positions) as load:
                     command(10, 10, 100, str(roots))
-                    load.assert_called_once_with(str(roots))
+                    load.assert_called_once()
+                    self.assertEqual(load.call_args.args[0], str(roots))
 
     def test_start_position_eval_diff_overrides_default(self):
         book = miner.Book()

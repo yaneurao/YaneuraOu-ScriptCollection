@@ -13,6 +13,49 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_peta_next_button_changes_to_cancel_while_running(self):
+        instance = Mock()
+        instance.is_running.return_value = True
+        instance.command_ready = True
+        instance.busy_action = 'manual_peta_next'
+        instance.enqueue_pending = False
+        instance.manual_backup_pending = False
+        instance.peta_makebook_active = False
+        instance.peta_next_cancel_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._update_buttons(instance)
+        instance.next_button.configure.assert_any_call(text='cancel')
+        instance.next_button.configure.assert_any_call(state='normal')
+        instance.next_button.reset_mock()
+        instance.peta_next_cancel_pending = True
+        gui.BookMinerGui._update_buttons(instance)
+        instance.next_button.configure.assert_any_call(state='disabled')
+
+    def test_cancel_peta_next_button_sends_cancel_once(self):
+        instance = Mock()
+        instance.busy_action = 'manual_peta_next'
+        instance.peta_next_cancel_pending = False
+        instance.send_command.return_value = True
+        gui.BookMinerGui.on_peta_next_button(instance)
+        gui.BookMinerGui.on_peta_next_button(instance)
+        instance.send_command.assert_called_once_with('cancel-peta-next')
+        self.assertTrue(instance.peta_next_cancel_pending)
+
+    def test_cancelled_peta_next_restores_manual_and_stops_automatic(self):
+        for auto in (False, True):
+            with self.subTest(auto=auto):
+                instance = Mock()
+                instance.busy_action = 'auto_enqueue' if auto else 'manual_peta_next'
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if auto else gui.AUTO_ENQUEUE_IDLE
+                instance.peta_next_cancel_pending = True
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaNextCancelled]')
+                self.assertFalse(instance.peta_next_cancel_pending)
+                if auto:
+                    instance._abort_auto_enqueue.assert_called_once()
+                else:
+                    self.assertIsNone(instance.busy_action)
+                    instance._update_buttons.assert_called_once()
+
     def test_rejected_peta_command_does_not_leave_gui_busy(self):
         for auto in (False, True):
             with self.subTest(auto=auto):

@@ -15,7 +15,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TypeAlias, Any, Callable, Generic, TypeVar
 from collections import deque
-from threading import Condition, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 from itertools import zip_longest
 from contextlib import contextmanager
 
@@ -980,24 +980,35 @@ def atomic_position_output(path:str):
             os.remove(temporary)
 
 
-def write_position_command_entries(path:str, entries:dict[PositionStr, PositionCommandEntry]):
+class PetaNextCancelled(Exception):
+    pass
+
+def check_peta_next_cancel(cancel:Event|None):
+    if cancel is not None and cancel.is_set():
+        raise PetaNextCancelled()
+
+def write_position_command_entries(path:str, entries:dict[PositionStr, PositionCommandEntry], cancel:Event|None = None):
     with atomic_position_output(path) as w:
         for entry in entries.values():
+            check_peta_next_cancel(cancel)
             w.write(format_position_command_entry(entry) + '\n')
+        check_peta_next_cancel(cancel)
 
 
-def merge_position_command_files(black_path:str, white_path:str, output_path:str)->int:
+def merge_position_command_files(black_path:str, white_path:str, output_path:str, cancel:Event|None = None)->int:
     count = 0
     seen : set[str] = set()
     with open(black_path, 'r', encoding='utf-8') as black, \
          open(white_path, 'r', encoding='utf-8') as white, \
          atomic_position_output(output_path) as output:
         for line_a, line_b in zip_longest(black, white, fillvalue=''):
+            check_peta_next_cancel(cancel)
             for line in (line_a, line_b):
                 if line and (entry := line.rstrip('\r\n')) not in seen:
                     seen.add(entry)
                     output.write(entry + '\n')
                     count += 1
+        check_peta_next_cancel(cancel)
     return count
 
 
@@ -3107,6 +3118,7 @@ def peta_next(
     eval_refutation_margin:int|None = None,
     eval_limit:int|None = None,
     fallback_book:Book|None = None,
+    cancel:Event|None = None,
 ):
     """
     r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
@@ -3142,7 +3154,8 @@ def peta_next(
 
     # 先手の定跡を考えるのか？
     # turn == 1 なら 先手、0なら後手
-    root_positions = load_peta_root_positions(start_sfens_path)
+    root_positions = load_peta_root_positions(start_sfens_path, cancel)
+    check_peta_next_cancel(cancel)
     for turn in [1, 0]:
 
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
@@ -3164,6 +3177,7 @@ def peta_next(
 
         # root_positionsのroot_bestを調べてcurrent_positionsに突っ込む。
         for position_cmd, sfen_with_ply, root_eval_diff in root_positions:
+            check_peta_next_cancel(cancel)
             sfen, ply = trim_sfen_ply(sfen_with_ply)
 
             if ply >= max_book_ply:
@@ -3201,6 +3215,7 @@ def peta_next(
             next_positions : dict[PositionStr, tuple[Sfen, int, int]] = {}
 
             for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
+                check_peta_next_cancel(cancel)
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
 
                 if ply >= max_book_ply:
@@ -3292,7 +3307,7 @@ def peta_next(
 
         path = os.path.join(BOOK_DIR, f"think_sfens-{turn_str}.txt")
         print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-        write_position_command_entries(path, think_sfens)
+        write_position_command_entries(path, think_sfens, cancel)
 
 
     # 先後のthink_sfensを合体させたファイル。
@@ -3301,7 +3316,7 @@ def peta_next(
     bw_path = os.path.join(BOOK_DIR, f"think_sfens.txt")
     b_path  = os.path.join(BOOK_DIR, f"think_sfens-black.txt")
     w_path  = os.path.join(BOOK_DIR, f"think_sfens-white.txt")
-    bw_count = merge_position_command_files(b_path, w_path, bw_path)
+    bw_count = merge_position_command_files(b_path, w_path, bw_path, cancel)
 
     print(f"{next_name} done.")
     done_tag = "PetaRefutationDone" if refutation_book is not None else "PetaNextDone"
@@ -3357,12 +3372,13 @@ def peta_best_moveinfo_for_sfen(sfen:Sfen)->tuple[MoveInfo|None, MoveStr]:
     return best, best_move
 
 
-def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen, int|None]]:
+def load_peta_root_positions(start_sfens_path:str, cancel:Event|None = None)->list[tuple[PositionStr, Sfen, int|None]]:
     root_positions : list[tuple[PositionStr, Sfen, int|None]] = []
     if os.path.exists(start_sfens_path):
         print(f"read start sfens , path = {start_sfens_path}")
         with open(start_sfens_path, 'r', encoding='utf-8-sig', errors='replace') as source:
             for line_number, line in enumerate(source, 1):
+                check_peta_next_cancel(cancel)
                 position_cmd = line.strip()
                 if not position_cmd or position_cmd.startswith('#'):
                     continue
@@ -4292,6 +4308,8 @@ def user_input(from_gui:bool = False):
 
     # enable_print_log()
 
+    peta_next_cancel = Event()
+    peta_next_thread : Thread|None = None
     while True:
         try:
             if not from_gui:
@@ -4300,6 +4318,17 @@ def user_input(from_gui:bool = False):
             if not inp:
                 continue
             i = inp[0].lower()
+            if i == 'cancel-peta-next':
+                if peta_next_thread is not None and peta_next_thread.is_alive():
+                    peta_next_cancel.set()
+                else:
+                    print('[PetaNextCancelIgnored] no peta next is running')
+                continue
+            if (peta_next_thread is not None and peta_next_thread.is_alive()
+                    and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
+                              'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
+                print('Error : peta command is running. wait for peta command completion.')
+                continue
             if i == 'h':
                 print("Help : ")
                 print("  Q : quit")
@@ -4501,15 +4530,20 @@ def user_input(from_gui:bool = False):
                 if eval_limit < 0:
                     print("Error : eval_limit must be non-negative integer.")
                     continue
-                peta_next(
-                    peta_eval_diff,
-                    max_step,
-                    max_book_ply,
-                    book_miner_settings.peta_next_start_sfens_path,
-                    book_extend_ply,
-                    eval_limit=eval_limit,
-                    fallback_book=book if normal_fallback else None,
-                )
+                start_path = book_miner_settings.peta_next_start_sfens_path
+                peta_next_cancel.clear()
+                def run_peta_next(diff=peta_eval_diff, steps=max_step, ply=max_book_ply,
+                                  path=start_path, extend=book_extend_ply, limit=eval_limit,
+                                  fallback=normal_fallback):
+                    try:
+                        peta_next(diff, steps, ply, path, extend, eval_limit=limit,
+                                  fallback_book=book if fallback else None, cancel=peta_next_cancel)
+                    except PetaNextCancelled:
+                        print('[PetaNextCancelled]')
+                    except Exception as exc:
+                        print(f'Exception : peta command failed: {exc}')
+                peta_next_thread = Thread(target=run_peta_next, daemon=True)
+                peta_next_thread.start()
 
             elif i == 'pj' or i == 'peta_rejoin':
                 # peta_rejoin

@@ -1925,7 +1925,15 @@ struct PetaRootPosition {
     std::optional<int> eval_diff;
 };
 
-std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesystem::path& start_sfens_path)
+struct PetaNextCancelled {};
+
+void check_peta_next_cancel(const std::atomic<bool>* cancelled)
+{
+    if (cancelled && cancelled->load())
+        throw PetaNextCancelled{};
+}
+
+std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesystem::path& start_sfens_path, const std::atomic<bool>* cancelled = nullptr)
 {
     std::vector<PetaRootPosition> roots;
     const bool has_start_sfens_file = fs::exists(start_sfens_path);
@@ -1943,6 +1951,7 @@ std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesyste
         std::size_t line_number = 0;
         while (std::getline(in, line))
         {
+            check_peta_next_cancel(cancelled);
             ++line_number;
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
@@ -2023,7 +2032,8 @@ std::vector<std::string> peta_next_for_turn(
     const std::filesystem::path& start_sfens_path,
     std::optional<int> eval_refutation_margin,
     const bookminer::BookStore* fallback_book = nullptr,
-    const std::vector<PetaRootPosition>* loaded_roots = nullptr)
+    const std::vector<PetaRootPosition>* loaded_roots = nullptr,
+    const std::atomic<bool>* cancelled = nullptr)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
@@ -2039,12 +2049,13 @@ std::vector<std::string> peta_next_for_turn(
     log_line(std::string("--- ") + (filter_refutation ? "peta_next_refutation " : "peta_next ") + turn_str + " ---");
 
     std::unordered_map<PetaVisitKey, int, PetaVisitKeyHash> visited;
-    const auto local_roots = loaded_roots ? std::vector<PetaRootPosition>{} : load_peta_next_root_positions(start_sfens_path);
+    const auto local_roots = loaded_roots ? std::vector<PetaRootPosition>{} : load_peta_next_root_positions(start_sfens_path, cancelled);
     const auto& root_positions = loaded_roots ? *loaded_roots : local_roots;
 
     OrderedPetaNextPositions current_positions;
     for (const auto& [position_command, sfen_with_ply, root_eval_diff] : root_positions)
     {
+        check_peta_next_cancel(cancelled);
         auto [sfen, ply] = bookminer::trim_sfen_ply(sfen_with_ply);
         if (ply >= max_book_ply)
         {
@@ -2088,6 +2099,7 @@ std::vector<std::string> peta_next_for_turn(
 
         for (const auto& position_command : current_positions.order())
         {
+            check_peta_next_cancel(cancelled);
             const auto& node = current_positions.at(position_command);
             auto [sfen, ply] = bookminer::trim_sfen_ply(node.sfen_with_ply);
 
@@ -2234,11 +2246,15 @@ std::size_t write_position_commands_file(const std::filesystem::path& path, cons
     return position_commands.size();
 }
 
-std::size_t write_position_command_entries_file(const std::filesystem::path& path, const std::vector<PositionCommandEntry>& position_commands)
+std::size_t write_position_command_entries_file(const std::filesystem::path& path, const std::vector<PositionCommandEntry>& position_commands, const std::atomic<bool>* cancelled = nullptr)
 {
     write_position_file(path, [&](std::ostream& out) {
         for (const auto& position_command : position_commands)
+        {
+            check_peta_next_cancel(cancelled);
             out << format_position_command_entry(position_command) << '\n';
+        }
+        check_peta_next_cancel(cancelled);
     });
 
     return position_commands.size();
@@ -2248,16 +2264,20 @@ std::vector<PositionCommandEntry> make_position_command_entries(
     const std::vector<std::string>& position_commands,
     std::optional<int> book_extend_ply,
     std::optional<int> eval_limit,
-    std::optional<int> max_book_ply)
+    std::optional<int> max_book_ply,
+    const std::atomic<bool>* cancelled = nullptr)
 {
     std::vector<PositionCommandEntry> entries;
     entries.reserve(position_commands.size());
     for (const auto& position_command : position_commands)
+    {
+        check_peta_next_cancel(cancelled);
         entries.push_back(PositionCommandEntry{position_command, book_extend_ply, eval_limit, max_book_ply});
+    }
     return entries;
 }
 
-std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_path, const std::filesystem::path& white_path, const std::filesystem::path& output_path)
+std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_path, const std::filesystem::path& white_path, const std::filesystem::path& output_path, const std::atomic<bool>* cancelled = nullptr)
 {
     std::ifstream black(black_path);
     std::ifstream white(white_path);
@@ -2270,6 +2290,7 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
     write_position_file(output_path, [&](std::ostream& out) {
         while (true)
         {
+            check_peta_next_cancel(cancelled);
             std::string black_line;
             std::string white_line;
             const bool has_black = static_cast<bool>(std::getline(black, black_line));
@@ -2290,6 +2311,7 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
         }
         if (black.bad() || white.bad())
             throw std::runtime_error("failed to read think_sfens merge input");
+        check_peta_next_cancel(cancelled);
     });
 
     return count;
@@ -2305,7 +2327,8 @@ void peta_next(
     std::optional<int> eval_refutation_margin,
     std::optional<int> book_extend_ply,
     std::optional<int> eval_limit,
-    const bookminer::BookStore* fallback_book = nullptr)
+    const bookminer::BookStore* fallback_book = nullptr,
+    const std::atomic<bool>* cancelled = nullptr)
 {
     const bool filter_refutation = source_book != nullptr && eval_refutation_margin.has_value();
     log_line(
@@ -2320,23 +2343,27 @@ void peta_next(
         + ", peta_book_positions = " + std::to_string(peta_book.size())
         + (filter_refutation ? ", eval_refutation_margin = " + std::to_string(*eval_refutation_margin) : ""));
 
-    const auto roots = load_peta_next_root_positions(start_sfens_path);
-    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots);
+    const auto roots = load_peta_next_root_positions(start_sfens_path, cancelled);
+    check_peta_next_cancel(cancelled);
+    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled);
+    check_peta_next_cancel(cancelled);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
-        make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
+        make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply, cancelled), cancelled);
 
-    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots);
+    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled);
+    check_peta_next_cancel(cancelled);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(
         white_path,
-        make_position_command_entries(white, book_extend_ply, eval_limit, max_book_ply));
+        make_position_command_entries(white, book_extend_ply, eval_limit, max_book_ply, cancelled), cancelled);
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
-    const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path);
+    check_peta_next_cancel(cancelled);
+    const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path, cancelled);
 
     log_line(std::string(filter_refutation ? "peta_next_refutation" : "peta_next") + " done.");
     log_line(std::string("[") + (filter_refutation ? "PetaNextRefutationDone" : "PetaNextDone")
@@ -3977,23 +4004,33 @@ public:
         return running_.load();
     }
 
-    bool start(std::function<void()> command)
+    bool start(std::function<void()> command, bool cancellable_next = false)
     {
         if (running_.load())
             return false;
         if (thread_.joinable())
             thread_.join();
 
+        cancelled_ = false;
+        cancellable_next_ = cancellable_next;
         running_ = true;
         thread_ = std::thread([this, command = std::move(command)] {
             try
             {
                 command();
             }
+            catch (const PetaNextCancelled&)
+            {
+                running_ = false;
+                cancellable_next_ = false;
+                log_line("[PetaNextCancelled]");
+                return;
+            }
             catch (const std::exception& ex)
             {
                 log_line(std::string("Exception : peta command failed: ") + ex.what());
             }
+            cancellable_next_ = false;
             running_ = false;
         });
         return true;
@@ -4005,8 +4042,20 @@ public:
             thread_.join();
     }
 
+    bool cancel_next()
+    {
+        if (!running_.load() || !cancellable_next_.load())
+            return false;
+        cancelled_ = true;
+        return true;
+    }
+
+    const std::atomic<bool>* cancellation_flag() const { return &cancelled_; }
+
 private:
     std::atomic<bool> running_{false};
+    std::atomic<bool> cancellable_next_{false};
+    std::atomic<bool> cancelled_{false};
     std::thread thread_;
 };
 
@@ -4171,6 +4220,11 @@ int main(int argc, char* argv[])
             if (command == "h")
             {
                 print_help();
+            }
+            else if (command == "cancel-peta-next")
+            {
+                if (!peta_command_job.cancel_next())
+                    log_line("[PetaNextCancelIgnored] no peta next is running");
             }
             else if (command == "q")
             {
@@ -4420,7 +4474,8 @@ int main(int argc, char* argv[])
                         command_max_book_ply,
                         start_sfens_path,
                         book_extend_ply,
-                        eval_limit
+                        eval_limit,
+                        &peta_command_job
                     ] {
                         peta_next(
                             nullptr,
@@ -4432,8 +4487,9 @@ int main(int argc, char* argv[])
                             std::nullopt,
                             book_extend_ply,
                             eval_limit,
-                            normal_fallback ? &book : nullptr);
-                    }))
+                            normal_fallback ? &book : nullptr,
+                            peta_command_job.cancellation_flag());
+                    }, true))
                 {
                     log_line("Error : peta command is running. wait for peta command completion.");
                 }

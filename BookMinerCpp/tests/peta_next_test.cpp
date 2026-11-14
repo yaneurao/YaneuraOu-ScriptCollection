@@ -230,6 +230,14 @@ int main(int argc, char** argv)
         const auto black = dir / "merge-black.txt";
         { std::ofstream out(output); out << "existing\n"; }
         { std::ofstream out(black); out << "startpos\n"; }
+        const auto white = dir / "merge-white.txt";
+        { std::ofstream out(white); out << "startpos moves 7g7f\n"; }
+        std::atomic<bool> cancelled{true};
+        bool interrupted = false;
+        try { merge_black_white_think_sfens(black, white, output, &cancelled); }
+        catch (const PetaNextCancelled&) { interrupted = true; }
+        { std::ifstream check(output); std::string old; std::getline(check, old);
+          if (!interrupted || old != "existing") throw std::runtime_error("cancellation damaged existing output"); }
         bool failed = false;
         try { merge_black_white_think_sfens(black, dir / "missing-white.txt", output); }
         catch (const std::runtime_error&) { failed = true; }

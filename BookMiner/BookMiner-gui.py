@@ -547,6 +547,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_current_step2: str | None = None
         self.auto_tmp_seen: dict[tuple[str, bool, bool, bool], str] = {}
         self.busy_action: str | None = None
+        self.peta_next_cancel_pending = False
         self.enqueue_pending = False
         self.manual_backup_pending = False
         self.peta_makebook_active = False
@@ -958,13 +959,13 @@ class BookMinerGui(ttk.Frame):
             text=" peta next",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
-            command=self.send_peta_next,
+            command=self.on_peta_next_button,
         )
         self.next_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=3)
         fallback_check = ttk.Checkbutton(commands, text="通常DBも", variable=self.peta_next_normal_fallback)
         fallback_check.grid(row=3, column=2, columnspan=2, sticky="w", padx=(4, 0), pady=3)
         Tooltip(fallback_check, "peta book にない局面は通常DBも調べ、探索済みならその先まで辿ります。通常DBの評価値はペタショック化されていません。")
-        Tooltip(self.next_button, "`pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。peta shock 化した定跡から次に掘る leaf 局面を作ります。空欄はデフォルト値行を使います。")
+        Tooltip(self.next_button, "peta next で次に掘る局面を作ります。実行中は cancel ボタンで中止できます。空欄はデフォルト値行を使います。")
         ttk.Label(commands, text="eval_diff").grid(row=3, column=4, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_next_eval_diff, width=8).grid(row=3, column=5, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=3, column=6, sticky="w", padx=(12, 6), pady=3)
@@ -1198,6 +1199,7 @@ class BookMinerGui(ttk.Frame):
         self._update_buttons()
 
     def _reset_progress(self) -> None:
+        self.peta_next_cancel_pending = False
         self.backup_status.set("次回自動保存 -")
         self.book_positions_text = "定跡局面数 -"
         self.peta_positions_count = 0
@@ -2027,6 +2029,16 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
         lower = line.lower()
+        if 'Exception :' in line:
+            self.peta_next_cancel_pending = False
+        if '[PetaNextCancelled]' in line:
+            self.peta_next_cancel_pending = False
+            if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+                self._abort_auto_enqueue('auto enqueue stopped: peta next was cancelled.')
+            elif self.busy_action == 'manual_peta_next':
+                self.busy_action = None
+                self._update_buttons()
+            return
         applied = "[SettingsApplied]" in line
         apply_failed = "unknown command: reload-settings" in lower or "command=reload-settings" in lower
         if self.settings_apply_pending and (applied or apply_failed):
@@ -2130,6 +2142,7 @@ class BookMinerGui(ttk.Frame):
                 return
 
         if PETA_NEXT_DONE_RE.search(line):
+            self.peta_next_cancel_pending = False
             if self.busy_action == "manual_peta_next":
                 self.busy_action = None
                 self._update_buttons()
@@ -2355,6 +2368,7 @@ class BookMinerGui(ttk.Frame):
 
         method = self.auto_step2_queue.pop(0)
         self.auto_current_step2 = method
+        self._update_buttons()
         senders = {
             AUTO_STEP2_PETA_NEXT: self.send_peta_next,
             AUTO_STEP2_PETA_REFUTATION: self.send_peta_refutation,
@@ -2679,6 +2693,15 @@ class BookMinerGui(ttk.Frame):
                 messagebox.showerror("入力エラー", f"{label} には0以上の整数を指定してください。")
             return None
         return parsed
+
+    def on_peta_next_button(self) -> None:
+        if self.busy_action == 'manual_peta_next' or (
+                self.auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_NEXT):
+            if not self.peta_next_cancel_pending and self.send_command('cancel-peta-next'):
+                self.peta_next_cancel_pending = True
+                self._update_buttons()
+        else:
+            self.send_peta_next()
 
     def send_peta_next(self, auto: bool = False) -> bool:
         eval_diff = self._get_step2_int_token(
@@ -3238,7 +3261,11 @@ class BookMinerGui(ttk.Frame):
         configure_state("peta_button", "normal" if command_enabled and not any_busy else "disabled")
         configure_state("peta_latest_button", "normal" if command_enabled and not any_busy else "disabled")
         configure_state("peta_read_button", "normal" if command_enabled and not any_busy else "disabled")
-        configure_state("next_button", "normal" if command_enabled and not peta_book_busy else "disabled")
+        next_running = self.busy_action == "manual_peta_next" or (
+            auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_NEXT)
+        self.next_button.configure(text="cancel" if next_running else "peta next")
+        configure_state("next_button", "normal" if command_enabled and (
+            (next_running and not self.peta_next_cancel_pending) or (not next_running and not peta_book_busy)) else "disabled")
         configure_state("refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("rejoin_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("unsolved_button", "normal" if command_enabled and not peta_book_busy else "disabled")
