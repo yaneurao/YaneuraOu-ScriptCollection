@@ -545,7 +545,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.auto_step2_queue: list[str] = []
         self.auto_current_step2: str | None = None
-        self.auto_tmp_seen: dict[str, str] = {}
+        self.auto_tmp_seen: dict[tuple[str, bool, bool, bool], str] = {}
         self.busy_action: str | None = None
         self.enqueue_pending = False
         self.manual_backup_pending = False
@@ -2293,15 +2293,17 @@ class BookMinerGui(ttk.Frame):
                     if not line:
                         continue
                     position_cmd, metadata = split_think_sfen_metadata(line)
-                    old_line = self.auto_tmp_seen.get(position_cmd)
+                    key = (position_cmd, metadata.book_extend_ply is None,
+                           metadata.eval_limit is None, metadata.game_ply_limit is None)
+                    old_line = self.auto_tmp_seen.get(key)
                     if old_line is None:
-                        self.auto_tmp_seen[position_cmd] = line
+                        self.auto_tmp_seen[key] = line
                         added += 1
                         continue
                     _old_position_cmd, old_metadata = split_think_sfen_metadata(old_line)
                     merged = merge_think_sfen_metadata(position_cmd, old_metadata, metadata)
                     if merged != old_line:
-                        self.auto_tmp_seen[position_cmd] = merged
+                        self.auto_tmp_seen[key] = merged
                         updated += 1
                         continue
                     else:

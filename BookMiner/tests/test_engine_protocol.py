@@ -21,6 +21,17 @@ spec.loader.exec_module(miner)
 
 
 class EngineProtocolTests(unittest.TestCase):
+    def test_enqueue_merges_duplicates_after_resolving_default_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'think_sfens.txt'
+            path.write_text('startpos\nstartpos, book_extend_ply=3, eval_limit=100, game_ply_limit=100\n')
+            manager = Mock()
+            manager.engine_alive_count.return_value = 1
+            miner.put_position_commands(miner.Book(), str(path), manager, 400, 200, 10)
+            manager.put_task.assert_called_once()
+            task = manager.put_task.call_args.args[0]
+            self.assertEqual((task.book_extend_ply, task.eval_limit, task.max_book_ply), (10, 400, 200))
+
     def test_existing_position_records_shorter_ply_even_when_visited(self):
         for visited in (set(), {miner.SFEN_START}):
             with self.subTest(visited=bool(visited)):

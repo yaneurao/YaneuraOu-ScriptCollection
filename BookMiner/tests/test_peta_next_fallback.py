@@ -13,6 +13,20 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_fallback_does_not_hide_unscored_frontier(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 0)], 1)
+        board.push_usi('7g7f')
+        child, _ = miner.trim_sfen_ply(board.sfen())
+        normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', None, 0)], 2)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', peta), patch.object(miner, 'BOOK_DIR', directory):
+            miner.peta_next(10, 10, 100, str(Path(directory) / 'missing'), fallback_book=normal)
+            lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertTrue(lines[0].startswith('startpos moves 7g7f,'), lines)
+
     def test_refutation_does_not_output_missing_start_position(self):
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):

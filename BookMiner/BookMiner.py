@@ -3073,7 +3073,7 @@ def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[Pos
         # 掘削スレッドが更新する通常DBは、ロック中に局面単位でコピーする。
         with fallback.lock:
             normal, normal_flipped = find_book_position_with_flip(fallback, sfen)
-            if normal is not None and normal.moveinfos:
+            if normal is not None and has_considered(normal):
                 moves = [MoveInfo(m.move, m.eval, m.depth) for m in normal.moveinfos]
                 moves.sort(key=lambda m: m.eval if isinstance(m.eval, int) else -float('inf'), reverse=True)
                 return PositionInfo(moves, normal.ply), normal_flipped
@@ -4030,9 +4030,9 @@ def put_position_commands(
         add_position_command_entry(
             entries,
             entry.position_cmd,
-            entry.book_extend_ply,
-            entry.eval_limit,
-            entry.max_book_ply,
+            book_extend_ply if entry.book_extend_ply is None else entry.book_extend_ply,
+            eval_limit if entry.eval_limit is None else entry.eval_limit,
+            max_book_ply if entry.max_book_ply is None else entry.max_book_ply,
         )
 
     total = len(entries)

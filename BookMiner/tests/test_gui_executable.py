@@ -197,6 +197,18 @@ class GuiExecutableTests(unittest.TestCase):
             self.assertEqual(target.read_text(),
                              'startpos, book_extend_ply=10, eval_limit=400, game_ply_limit=200\n')
 
+    def test_auto_enqueue_preserves_default_and_explicit_conditions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, target = Path(directory) / 'source', Path(directory) / 'target'
+            instance = Mock()
+            instance.auto_tmp_seen = {}
+            with patch.object(gui, 'THINK_SFENS_PATH', source), patch.object(gui, 'AUTO_THINK_SFENS_PATH', target):
+                source.write_text('startpos\n')
+                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'first'))
+                source.write_text('startpos, eval_limit=100\n')
+                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'second'))
+            self.assertEqual(target.read_text().splitlines(), ['startpos', 'startpos, eval_limit=100'])
+
     def test_auto_enqueue_stops_when_no_positions_are_extracted(self):
         instance = Mock()
         instance.auto_enqueue_enabled.get.return_value = True
