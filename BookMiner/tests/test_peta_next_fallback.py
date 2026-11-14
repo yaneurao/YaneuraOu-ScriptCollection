@@ -13,6 +13,19 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_start_positions_accept_utf8_bom(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('# コメント\nstartpos\n', encoding='utf-8-sig')
+            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1)])
+            miner.peta_next(100, 100, 200, str(roots))
+            lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
+            self.assertTrue(lines)
+            self.assertTrue(all(line.startswith('startpos,') for line in lines))
+            roots.write_text('# コメント\nstartpos\n', encoding='cp932')
+            self.assertEqual(miner.load_peta_root_positions(str(roots)), [('startpos', miner.SFEN_START_PLY1)])
+
     def test_current_book_extends_old_frontier_and_peta_takes_priority(self):
         peta, normal = miner.Book(), miner.Book()
         root = miner.cshogi.Board()

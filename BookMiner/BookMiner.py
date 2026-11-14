@@ -2393,37 +2393,38 @@ def read_yaneuraou_book_file(
         ply = 0
 
     first = True
-    for raw_line in open(path, 'r', encoding='utf-8'):
-        line = raw_line.rstrip()
-        if not line:
-            continue
+    with open(path, 'r', encoding='utf-8') as source:
+        for raw_line in source:
+            line = raw_line.rstrip()
+            if not line:
+                continue
 
-        line = line.lstrip('\ufeff')
-        if YANEURAOU_BOOK_HEADER_V1 in line:
-            first = False
-            continue
+            line = line.lstrip('\ufeff')
+            if YANEURAOU_BOOK_HEADER_V1 in line:
+                first = False
+                continue
 
-        if line.startswith('#'):
-            parsed_total_positions = parse_noe_line(line)
-            if parsed_total_positions is not None and parsed_total_positions != total_positions:
-                total_positions = parsed_total_positions
-                print_book_read_start(path, total_positions)
-            first = False
-            continue
+            if line.startswith('#'):
+                parsed_total_positions = parse_noe_line(line)
+                if parsed_total_positions is not None and parsed_total_positions != total_positions:
+                    total_positions = parsed_total_positions
+                    print_book_read_start(path, total_positions)
+                first = False
+                continue
 
-        if first:
-            if not line.startswith('sfen '):
-                print("warning : illegal YaneuraOu Book Header")
-            first = False
+            if first:
+                if not line.startswith('sfen '):
+                    print("warning : illegal YaneuraOu Book Header")
+                first = False
 
-        if line.startswith('sfen '):
-            append_to_book()
-            count += 1
-            if count % BOOK_READ_PROGRESS_INTERVAL == 0:
-                print_book_read_progress(count, total_positions)
-            sfen, ply = trim_sfen_ply(line)
-        else:
-            moveinfos.append(parse_book_move_line(line, normalize_eval))
+            if line.startswith('sfen '):
+                append_to_book()
+                count += 1
+                if count % BOOK_READ_PROGRESS_INTERVAL == 0:
+                    print_book_read_progress(count, total_positions)
+                sfen, ply = trim_sfen_ply(line)
+            else:
+                moveinfos.append(parse_book_move_line(line, normalize_eval))
 
     append_to_book()
     print_book_read_done(path, count, total_positions)
@@ -2496,12 +2497,14 @@ def read_yaneuraou_book(book:Book, path:str):
         if sfen in book.body:
             # 定跡本体に見つかったので、指し手のみ追加登録する。
             merge_moveinfos(book.body[sfen], moveinfos)
+            book.body[sfen].ply = min(book.body[sfen].ply, ply)
         else:
             # flipped sfenのほうも調べる。
             sfen_f = flipped_sfen(sfen)
             if sfen_f in book.body:
                 moveinfos_f = [MoveInfo(flipped_move(moveinfo.move), moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos]
                 merge_moveinfos(book.body[sfen_f], moveinfos_f)
+                book.body[sfen_f].ply = min(book.body[sfen_f].ply, ply)
             else:
                 # 定跡本体に見つからなかったので、新規局面として登録する。
                 book.body[sfen] = PositionInfo([MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos], ply)
@@ -2528,7 +2531,13 @@ def read_regular_book_fast(book:Book, path:str, label:str):
     print(f"read {label} , path = {path}")
 
     def append_position(sfen:Sfen, ply:int, moveinfos:list[MoveInfo]):
-        book.body[sfen] = PositionInfo(moveinfos, ply)
+        position = book.body.get(sfen)
+        if position is None:
+            book.body[sfen] = PositionInfo(moveinfos, ply)
+        else:
+            merge_moveinfos(position, moveinfos)
+            position.ply = min(position.ply, ply)
+            position.moveinfos.sort(key=lambda move: move.eval if move.eval is not None else VALUE_MIN, reverse=True)
 
     with book.lock:
         read_yaneuraou_book_file(
@@ -2999,20 +3008,7 @@ def peta_next(
         # bfs
 
         # 今回辿る局面集合。(position文字列, plyつきsfen)
-        root_positions : list[tuple[PositionStr, Sfen]] = []
-
-        # ファイルで指定されているなら、そこから。
-        if os.path.exists(start_sfens_path):
-            print(f"read start sfens , path = {start_sfens_path}")
-            for line in open(start_sfens_path, 'r'):
-                position_cmd = line.strip()
-                if not position_cmd or position_cmd.startswith('#'):
-                    continue
-                sfen_with_ply = decode_position_string(position_cmd)
-                print(f"start sfen = {sfen_with_ply}")
-                root_positions.append((position_cmd, sfen_with_ply))
-        else:
-            root_positions.append(('startpos', SFEN_START_PLY1))
+        root_positions = load_peta_root_positions(start_sfens_path)
 
         # PositionStr -> Sfen with ply,RootBest,EvalDiffが並んでいる。
         current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
@@ -3222,13 +3218,14 @@ def load_peta_root_positions(start_sfens_path:str)->list[tuple[PositionStr, Sfen
     root_positions : list[tuple[PositionStr, Sfen]] = []
     if os.path.exists(start_sfens_path):
         print(f"read start sfens , path = {start_sfens_path}")
-        for line in open(start_sfens_path, 'r'):
-            position_cmd = line.strip()
-            if not position_cmd or position_cmd.startswith('#'):
-                continue
-            sfen_with_ply = decode_position_string(position_cmd)
-            print(f"start sfen = {sfen_with_ply}")
-            root_positions.append((position_cmd, sfen_with_ply))
+        with open(start_sfens_path, 'r', encoding='utf-8-sig', errors='replace') as source:
+            for line in source:
+                position_cmd = line.strip()
+                if not position_cmd or position_cmd.startswith('#'):
+                    continue
+                sfen_with_ply = decode_position_string(position_cmd)
+                print(f"start sfen = {sfen_with_ply}")
+                root_positions.append((position_cmd, sfen_with_ply))
     else:
         root_positions.append(('startpos', SFEN_START_PLY1))
 

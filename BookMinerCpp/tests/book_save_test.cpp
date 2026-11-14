@@ -53,15 +53,18 @@ int main(int argc, char** argv)
         std::ofstream out(input);
         out << bookminer::YaneuraOuBookHeaderV1 << "\nsfen " << bookminer::StartSfen
             << " 20\n7g7f none 10 0\nsfen " << bookminer::StartSfen
-            << " 5\n2g2f none 5 0\n";
+            << " 5\n2g2f none 5 0\n7g7f none 30 7\n";
         out.close();
         bookminer::BookStore book;
         book.load_yaneuraou_book(input, false, nullptr, nullptr);
-        if (book.find_position_copy(bookminer::StartSfenPly1)->ply != 5)
-            throw std::runtime_error("import did not retain the shortest ply");
+        const auto loaded = book.find_position_copy(bookminer::StartSfenPly1);
+        if (!loaded || loaded->ply != 5 || loaded->moves.size() != 2
+            || loaded->moves.front().eval != 30 || loaded->moves.front().depth != 7)
+            throw std::runtime_error("import did not merge duplicate position moves and ply");
         auto probe = bookminer::open_book_probe(input);
         const auto found = probe->find_position_copy(bookminer::StartSfenPly1);
-        if (!found || found->ply != 5 || found->moves.size() != 2)
+        if (!found || found->ply != 5 || found->moves.size() != 2
+            || found->moves.front().eval != 30 || found->moves.front().depth != 7)
             throw std::runtime_error("db probe did not merge duplicate positions");
     }
     {

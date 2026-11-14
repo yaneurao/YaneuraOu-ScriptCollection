@@ -152,6 +152,17 @@ ParsedMoveLine parse_book_move_line(const std::string& line, bool normalize_eval
     return parsed;
 }
 
+void merge_book_move(std::vector<MoveInfo>& moves, MoveInfo move)
+{
+    const auto existing = std::find_if(moves.begin(), moves.end(), [&](const MoveInfo& item) {
+        return item.move16 == move.move16;
+    });
+    if (existing == moves.end())
+        moves.push_back(move);
+    else
+        *existing = move;
+}
+
 void report_progress(BookProgressCallback progress, void* user, BookProgressKind kind, std::size_t current, std::optional<std::size_t> total, const std::filesystem::path& path)
 {
     if (progress)
@@ -775,10 +786,16 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
             const PackedSfen key = PackedSfen::from_sfen(current_sfen);
             auto& position = loaded[key];
             if (position.moves.empty())
+            {
                 position.ply = static_cast<std::uint16_t>(std::clamp(current_ply, 0, 65535));
+                position.moves = std::move(current_moves);
+            }
             else
+            {
                 position.ply = std::min(position.ply, static_cast<std::uint16_t>(std::clamp(current_ply, 0, 65535)));
-            position.moves.insert(position.moves.end(), current_moves.begin(), current_moves.end());
+                for (const auto& move : current_moves)
+                    merge_book_move(position.moves, move);
+            }
             sort_moves(position.moves);
         }
 
@@ -1096,7 +1113,11 @@ private:
             const auto parsed = parse_book_move_line(line, normalize_eval_);
             if (parsed.eval.has_value())
             {
-                position.moves.push_back(MoveInfo{parsed.move16, *parsed.eval, parsed.depth});
+                const MoveInfo move{parsed.move16, *parsed.eval, parsed.depth};
+                if (has_position)
+                    merge_book_move(position.moves, move);
+                else
+                    position.moves.push_back(move);
                 section_has_moves = true;
             }
         }
