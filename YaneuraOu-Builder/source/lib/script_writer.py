@@ -106,7 +106,16 @@ def _write_release_scripts(recipe: dict[str, Any], plan: list[dict[str, Any]], s
             lines.append(f"make clean YANEURAOU_EDITION={job['edition']}")
             lines.append(job["command"])
             source_executable = job.get("source_executable", "YaneuraOu-by-gcc")
-            lines.append(f"cp {source_executable} {_quote('../' + eval_dir + '/' + job['artifact'])}")
+            artifact_path = '../' + eval_dir + '/' + job['artifact']
+            if platform in ("win32", "win64") and not source_executable.lower().endswith(".exe"):
+                # MSYS2 may produce either a native .exe or an extensionless PGO target.
+                lines.append(f"if [ -f {_quote(source_executable + '.exe')} ]; then")
+                lines.append(f"  mv {_quote(source_executable + '.exe')} {_quote(artifact_path + '.exe')}")
+                lines.append("else")
+                lines.append(f"  mv {_quote(source_executable)} {_quote(artifact_path)}")
+                lines.append("fi")
+            else:
+                lines.append(f"mv {_quote(source_executable)} {_quote(artifact_path)}")
             lines.append('echo ' + _quote_literal(f'[BUILD] 成功: {job["artifact"]}'))
             lines.append("")
 
