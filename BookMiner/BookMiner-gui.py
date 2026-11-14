@@ -808,7 +808,7 @@ class BookMinerGui(ttk.Frame):
         notebook.grid(row=0, column=0, sticky="nsew")
         mining = ttk.Frame(notebook, padding=4)
         settings = ttk.Frame(notebook, padding=16)
-        notebook.add(mining, text="mining")
+        notebook.add(mining, text="採掘")
         notebook.add(settings, text="設定")
         mining.columnconfigure(0, weight=1)
         mining.rowconfigure(2, weight=1)

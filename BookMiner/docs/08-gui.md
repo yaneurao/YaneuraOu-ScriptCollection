@@ -143,7 +143,7 @@ branch指定時は、入力局面を掘ることが確定してから上位手�
 
 「設定」タブの項目は「適用」で `settings/book_miner_settings.json5` に保存し、実行中の対応版BookMinerへも反映します。自動保存の間隔、保存何回ごとのpeta shock化、peta nextの開始局面ファイル、最大手数、peta shockの並列数を設定できます。
 
-mining タブの数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
+採掘タブの数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
 保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
