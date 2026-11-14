@@ -40,6 +40,26 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        const std::string moves = "5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g "
+                                  "3c3d 7i6h 2b7g+ 6h7g 3a2b 3i3h 2b3c 6i7h 7a6b 9g9f "
+                                  "9c9d 1g1f 1c1d 4g4f 6c6d 3g3f 6a5b";
+        { std::ofstream out(roots_path, std::ios::binary);
+          out << "\xef\xbb\xbf// comment,xyz\nstartpos moves " << moves << ",100 // comment\n"
+                 "startpos moves 7g7f // default\n# comment\n"; }
+        const auto roots = load_peta_next_root_positions(roots_path);
+        if (roots.size() != 2 || roots[0].position_command != "startpos moves " + moves
+            || roots[0].eval_diff != 100 || roots[1].position_command != "startpos moves 7g7f"
+            || roots[1].eval_diff.has_value())
+            throw std::runtime_error("start position comments were parsed incorrectly");
+        { std::ofstream out(roots_path); out << "startpos, invalid // comment\n"; }
+        bool rejected = false;
+        try { (void)load_peta_next_root_positions(roots_path); }
+        catch (const std::runtime_error&) { rejected = true; }
+        if (!rejected)
+            throw std::runtime_error("invalid eval_diff before comment was accepted");
+        std::filesystem::remove(roots_path);
+    }
+    {
         const std::string moves = "5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g 6a5b";
         auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         for (const auto& move : split_ws(moves)) board.push_usi(move);

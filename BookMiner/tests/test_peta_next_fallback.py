@@ -14,6 +14,26 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_start_positions_support_slash_comments(self):
+        moves = ('5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g '
+                 '3c3d 7i6h 2b7g+ 6h7g 3a2b 3i3h 2b3c 6i7h 7a6b 9g9f '
+                 '9c9d 1g1f 1c1d 4g4f 6c6d 3g3f 6a5b')
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'// 無効な局面,xyz\nstartpos moves {moves},100 // 電竜戦\n'
+                             'startpos moves 7g7f // 共通値\n# 従来のコメント\n', encoding='utf-8-sig')
+            loaded = miner.load_peta_root_positions(str(roots))
+            self.assertEqual([(p, d) for p, _s, d in loaded],
+                             [(f'startpos moves {moves}', 100), ('startpos moves 7g7f', None)])
+            miner.peta_next(5, 10, 200, str(roots))
+            output = (Path(directory) / 'think_sfens.txt').read_text()
+            self.assertNotIn('//', output)
+            self.assertIn(f'startpos moves {moves},', output)
+            roots.write_text('startpos, invalid // コメント\n')
+            with self.assertRaisesRegex(ValueError, 'roots.txt:1'):
+                miner.load_peta_root_positions(str(roots))
+
     def test_root_zero_overrides_default_five_and_is_logged(self):
         book = miner.Book()
         book.body[miner.SFEN_START] = miner.PositionInfo([

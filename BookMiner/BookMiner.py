@@ -3379,7 +3379,7 @@ def load_peta_root_positions(start_sfens_path:str, cancel:Event|None = None)->li
         with open(start_sfens_path, 'r', encoding='utf-8-sig', errors='replace') as source:
             for line_number, line in enumerate(source, 1):
                 check_peta_next_cancel(cancel)
-                position_cmd = line.strip()
+                position_cmd = line.split('//', 1)[0].strip()
                 if not position_cmd or position_cmd.startswith('#'):
                     continue
                 root_eval_diff = None

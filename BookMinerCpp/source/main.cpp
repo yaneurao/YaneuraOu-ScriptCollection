@@ -1960,6 +1960,9 @@ std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesyste
                 && static_cast<unsigned char>(line[1]) == 0xbb
                 && static_cast<unsigned char>(line[2]) == 0xbf)
                 line.erase(0, 3);
+            const auto comment = line.find("//");
+            if (comment != std::string::npos)
+                line.erase(comment);
             auto first = std::find_if(line.begin(), line.end(), [](unsigned char ch) {
                 return !std::isspace(ch);
             });
@@ -1968,7 +1971,7 @@ std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesyste
             if (*first == '#')
                 continue;
 
-            std::string position_command(first, line.end());
+            std::string position_command = trim_metadata_copy(std::string(first, line.end()));
             std::optional<int> eval_diff;
             const auto comma = position_command.find(',');
             if (comma != std::string::npos)
