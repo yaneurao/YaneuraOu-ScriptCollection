@@ -13,6 +13,46 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_stale_queue_done_does_not_erase_newer_work(self):
+        instance = Mock()
+        instance.task_queue_total_highwater = 0
+        instance.task_queue_taken_highwater = 0
+        instance.task_queue_remaining = None
+        instance.busy_action = None
+        instance.enqueue_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._handle_task_queue_progress_line(instance, '[TaskQueueStart] 1/3')
+        gui.BookMinerGui._handle_task_queue_progress_line(instance, '[TaskQueueDone] 2/2')
+        self.assertEqual(instance.task_queue_remaining, 1)
+        self.assertEqual(instance.enqueue_status_text, 'enqueue 2/3')
+        gui.BookMinerGui._handle_task_queue_progress_line(instance, '[TaskQueueDone] 3/3')
+        self.assertEqual(instance.task_queue_remaining, 0)
+    def test_settings_wait_for_latest_apply_acknowledgement(self):
+        instance = Mock()
+        instance.settings_apply_pending = True
+        instance.settings_apply_outstanding = 2
+        instance.settings_apply_latest_sent = True
+        instance.busy_action = None
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[SettingsApplied]')
+        self.assertTrue(instance.settings_apply_pending)
+        instance.setting_status.set.assert_not_called()
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[SettingsApplied]')
+        self.assertFalse(instance.settings_apply_pending)
+        instance.setting_status.set.assert_called_once_with('保存して実行中のBookMinerに反映しました。')
+
+    def test_settings_failure_does_not_cancel_other_command(self):
+        instance = Mock()
+        instance.settings_apply_pending = True
+        instance.settings_apply_outstanding = 1
+        instance.settings_apply_latest_sent = True
+        instance.busy_action = 'manual_peta_next'
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._handle_auto_enqueue_line(
+            instance, 'Exception : command failed, command=reload-settings : invalid')
+        self.assertFalse(instance.settings_apply_pending)
+        self.assertEqual(instance.busy_action, 'manual_peta_next')
+
     def test_worker_failure_does_not_cancel_running_auto_enqueue(self):
         for line in ('[TaskWorkerError] Exception : engine failed',
                      'Exception : task failed, job=3 : engine failed'):
@@ -83,6 +123,7 @@ class GuiExecutableTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             instance = Mock()
             instance.use_cpp = False
+            instance.settings_apply_outstanding = 0
             instance.setting_minutes.get.return_value = '15'
             instance.setting_shock_every.get.return_value = '2'
             instance.setting_start_path.get.return_value = 'book/開始.txt'

@@ -493,6 +493,8 @@ class BookMinerGui(ttk.Frame):
         self.backup_in_progress = False
         self.ignore_current_backup = False
         self.settings_apply_pending = False
+        self.settings_apply_outstanding = 0
+        self.settings_apply_latest_sent = False
         self.master = master
         self.enable_shogidb = enable_shogidb
         self.use_cpp = use_cpp
@@ -544,6 +546,8 @@ class BookMinerGui(ttk.Frame):
         self.manual_backup_pending = False
         self.peta_makebook_active = False
         self.task_queue_remaining: int | None = None
+        self.task_queue_total_highwater = 0
+        self.task_queue_taken_highwater = 0
 
         self.default_eval_diff = tk.StringVar(
             value=gui_settings.get("default_eval_diff", GUI_SETTING_DEFAULTS["default_eval_diff"])
@@ -848,12 +852,14 @@ class BookMinerGui(ttk.Frame):
         self.auto_peta_pending = False
         self.ignore_current_backup = self.backup_in_progress
         if self.is_running():
-            self.settings_apply_pending = True
             if self.send_command("reload-settings"):
+                self.settings_apply_outstanding += 1
+                self.settings_apply_pending = True
+                self.settings_apply_latest_sent = True
                 self.setting_status.set("保存しました。実行中のBookMinerへの反映を待っています。")
                 self.after(15000, self._settings_apply_timeout)
             else:
-                self.settings_apply_pending = False
+                self.settings_apply_latest_sent = False
                 self.setting_status.set("保存しましたが、実行中のBookMinerには反映できませんでした。")
         else:
             self.setting_status.set("保存しました。次回起動時に反映されます。")
@@ -1196,6 +1202,8 @@ class BookMinerGui(ttk.Frame):
         self.latest_mining_nodes = None
         self.mining_samples.clear()
         self.task_queue_remaining = None
+        self.task_queue_total_highwater = 0
+        self.task_queue_taken_highwater = 0
         self.task_job_items.clear()
         self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
@@ -1526,6 +1534,11 @@ class BookMinerGui(ttk.Frame):
             return_code = process.poll()
             self._append_log("other", f"\n[GUI] {self.bookminer_name} exited. return code = {return_code}\n")
         self.process = None
+        if self.settings_apply_pending:
+            self.setting_status.set("保存しましたが、反映の完了前にBookMinerが終了しました。")
+        self.settings_apply_pending = False
+        self.settings_apply_outstanding = 0
+        self.settings_apply_latest_sent = False
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.auto_step2_queue = []
         self.auto_current_step2 = None
@@ -1683,15 +1696,20 @@ class BookMinerGui(ttk.Frame):
         phase, count_text, total_text = match.groups()
         count = int(count_text)
         total = None if total_text == "?" else int(total_text)
-        remaining = None if total is None else max(total - count, 0)
+        if total is not None:
+            self.task_queue_total_highwater = max(self.task_queue_total_highwater, total)
+            self.task_queue_taken_highwater = max(self.task_queue_taken_highwater, count)
+            total = self.task_queue_total_highwater
+            count = self.task_queue_taken_highwater
+            remaining = max(total - count, 0)
+        else:
+            remaining = 0 if phase == "Done" else None
 
         total_display = f"{total:,}" if total is not None else "?"
         self.enqueue_status_text = f"enqueue {count:,}/{total_display}"
         self._update_mining_status()
 
         previous_remaining = self.task_queue_remaining
-        if phase == "Done":
-            remaining = 0
         self.task_queue_remaining = remaining
         state_changed = previous_remaining != self.task_queue_remaining
         if phase == "Done" or remaining == 0:
@@ -1705,7 +1723,7 @@ class BookMinerGui(ttk.Frame):
             self.enqueue_pending = False
             state_changed = True
 
-        if phase == "Done":
+        if phase == "Done" and remaining == 0:
             if self.busy_action == "manual_enqueue":
                 self.busy_action = None
                 state_changed = True
@@ -1990,13 +2008,20 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
         lower = line.lower()
-        if "[SettingsApplied]" in line:
-            self.settings_apply_pending = False
-            self.setting_status.set("保存して実行中のBookMinerに反映しました。")
-        elif self.settings_apply_pending and ("unknown command: reload-settings" in lower
-                                               or "command=reload-settings" in lower):
-            self.settings_apply_pending = False
-            self.setting_status.set("保存しましたが反映に失敗しました。BookMinerを更新してください。")
+        applied = "[SettingsApplied]" in line
+        apply_failed = "unknown command: reload-settings" in lower or "command=reload-settings" in lower
+        if self.settings_apply_pending and (applied or apply_failed):
+            self.settings_apply_outstanding -= 1
+            if self.settings_apply_outstanding == 0:
+                self.settings_apply_pending = False
+                if not self.settings_apply_latest_sent:
+                    self.setting_status.set("保存しましたが、実行中のBookMinerには反映できませんでした。")
+                elif applied:
+                    self.setting_status.set("保存して実行中のBookMinerに反映しました。")
+                else:
+                    self.setting_status.set("保存しましたが反映に失敗しました。BookMinerを更新してください。")
+        if apply_failed:
+            return
         if "[BackupStart]" in line:
             self.backup_in_progress = True
         if "[BackupDone]" in line:

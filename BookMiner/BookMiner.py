@@ -4234,7 +4234,11 @@ def user_input(from_gui:bool = False):
                 print(f"[ManualBackupDone] path={path}")
 
             elif i == 'reload-settings':
-                updated = load_book_miner_settings()
+                try:
+                    updated = load_book_miner_settings()
+                except Exception as exc:
+                    print(f"Exception : command failed, command=reload-settings : {exc}")
+                    continue
                 book_miner_settings.__dict__.update(updated.__dict__)
                 command_defaults.game_ply_limit = updated.max_book_ply
                 reset_auto_backup_timer()
