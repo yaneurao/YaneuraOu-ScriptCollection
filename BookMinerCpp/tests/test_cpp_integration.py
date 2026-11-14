@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +97,44 @@ class CppIntegrationTest(unittest.TestCase):
             self.assertIn('done..1 positions.', result.stdout)
             self.assertEqual(len(list(backup.glob('book_miner-*.ybb'))), 1)
             self.assertTrue((root / 'log').is_dir())
+
+    def test_peta_next_with_startpos_file_and_live_book(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
+            (root / 'book' / 'peta_start_sfens.txt').write_text('startpos\n')
+            (backup / 'book_miner-20261114000000_1.db').write_text(
+                '#YANEURAOU-DB2016 1.00\n'
+                'sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\n'
+                '7g7f none 0 1\n')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                           stdin=subprocess.PIPE, stdout=output,
+                                           stderr=subprocess.STDOUT, text=True)
+                try:
+                    process.stdin.write('sd 30 99999 200 6 400\npn 100 99999 200 6 400 1\n')
+                    process.stdin.flush()
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        if '[PetaNextDone]' in log.read_text():
+                            break
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.05)
+                    else:
+                        self.fail('peta next did not finish: ' + log.read_text())
+                    self.assertIn('[PetaNextDone]', log.read_text())
+                    lines = (root / 'book' / 'think_sfens.txt').read_text().splitlines()
+                    self.assertEqual(len(lines), 2)
+                    self.assertTrue(all(line.startswith('startpos moves 7g7f,') for line in lines), lines)
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('q\n')
+                        process.stdin.flush()
+                    process.wait(timeout=30)
+                    process.stdin.close()
 
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
