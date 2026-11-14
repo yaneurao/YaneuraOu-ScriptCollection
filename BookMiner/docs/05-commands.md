@@ -225,7 +225,7 @@ pn 30 40 200
 
 `game_ply_limit` に到達する局面は、出力対象から除外されます。第 3 引数を指定した場合は、その値を使います。`None` を指定すると `sd` の `game_ply_limit` を使います。何も指定しない場合の初期値は `settings/book_miner_settings.json5` の `max_book_ply` です。
 
-第 4 引数で `book_extend_ply`、第 5 引数で `eval_limit` を指定できます。数値を指定すると、書き出される `book/think_sfens.txt` の各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` が付きます。
+第 4 引数で `book_extend_ply`、第 5 引数で `eval_limit` を指定できます。数値を指定すると、書き出される `book/think_sfens.txt` の各行に `book_extend_ply=...`、`eval_limit=...`、`game_ply_limit=...` が付きます。第 6 引数に `1` を指定すると、peta book に指し手がない局面で現在の通常 DB も参照します。`0` または省略では参照しません。詳しくは [peta next](11-peta-operations.md#peta-next) を参照してください。
 
 `max_step` は `book/think_sfens.txt` に書き出されず、peta系コマンドが leaf を探す範囲だけを制限します。`game_ply_limit` は `game_ply_limit=...` として書き出されるため、後で `e` したときの探索workerにも効きます。抽出数だけを抑えたい場合は、`game_ply_limit` ではなく `max_step` を小さくしてください。
 

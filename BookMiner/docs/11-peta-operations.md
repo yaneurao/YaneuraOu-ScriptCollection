@@ -8,7 +8,7 @@ peta shock 化そのものは前章で説明しています。
 
 ## 共通の流れ
 
-peta 系コマンドは、読み込み済みの peta book を辿って `book/think_sfens.txt` を作ります。そのあと `enqueue` すると、BookMiner は `book/think_sfens.txt` を通常book上で再生し、まだ掘っていない局面を探索 queue に積みます。
+peta 系コマンドは、読み込み済みの peta book を辿って `book/think_sfens.txt` を作ります。`peta next` では、設定により現在の通常 DB も参照できます。そのあと `enqueue` すると、BookMiner は `book/think_sfens.txt` を通常book上で再生し、まだ掘っていない局面を探索 queue に積みます。
 
 ```text
 peta_book を読む
@@ -24,7 +24,7 @@ enqueue
 
 ここで重要なのは、peta 系コマンドが辿る DB と、enqueue 後に探索 worker が辿る DB は別だという点です。
 
-- peta 系コマンドは、メモリ上に読み込まれている peta book を辿ります。
+- peta 系コマンドは、メモリ上に読み込まれている peta book を辿ります。`peta next` の `通常DBも` がオンのときは、peta book に指し手がない局面で通常 DB も調べます。
 - enqueue は、`book/think_sfens.txt` を通常book上で辿ります。
 - `book_extend_ply` は enqueue 後の通常book側で使われます。peta book をさらに何手辿るかではありません。
 
@@ -38,7 +38,7 @@ enqueue
 | `peta_shock_latest` | `pl` | 現在DBを保存せず、`book/backup/` の最新通常bookを peta shock 化して読み込みます。 |
 | `peta_read` | `r` | すでに存在する `peta_book-....db` または `peta_book-....ybb` を読み込みます。 |
 | `デフォルト値` | `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` | peta 系コマンドと `enqueue` が `None` や行メタ情報なしで使う共通デフォルト値を設定します。 |
-| `peta next` | `pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book を root から辿り、leaf の先へ伸ばす候補を `book/think_sfens.txt` に書き出します。 |
+| `peta next` | `pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit] [normal_fallback]` | peta book を root から辿り、leaf の先へ伸ばす候補を `book/think_sfens.txt` に書き出します。`normal_fallback` に `1` を指定すると通常 DB も参照します。 |
 | `peta refutation` | `pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、反駁された leaf だけを書き出します。 |
 | `peta rejoin` | `pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book から抜けた leaf のうち、合法手1手で peta book に再合流するものだけを書き出します。`eval_drop` で再合流時の評価値低下量を絞れます。 |
 | `peta unsolved` | `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜の各途中局面から、peta book 上の best PV leaf を書き出します。 |
@@ -65,6 +65,16 @@ GUIでは `peta next`、CLIでは `pn` コマンドです。
 
 GUI の `通常DBも` をオンにすると、peta book にない局面を現在の通常 DB にも問い合わせ、探索済みならその先まで辿ります。どちらにも指し手がない局面を次の掘削候補にします。オフ（初期値）では従来どおり peta book のみを使います。この設定は手動と自動の peta next に適用され、次回起動時にも保存されます。
 
+例えば、前回の peta shock 化後に `A → B → C` まで新たに掘ったとします。A が peta book の末端で、通常 DB には A と B の指し手が記録されている場合、`通常DBも` がオフなら A を候補にします。オンなら通常 DB の A、B を辿り、その先の C を候補にします（評価値や手数などの条件を満たす場合）。すでに掘った部分の先から続けやすくなります。
+
+GUI での使い方は次のとおりです。
+
+1. `peta_shock` または `peta_read` で peta book を読み込みます。
+2. 「採掘」タブの `peta next` 行で `通常DBも` にチェックを入れ、`peta next` を押します。
+3. 書き出された `book/think_sfens.txt` を `enqueue` します。同じチェックは、手順2の `自動` が実行する peta next にも適用されます。
+
+この方法なら、通常 DB に追加された局面を反映するためだけに毎回 peta shock 化する必要はありません。ただし、通常 DB の新しい探索結果を peta book の評価値に反映するには、改めて peta shock 化が必要です。「設定」タブでは、DB 自動保存の何回ごとに peta shock 化するかを設定できます。
+
 通常 DB の評価値はペタショック化されていません。その部分の枝選択は peta shock を全体にかけ直した結果とは一致しないことがあります。掘削中の通常 DB は局面ごとに安全に読みますが、全局面を同時点のスナップショットとして固定するわけではありません。
 
 CLI では最後に `1` を付けると通常 DB も参照し、`0` または省略で従来の動作です。
@@ -77,7 +87,7 @@ pn 30 99999 200 6 400 1
 pn 30 99999 200 6 400
 ```
 
-引数は `eval_diff max_step game_ply_limit book_extend_ply eval_limit` の順です。
+引数は `eval_diff max_step game_ply_limit book_extend_ply eval_limit normal_fallback` の順です。
 
 `eval_diff` は、root の best move の評価値から、どれくらい評価値が離れた枝まで辿るかです。値を大きくすると多くの枝を辿り、値を小さくすると best に近い枝だけを辿ります。
 

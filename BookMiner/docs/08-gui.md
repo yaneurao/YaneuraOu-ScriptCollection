@@ -95,7 +95,7 @@ GUI 上でもこの手順が縦に並んでいます。
 手順2の各行で空欄にした共通項は、`デフォルト値` 行の値を使います。明示的に `None` と入力した場合だけ、CLI へ `None` を送ります。初期値は `eval_diff=30`、`max step=99999`、`game ply limit=200`、`book extend ply=6`、`eval_limit=400` です。
 GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送って、この `デフォルト値` 行を BookMiner.py / BookMinerCpp 側へ反映します。KifManager で作ったような行メタ情報なしの `think_sfens.txt` を `enqueue` した場合も、このデフォルト値行が使われます。
 
-`peta next` は `pn eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。例えばデフォルト値行が初期値のままなら、行側をすべて空欄にして実行すると `pn 30 99999 200 6 400` を送信します。
+`peta next` は `pn eval_diff max_step game_ply_limit book_extend_ply eval_limit normal_fallback` を送信します。最後の値は `通常DBも` のチェックがオフなら `0`、オンなら `1` です。例えばデフォルト値行が初期値のままで、行側を空欄にしてチェックをオンにすると `pn 30 99999 200 6 400 1` を送信します。
 
 `peta refutation` は `pr eval_refutation_margin eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。通常の `peta next` で見つかる leaf のうち、定跡から抜ける最後の1手が元DBでは best ではなく、peta shock後の旧best手との差が `eval_refutation_margin` 以上あるものだけを抽出します。`max step` は `peta next` とは別に指定できます。
 

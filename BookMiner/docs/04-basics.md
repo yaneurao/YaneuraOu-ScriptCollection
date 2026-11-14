@@ -139,6 +139,8 @@ pn 30
 
 `30` は、root の best move の評価値からどの程度評価値が離れた枝まで辿るかを表す値です。
 
+GUI の `peta next` 行で `通常DBも` をオンにすると、peta book に指し手がない局面では、採掘中の通常 DB も調べてその先まで辿れます。前回の peta shock 化後に掘った部分も使えるため、毎回 peta shock 化せずに次の候補を探せます。通常 DB の評価値は peta shock 化されていないため、定期的な peta shock 化も必要です。操作例は [peta next](11-peta-operations.md#peta-next) を参照してください。
+
 詳しいアルゴリズムについては、以下のページをご覧ください。
 
 - [10. peta shock 化](10-peta-shock.md)
