@@ -312,7 +312,10 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
             throw std::runtime_error("engine output closed during go, thread_id=" + std::to_string(thread_id_));
 
         if (line->find("Error") != std::string::npos)
+        {
+            connection_broken_ = true;
             throw std::runtime_error("Engine Error! : " + *line);
+        }
 
         const auto tokens = split_ws(*line);
         if (tokens.empty())
@@ -416,7 +419,10 @@ void UsiEngine::send_line(const std::string& command)
         const auto chunk = static_cast<DWORD>(std::min<std::size_t>(remaining, std::numeric_limits<DWORD>::max()));
         DWORD written = 0;
         if (!WriteFile(child_stdin_write_, data, chunk, &written, nullptr) || written == 0)
+        {
+            connection_broken_ = true;
             throw std::runtime_error("failed to write to engine stdin");
+        }
         data += written;
         remaining -= written;
     }
@@ -429,7 +435,10 @@ void UsiEngine::send_line(const std::string& command)
         if (n < 0 && errno == EINTR)
             continue;
         if (n <= 0)
+        {
+            connection_broken_ = true;
             throw std::runtime_error("failed to write to engine stdin");
+        }
         data += n;
         remaining -= static_cast<std::size_t>(n);
     }
@@ -445,15 +454,22 @@ std::optional<std::string> UsiEngine::read_line()
 #ifdef _WIN32
         DWORD read_size = 0;
         if (!ReadFile(child_stdout_read_, &ch, 1, &read_size, nullptr) || read_size == 0)
+        {
+            connection_broken_ = true;
             return std::nullopt;
+        }
 #else
         const ssize_t n = read(child_stdout_read_, &ch, 1);
         if (n == 0)
+        {
+            connection_broken_ = true;
             return std::nullopt;
+        }
         if (n < 0)
         {
             if (errno == EINTR)
                 continue;
+            connection_broken_ = true;
             return std::nullopt;
         }
 #endif
@@ -473,7 +489,10 @@ void UsiEngine::wait_usi(const std::string& wait_text, const LogCallback&)
         if (!line.has_value())
             throw std::runtime_error("engine output closed while waiting " + wait_text + ", thread_id=" + std::to_string(thread_id_));
         if (line->find("Error") != std::string::npos)
+        {
+            connection_broken_ = true;
             throw std::runtime_error("Engine Error! : " + *line);
+        }
         if (*line == wait_text)
             return;
     }

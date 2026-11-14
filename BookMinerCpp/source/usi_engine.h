@@ -51,6 +51,7 @@ public:
     int thread_id() const noexcept { return thread_id_; }
     const EngineConfig& config() const noexcept { return config_; }
     bool started() const noexcept { return started_; }
+    bool connection_broken() const noexcept { return connection_broken_; }
 
 private:
     void send_line(const std::string& command);
@@ -62,6 +63,7 @@ private:
     EngineConfig config_;
     std::filesystem::path app_dir_;
     bool started_ = false;
+    bool connection_broken_ = false;
 
 #ifdef _WIN32
     HANDLE child_stdin_write_ = nullptr;

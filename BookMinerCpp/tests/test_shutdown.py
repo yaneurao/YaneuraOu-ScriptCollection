@@ -9,11 +9,206 @@ import subprocess
 import tempfile
 import time
 import unittest
+try:
+    import cshogi
+except ImportError:
+    cshogi = None
 
 
 @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY') and os.name != 'nt',
                      'Set BOOKMINER_TEST_BINARY to a built POSIX BookMinerCpp executable')
 class ShutdownTest(unittest.TestCase):
+    @unittest.skipUnless(cshogi is not None, 'cshogi is required for this fixture')
+    def test_failed_engine_resumes_branch_after_already_mined_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / 'bookminer'
+            shutil.copy2(os.environ['BOOKMINER_TEST_BINARY'], binary)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            dead, healthy = root / 'dead-engine', root / 'healthy-engine'
+            engine_body = ('#!/usr/bin/env python3\nimport sys,time\n'
+                           'count=0\nmove="7g7f"\n'
+                           'for line in sys.stdin:\n'
+                           ' line=line.strip()\n'
+                           ' if line == "usi": print("usiok", flush=True)\n'
+                           ' elif line == "isready": print("readyok", flush=True)\n'
+                           ' elif line.startswith("position "):\n'
+                           '  parts=line.split(); ply=int(parts[-1]); side=parts[-3]\n'
+                           '  move="8c8d" if side=="w" else ("7g7f" if ply==3 else "2g2f")\n'
+                           ' elif line.startswith("go "):\n'
+                           '  count+=1\n'
+                           '  if CRASH and count>=2: sys.exit(1)\n'
+                           '  if not CRASH: time.sleep(0.05)\n'
+                           '  print("info multipv 1 score cp 42 pv "+move, flush=True)\n'
+                           '  print("info multipv 2 score cp 20 pv "+move, flush=True)\n'
+                           '  print("bestmove "+move, flush=True)\n'
+                           ' elif line == "quit": break\n')
+            for path, value in ((dead, 'True'), (healthy, 'False')):
+                path.write_text(engine_body.replace('CRASH', value))
+                path.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(dead), 'nodes': 100, 'multipv': 2, 'multipv_delta': 0},
+                {'path': str(healthy), 'nodes': 100, 'multipv': 2, 'multipv_delta': 0},
+            ]))
+            positions = []
+            for move in ('1g1f', '3g3f', '4g4f', '5g5f', '6g6f', '8g8f', '9g9f'):
+                board = cshogi.Board()
+                board.push_usi(move)
+                board.push_usi('3c3d')
+                positions.append('sfen ' + board.sfen())
+            (root / 'book/think_sfens.txt').write_text('\n'.join(positions) + '\n')
+            process = subprocess.Popen([str(binary), '--from_gui'], cwd=root, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            lines = queue.Queue()
+            reader = threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True)
+            reader.start()
+            try:
+                process.stdin.write('sd 0 1 200 1 1000\neb 1 3\n')
+                process.stdin.flush()
+                captured = []
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    try:
+                        line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    captured.append(line)
+                    if '[TaskQueueDone]' in line:
+                        break
+                output = ''.join(captured)
+                self.assertIn('[EngineAlive] 1/2', output)
+                self.assertIn('[TaskQueueDone]', output)
+                self.assertIn('failed=0', next(line for line in captured if '[TaskQueueDone]' in line))
+                self.assertIn('[MiningProgress] positions=28', output)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+                reader.join(timeout=5)
+                process.stdin.close()
+                process.stdout.close()
+
+    def test_all_engines_unavailable_keep_tasks_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / 'bookminer'
+            shutil.copy2(os.environ['BOOKMINER_TEST_BINARY'], binary)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            engine = root / 'error-engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                              'for line in sys.stdin:\n'
+                              ' line=line.strip()\n'
+                              ' if line == "usi": print("usiok", flush=True)\n'
+                              ' elif line == "isready": print("readyok", flush=True)\n'
+                              ' elif line.startswith("go "):\n'
+                              '  print("info string Error! engine failed", flush=True)\n'
+                              '  sys.exit(1)\n'
+                              ' elif line == "quit": break\n')
+            engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+            (root / 'book/think_sfens.txt').write_text('startpos\nstartpos moves 2g2f\n')
+            process = subprocess.Popen([str(binary), '--from_gui'], cwd=root, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            lines = queue.Queue()
+            reader = threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True)
+            reader.start()
+            try:
+                process.stdin.write('e\n')
+                process.stdin.flush()
+                captured = []
+                deadline = time.monotonic() + 15
+                sent_again = False
+                while time.monotonic() < deadline:
+                    try:
+                        line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    captured.append(line)
+                    if '[EngineAlive] 0/1' in line and not sent_again:
+                        process.stdin.write('e\n')
+                        process.stdin.flush()
+                        sent_again = True
+                    if 'no search engines are available' in line:
+                        break
+                output = ''.join(captured)
+                self.assertIn('[EngineAlive] 0/1', output)
+                self.assertIn('no search engines are available', output)
+                self.assertNotIn('[TaskQueueDone]', output)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+                reader.join(timeout=5)
+                process.stdin.close()
+                process.stdout.close()
+
+    @unittest.skipUnless(cshogi is not None, 'cshogi is required for this fixture')
+    def test_dead_engine_leaves_tasks_for_healthy_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / 'bookminer'
+            shutil.copy2(os.environ['BOOKMINER_TEST_BINARY'], binary)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            dead, healthy = root / 'dead-engine', root / 'healthy-engine'
+            for engine, action in ((dead, '  sys.exit(1)\n'),
+                                   (healthy, '  time.sleep(0.1)\n  print("info score cp 42 pv 7g7f", flush=True)\n  print("bestmove 7g7f", flush=True)\n')):
+                engine.write_text('#!/usr/bin/env python3\nimport sys,time\n'
+                                  'for line in sys.stdin:\n'
+                                  ' line=line.strip()\n'
+                                  ' if line == "usi": print("usiok", flush=True)\n'
+                                  ' elif line == "isready": print("readyok", flush=True)\n'
+                                  ' elif line.startswith("go "):\n' + action +
+                                  ' elif line == "quit": break\n')
+                engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(dead), 'nodes': 100, 'multipv': 1, 'multipv_delta': 0},
+                {'path': str(healthy), 'nodes': 100, 'multipv': 1, 'multipv_delta': 0},
+            ]))
+            positions = []
+            for move in ('1g1f', '2g2f', '3g3f', '4g4f', '5g5f', '6g6f', '8g8f', '9g9f'):
+                board = cshogi.Board()
+                board.push_usi(move)
+                board.push_usi('3c3d')
+                positions.append('sfen ' + board.sfen())
+            (root / 'book/think_sfens.txt').write_text('\n'.join(positions) + '\n')
+            process = subprocess.Popen([str(binary), '--from_gui'], cwd=root, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            lines = queue.Queue()
+            reader = threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True)
+            reader.start()
+            try:
+                process.stdin.write('sd 0 1 200 1 1000\ne\n')
+                process.stdin.flush()
+                captured = []
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    try:
+                        line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    captured.append(line)
+                    if '[TaskQueueDone]' in line:
+                        break
+                output = ''.join(captured)
+                self.assertIn('[EngineAlive] 1/2', output)
+                self.assertIn('[TaskQueueDone]', output)
+                self.assertIn('failed=0', next(line for line in captured if '[TaskQueueDone]' in line))
+                self.assertIn('[MiningProgress] positions=8', output)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+                reader.join(timeout=5)
+                process.stdin.close()
+                process.stdout.close()
+
     def test_search_sends_standard_usi_sfen_with_ply(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

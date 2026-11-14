@@ -522,6 +522,14 @@ struct TaskResume {
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
 };
 
+void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>& visited,
+                            const std::string& sfen)
+{
+    const auto key = bookminer::PackedSfen::from_sfen(sfen);
+    visited.erase(key);
+    visited.erase(key.flipped());
+}
+
 std::vector<std::string> thinking_candidate_moves(
     const bookminer::PositionInfo& position,
     int eval_limit,
@@ -619,7 +627,21 @@ TaskResult start_thinking_best_line(
         if (!branch_task && rest_ply <= 0)
             break;
 
-        auto thought = think_sfen_once(book, engine, current_sfen, current_ply, last_thinking_ply, max_book_ply, visited);
+        ThinkOnceResult thought;
+        try
+        {
+            thought = think_sfen_once(book, engine, current_sfen, current_ply, last_thinking_ply, max_book_ply, visited);
+        }
+        catch (...)
+        {
+            if (engine.connection_broken())
+            {
+                forget_failed_position(visited, current_sfen);
+                resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
+                                    rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited)};
+            }
+            throw;
+        }
         if (thought.status == ThinkOnceStatus::Deferred)
         {
             resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
@@ -786,7 +808,24 @@ TaskResult process_position_command(
         }
         if (!has_considered(current_lookup.position))
         {
-            auto thought = think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, max_book_ply, visited);
+            ThinkOnceResult thought;
+            try
+            {
+                thought = think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, max_book_ply, visited);
+            }
+            catch (...)
+            {
+                if (engine.connection_broken())
+                {
+                    forget_failed_position(visited, current_sfen);
+                    std::string remaining = "sfen " + board.sfen_with_ply() + " moves";
+                    for (std::size_t i = move_index; i < parsed.moves.size(); ++i)
+                        remaining += " " + parsed.moves[i];
+                    resume = TaskResume{false, std::move(remaining), 0, rest_branch_depth,
+                                        last_thinking_ply, engine.thread_id(), std::move(visited)};
+                }
+                throw;
+            }
             if (thought.status == ThinkOnceStatus::Deferred)
             {
                 std::string remaining = "sfen " + board.sfen_with_ply() + " moves";
@@ -1194,6 +1233,7 @@ public:
 
     void start()
     {
+        active_workers_.store(static_cast<int>(engines_.size()));
         for (auto& engine : engines_)
         {
             threads_.emplace_back([this, engine_ptr = engine.get()] {
@@ -1216,6 +1256,8 @@ public:
         const auto commands = read_position_commands_file(path, eval_limit, max_book_ply, think_command_ply);
         if (!commands.empty() && engines_.empty())
             throw std::runtime_error("no search engines are configured");
+        if (!commands.empty() && active_workers_.load() == 0)
+            throw std::runtime_error("no search engines are available");
         const int job_id = next_job_id_.fetch_add(1);
         const auto added = commands.size();
         const std::string job_eval_limit = summarize_effective_position_command_value(
@@ -1396,6 +1438,16 @@ private:
             }
             catch (const std::exception& ex)
             {
+                if (engine.connection_broken())
+                {
+                    const int remaining = active_workers_.fetch_sub(1) - 1;
+                    log_line("[EngineUnavailable] engine=" + std::to_string(engine.thread_id())
+                        + " job=" + std::to_string(task->job_id) + " : " + ex.what());
+                    log_line("[EngineAlive] " + std::to_string(remaining) + "/" + std::to_string(engines_.size()));
+                    if (!stopped_.load())
+                        queue_.push(std::move(*task));
+                    return;
+                }
                 failed = true;
                 log_line(std::string("Exception : task failed, job=") + std::to_string(task->job_id)
                     + " engine=" + std::to_string(engine.thread_id())
@@ -1656,6 +1708,7 @@ private:
     TaskQueue queue_;
     std::vector<std::thread> threads_;
     std::thread progress_reporter_thread_;
+    std::atomic<int> active_workers_{0};
     std::atomic<int> next_job_id_{1};
     std::atomic<bool> stopped_{false};
     std::mutex progress_mutex_;
