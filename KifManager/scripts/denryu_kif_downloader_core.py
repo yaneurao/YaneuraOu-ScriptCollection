@@ -452,10 +452,33 @@ def sort_tournament_options(options: list[DenryuTournamentOption]) -> list[Denry
     return sorted(options, key=lambda option: tournament_sort_key(option.key), reverse=True)
 
 
-def tournament_sort_key(key: str) -> tuple[int, str]:
-    match = re.match(r"dr(\d+)", key)
-    number = int(match.group(1)) if match else 0
-    return number, key
+def tournament_sort_key(key: str) -> tuple[int, int, str]:
+    key = key.lower()
+    match = re.match(r"dr(\d+)_(.+)", key)
+    if not match:
+        return 0, 0, key
+    number, kind = int(match.group(1)), match.group(2)
+    # 年度ごとの主な大会は、春のTSEC、本戦、翌年のハードウェア戦の順。
+    if kind.startswith("hardware"):
+        stage = 40
+    elif kind.startswith(("production", "prd")):
+        stage = 30
+    elif kind.startswith("blackbid"):
+        stage = 25
+    elif kind.startswith("tsec"):
+        stage = 20
+    elif kind.startswith("patronage"):
+        stage = 15
+    elif kind.startswith("sakura"):
+        stage = 10
+    else:
+        stage = 0
+    # 第1回TSECは本戦後。第2回は予行・特別対局も一覧に載っている。
+    stage = {
+        "dr1_tsec_p1": 40, "dr1_tsec_a1": 39,
+        "dr2_test6": 27, "dr2_exhi2": 26, "dr2_exhi1": 22, "dr2_test5": 10,
+    }.get(key, stage)
+    return number, stage, key
 
 
 def find_archive_url(
