@@ -1421,7 +1421,9 @@ def parse_kif(
 
 
 def parse_kif_text(text: str) -> tuple[object, str, Sequence[int]]:
-    normalized_text = normalize_kif_text(text)
+    # KIFの「変化」は本譜の続きではないため、本譜だけを解析する。
+    mainline_text = re.split(r"^\s*変化[：:]\s*\d+\s*手", text, maxsplit=1, flags=re.MULTILINE)[0]
+    normalized_text = normalize_kif_text(mainline_text)
     try:
         parsed = KIF.Parser.parse_str(normalized_text)
         return parsed, parsed.sfen, parse_kif_moves_with_board(normalized_text, parsed.sfen)
