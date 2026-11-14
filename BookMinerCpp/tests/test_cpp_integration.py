@@ -127,7 +127,7 @@ class CppIntegrationTest(unittest.TestCase):
                         self.fail('peta next did not finish: ' + log.read_text())
                     self.assertIn('[PetaNextDone]', log.read_text())
                     lines = (root / 'book' / 'think_sfens.txt').read_text().splitlines()
-                    self.assertEqual(len(lines), 2)
+                    self.assertEqual(len(lines), 1)
                     self.assertTrue(all(line.startswith('startpos moves 7g7f,') for line in lines), lines)
                 finally:
                     if process.poll() is None:

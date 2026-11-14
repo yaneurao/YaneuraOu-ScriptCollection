@@ -988,16 +988,16 @@ def write_position_command_entries(path:str, entries:dict[PositionStr, PositionC
 
 def merge_position_command_files(black_path:str, white_path:str, output_path:str)->int:
     count = 0
+    seen : set[str] = set()
     with open(black_path, 'r', encoding='utf-8') as black, \
          open(white_path, 'r', encoding='utf-8') as white, \
          atomic_position_output(output_path) as output:
         for line_a, line_b in zip_longest(black, white, fillvalue=''):
-            if line_a:
-                output.write(line_a)
-                count += 1
-            if line_b:
-                output.write(line_b)
-                count += 1
+            for line in (line_a, line_b):
+                if line and (entry := line.rstrip('\r\n')) not in seen:
+                    seen.add(entry)
+                    output.write(entry + '\n')
+                    count += 1
     return count
 
 

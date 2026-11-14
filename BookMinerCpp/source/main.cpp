@@ -2225,6 +2225,7 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
     if (!white)
         throw std::runtime_error("failed to open file: " + white_path.string());
     std::size_t count = 0;
+    std::unordered_set<std::string> seen;
     write_position_file(output_path, [&](std::ostream& out) {
         while (true)
         {
@@ -2235,12 +2236,12 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
             if (!has_black && !has_white)
                 break;
 
-            if (has_black)
+            if (has_black && seen.insert(black_line).second)
             {
                 out << black_line << '\n';
                 ++count;
             }
-            if (has_white)
+            if (has_white && seen.insert(white_line).second)
             {
                 out << white_line << '\n';
                 ++count;

@@ -99,7 +99,7 @@ book/think_sfens-white.txt
 book/think_sfens.txt
 ```
 
-`book/think_sfens.txt` は、先手用と後手用の候補局面を交互に混ぜたものです。通常はこのファイルを `enqueue` します。
+`book/think_sfens.txt` は、先手用と後手用の候補局面を交互に混ぜたものです。同じ手順と探索条件の行が両方にある場合は、先に現れた１行だけを書き出します。異なる手順が同じ局面に到達しても、結合時には同一局面かどうかを調べません。通常はこのファイルを `enqueue` します。
 
 BookMinerCpp では、件数が予想より少ない場合に確認できるよう、先手・後手それぞれについて `peta_next stats` をログに出します。`roots` は開始手順の数、`missing_roots` は peta book に未登録または指し手がない開始局面の数、`skipped_ply` は手数上限による除外、`skipped_visited` は既訪問による除外、`rejected_own` / `rejected_opponent` は評価値条件によって除外した指し手の数です。`duplicate_leaves` は書き出そうとした末端局面の重複、`max_step_frontier` は max step 到達時に残った手順数、`leaves` は書き出し候補局面数です。実行開始時には読み込まれた `peta_book_positions` も表示されます。
 

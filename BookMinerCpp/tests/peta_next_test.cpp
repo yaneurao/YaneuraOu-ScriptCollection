@@ -187,6 +187,23 @@ int main(int argc, char** argv)
     }
     {
         const auto dir = roots_path.parent_path();
+        const auto black = dir / "dedup-black.txt";
+        const auto white = dir / "dedup-white.txt";
+        const auto output = dir / "dedup-output.txt";
+        { std::ofstream out(black); out << "startpos, eval_limit=400\nstartpos moves 7g7f\n"; }
+        { std::ofstream out(white); out << "startpos, eval_limit=400\nstartpos, eval_limit=500\nstartpos moves 2g2f\n"; }
+        if (merge_black_white_think_sfens(black, white, output) != 4)
+            throw std::runtime_error("merged position count includes duplicates");
+        std::ifstream in(output);
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(in, line)) lines.push_back(line);
+        if (lines != std::vector<std::string>{"startpos, eval_limit=400", "startpos moves 7g7f",
+                                              "startpos, eval_limit=500", "startpos moves 2g2f"})
+            throw std::runtime_error("merged positions lost order or distinct conditions");
+    }
+    {
+        const auto dir = roots_path.parent_path();
         const auto output = dir / "merge-preserve.txt";
         const auto black = dir / "merge-black.txt";
         { std::ofstream out(output); out << "existing\n"; }

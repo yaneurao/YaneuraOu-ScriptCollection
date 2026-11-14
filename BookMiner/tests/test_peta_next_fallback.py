@@ -13,6 +13,17 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_merge_removes_duplicate_entries_preserving_order_and_conditions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            black, white, output = root / 'black', root / 'white', root / 'output'
+            black.write_text('startpos, eval_limit=400\nstartpos moves 7g7f\n')
+            white.write_text('startpos, eval_limit=400\nstartpos, eval_limit=500\nstartpos moves 2g2f\n')
+            self.assertEqual(miner.merge_position_command_files(str(black), str(white), str(output)), 4)
+            self.assertEqual(output.read_text().splitlines(), [
+                'startpos, eval_limit=400', 'startpos moves 7g7f',
+                'startpos, eval_limit=500', 'startpos moves 2g2f'])
+
     def test_peta_next_deduplicates_same_leaf_from_different_paths(self):
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
