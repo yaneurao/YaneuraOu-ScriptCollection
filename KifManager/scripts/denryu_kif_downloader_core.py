@@ -405,11 +405,23 @@ def fetch_denryu_tournament_options(timeout: float = 60.0) -> list[DenryuTournam
             continue
         options[key] = current
 
+    # 公式リンク集が開催中の大会をまだ掲載していなくても選択できるようにする。
+    for fallback in fallback_denryu_tournament_options():
+        current = options.get(fallback.key)
+        if current is None:
+            options[fallback.key] = fallback
+        else:
+            options[fallback.key] = DenryuTournamentOption(
+                current.key, choose_title(current.title, fallback.title),
+                current.live_url or fallback.live_url,
+                current.archive_url or fallback.archive_url,
+            )
     return sort_tournament_options(list(options.values()))
 
 
 def fallback_denryu_tournament_options() -> list[DenryuTournamentOption]:
     raw_options = [
+        ("dr7_prd", "文部科学大臣杯第7回世界将棋AI電竜戦本戦", "https://denryu-sen.jp/denryusen/dr7_prd/dr1_live.php", ""),
         ("dr7_tsec7", "第7回電竜戦TSECノー居飛車指定局面と先手持ち時間0戦", "https://denryu-sen.jp/denryusen/dr7_tsec7/dr1_live.php", ""),
         ("dr6_production", "文部科学大臣杯第6回電竜戦本戦", "https://denryu-sen.jp/denryusen/dr6_production/dr1_live.php", "https://denryu-sen.jp/denryusen/dr6_production/kifu_dr6production.zip"),
         ("dr6_tsec", "第6回電竜戦TSEC指定局面と香落ち戦", "https://denryu-sen.jp/denryusen/dr6_tsec/dr1_live.php", "https://denryu-sen.jp/denryusen/dr6_tsec/kifu_dr6tsec.zip"),
