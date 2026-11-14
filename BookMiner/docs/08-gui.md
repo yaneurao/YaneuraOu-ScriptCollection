@@ -143,6 +143,8 @@ branch指定時は、入力局面を掘ることが確定してから上位手�
 
 「設定」タブの項目は「適用」で `settings/book_miner_settings.json5` に保存し、実行中の対応版BookMinerへも反映します。自動保存の間隔、保存何回ごとのpeta shock化、peta nextの開始局面ファイル、最大手数、peta shockの並列数を設定できます。
 
+開始局面ファイルの「編集」や、その下のファイル名ボタンからVS Codeで対象ファイルを開けます。開始局面ファイルは入力欄のパスを開くため、パスの変更を「適用」する前でも編集できます。ファイルがない場合は作成前に確認し、開始局面ファイルは `startpos` を初期内容にします。`think_sfens.txt` はpeta nextなどで上書きされるため、編集時には注意してください。VS Code本体が見つからない場合はインストール先とPATHを確認してください。
+
 採掘タブの数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
 保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 

@@ -13,6 +13,35 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_edit_start_file_uses_current_unapplied_path(self):
+        instance = Mock()
+        instance.setting_start_path.get.return_value = 'book/開始局面.txt'
+        gui.BookMinerGui._edit_start_sfens(instance)
+        instance._edit_file.assert_called_once_with(gui.BASE_DIR / 'book/開始局面.txt', 'startpos\n')
+
+    def test_vscode_edit_existing_and_optional_file_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'missing' / '開始局面.txt'
+            instance = Mock()
+            with patch.object(gui, 'find_vscode', return_value='/fake/Code'), \
+                 patch.object(gui.messagebox, 'askyesno', return_value=False), \
+                 patch.object(gui.subprocess, 'Popen') as popen:
+                gui.BookMinerGui._edit_file(instance, path, 'startpos\n')
+                self.assertFalse(path.exists())
+                popen.assert_not_called()
+            with patch.object(gui, 'find_vscode', return_value='/fake/Code'), \
+                 patch.object(gui.messagebox, 'askyesno', return_value=True), \
+                 patch.object(gui.subprocess, 'Popen') as popen:
+                gui.BookMinerGui._edit_file(instance, path, 'startpos\n')
+                self.assertEqual(path.read_text(encoding='utf8'), 'startpos\n')
+                self.assertEqual(popen.call_args.args[0], ['/fake/Code', str(path)])
+            with patch.object(gui, 'find_vscode', return_value=None), \
+                 patch.object(gui.messagebox, 'showerror') as error, \
+                 patch.object(gui.subprocess, 'Popen') as popen:
+                gui.BookMinerGui._edit_file(instance, path, '')
+                error.assert_called_once()
+                popen.assert_not_called()
+
     def test_apply_settings_saves_and_requests_live_reload(self):
         with tempfile.TemporaryDirectory() as directory:
             instance = Mock()

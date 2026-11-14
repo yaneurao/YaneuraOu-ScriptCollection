@@ -9,6 +9,7 @@ import os
 import pickle
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -452,6 +453,21 @@ def configured_bookminer_cpp_path(base_dir: Path, settings_path: Path) -> tuple[
     return (path if path.is_absolute() else base_dir / path), True
 
 
+def find_vscode() -> str | None:
+    if os.name != "nt":
+        return shutil.which("code")
+    candidates = [shutil.which("Code.exe")]
+    launcher = shutil.which("code")
+    if launcher:
+        candidates.append(str(Path(launcher).parent.parent / "Code.exe"))
+    for variable in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(variable)
+        if root:
+            base = Path(root) / "Programs" if variable == "LOCALAPPDATA" else Path(root)
+            candidates.append(str(base / "Microsoft VS Code" / "Code.exe"))
+    return next((path for path in candidates if path and Path(path).is_file()), None)
+
+
 class BookMinerGui(ttk.Frame):
     def __init__(self, master: tk.Tk, *, enable_shogidb: bool = False, use_cpp: bool = False,
                  cpp_executable: Path | None = None) -> None:
@@ -742,10 +758,54 @@ class BookMinerGui(ttk.Frame):
             entry.grid(row=row, column=1, sticky="ew" if row == 2 else "w", pady=7)
             if row == 2:
                 ttk.Button(parent, text="選択", command=self._choose_start_sfens).grid(row=row, column=2, padx=(8, 0))
+                ttk.Button(parent, text="編集", command=self._edit_start_sfens).grid(row=row, column=3, padx=(8, 0))
             else:
                 ttk.Label(parent, text=suffix).grid(row=row, column=2, sticky="w", padx=(8, 0))
-        ttk.Button(parent, text="適用", command=self.apply_mining_settings).grid(row=6, column=0, sticky="w", pady=(18, 0))
-        ttk.Label(parent, textvariable=self.setting_status).grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        files = ttk.LabelFrame(parent, text="ファイルをVS Codeで編集", padding=8)
+        files.grid(row=6, column=0, columnspan=4, sticky="w", pady=(16, 0))
+        for column, (label, path, initial) in enumerate((
+            ("think_sfens.txt", BASE_DIR / "book" / "think_sfens.txt", ""),
+            ("think_unsolved_sfens.txt", BASE_DIR / "book" / "think_unsolved_sfens.txt", ""),
+            ("エンジン設定", BASE_DIR / "settings" / "engine_settings.json5", "[]\n"),
+        )):
+            ttk.Button(files, text=label, command=lambda p=path, value=initial: self._edit_file(p, value)).grid(
+                row=0, column=column, padx=(0, 8), pady=2)
+        ttk.Button(parent, text="適用", command=self.apply_mining_settings).grid(row=7, column=0, sticky="w", pady=(18, 0))
+        ttk.Label(parent, textvariable=self.setting_status).grid(row=8, column=0, columnspan=4, sticky="w", pady=(8, 0))
+
+    def _edit_start_sfens(self) -> None:
+        value = self.setting_start_path.get().strip()
+        if not value:
+            messagebox.showerror("入力エラー", "開始局面ファイルのパスを指定してください。")
+            return
+        path = Path(value).expanduser()
+        self._edit_file(path if path.is_absolute() else BASE_DIR / path, "startpos\n")
+
+    def _edit_file(self, path: Path, initial_content: str) -> None:
+        editor = find_vscode()
+        if not editor:
+            messagebox.showerror("VS Code", "VS Codeが見つかりません。インストールし、PATHを確認してください。")
+            return
+        if not path.exists():
+            if not messagebox.askyesno("ファイル作成", f"ファイルがありません。作成して編集しますか？\n{path}"):
+                return
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("x", encoding="utf-8", newline="\n") as file:
+                    file.write(initial_content)
+            except FileExistsError:
+                pass
+            except OSError as exc:
+                messagebox.showerror("ファイル作成エラー", str(exc))
+                return
+        if not path.is_file():
+            messagebox.showerror("ファイルエラー", f"通常のファイルではありません: {path}")
+            return
+        try:
+            subprocess.Popen([editor, str(path)], cwd=BASE_DIR, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            messagebox.showerror("VS Codeの起動エラー", str(exc))
 
     def _choose_start_sfens(self) -> None:
         selected = filedialog.askopenfilename(parent=self.master, initialdir=BASE_DIR / "book",
