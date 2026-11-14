@@ -751,16 +751,17 @@ class BookMinerGui(ttk.Frame):
             ("定跡を掘るときの最大手数", self.setting_max_ply, "手目まで"),
             ("peta shock の並列数", self.setting_threads, "スレッド"),
         ]
-        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(4, weight=1)
         for row, (label, variable, suffix) in enumerate(rows):
             ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=7)
-            entry = ttk.Entry(parent, textvariable=variable, width=60 if row == 2 else 12)
-            entry.grid(row=row, column=1, sticky="ew" if row == 2 else "w", pady=7)
+            controls = ttk.Frame(parent)
+            controls.grid(row=row, column=1, columnspan=3, sticky="w", pady=7)
+            ttk.Entry(controls, textvariable=variable, width=32).pack(side="left")
             if row == 2:
-                ttk.Button(parent, text="選択", command=self._choose_start_sfens).grid(row=row, column=2, padx=(8, 0))
-                ttk.Button(parent, text="編集", command=self._edit_start_sfens).grid(row=row, column=3, padx=(8, 0))
+                ttk.Button(controls, text="選択", command=self._choose_start_sfens).pack(side="left", padx=(8, 0))
+                ttk.Button(controls, text="編集", command=self._edit_start_sfens).pack(side="left", padx=(8, 0))
             else:
-                ttk.Label(parent, text=suffix).grid(row=row, column=2, sticky="w", padx=(8, 0))
+                ttk.Label(controls, text=suffix).pack(side="left", padx=(8, 0))
         files = ttk.LabelFrame(parent, text="ファイルをVS Codeで編集", padding=8)
         files.grid(row=6, column=0, columnspan=4, sticky="w", pady=(16, 0))
         for column, (label, path, initial) in enumerate((
