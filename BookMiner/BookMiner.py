@@ -109,7 +109,6 @@ DEFAULT_BOOK_EXTEND_PLY = 6
 
 TASK_RESULT_DONE = "done"
 TASK_RESULT_DEFERRED = "deferred"
-MAX_TASK_DEFER_COUNT = 1000
 TASK_DEFER_SLEEP_SECONDS = 0.01
 
 # ============================================================
@@ -187,6 +186,18 @@ class Book:
 
 
 @dataclass
+class TaskResume:
+    best_line : bool
+    position_cmd : PositionStr
+    rest_ply : int
+    branch_depth : int
+    last_thinking_ply : int
+    engine_id : int
+    visited : set[Sfen]
+    path_visited : set[Sfen]
+
+
+@dataclass
 class Task:
     # 定跡を掘る探索開始sfen
     sfen : Sfen
@@ -220,6 +231,9 @@ class Task:
 
     # branchを何手先まで展開するか。
     branch_depth : int = 0
+
+    # 他workerによる再開時に利用する探索途中の状態。
+    resume : TaskResume | None = None
 
 
 @dataclass
@@ -994,6 +1008,8 @@ def clamp_eval(x:int)->int:
 def usi_mate_to_yaneuraou_eval(mate_ply_str:str)->Eval:
     if mate_ply_str == '+' or mate_ply_str == '-':
         return VALUE_MATE - 1 if mate_ply_str == '+' else -VALUE_MATE + 1
+    if mate_ply_str == '-0':
+        return -VALUE_MATE
 
     mate_ply = int(mate_ply_str)
     if mate_ply > 0:
@@ -1054,6 +1070,13 @@ class ThreadSettings:
     # エンジンprocessがまだ生きているか。
     alive : bool = True
 
+    # readyokを待つ間にエンジンが失敗した場合の詳細。
+    ready_error : str|None = None
+
+    # 各エンジンに指定するMultiPVと再探索の評価値差。
+    engine_multipv : int = 4
+    engine_multipv_delta : int = 100
+
 
 class Engine:
     '''エンジン操作クラス'''
@@ -1068,6 +1091,7 @@ class Engine:
         # 探索中のsfen
         self.search_sfen = ""
         self.last_go_searched_nodes = 0
+        self.connection_broken = False
 
         path : str = thread_settings.engine_path
 
@@ -1107,8 +1131,11 @@ class Engine:
 
         # 別スレッドで実行して待機する
         def wait_readyok():
-            self.wait_usi("readyok") # readyokを待つ
-            self.thread_settings.readyok = True
+            try:
+                self.wait_usi("readyok") # readyokを待つ
+                self.thread_settings.readyok = True
+            except Exception as exc:
+                self.thread_settings.ready_error = str(exc)
 
         Thread(target=wait_readyok, daemon=True).start()
 
@@ -1128,22 +1155,26 @@ class Engine:
         if self.global_settings.debug_engine:
             print(f'[{self.thread_settings.thread_id}]<{command}')
 
-        self.engine.stdin.write(command+"\n") # type:ignore
-        self.engine.stdin.flush()             # type:ignore
+        try:
+            self.engine.stdin.write(command+"\n") # type:ignore
+            self.engine.stdin.flush()             # type:ignore
+        except (OSError, ValueError):
+            self.connection_broken = True
+            raise
 
         # print_log(f"{self.thread_settings.thread_id} < {command}")
 
     def receive_usi(self)->str:
         ''' 思考エンジンから1行もらう。改行は取り除いて返す。'''
-        mes = self.engine.stdout.readline().strip() # type:ignore
+        raw = self.engine.stdout.readline() # type:ignore
+        if raw == '':
+            self.connection_broken = True
+            self.raise_exception("Engine output is closed.")
+        mes = raw.strip()
 
         # デバッグモードならエンジンへの入出力をすべて標準出力へ。
         if self.global_settings.debug_engine:
             print(f'[{self.thread_settings.thread_id}]>{mes}')
-
-        # エンジンのprocessが死んでたら例外を出す。
-        if self.engine.poll() is not None:
-            self.raise_exception(f"Engine is terminated.")
 
         # print_log(f"{self.thread_settings.thread_id} > {mes}")
 
@@ -1162,129 +1193,108 @@ class Engine:
             # エンジンから送られてきたメッセージにErrorの文字列があるなら、
             # これは致命的なエラーなので例外を出して終了。
             if 'Error' in mes:
+                self.connection_broken = True
                 self.raise_exception(f"Engine Error! : {mes}")
             if mes==wait_text:
                 break
 
-    def go(self, sfen:Sfen, node_ratio:float )->list[MoveInfo]:
-        '''
-        思考エンジンに探索させる。
-        sfen : 局面(USIのpositionコマンドで指定できる形式)
-        node_ratio : 今回探索するノード数に掛け算する係数
-
-        返し値 : 読み筋(PV)の初手のlistとその評価値が返る。
-                例) [('7g7f',120),('6i7h',39)]
-                mate 1は、99999と数値化されて返る。
-
-            例)
-            info nps 241 time 41494 nodes 10014 hashfull 0 multipv 1 depth 18 score cp 39 pv 7g7f 8c8d 6i7h 8d8e 8h7g 3c3d 7i6h 4a3b 3i3h 7a6b 2g2f 4c4d 2f2e 2b3c 3g3f 3a4b 3h3g 4b4c
-            info nps 241 time 41494 nodes 10014 hashfull 0 multipv 2 depth 17 score cp 39 pv 6i7h 4a3b 7g7f 8c8d 2g2f 8d8e 8h7g 3c3d 7i6h 4c4d 4g4f 3a4b 3i4h 7a6b 4h4g 4b4c 5i6i                
-                        
-
-        ⇨　
-            multipv対策として
-
-            info depth 15 seldepth 24 score cp 90 multipv 1 nodes 798752 nps 4726343 hashfull 2 time 169 pv 6i7h 3c3d 7g7f 8c8d 2g2f 8d8e 2f2e 8e8f 8g8f 8b8f P*8g 8f8b 2e2d 2c2d 2h2d 2b8h+ 7i8h 3a2b 2d2h 1c1d 3i3h 4a3b 8h7g P*2c 9g9f
-            info depth 15 seldepth 23 score cp 75 multipv 2 nodes 798752 nps 4726343 hashfull 2 time 169 pv 2g2f 8c8d 6i7h 8d8e 2f2e 4a3b 3i3h 9c9d 9g9f 1c1d 2e2d 2c2d 2h2d P*2c 2d2h 8e8f
-            info depth 15 seldepth 25 score cp 58 multipv 3 nodes 798752 nps 4726343 hashfull 2 time 169 pv 7g7f 3c3d 6i7h 8c8d 2g2f 8d8e 2f2e 4a3b 2e2d 2c2d 2h2d 8e8f 8g8f 8b8f 8h2b+ 3a2b B*7g 8f8b P*8c 8b6b 2d3d 6c6d 7g2b+ 3b2b 3d3a+
-            info depth 15 seldepth 21 score cp 57 multipv 4 nodes 798752 nps 4726343 hashfull 2 time 169 pv 1g1f 8c8d 2g2f 8d8e 2f2e 4a3b 6i7h 1c1d 9g9f 5a5b 3i3h 7a7b 2e2d 2c2d 2h2d P*2c 
-
-            この形式に対応する。
-        '''
+    def go(self, sfen:Sfen, node_ratio:float, ply:int|None = None)->list[MoveInfo]:
+        """Search one position and return the scored MultiPV moves."""
         self.last_go_searched_nodes = 0
-        multipv_step = max(1, self.global_settings.multipv)
-        multipv_limit = max(1, legal_move_count_for_position(sfen))
-
-        # "MultiPV"の値を決定する。
+        start_sfen, position_moves = parse_position_string(sfen)
+        board = cshogi.Board(start_sfen)
+        for move in position_moves:
+            checked_push_usi(board, move, context=sfen)
+        actual_sfen, board_ply = trim_sfen_ply(board.sfen())
+        search_ply = board_ply if ply is None else ply
+        multipv_step = max(1, getattr(self.thread_settings, 'engine_multipv', self.global_settings.multipv))
+        multipv_limit = max(1, len(board.legal_moves))
         multipv = min(multipv_step, multipv_limit)
-        self.send_usi(f"multipv {multipv}")
+        multipv_delta = max(0, getattr(self.thread_settings, 'engine_multipv_delta', self.global_settings.multipv_delta))
 
-        # 1番目とN番目の指し手の評価値の差がこの範囲に収まらないなら再探索。
-        multipv_delta = self.global_settings.multipv_delta
-
-        # "position"コマンドを思考エンジンに送信する。
-        self.search_sfen = sfen
-        self.send_usi(f"position {sfen}")
-
-        # 探索ノード数
+        self.search_sfen = actual_sfen
+        self.send_usi(f"setoption name MultiPV value {multipv}")
+        self.send_usi(f"position sfen {actual_sfen} {search_ply}")
         nodes = max(1, int(self.thread_settings.engine_nodes * node_ratio))
         half_nodes = max(1, nodes // 2)
         searched_nodes = 0
-        current_go_requested_nodes = nodes
-
-        # "go"コマンドを思考エンジンに送信する。
-        def send_go(search_nodes:int):
-            nonlocal current_go_requested_nodes
-            current_go_requested_nodes = max(1, search_nodes)
-            self.send_usi(f"go nodes {current_go_requested_nodes}")
-
-        send_go(nodes)
-
-        # "bestmove"は必ず返ってくるはずなのでそれを待つ。
-        # 読み筋(PV)の初手と最終的な評価値とbestmoveをparseして返す。
-
-        moves : dict[int,MoveInfo] = {}
+        self.send_usi(f"go nodes {nodes}")
+        moves : dict[int, MoveInfo] = {}
+        previous_node : list[MoveInfo] = []
 
         while True:
-            ret = self.receive_usi()
-            rets = ret.split()
-            # これはUSIプロトコルでエンジン側から送られてくる文字列の"bestmove"
-            if "bestmove" in ret:
-                searched_nodes += current_go_requested_nodes
-                # この直前にPVが返ってきているはず…。
+            line = self.receive_usi()
+            if 'Error' in line:
+                self.connection_broken = True
+                self.raise_exception(f"Engine Error! : {line}")
+            tokens = line.split()
+            if not tokens:
+                continue
+            if tokens[0] == 'bestmove':
+                searched_nodes += nodes
                 node : list[MoveInfo] = []
-                # multipvの指し手を1番目から列挙
-                for i in range(1,1000):
-                    if not i in moves:
-                        break
-                    node += moves[i],
-                
-                # 再探索条件を満たしているなら、再度思考コマンドを送って探索を継続
-                # 候補手がmultipvの個数だけあって、1番目と末尾の指して手の評価値の差がδ以内であるなら、multipvの範囲を少しずつ増やす。
-                # nodesは初期値の半分にする。
-                if len(node) == multipv and abs(node[0].eval - node[-1].eval) <= multipv_delta: # type:ignore
+                rank = 1
+                seen : set[MoveStr] = set()
+                while rank in moves:
+                    moveinfo = moves[rank]
+                    if moveinfo.move not in seen:
+                        node.append(moveinfo)
+                        seen.add(moveinfo.move)
+                    rank += 1
+                if len(tokens) < 2:
+                    self.raise_exception(f"engine returned invalid bestmove: {line}")
+                bestmove = tokens[1]
+                if bestmove in ('win', 'none', '0000'):
+                    self.last_go_searched_nodes = searched_nodes
+                    return []
+                if previous_node and len(node) < multipv:
+                    print("[EngineWarning] Re-search returned incomplete MultiPV; using the previous search result.")
+                    self.last_go_searched_nodes = searched_nodes
+                    return previous_node
+                if bestmove == 'resign':
+                    self.last_go_searched_nodes = searched_nodes
+                    return node
+                if not node:
+                    self.raise_exception(f"engine returned bestmove without a score and PV: {line}")
+                if bestmove != node[0].move:
+                    self.raise_exception(f"engine bestmove does not match the last PV: {line}")
+                if len(node) == multipv and abs(node[0].eval - node[-1].eval) <= multipv_delta:
                     if multipv >= multipv_limit:
                         self.last_go_searched_nodes = searched_nodes
                         return node
-
-                    # multipvの範囲を広げて再度"go"コマンドを思考エンジンに送信する。
+                    previous_node = node
+                    moves.clear()
                     multipv = min(multipv + multipv_step, multipv_limit)
                     nodes = half_nodes
-                    self.send_usi(f"multipv {multipv}")
-                    send_go(nodes)
+                    self.send_usi(f"setoption name MultiPV value {multipv}")
+                    self.send_usi(f"go nodes {nodes}")
                     continue
-
                 self.last_go_searched_nodes = searched_nodes
                 return node
 
-            else:
-                # 読み筋に対して、そのpvの初手を蓄積していく。
-                # また最終的な評価値も保存しておく。
-                
-                # info nodes XX score cp YY pv ZZ ... の形なので、"cp"と"pv"を起点として、その直後の文字を取得する。
-                if not rets or rets[0]!='info':
-                    # infoと違う。何か関係ないメッセージっぽい。
-                    continue
-
-                mpv_index = index_of(rets,'multipv')
-                # ⇑ one replyだと'multipv'の文字は見つからない。その場合は -1 が返るので注意。
-                mpv = 1 if mpv_index == -1 else int(rets[mpv_index + 1])
-
-                idx1 = index_of(rets,'score')
-                idx2 = index_of(rets,'pv')
-                if idx1 != -1 and idx2 != -1:
-                    eval = evalstr_to_int(rets[idx1+1],rets[idx1+2])
-
-                    # 'pv'の次のtokenが存在することを仮定している。
-                    # 実戦だとこの指し手が'resign'とか'win'の可能性もあるが、評価値が先に振り切るので定跡掘る時には考えない。
-                    move = rets[idx2+1]
-
-                    if move == 'win' or move == 'resign':
-                        continue
-                    
-                    # 指し手と評価値を登録しておく。
-                    moves[mpv] = MoveInfo(move, eval)
-
+            if tokens[0] != 'info' or (len(tokens) > 1 and tokens[1] == 'string'):
+                continue
+            mpv_index = index_of(tokens, 'multipv')
+            try:
+                mpv = 1 if mpv_index == -1 else int(tokens[mpv_index + 1])
+            except (IndexError, ValueError):
+                continue
+            if not 1 <= mpv <= multipv:
+                continue
+            score_index, pv_index = index_of(tokens, 'score'), index_of(tokens, 'pv')
+            if score_index == -1 or pv_index == -1 or pv_index < score_index + 3:
+                continue
+            if score_index + 2 >= len(tokens) or pv_index + 1 >= len(tokens):
+                continue
+            move = tokens[pv_index + 1]
+            if move in ('win', 'resign'):
+                continue
+            try:
+                value = evalstr_to_int(tokens[score_index + 1], tokens[score_index + 2])
+            except Exception:
+                print(f"[EngineWarning] Invalid score in engine output: {line}")
+                continue
+            moves[mpv] = MoveInfo(move, value)
 
     def raise_exception(self, error_message:str):
         ''' 例外を発生させる。エンジンの詳細を出力する。'''
@@ -1351,41 +1361,68 @@ class EngineManager:
                 f"ready={ready_engine_count()}"
             )
 
-        id = 0
-        for engine_setting in engine_settings:
+        try:
+            id = 0
+            for engine_setting in engine_settings:
 
-            for _ in range(engine_setting['multi']):
+                for _ in range(engine_setting['multi']):
 
-                thread_settings = ThreadSettings(
-                    thread_id              = id,
-                    engine_path            = engine_setting["path"],
-                    engine_nodes           = engine_setting['nodes'],
-                    readyok                = False
-                )
-                id += 1
+                    thread_settings = ThreadSettings(
+                        thread_id              = id,
+                        engine_path            = engine_setting["path"],
+                        engine_nodes           = engine_setting['nodes'],
+                        readyok                = False,
+                        engine_multipv         = max(1, int(engine_setting.get('multipv', global_settings.multipv))),
+                        engine_multipv_delta   = max(0, int(engine_setting.get('multipv_delta', global_settings.multipv_delta))),
+                    )
+                    id += 1
 
-                print(f"  engine {id} , start .. path = {thread_settings.engine_path}")
-                engine = Engine(global_settings, thread_settings)
-                engine.isready()
-                engines.append(engine)
+                    print(f"  engine {id} , start .. path = {thread_settings.engine_path}")
+                    engine = Engine(global_settings, thread_settings)
+                    engines.append(engine)
+                    engine.isready()
 
-                # ここでsleepしとかないと、ssh接続が切断されうる。
-                time.sleep(0.3)
-                report_engine_launch_progress()
+                    # ここでsleepしとかないと、ssh接続が切断されうる。
+                    time.sleep(0.3)
+                    report_engine_launch_progress()
 
-        # 全エンジンがreadyokになるのを待つ
-        last_ready_count = -1
-        while True:
-            ready_count = ready_engine_count()
-            if ready_count != last_ready_count:
+            # 全エンジンがreadyokになるのを待つ
+            last_ready_count = -1
+            while True:
+                for engine in engines:
+                    if engine.thread_settings.ready_error is not None or not engine.is_process_alive():
+                        detail = engine.thread_settings.ready_error or f"process exited: {engine.return_code()}"
+                        raise RuntimeError(f"engine initialization failed: {detail}")
+                ready_count = ready_engine_count()
+                if ready_count != last_ready_count:
+                    if ready_count == total_engines:
+                        print(f"[EngineInitDone] {ready_count}/{total_engines}")
+                    else:
+                        print(f"[EngineReadyProgress] {ready_count}/{total_engines}")
+                    last_ready_count = ready_count
                 if ready_count == total_engines:
-                    print(f"[EngineInitDone] {ready_count}/{total_engines}")
-                else:
-                    print(f"[EngineReadyProgress] {ready_count}/{total_engines}")
-                last_ready_count = ready_count
-            if ready_count == total_engines:
-                break
-            time.sleep(1)
+                    break
+                time.sleep(1)
+
+        except Exception:
+            global_settings.quit = True
+            for engine in engines:
+                if engine.is_process_alive():
+                    try:
+                        engine.engine.terminate()
+                    except OSError:
+                        pass
+            for engine in engines:
+                try:
+                    engine.engine.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    engine.engine.kill()
+                    engine.engine.wait()
+                if engine.engine.stdin:
+                    engine.engine.stdin.close()
+                if engine.engine.stdout:
+                    engine.engine.stdout.close()
+            raise
 
         print("all engines are ready.")
 
@@ -1465,6 +1502,10 @@ class EngineManager:
 
         with book.lock:
             if current_sfen in visited or current_sfen_f in visited:
+                known = book.body.get(current_sfen) or book.body.get(current_sfen_f)
+                if known is not None and ply < known.ply:
+                    known.ply = ply
+                    book.mark_modified()
                 return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE, False
 
             if current_sfen in book.searching_sfens or current_sfen_f in book.searching_sfens:
@@ -1478,6 +1519,10 @@ class EngineManager:
                 current_sfen = current_sfen_f
             else:
                 position_info = None
+
+            if position_info is not None and ply < position_info.ply:
+                position_info.ply = ply
+                book.mark_modified()
 
             book.searching_sfens.add(current_sfen)
             visited.add(current_sfen)
@@ -1493,9 +1538,15 @@ class EngineManager:
                 # この局面について探索するのでこれをログに出力しておく。
                 print(f"[{engine.thread_settings.thread_id}] {current_sfen} {ply} , {node_ratio}")
 
-                position_info_new = engine.go(current_sfen, node_ratio)
+                position_info_new = engine.go(current_sfen, node_ratio, ply)
                 searched_nodes = engine.last_go_searched_nodes
                 last_thinking_ply = ply # この局面で思考したので更新する。
+                if not position_info_new:
+                    if self.global_settings.from_gui:
+                        with book.lock:
+                            book_position_count = len(book.body)
+                        self.report_mining_progress(book_position_count, searched_nodes=searched_nodes)
+                    return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE, True
                 book_position_count = None
 
                 with book.lock:
@@ -1544,7 +1595,7 @@ class EngineManager:
             with book.lock:
                 book.searching_sfens.discard(current_sfen)
 
-    def get_book_position_info(self, book:Book, sfen:Sfen)->tuple[PositionInfo | None, bool]:
+    def get_book_position_info(self, book:Book, sfen:Sfen, ply:int|None = None)->tuple[PositionInfo | None, bool]:
         """
         book上の局面情報を返す。flip側でhitしたときは第2戻り値をTrueにする。
         """
@@ -1552,11 +1603,15 @@ class EngineManager:
 
         with book.lock:
             if sfen in book.body:
-                return book.body[sfen], False
-            if sfen_f in book.body:
-                return book.body[sfen_f], True
-
-        return None, False
+                position, flipped = book.body[sfen], False
+            elif sfen_f in book.body:
+                position, flipped = book.body[sfen_f], True
+            else:
+                return None, False
+            if ply is not None and ply < position.ply:
+                position.ply = ply
+                book.mark_modified()
+            return position, flipped
 
     def get_book_move_eval(self, book:Book, sfen:Sfen, move:MoveStr)->Eval:
         """
@@ -1636,14 +1691,34 @@ class EngineManager:
         # 千日手を防ぐために自分が訪問した局面だけ持っておく。
         visited : set[Sfen] = set()
 
+        if task.resume is not None and task.resume.best_line:
+            resume = task.resume
+            current_sfen, ply = trim_sfen_ply(resume.position_cmd)
+            rest_ply = resume.rest_ply
+            branch_depth = resume.branch_depth
+            last_thinking_ply = (resume.last_thinking_ply
+                                 if resume.engine_id == engine.thread_settings.thread_id else PLY_MIN)
+            visited = resume.visited
+            task.resume = None
+
         while True:
 
             if not branch_task and rest_ply == 0:
                 break
 
             # 現局面を必要なら思考する。
-            position_info, current_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+            try:
+                position_info, current_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+            except Exception:
+                if engine.connection_broken or not engine.is_process_alive():
+                    visited.discard(current_sfen)
+                    visited.discard(flipped_sfen(current_sfen))
+                    task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
+                                             last_thinking_ply, engine.thread_settings.thread_id, visited, set())
+                raise
             if status == TASK_RESULT_DEFERRED:
+                task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
+                                         last_thinking_ply, engine.thread_settings.thread_id, visited, set())
                 return TASK_RESULT_DEFERRED
             if position_info is None:
                 return TASK_RESULT_DONE
@@ -1710,16 +1785,19 @@ class EngineManager:
         """
         if task.position_cmd is None:
             return TASK_RESULT_DONE
+        if task.resume is not None and task.resume.best_line:
+            return self.start_thinking(book, engine, task)
 
         eval_limit = task.eval_limit
         max_book_ply = task.max_book_ply
         branch_width = task.branch_width
         branch_depth = task.branch_depth
         branch_task = branch_width > 0
-        if self.position_command_hits_searching_sfen(book, task.position_cmd, max_book_ply):
+        position_cmd = task.resume.position_cmd if task.resume is not None else task.position_cmd
+        if self.position_command_hits_searching_sfen(book, position_cmd, max_book_ply):
             return TASK_RESULT_DEFERRED
 
-        sfen, moves = parse_position_string(task.position_cmd)
+        sfen, moves = parse_position_string(position_cmd)
         board = cshogi.Board(sfen) # type:ignore
 
         engine.send_newgame()
@@ -1727,8 +1805,16 @@ class EngineManager:
         visited : set[Sfen] = set()
         path_visited : set[Sfen] = set()
         last_thinking_ply = PLY_MIN
+        if task.resume is not None:
+            resume = task.resume
+            branch_depth = resume.branch_depth
+            last_thinking_ply = (resume.last_thinking_ply
+                                 if resume.engine_id == engine.thread_settings.thread_id else PLY_MIN)
+            visited = resume.visited
+            path_visited = resume.path_visited
+            task.resume = None
 
-        for move in moves:
+        for move_index, move in enumerate(moves):
             current_sfen, ply = trim_sfen_ply(board.sfen())
             if current_sfen in path_visited:
                 return TASK_RESULT_DONE
@@ -1739,12 +1825,26 @@ class EngineManager:
                 return TASK_RESULT_DONE
 
             # 現局面が未思考なら、棋譜上の局面としてbookに取り込む。
-            position_info, _ = self.get_book_position_info(book, current_sfen)
+            position_info, _ = self.get_book_position_info(book, current_sfen, ply)
             searched = False
             branch_sfen = current_sfen
             if position_info is None or not has_considered(position_info):
-                position_info, branch_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+                try:
+                    position_info, branch_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
+                except Exception:
+                    if engine.connection_broken or not engine.is_process_alive():
+                        visited.discard(current_sfen)
+                        visited.discard(flipped_sfen(current_sfen))
+                        path_visited.discard(current_sfen)
+                        remaining = f"sfen {board.sfen()} moves {' '.join(moves[move_index:])}"
+                        task.resume = TaskResume(False, remaining, 0, branch_depth, last_thinking_ply,
+                                                 engine.thread_settings.thread_id, visited, path_visited)
+                    raise
                 if status == TASK_RESULT_DEFERRED:
+                    path_visited.discard(current_sfen)
+                    remaining = f"sfen {board.sfen()} moves {' '.join(moves[move_index:])}"
+                    task.resume = TaskResume(False, remaining, 0, branch_depth, last_thinking_ply,
+                                             engine.thread_settings.thread_id, visited, path_visited)
                     return TASK_RESULT_DEFERRED
                 if position_info is None:
                     return TASK_RESULT_DONE
@@ -1791,10 +1891,8 @@ class EngineManager:
         leaf_sfen, leaf_ply = trim_sfen_ply(board.sfen())
         if leaf_sfen in path_visited:
             return TASK_RESULT_DONE
-        return self.start_thinking(
-            book,
-            engine,
-            Task(
+        self.get_book_position_info(book, leaf_sfen, leaf_ply)
+        leaf_task = Task(
                 leaf_sfen,
                 leaf_ply,
                 eval_limit,
@@ -1803,8 +1901,14 @@ class EngineManager:
                 job_id=task.job_id,
                 branch_width=task.branch_width,
                 branch_depth=branch_depth,
-            ),
-        )
+            )
+        leaf_task.resume = TaskResume(True, f"sfen {leaf_sfen} {leaf_ply}", task.book_extend_ply,
+                                      branch_depth, PLY_MIN, engine.thread_settings.thread_id, set(), set())
+        try:
+            return self.start_thinking(book, engine, leaf_task)
+        finally:
+            if leaf_task.resume is not None:
+                task.resume = leaf_task.resume
 
     def get_thinking_candidate_moves(
         self,
@@ -1936,12 +2040,15 @@ class EngineManager:
 
             except Exception as e:
                 print(f"[TaskWorkerError] Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
-                engine_dead = not engine.is_process_alive()
-                if task is not None:
-                    self.report_task_queue_progress(task)
-                if engine_dead:
+                engine_unavailable = engine.connection_broken or not engine.is_process_alive()
+                if engine_unavailable:
+                    if task is not None and not self.global_settings.quit:
+                        self.task_queue.put_deferred(task)
+                    engine.thread_settings.alive = False
                     self.report_engine_alive(engine)
                     break
+                if task is not None:
+                    self.report_task_queue_progress(task)
 
 
     def put_task(self, task:Task):
@@ -1968,16 +2075,12 @@ class EngineManager:
             if job_progress is not None:
                 job_progress.deferred += 1
 
-        if task.defer_count > MAX_TASK_DEFER_COUNT:
-            print(
-                f"[TaskQueueDeferLimit] job={task.job_id} "
-                f"defer_count={task.defer_count} position={task.position_cmd or task.sfen}"
-            )
-            self.report_task_queue_progress(task)
+        if self.global_settings.quit:
             return
 
         time.sleep(TASK_DEFER_SLEEP_SECONDS)
-        self.task_queue.put_deferred(task)
+        if not self.global_settings.quit:
+            self.task_queue.put_deferred(task)
 
     def join_task(self):
         # 全task queueのjoin待ち
@@ -3886,6 +3989,9 @@ def put_position_commands(
         f"eval_limit = {eval_limit}, max_book_ply = {max_book_ply}, "
         f"book_extend_ply = {book_extend_ply}, branch = {branch_text}"
     )
+    if engine_manager.engine_alive_count() == 0:
+        print(f"({job_counter_local}) put position commands Error : no search engines are available")
+        return
     if not os.path.exists(path):
         print(f"({job_counter_local}) put position commands Error : file not found, path = {path}")
         return

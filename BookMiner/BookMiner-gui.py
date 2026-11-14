@@ -2071,6 +2071,10 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
             return
 
+        if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and "put position commands error" in lower:
+            self._abort_auto_enqueue("auto enqueue stopped: BookMiner could not enqueue the positions.")
+            return
+
         if "Exception :" in line and "auto save failed" not in lower and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
             return

@@ -13,6 +13,16 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_auto_enqueue_stops_when_backend_cannot_enqueue(self):
+        instance = Mock()
+        instance.settings_apply_pending = False
+        instance.busy_action = 'auto_enqueue'
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_ENQUEUE
+        gui.BookMinerGui._handle_auto_enqueue_line(
+            instance, '(1) put position commands Error : no search engines are available')
+        instance._abort_auto_enqueue.assert_called_once_with(
+            'auto enqueue stopped: BookMiner could not enqueue the positions.')
+
     def test_automatic_peta_read_messages_go_to_peta_log(self):
         instance = Mock()
         instance.peta_makebook_active = False
