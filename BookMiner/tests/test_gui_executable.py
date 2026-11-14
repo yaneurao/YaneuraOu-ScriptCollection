@@ -13,6 +13,43 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_worker_failure_does_not_cancel_running_auto_enqueue(self):
+        for line in ('[TaskWorkerError] Exception : engine failed',
+                     'Exception : task failed, job=3 : engine failed'):
+            instance = Mock()
+            instance.settings_apply_pending = False
+            instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT
+            instance.busy_action = 'auto_enqueue'
+            gui.BookMinerGui._handle_auto_enqueue_line(instance, line)
+            instance._abort_auto_enqueue.assert_not_called()
+            self.assertEqual(instance.busy_action, 'auto_enqueue')
+
+    def test_auto_enqueue_merges_each_duplicate_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'think_sfens.txt'
+            target = root / 'think_sfens-tmp.txt'
+            instance = Mock()
+            instance.auto_tmp_seen = {}
+            with patch.object(gui, 'THINK_SFENS_PATH', source), patch.object(gui, 'AUTO_THINK_SFENS_PATH', target):
+                source.write_text('startpos, book_extend_ply=10, eval_limit=100, game_ply_limit=100\n')
+                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'first'))
+                source.write_text('startpos, book_extend_ply=6, eval_limit=400, game_ply_limit=200\n')
+                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'second'))
+            self.assertEqual(target.read_text(),
+                             'startpos, book_extend_ply=10, eval_limit=400, game_ply_limit=200\n')
+
+    def test_auto_enqueue_stops_when_no_positions_are_extracted(self):
+        instance = Mock()
+        instance.auto_enqueue_enabled.get.return_value = True
+        instance.auto_step2_queue = []
+        instance.auto_tmp_seen = {}
+        gui.BookMinerGui._start_next_auto_step2(instance)
+        instance._abort_auto_enqueue.assert_called_once_with(
+            'auto enqueue stopped: no positions were extracted.')
+        instance._promote_auto_think_sfens_tmp.assert_not_called()
+        instance.send_enqueue.assert_not_called()
+
     def test_edit_start_file_uses_current_unapplied_path(self):
         instance = Mock()
         instance.setting_start_path.get.return_value = 'book/開始局面.txt'

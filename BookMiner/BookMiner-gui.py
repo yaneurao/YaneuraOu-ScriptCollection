@@ -382,16 +382,17 @@ def split_think_sfen_metadata(line: str) -> tuple[str, ThinkSfenMetadata]:
     return position_cmd, ThinkSfenMetadata(book_extend_ply, eval_limit, game_ply_limit)
 
 
-def book_extend_ply_rank(value: int | None) -> int:
-    return -1 if value is None else value
-
-
-def think_sfen_metadata_rank(metadata: ThinkSfenMetadata) -> tuple[int, int, int]:
-    return (
-        book_extend_ply_rank(metadata.book_extend_ply),
-        book_extend_ply_rank(metadata.eval_limit),
-        book_extend_ply_rank(metadata.game_ply_limit),
-    )
+def merge_think_sfen_metadata(position: str, old: ThinkSfenMetadata, new: ThinkSfenMetadata) -> str:
+    fields = []
+    for name, first, second in (
+        ("book_extend_ply", old.book_extend_ply, new.book_extend_ply),
+        ("eval_limit", old.eval_limit, new.eval_limit),
+        ("game_ply_limit", old.game_ply_limit, new.game_ply_limit),
+    ):
+        values = [value for value in (first, second) if value is not None]
+        if values:
+            fields.append(f"{name}={max(values)}")
+    return position + (", " + ", ".join(fields) if fields else "")
 
 
 def configure_initial_window_size(root: tk.Tk) -> None:
@@ -2011,6 +2012,9 @@ class BookMinerGui(ttk.Frame):
         elif "auto save failed" in lower:
             self.backup_in_progress = False
             self.ignore_current_backup = False
+        if "[taskworkererror]" in lower or "exception : task failed, job=" in lower:
+            # Worker failures are reported separately and do not finish the active GUI command.
+            return
         if self.busy_action == "manual_enqueue" and (
             "put position commands error" in lower
             or "error : task workers are not running" in lower
@@ -2238,8 +2242,9 @@ class BookMinerGui(ttk.Frame):
                         added += 1
                         continue
                     _old_position_cmd, old_metadata = split_think_sfen_metadata(old_line)
-                    if think_sfen_metadata_rank(metadata) > think_sfen_metadata_rank(old_metadata):
-                        self.auto_tmp_seen[position_cmd] = line
+                    merged = merge_think_sfen_metadata(position_cmd, old_metadata, metadata)
+                    if merged != old_line:
+                        self.auto_tmp_seen[position_cmd] = merged
                         updated += 1
                         continue
                     else:
@@ -2277,6 +2282,9 @@ class BookMinerGui(ttk.Frame):
 
         if not self.auto_step2_queue:
             self.auto_current_step2 = None
+            if not self.auto_tmp_seen:
+                self._abort_auto_enqueue("auto enqueue stopped: no positions were extracted.")
+                return
             self.auto_enqueue_state = AUTO_ENQUEUE_ENQUEUE
             if not self._promote_auto_think_sfens_tmp():
                 self._abort_auto_enqueue("auto enqueue stopped: failed to prepare enqueue input.")

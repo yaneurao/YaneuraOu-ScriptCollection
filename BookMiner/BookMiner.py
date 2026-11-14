@@ -1905,7 +1905,7 @@ class EngineManager:
                 self.report_task_queue_progress(task)
 
             except Exception as e:
-                print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+                print(f"[TaskWorkerError] Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
                 engine_dead = not engine.is_process_alive()
                 if task is not None:
                     self.report_task_queue_progress(task)
@@ -2803,6 +2803,8 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
     start_time = time.time()
     last_progress_time = start_time
     output_done = False
+    reported_completion = False
+    reported_error = False
 
     while True:
         try:
@@ -2811,6 +2813,10 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
                 output_done = True
             else:
                 line = line.rstrip()
+                if "Making a peta-shock book has been completed." in line:
+                    reported_completion = True
+                if "Error!" in line:
+                    reported_error = True
                 if line and not is_yaneuraou_progress_bar_line(line):
                     print(f"[peta_shock] {line}")
         except queue.Empty:
@@ -2826,10 +2832,14 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
             break
 
     return_code = process.wait()
-    if return_code != 0:
-        raise Exception(f"peta_shock makebook failed. return code = {return_code}")
+    if return_code != 0 or reported_error or not reported_completion:
+        if os.path.exists(peta_temp_path):
+            os.remove(peta_temp_path)
+        raise Exception(f"peta_shock makebook failed or did not report completion. return code = {return_code}")
 
     if not os.path.isfile(peta_temp_path) or os.path.getsize(peta_temp_path) == 0:
+        if os.path.exists(peta_temp_path):
+            os.remove(peta_temp_path)
         raise Exception(f"peta_shock makebook failed. output file was not created : {peta_temp_path}")
 
     os.replace(peta_temp_path, peta_path)
@@ -2846,7 +2856,12 @@ def read_peta_book(peta_book_path:str|None = None):
     print(f"prepare to read peta shocked book , path = {peta_path}")
     global peta_book, peta_book_probe_path
     peta_book = Book()
-    read_regular_book_fast(peta_book, peta_path, "peta shocked book")
+    peta_book_probe_path = None
+    try:
+        read_regular_book_fast(peta_book, peta_path, "peta shocked book")
+    except Exception:
+        peta_book = Book()
+        raise
     peta_book_probe_path = peta_path
     print("reading the peta_book has done.")
 
