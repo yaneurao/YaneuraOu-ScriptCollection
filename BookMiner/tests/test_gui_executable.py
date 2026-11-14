@@ -13,6 +13,20 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_rejected_peta_command_does_not_leave_gui_busy(self):
+        for auto in (False, True):
+            with self.subTest(auto=auto):
+                instance = Mock()
+                instance.settings_apply_pending = False
+                instance.busy_action = 'auto_enqueue' if auto else 'manual_peta_next'
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if auto else gui.AUTO_ENQUEUE_IDLE
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Error : peta command is running. wait for peta command completion.')
+                if auto:
+                    instance._abort_auto_enqueue.assert_called_once()
+                else:
+                    self.assertIsNone(instance.busy_action)
+                    instance._update_buttons.assert_called_once()
+
     def test_mining_status_is_one_line(self):
         instance = Mock()
         instance.latest_mining_positions = None

@@ -2075,6 +2075,15 @@ class BookMinerGui(ttk.Frame):
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner could not enqueue the positions.")
             return
 
+        if "error : peta command is running" in lower:
+            if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
+                self._abort_auto_enqueue("auto enqueue stopped: another peta command is running.")
+            elif self.busy_action is not None and self.busy_action.startswith("manual_peta_"):
+                self._append_log("other", "[GUI] peta command was rejected because another peta command is running.\n")
+                self.busy_action = None
+                self._update_buttons()
+            return
+
         if "Exception :" in line and "auto save failed" not in lower and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
             return
