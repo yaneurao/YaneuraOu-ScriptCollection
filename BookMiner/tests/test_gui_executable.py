@@ -13,6 +13,33 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_peta_read_progress_does_not_overwrite_normal_book_count(self):
+        instance = Mock()
+        instance.book_positions_text = '定跡局面数 12,345,678'
+        instance.peta_positions_count = 100
+        instance.peta_positions_text = 'peta定跡局面数 100'
+        instance.reading_peta_book = False
+        gui.BookMinerGui._handle_book_progress_line(instance, 'read peta shocked book , path = book/backup/peta_book.db')
+        gui.BookMinerGui._handle_book_progress_line(instance, '[BookReadProgress] 500/1000')
+        self.assertEqual(instance.book_positions_text, '定跡局面数 12,345,678')
+        self.assertIn('読込中 500/1,000', instance.peta_positions_text)
+        gui.BookMinerGui._handle_book_progress_line(instance, '[BookReadDone] 1000/1000')
+        gui.BookMinerGui._handle_book_progress_line(instance, '[PetaBookPositions] positions=990')
+        self.assertEqual(instance.peta_positions_text, 'peta定跡局面数 990')
+        self.assertEqual(instance.book_positions_text, '定跡局面数 12,345,678')
+        self.assertFalse(instance.reading_peta_book)
+
+    def test_peta_read_failure_preserves_cpp_count(self):
+        instance = Mock()
+        instance.peta_positions_count = 123
+        instance.peta_positions_text = 'peta定跡局面数 123'
+        instance.reading_peta_book = False
+        gui.BookMinerGui._handle_book_progress_line(instance, 'read peta shocked book , path = broken.ybb')
+        gui.BookMinerGui._handle_book_progress_line(instance, '[BookReadProgress] 10/100')
+        gui.BookMinerGui._handle_book_progress_line(instance, 'Exception : peta read failed: bad file')
+        self.assertEqual(instance.peta_positions_text, 'peta定跡局面数 123')
+        self.assertFalse(instance.reading_peta_book)
+
     def test_stale_queue_done_does_not_erase_newer_work(self):
         instance = Mock()
         instance.task_queue_total_highwater = 0

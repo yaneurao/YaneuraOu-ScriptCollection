@@ -3784,6 +3784,7 @@ void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::st
 
     log_line("read peta shocked book , path = " + peta_path.string());
     peta_book.load_yaneuraou_book(peta_path, false, book_read_progress, nullptr);
+    log_line("[PetaBookPositions] positions=" + std::to_string(peta_book.size()));
     log_line("reading the peta_book has done.");
 }
 

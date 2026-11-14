@@ -233,6 +233,7 @@ class CppIntegrationTest(unittest.TestCase):
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('..peta_shock makebook has done', result.stdout)
+        self.assertIn('[PetaBookPositions] positions=0', result.stdout)
         self.assertIn(' threads 4\n', (root / 'peta-commands.txt').read_text())
 
 

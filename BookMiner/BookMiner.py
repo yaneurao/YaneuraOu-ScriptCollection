@@ -2870,8 +2870,10 @@ def read_peta_book(peta_book_path:str|None = None):
         read_regular_book_fast(peta_book, peta_path, "peta shocked book")
     except Exception:
         peta_book = Book()
+        print("[PetaBookPositions] positions=0")
         raise
     peta_book_probe_path = peta_path
+    print(f"[PetaBookPositions] positions={len(peta_book.body)}")
     print("reading the peta_book has done.")
 
 

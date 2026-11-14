@@ -170,6 +170,7 @@ GUI_SETTING_DEFAULTS = {
     "step2_collapsed": "0",
 }
 BOOK_PROGRESS_RE = re.compile(r"\[Book(Read|Write)(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
+PETA_BOOK_POSITIONS_RE = re.compile(r"\[PetaBookPositions\]\s+positions=(\d+)")
 TASK_QUEUE_PROGRESS_RE = re.compile(r"\[TaskQueue(Start|Progress|Done)\]\s+(\d+)/(\d+|\?)")
 TASK_QUEUE_JOB_STATUS_RE = re.compile(r"\[TaskQueue(Start|Progress|JobDone|Done)\]\s+(\d+)/(\d+|\?)(.*)")
 TASK_QUEUE_FIELD_RE = re.compile(r"\b([A-Za-z_]+)=([^\s]+)")
@@ -523,6 +524,9 @@ class BookMinerGui(ttk.Frame):
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.backup_status = tk.StringVar(value="次回自動保存 -")
         self.book_positions_text = "定跡局面数 -"
+        self.peta_positions_count = 0
+        self.peta_positions_text = "peta定跡局面数 0"
+        self.reading_peta_book = False
         self.engine_status_text = "エンジン起動数 -"
         self.enqueue_status_text = "enqueue -"
         self.mining_status = tk.StringVar(value="")
@@ -1195,6 +1199,9 @@ class BookMinerGui(ttk.Frame):
     def _reset_progress(self) -> None:
         self.backup_status.set("次回自動保存 -")
         self.book_positions_text = "定跡局面数 -"
+        self.peta_positions_count = 0
+        self.peta_positions_text = "peta定跡局面数 0"
+        self.reading_peta_book = False
         self.engine_status_text = "エンジン起動数 -"
         self.enqueue_status_text = "enqueue -"
         self.latest_mining_positions = None
@@ -1534,6 +1541,9 @@ class BookMinerGui(ttk.Frame):
             return_code = process.poll()
             self._append_log("other", f"\n[GUI] {self.bookminer_name} exited. return code = {return_code}\n")
         self.process = None
+        self.reading_peta_book = False
+        self.peta_positions_count = 0
+        self.peta_positions_text = "peta定跡局面数 -"
         if self.settings_apply_pending:
             self.setting_status.set("保存しましたが、反映の完了前にBookMinerが終了しました。")
         self.settings_apply_pending = False
@@ -1672,6 +1682,19 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
 
     def _handle_book_progress_line(self, line: str) -> None:
+        lower = line.lower()
+        if "read peta shocked book" in lower:
+            self.reading_peta_book = True
+        positions = PETA_BOOK_POSITIONS_RE.search(line)
+        if positions is not None:
+            self.peta_positions_count = int(positions.group(1))
+            self.peta_positions_text = f"peta定跡局面数 {self.peta_positions_count:,}"
+            self.reading_peta_book = False
+            self._update_mining_status()
+        if "reading the peta_book has done" in lower or "exception : peta read failed" in lower:
+            self.reading_peta_book = False
+            self.peta_positions_text = f"peta定跡局面数 {self.peta_positions_count:,}"
+            self._update_mining_status()
         match = BOOK_PROGRESS_RE.search(line)
         if match is None:
             return
@@ -1681,6 +1704,17 @@ class BookMinerGui(ttk.Frame):
         total = None if total_text == "?" else int(total_text)
 
         if key == "read":
+            if self.reading_peta_book:
+                if phase == "Done":
+                    # Older backends do not report the number of loaded positions separately.
+                    self.peta_positions_count = count
+                    self.peta_positions_text = f"peta定跡局面数 {count:,}"
+                else:
+                    total_display = f"{total:,}" if total is not None else "?"
+                    self.peta_positions_text = (f"peta定跡局面数 {self.peta_positions_count:,} "
+                                                f"(読込中 {count:,}/{total_display})")
+                self._update_mining_status()
+                return
             if phase == "Done":
                 self.book_positions_text = f"定跡局面数 {count:,}"
             else:
@@ -2001,7 +2035,7 @@ class BookMinerGui(ttk.Frame):
                         current_nps_text = f"{round(positions_per_second * avg_nodes):,}"
 
         self.mining_status.set(
-            f"{self.book_positions_text}    {self.engine_status_text}    {self.enqueue_status_text}    "
+            f"{self.book_positions_text}    {self.peta_positions_text}    {self.engine_status_text}    {self.enqueue_status_text}\n"
             f"現在の採掘速度 {speed_text} 局面/日    "
             f"平均探索nodes {avg_nodes_text}    現在のnps {current_nps_text}"
         )
