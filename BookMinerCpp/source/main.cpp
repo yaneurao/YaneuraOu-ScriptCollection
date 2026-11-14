@@ -3298,7 +3298,8 @@ std::string to_book_dir_relative_path(const fs::path& path)
 
 fs::path find_peta_shock_engine(const fs::path& app_dir, const bookminer::BookMinerSettings& settings)
 {
-    const fs::path configured = fs::u8path(settings.peta_shock_engine_path);
+    const auto& path_utf8 = settings.peta_shock_engine_path;
+    const fs::path configured(std::u8string(path_utf8.begin(), path_utf8.end()));
     const fs::path engine_path = configured.is_absolute() ? configured : app_dir / configured;
     if (fs::is_regular_file(engine_path))
         return engine_path;

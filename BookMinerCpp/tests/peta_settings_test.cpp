@@ -36,6 +36,11 @@ int main(int argc, char** argv)
     const auto old_cwd = std::filesystem::current_path();
     std::filesystem::current_path(root);
     bookminer::BookMinerSettings settings;
+    const auto unicode_engine = root / std::filesystem::path(u8"エンジン.exe");
+    { std::ofstream out(unicode_engine); out << "engine"; }
+    settings.peta_shock_engine_path = "エンジン.exe";
+    if (find_peta_shock_engine(root, settings) != unicode_engine)
+        throw std::runtime_error("UTF-8 engine path was not resolved");
     settings.peta_shock_engine_path = "engine directory/custom engine";
     settings.peta_shock_threads = 4;
     const auto output = run_peta_shock_makebook(root, source, settings);
