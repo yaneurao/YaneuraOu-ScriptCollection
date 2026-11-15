@@ -13,6 +13,39 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_shock_completion_after_cancel_request_resets_button(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.busy_action = action
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                instance.peta_shock_cancel_pending = True
+                instance.settings_apply_pending = False
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaCommandDone]')
+                self.assertFalse(instance.peta_shock_cancel_pending)
+                self.assertIsNone(instance.busy_action)
+
+    def test_rejected_shock_cancel_resets_pending_state(self):
+        instance = Mock()
+        instance.peta_shock_cancel_pending = True
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaShockCancelIgnored] no peta shock is running')
+        self.assertFalse(instance.peta_shock_cancel_pending)
+        instance._update_buttons.assert_called_once()
+
+    def test_failed_manual_backup_does_not_clear_running_peta_shock(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.settings_apply_pending = False
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                instance.busy_action = action
+                instance.manual_backup_pending = True
+                gui.BookMinerGui._handle_auto_enqueue_line(
+                    instance, 'Exception : command failed, command=w : disk full')
+                self.assertFalse(instance.manual_backup_pending)
+                self.assertEqual(instance.busy_action, action)
+                instance._update_buttons.assert_called_once()
+
     def test_peta_shock_button_changes_to_cancel(self):
         for action, button in (('manual_peta_shock', 'peta_button'),
                                ('manual_peta_shock_latest', 'peta_latest_button'),

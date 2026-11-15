@@ -1,11 +1,12 @@
 import importlib.util
+import io
 import os
 from pathlib import Path
 import sys
 import tempfile
 from threading import Event, Thread
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / 'BookMiner.py'
 spec = importlib.util.spec_from_file_location('bookminer_test_module', MODULE_PATH)
@@ -15,6 +16,41 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_engine_input_failure_stops_child_and_removes_partial_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
+            source = backup / 'book_miner-20261029000000_1.db'
+            source.write_text('source')
+            engine = root / 'engine'
+            engine.touch()
+            destination = backup / 'peta_book-20261029000000_1.db'
+            destination.write_text('previous')
+            temporary = backup / 'tmp-peta_book-20261029000000_1.db'
+            process = Mock()
+            process.stdout = io.StringIO('')
+            process.stdin = Mock()
+            process.stdin.write.side_effect = BrokenPipeError('closed')
+            process.poll.return_value = None
+            def start(*_args, **_kwargs):
+                temporary.write_text('partial')
+                return process
+            settings = bookminer.BookMinerSettings(peta_shock_engine_path=str(engine))
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                with patch.object(bookminer, '__file__', str(root / 'BookMiner.py')), \
+                     patch.object(bookminer.subprocess, 'Popen', side_effect=start):
+                    with self.assertRaises(BrokenPipeError):
+                        bookminer.run_peta_shock_makebook(str(source), settings)
+            finally:
+                os.chdir(old_cwd)
+            process.terminate.assert_called_once()
+            process.wait.assert_called_once()
+            self.assertFalse(temporary.exists())
+            self.assertEqual(destination.read_text(), 'previous')
+
     def test_cancel_interrupts_wait_for_another_backup(self):
         cancel, stopped = Event(), Event()
         def save():

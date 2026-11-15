@@ -9,6 +9,17 @@ int main(int argc, char** argv)
     return 0;
 #else
     if (argc != 2) return 2;
+    {
+        int fds[2];
+        if (pipe(fds) != 0) throw std::runtime_error("failed to create test pipe");
+        close(fds[0]);
+        errno = 0;
+        const auto result = write_peta_input_without_sigpipe(fds[1], "x", 1);
+        const int error = errno;
+        close(fds[1]);
+        if (result != -1 || error != EPIPE)
+            throw std::runtime_error("closed peta engine pipe was not reported as EPIPE");
+    }
     const auto root = std::filesystem::absolute(argv[1]);
     std::filesystem::create_directories(root / "engine directory");
     std::filesystem::create_directories(root / "book" / "backup");
@@ -35,6 +46,24 @@ int main(int argc, char** argv)
     { std::ofstream out(source); out << "source"; }
     const auto old_cwd = std::filesystem::current_path();
     std::filesystem::current_path(root);
+    {
+        ConcurrentManualBackup manual;
+        std::atomic<bool> entered{false}, release{false};
+        if (!manual.start([&] {
+                entered = true;
+                while (!release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                return root / "manual.db";
+            }))
+            throw std::runtime_error("manual backup did not start");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!entered.load() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool running = entered.load() && manual.running();
+        release = true;
+        manual.join();
+        if (!running || manual.running())
+            throw std::runtime_error("manual backup did not run concurrently");
+    }
     {
         bookminer::BookStore book;
         std::atomic<bool> cancel{false}, interrupted{false};

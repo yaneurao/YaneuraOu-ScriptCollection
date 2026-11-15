@@ -2976,11 +2976,37 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
 
     Thread(target=read_output, daemon=True).start()
 
+    def stop_process():
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait()
+
     assert process.stdin is not None
-    for command in commands:
-        process.stdin.write(command + "\n")
-    process.stdin.flush()
-    process.stdin.close()
+    try:
+        for command in commands:
+            process.stdin.write(command + "\n")
+        process.stdin.flush()
+        process.stdin.close()
+    except Exception:
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+        stop_process()
+        if os.path.exists(peta_temp_path):
+            os.remove(peta_temp_path)
+        check_peta_shock_cancel(cancel)
+        raise
 
     start_time = time.time()
     last_progress_time = start_time
@@ -2990,16 +3016,7 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
 
     while True:
         if cancel is not None and cancel.is_set():
-            if process.poll() is None:
-                try:
-                    process.terminate()
-                except ProcessLookupError:
-                    pass
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+            stop_process()
             if os.path.exists(peta_temp_path):
                 os.remove(peta_temp_path)
             raise PetaShockCancelled()
@@ -3089,7 +3106,7 @@ def make_and_read_peta_book(source_book_path:str|None = None, settings:BookMiner
         read_peta_book(peta_path, cancel)
 
 
-def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None, settings:BookMinerSettings|None = None, cancel:Event|None = None):
+def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None, settings:BookMinerSettings|None = None, cancel:Event|None = None, emit_done:bool = True):
     """
     現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
     周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
@@ -3112,7 +3129,8 @@ def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], Non
     else:
         make_and_read_peta_book(source_book_path, settings, cancel)
     print("..p command has done.")
-    print("[PetaCommandDone]")
+    if emit_done:
+        print("[PetaCommandDone]")
 
 
 def is_refuted_move_by_peta_impact(
@@ -4377,7 +4395,10 @@ def user_input(from_gui:bool = False):
     peta_next_cancel = Event()
     peta_next_thread : Thread|None = None
     peta_shock_cancel = Event()
+    peta_shock_active = Event()
     peta_shock_thread : Thread|None = None
+    concurrent_manual_backup : Thread|None = None
+    concurrent_manual_backup_active = Event()
     while True:
         try:
             if not from_gui:
@@ -4387,7 +4408,7 @@ def user_input(from_gui:bool = False):
                 continue
             i = inp[0].lower()
             if i == 'cancel-peta-shock':
-                if peta_shock_thread is not None and peta_shock_thread.is_alive():
+                if peta_shock_active.is_set():
                     peta_shock_cancel.set()
                 else:
                     print('[PetaShockCancelIgnored] no peta shock is running')
@@ -4403,7 +4424,7 @@ def user_input(from_gui:bool = False):
                               'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
                 print('Error : peta command is running. wait for peta command completion.')
                 continue
-            if (peta_shock_thread is not None and peta_shock_thread.is_alive()
+            if (peta_shock_active.is_set()
                     and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
                               'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
                 print('Error : peta book is loading. wait for peta read completion.')
@@ -4441,6 +4462,8 @@ def user_input(from_gui:bool = False):
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
+                if concurrent_manual_backup is not None:
+                    concurrent_manual_backup.join()
                 save_book_main()
                 break
 
@@ -4450,9 +4473,14 @@ def user_input(from_gui:bool = False):
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
+                if concurrent_manual_backup is not None:
+                    concurrent_manual_backup.join()
                 break
 
             elif i == 'w':
+                if concurrent_manual_backup_active.is_set():
+                    print('Exception : command failed, command=w : manual backup is already running')
+                    continue
                 # 手数を指定して、その手数まで書き出す。
                 # (peta_shock_nextのため)
                 if len(inp) < 2:
@@ -4463,8 +4491,28 @@ def user_input(from_gui:bool = False):
                 # 定跡を書き出す。フル保存は自動バックアップの起点として扱う。
                 if ply_limit is None:
                     reset_auto_backup_timer()
-                path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
-                print(f"[ManualBackupDone] path={path}")
+                if peta_shock_active.is_set():
+                    concurrent_manual_backup_active.set()
+                    def run_concurrent_backup(limit=ply_limit):
+                        try:
+                            path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, limit)
+                            result = f'[ManualBackupDone] path={path}'
+                        except Exception as exc:
+                            result = f'Exception : command failed, command=w : {exc}'
+                        concurrent_manual_backup_active.clear()
+                        print(result)
+                    concurrent_manual_backup = Thread(target=run_concurrent_backup, daemon=True)
+                    try:
+                        concurrent_manual_backup.start()
+                    except Exception as exc:
+                        concurrent_manual_backup_active.clear()
+                        print(f'Exception : command failed, command=w : {exc}')
+                    continue
+                try:
+                    path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
+                    print(f"[ManualBackupDone] path={path}")
+                except Exception as exc:
+                    print(f"Exception : command failed, command=w : {exc}")
 
             elif i == 'reload-settings':
                 try:
@@ -4581,33 +4629,50 @@ def user_input(from_gui:bool = False):
 
             elif i == 'p':
                 peta_shock_cancel.clear()
+                peta_shock_active.set()
                 settings_snapshot = replace(book_miner_settings)
                 def run_shock():
                     try:
-                        write_and_read_peta_book(book, reset_auto_backup_timer, settings_snapshot, peta_shock_cancel)
+                        write_and_read_peta_book(book, reset_auto_backup_timer, settings_snapshot, peta_shock_cancel, emit_done=False)
                     except PetaShockCancelled:
-                        print('[PetaShockCancelled]')
+                        result = '[PetaShockCancelled]'
                     except Exception as exc:
-                        print(f'Exception : peta shock failed: {exc}')
+                        result = f'Exception : peta shock failed: {exc}'
+                    else:
+                        result = '[PetaCommandDone]'
+                    peta_shock_active.clear()
+                    print(result)
                 peta_shock_thread = Thread(target=run_shock, daemon=True)
-                peta_shock_thread.start()
+                try:
+                    peta_shock_thread.start()
+                except Exception:
+                    peta_shock_active.clear()
+                    raise
 
             elif i == 'pl' or i == 'peta_shock_latest':
                 # latest regular backup -> peta_read
                 print("start pl command : peta_shock latest backup, and read peta book.")
                 peta_shock_cancel.clear()
+                peta_shock_active.set()
                 settings_snapshot = replace(book_miner_settings)
                 def run_shock_latest():
                     try:
                         make_and_read_peta_book(None, settings_snapshot, peta_shock_cancel)
                         print("..pl command has done.")
-                        print("[PetaCommandDone]")
                     except PetaShockCancelled:
-                        print('[PetaShockCancelled]')
+                        result = '[PetaShockCancelled]'
                     except Exception as exc:
-                        print(f'Exception : peta shock failed: {exc}')
+                        result = f'Exception : peta shock failed: {exc}'
+                    else:
+                        result = '[PetaCommandDone]'
+                    peta_shock_active.clear()
+                    print(result)
                 peta_shock_thread = Thread(target=run_shock_latest, daemon=True)
-                peta_shock_thread.start()
+                try:
+                    peta_shock_thread.start()
+                except Exception:
+                    peta_shock_active.clear()
+                    raise
             
             elif i == 'pn':
                 # peta_next

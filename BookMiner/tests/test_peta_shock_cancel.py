@@ -74,8 +74,12 @@ class PetaShockCancelTests(unittest.TestCase):
                     wait_for('[peta_shock] child-ready')
                     pid = int(child_pid.read_text())
                     self.assertTrue(temporary.exists())
+                    if command == 'pl':
+                        send('w')
                     send('cancel-peta-shock')
                     wait_for('[PetaShockCancelled]')
+                    if command == 'pl' and not any('[ManualBackupDone]' in line for line in captured):
+                        wait_for('[ManualBackupDone]')
                     self.assertFalse(temporary.exists())
                     self.assertEqual(target.read_text(), content)
                     with self.assertRaises(ProcessLookupError):

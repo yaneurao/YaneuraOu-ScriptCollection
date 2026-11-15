@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
@@ -38,6 +39,7 @@
 #else
 #include <csignal>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -3452,7 +3454,7 @@ fs::path find_peta_shock_engine(const fs::path& app_dir, const bookminer::BookMi
     const fs::path engine_path = configured.is_absolute() ? configured : app_dir / configured;
     if (fs::is_regular_file(engine_path))
         return engine_path;
-    throw std::runtime_error("peta shock engine not found : " + engine_path.string());
+    throw std::runtime_error("peta shock engine not found : " + path_to_utf8(engine_path));
 }
 
 struct PetaProcessResult {
@@ -3507,18 +3509,18 @@ void emit_output_chunk(std::string& pending, const char* data, std::size_t size,
 }
 
 #ifdef _WIN32
-std::string quote_windows_arg(const fs::path& path)
+std::wstring quote_windows_arg(const fs::path& path)
 {
-    std::string s = path.string();
-    std::string quoted = "\"";
-    for (char ch : s)
+    const std::wstring s = path.wstring();
+    std::wstring quoted = L"\"";
+    for (wchar_t ch : s)
     {
-        if (ch == '"')
-            quoted += "\\\"";
+        if (ch == L'"')
+            quoted += L"\\\"";
         else
             quoted += ch;
     }
-    quoted += "\"";
+    quoted += L"\"";
     return quoted;
 }
 
@@ -3539,12 +3541,16 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
     if (!CreatePipe(&child_stdin_read, &child_stdin_write, &sa, 0))
         throw std::runtime_error("CreatePipe stdin failed");
     if (!CreatePipe(&child_stdout_read, &child_stdout_write, &sa, 0))
+    {
+        CloseHandle(child_stdin_read);
+        CloseHandle(child_stdin_write);
         throw std::runtime_error("CreatePipe stdout failed");
+    }
 
     SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(child_stdout_read, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOA si{};
+    STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdInput = child_stdin_read;
@@ -3552,19 +3558,45 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
     si.hStdError = child_stdout_write;
 
     PROCESS_INFORMATION pi{};
-    std::string command_line = quote_windows_arg(executable);
-    std::string cwd_string = cwd.string();
+    std::wstring command_line = quote_windows_arg(executable);
+    std::wstring cwd_string = cwd.wstring();
 
-    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0, nullptr, cwd_string.c_str(), &si, &pi))
-        throw std::runtime_error("CreateProcess failed: " + executable.string());
+    if (!CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0, nullptr, cwd_string.c_str(), &si, &pi))
+    {
+        CloseHandle(child_stdin_read);
+        CloseHandle(child_stdin_write);
+        CloseHandle(child_stdout_read);
+        CloseHandle(child_stdout_write);
+        throw std::runtime_error("CreateProcess failed: " + path_to_utf8(executable));
+    }
 
     CloseHandle(child_stdin_read);
     CloseHandle(child_stdout_write);
 
-    DWORD written = 0;
-    if (!input.empty())
-        WriteFile(child_stdin_write, input.data(), static_cast<DWORD>(input.size()), &written, nullptr);
+    std::size_t offset = 0;
+    bool input_failed = false;
+    while (offset < input.size())
+    {
+        DWORD written = 0;
+        const auto remaining = std::min<std::size_t>(input.size() - offset, std::numeric_limits<DWORD>::max());
+        if (!WriteFile(child_stdin_write, input.data() + offset, static_cast<DWORD>(remaining), &written, nullptr) || written == 0)
+        {
+            input_failed = true;
+            break;
+        }
+        offset += written;
+    }
     CloseHandle(child_stdin_write);
+    if (input_failed)
+    {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(child_stdout_read);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        check_peta_shock_cancel(cancelled);
+        throw std::runtime_error("failed to send peta shock commands to the engine");
+    }
 
     std::string pending;
     char buffer[4096];
@@ -3638,6 +3670,31 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
     return result;
 }
 #else
+ssize_t write_peta_input_without_sigpipe(int fd, const char* data, std::size_t size)
+{
+    sigset_t blocked, old_mask, pending;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGPIPE);
+    if (pthread_sigmask(SIG_BLOCK, &blocked, &old_mask) != 0)
+        throw std::runtime_error("failed to block SIGPIPE");
+    sigpending(&pending);
+    const bool already_pending = sigismember(&pending, SIGPIPE) == 1;
+    const auto result = write(fd, data, size);
+    const int saved_errno = errno;
+    if (result < 0 && saved_errno == EPIPE && !already_pending)
+    {
+        sigpending(&pending);
+        if (sigismember(&pending, SIGPIPE) == 1)
+        {
+            int received = 0;
+            sigwait(&blocked, &received);
+        }
+    }
+    pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
+    errno = saved_errno;
+    return result;
+}
+
 void set_nonblocking(int fd)
 {
     const int flags = fcntl(fd, F_GETFL, 0);
@@ -3652,12 +3709,24 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
 
     int stdin_pipe[2]{};
     int stdout_pipe[2]{};
-    if (pipe(stdin_pipe) != 0 || pipe(stdout_pipe) != 0)
-        throw std::runtime_error("pipe failed");
+    if (pipe(stdin_pipe) != 0)
+        throw std::runtime_error("stdin pipe failed");
+    if (pipe(stdout_pipe) != 0)
+    {
+        close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
+        throw std::runtime_error("stdout pipe failed");
+    }
 
     const pid_t pid = fork();
     if (pid < 0)
+    {
+        close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
         throw std::runtime_error("fork failed");
+    }
 
     if (pid == 0)
     {
@@ -3678,8 +3747,28 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
     close(stdin_pipe[0]);
     close(stdout_pipe[1]);
 
-    const ssize_t written = write(stdin_pipe[1], input.data(), input.size());
-    (void)written;
+    try
+    {
+        std::size_t offset = 0;
+        while (offset < input.size())
+        {
+            const ssize_t written = write_peta_input_without_sigpipe(stdin_pipe[1], input.data() + offset, input.size() - offset);
+            if (written < 0 && errno == EINTR)
+                continue;
+            if (written <= 0)
+                throw std::runtime_error("failed to send peta shock commands to the engine");
+            offset += static_cast<std::size_t>(written);
+        }
+    }
+    catch (...)
+    {
+        close(stdin_pipe[1]);
+        close(stdout_pipe[0]);
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        check_peta_shock_cancel(cancelled);
+        throw;
+    }
     close(stdin_pipe[1]);
     set_nonblocking(stdout_pipe[0]);
 
@@ -3780,9 +3869,9 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
         makebook_command += " threads " + std::to_string(settings.peta_shock_threads);
 
     log_line("start peta_shock makebook");
-    log_line("engine path = " + engine_path.string());
-    log_line("source book = " + source_book_path.string());
-    log_line("peta book   = " + peta_path.string());
+    log_line("engine path = " + path_to_utf8(engine_path));
+    log_line("source book = " + path_to_utf8(source_book_path));
+    log_line("peta book   = " + path_to_utf8(peta_path));
     log_line("command     = " + makebook_command);
 
     const std::string commands =
@@ -3794,7 +3883,16 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
         "quit\n";
 
     check_peta_shock_cancel(cancelled);
-    const auto result = run_process_with_input(engine_path, app_dir, commands, cancelled);
+    PetaProcessResult result;
+    try
+    {
+        result = run_process_with_input(engine_path, app_dir, commands, cancelled);
+    }
+    catch (...)
+    {
+        fs::remove(peta_temp_path, ec);
+        throw;
+    }
     if (result.cancelled || (cancelled && cancelled->load()))
     {
         fs::remove(peta_temp_path, ec);
@@ -4118,6 +4216,8 @@ public:
         return true;
     }
 
+    bool shock_running() const { return running_.load() && shock_.load(); }
+
     void remember_saved_source(const fs::path& path, std::uint64_t revision)
     {
         std::scoped_lock lock(saved_source_mutex_);
@@ -4213,6 +4313,50 @@ private:
     std::thread thread_;
 };
 
+class ConcurrentManualBackup {
+public:
+    ~ConcurrentManualBackup() { join(); }
+
+    bool start(std::function<fs::path()> save)
+    {
+        if (running_.load())
+            return false;
+        join();
+        running_ = true;
+        try
+        {
+            thread_ = std::thread([this, save = std::move(save)] {
+                std::optional<fs::path> result;
+                std::optional<std::string> failure;
+                try { result = save(); }
+                catch (const std::exception& ex) { failure = ex.what(); }
+                running_ = false;
+                if (failure)
+                    log_line("Exception : command failed, command=w : " + *failure);
+                else
+                {
+                    log_line("write path = " + result->string());
+                    log_line("..w command write has done. path = " + result->string());
+                    log_line("[ManualBackupDone] path=" + result->string());
+                }
+            });
+        }
+        catch (...)
+        {
+            running_ = false;
+            throw;
+        }
+        return true;
+    }
+
+    bool running() const { return running_.load(); }
+    void join() { if (thread_.joinable()) thread_.join(); }
+
+private:
+    std::atomic<bool> running_{false};
+    std::thread thread_;
+};
+
 void print_help()
 {
     log_line("Help : ");
@@ -4295,6 +4439,7 @@ int main(int argc, char* argv[])
     bookminer::BookStore peta_book;
     PetaBookReadJob peta_book_read_job(peta_book);
     PetaCommandJob peta_command_job;
+    ConcurrentManualBackup concurrent_manual_backup;
     std::vector<std::unique_ptr<bookminer::UsiEngine>> engines;
     std::unique_ptr<TaskWorkers> task_workers;
     std::unique_ptr<AutoSaveService> auto_save_service;
@@ -4390,6 +4535,7 @@ int main(int argc, char* argv[])
             {
                 log_line("quit");
                 peta_book_read_job.cancel_shock();
+                concurrent_manual_backup.join();
                 const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, std::nullopt);
                 if (book.revision() == before_revision)
@@ -4409,6 +4555,7 @@ int main(int argc, char* argv[])
             {
                 log_line("quit without saving");
                 peta_book_read_job.cancel_shock();
+                concurrent_manual_backup.join();
                 if (auto_save_service)
                     auto_save_service->stop();
                 if (task_workers)
@@ -4422,8 +4569,24 @@ int main(int argc, char* argv[])
                 std::optional<int> ply_limit;
                 if (tokens.size() >= 2)
                     ply_limit = parse_integer(tokens[1]);
+                if (concurrent_manual_backup.running())
+                {
+                    log_line("Exception : command failed, command=w : manual backup is already running");
+                    continue;
+                }
                 if (!ply_limit.has_value() && auto_save_service)
                     auto_save_service->reset_timer();
+                if (peta_book_read_job.shock_running())
+                {
+                    concurrent_manual_backup.start([&, ply_limit] {
+                        const auto revision = book.revision();
+                        const auto path = save_book_backup(book, ply_limit);
+                        if (!ply_limit && book.revision() == revision)
+                            peta_book_read_job.remember_saved_source(path, revision);
+                        return path;
+                    });
+                    continue;
+                }
                 const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, ply_limit);
                 if (!ply_limit.has_value() && book.revision() == before_revision)

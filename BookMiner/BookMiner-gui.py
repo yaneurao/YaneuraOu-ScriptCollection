@@ -2041,6 +2041,10 @@ class BookMinerGui(ttk.Frame):
             self._append_log('peta', '[GUI] peta shock を中止しました。\n')
             self._update_buttons()
             return
+        if '[PetaShockCancelIgnored]' in line:
+            self.peta_shock_cancel_pending = False
+            self._update_buttons()
+            return
         if 'exception : peta shock failed' in lower:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
@@ -2085,6 +2089,13 @@ class BookMinerGui(ttk.Frame):
             self.ignore_current_backup = False
         if "[taskworkererror]" in lower or "exception : task failed, job=" in lower:
             # Worker failures are reported separately and do not finish the active GUI command.
+            return
+        if "exception : command failed, command=w" in lower:
+            self.manual_backup_pending = False
+            if self.busy_action == "manual_backup":
+                self.busy_action = None
+            self._append_log("other", "[GUI] DB手動保存に失敗しました。\n")
+            self._update_buttons()
             return
         if self.busy_action == "manual_enqueue" and (
             "put position commands error" in lower
@@ -2140,12 +2151,14 @@ class BookMinerGui(ttk.Frame):
 
         if PETA_COMMAND_DONE_RE.search(line):
             if self.busy_action == "auto_peta_shock":
+                self.peta_shock_cancel_pending = False
                 self.busy_action = None
                 self._append_log("task", "[GUI] 自動 peta shock が完了しました。\n")
                 self._update_buttons()
                 self._maybe_start_auto_enqueue()
                 return
             if self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest"}:
+                self.peta_shock_cancel_pending = False
                 self.busy_action = None
                 self._update_buttons()
                 return
