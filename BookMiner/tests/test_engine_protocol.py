@@ -377,6 +377,15 @@ class EngineProtocolTests(unittest.TestCase):
         self.assertEqual(engine.last_go_searched_nodes, 150)
         self.assertIn('setoption name MultiPV value 4', [call.args[0] for call in engine.send_usi.call_args_list])
 
+    def test_nodes_are_counted_once_per_search_including_research(self):
+        engine = self.engine(['info nodes 3', 'info string nodes 999',
+                              'info multipv 1 nodes 8 score cp 100 pv 7g7f',
+                              'info multipv 2 nodes 8 score cp 95 pv 2g2f', 'bestmove 7g7f',
+                              'info nodes 12', 'info nodes -1',
+                              'info multipv 1 score cp 200 pv 3g3f nodes 999', 'bestmove 3g3f'], delta=10)
+        engine.go(miner.SFEN_START, 1.0)
+        self.assertEqual(engine.last_go_searched_nodes, 20)
+
     def test_inconsistent_or_missing_bestmove_data_is_not_saved(self):
         for lines in (["bestmove 7g7f"], ['info score cp 42 pv 2g2f', 'bestmove 7g7f']):
             with self.subTest(lines=lines):

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -296,8 +297,10 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
     const std::uint64_t half_nodes = std::max<std::uint64_t>(1, nodes / 2);
     std::uint64_t searched_nodes = 0;
     std::uint64_t current_go_requested_nodes = nodes;
+    std::optional<std::uint64_t> current_go_reported_nodes;
     auto send_go = [&](std::uint64_t search_nodes) {
         current_go_requested_nodes = std::max<std::uint64_t>(1, search_nodes);
+        current_go_reported_nodes.reset();
         send_line("go nodes " + std::to_string(current_go_requested_nodes));
     };
     send_go(nodes);
@@ -323,7 +326,8 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
 
         if (tokens[0] == "bestmove")
         {
-            searched_nodes += current_go_requested_nodes;
+            const auto count = current_go_reported_nodes.value_or(current_go_requested_nodes);
+            searched_nodes += std::min(count, std::numeric_limits<std::uint64_t>::max() - searched_nodes);
 
             std::vector<EngineMoveInfo> node;
             for (int i = 1;; ++i)
@@ -377,6 +381,22 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
 
         if (tokens[0] != "info" || (tokens.size() > 1 && tokens[1] == "string"))
             continue;
+
+        // Each info line reports the cumulative nodes for this go, including
+        // MultiPV lines. Do not count the same search once per PV.
+        for (std::size_t i = 1; i + 1 < tokens.size(); ++i)
+        {
+            if (tokens[i] == "pv" || tokens[i] == "string")
+                break;
+            if (tokens[i] != "nodes")
+                continue;
+            std::uint64_t count = 0;
+            const auto& value = tokens[i + 1];
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
+            if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size())
+                current_go_reported_nodes = std::max(current_go_reported_nodes.value_or(0), count);
+            break;
+        }
 
         const int mpv_index = index_of(tokens, "multipv");
         int mpv = 1;

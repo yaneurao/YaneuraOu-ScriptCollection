@@ -54,6 +54,7 @@ int main(int argc, char** argv) {
     engine.start(log);
     engine.isready(log);
     auto result = engine.go("startpos", 1.0, log);
+    std::cerr << "searched_nodes=" << result.searched_nodes << '\n';
     for (const auto& move : result.moves)
         std::cout << move.move << ' ' << move.eval << '\n';
 }

@@ -128,6 +128,21 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines(), ['7g7f 100', '2g2f 95'])
         self.assertIn('incomplete MultiPV', result.stderr)
 
+    def test_nodes_are_counted_once_per_search_including_research(self):
+        result = self.run_engine([["info nodes 3", "info string nodes 999",
+                                   "info multipv 1 nodes 8 score cp 100 pv 7g7f",
+                                   "info multipv 2 nodes 8 score cp 95 pv 2g2f", "bestmove 7g7f"],
+                                  ["info nodes 12", "info nodes -1",
+                                   "info multipv 1 score cp 200 pv 3g3f nodes 999",
+                                   "bestmove 3g3f"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('searched_nodes=20', result.stderr)
+
+    def test_nodes_fall_back_to_requested_count_when_not_reported(self):
+        result = self.run_engine([["info score cp 100 pv 7g7f", "bestmove 7g7f"]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('searched_nodes=100', result.stderr)
+
     def test_resignation_during_incomplete_research_keeps_previous_result(self):
         for second_search in (["bestmove resign"],
                               ["info multipv 1 score cp -100 pv 3g3f", "bestmove resign"]):

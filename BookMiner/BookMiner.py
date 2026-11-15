@@ -1251,6 +1251,7 @@ class Engine:
         nodes = max(1, int(self.thread_settings.engine_nodes * node_ratio))
         half_nodes = max(1, nodes // 2)
         searched_nodes = 0
+        reported_nodes = None
         self.send_usi(f"go nodes {nodes}")
         moves : dict[int, MoveInfo] = {}
         previous_node : list[MoveInfo] = []
@@ -1264,7 +1265,7 @@ class Engine:
             if not tokens:
                 continue
             if tokens[0] == 'bestmove':
-                searched_nodes += nodes
+                searched_nodes += nodes if reported_nodes is None else reported_nodes
                 node : list[MoveInfo] = []
                 rank = 1
                 seen : set[MoveStr] = set()
@@ -1299,6 +1300,7 @@ class Engine:
                     moves.clear()
                     multipv = min(multipv + multipv_step, multipv_limit)
                     nodes = half_nodes
+                    reported_nodes = None
                     self.send_usi(f"setoption name MultiPV value {multipv}")
                     self.send_usi(f"go nodes {nodes}")
                     continue
@@ -1307,6 +1309,17 @@ class Engine:
 
             if tokens[0] != 'info' or (len(tokens) > 1 and tokens[1] == 'string'):
                 continue
+            # nodes is cumulative within one go, including repeated MultiPV lines.
+            for i in range(1, len(tokens) - 1):
+                if tokens[i] in ('pv', 'string'):
+                    break
+                if tokens[i] == 'nodes':
+                    value = tokens[i + 1]
+                    if value.isascii() and value.isdecimal():
+                        count = int(value)
+                        if count <= (1 << 64) - 1:
+                            reported_nodes = max(reported_nodes or 0, count)
+                    break
             mpv_index = index_of(tokens, 'multipv')
             try:
                 mpv = 1 if mpv_index == -1 else int(tokens[mpv_index + 1])
