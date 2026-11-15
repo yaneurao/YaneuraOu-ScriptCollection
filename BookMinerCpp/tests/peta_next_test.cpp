@@ -8,6 +8,35 @@ int main(int argc, char** argv)
         return 2;
     {
         TaskQueue queue;
+        Task first, other;
+        first.job_id = 1;
+        other.job_id = 2;
+        queue.push(first);
+        queue.push(first);
+        queue.push(other);
+        queue.control(1, "pause");
+        if (queue.pop()->job_id != 2 || queue.size() != 2)
+            throw std::runtime_error("paused job blocked other jobs");
+        queue.control(1, "resume");
+        if (queue.pop()->job_id != 1)
+            throw std::runtime_error("resumed job was not taken");
+        if (queue.control(1, "delete") != 1 || queue.size() != 0 || queue.push(first))
+            throw std::runtime_error("deleted job accepted pending or new tasks");
+    }
+    {
+        TaskQueue queue;
+        Task task;
+        task.job_id = 42;
+        std::thread producer([&] {
+            for (int i = 0; i < 10000; ++i) queue.push(task);
+        });
+        queue.control(42, "delete");
+        producer.join();
+        if (queue.size() != 0 || queue.push(task))
+            throw std::runtime_error("deleted job accepted a concurrently generated branch");
+    }
+    {
+        TaskQueue queue;
         queue.stop(true);
         queue.push(Task{});
         if (queue.pop().has_value())

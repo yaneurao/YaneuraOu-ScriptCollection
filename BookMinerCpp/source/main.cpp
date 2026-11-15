@@ -1140,12 +1140,12 @@ struct Task {
 
 class TaskQueue {
 public:
-    void push(Task task)
+    bool push(Task task)
     {
         {
             std::scoped_lock lock(mutex_);
-            if (stopping_)
-                return;
+            if (stopping_ || cancelled_.count(task.job_id))
+                return false;
             const int job_id = task.job_id;
             auto it = jobs_.find(job_id);
             if (it == jobs_.end())
@@ -1157,24 +1157,48 @@ public:
             ++count_;
         }
         cv_.notify_one();
+        return true;
     }
 
-    void push_deferred(Task task)
+    bool push_deferred(Task task)
     {
-        push(std::move(task));
+        return push(std::move(task));
+    }
+
+    std::size_t control(int job_id, const std::string& action)
+    {
+        std::scoped_lock lock(mutex_);
+        if (action == "pause") paused_.insert(job_id);
+        else if (action == "resume") paused_.erase(job_id);
+        else if (action == "delete") {
+            cancelled_.insert(job_id);
+            paused_.erase(job_id);
+            auto it = jobs_.find(job_id);
+            const auto removed = it == jobs_.end() ? 0 : it->second.size();
+            if (it != jobs_.end()) jobs_.erase(it);
+            job_order_.erase(std::remove(job_order_.begin(), job_order_.end(), job_id), job_order_.end());
+            count_ -= removed;
+            cv_.notify_all();
+            return removed;
+        }
+        cv_.notify_all();
+        return 0;
     }
 
     std::optional<Task> pop()
     {
         std::unique_lock lock(mutex_);
         cv_.wait(lock, [&] {
-            return stopping_ || count_ > 0;
+            return stopping_ || std::any_of(job_order_.begin(), job_order_.end(),
+                [&](int id) { return !paused_.count(id); });
         });
         if (count_ == 0)
             return std::nullopt;
 
-        const int job_id = job_order_.front();
-        job_order_.pop_front();
+        const auto available = std::find_if(job_order_.begin(), job_order_.end(),
+            [&](int id) { return stopping_ || !paused_.count(id); });
+        const int job_id = *available;
+        job_order_.erase(available);
 
         auto job_it = jobs_.find(job_id);
         if (job_it == jobs_.end() || job_it->second.empty())
@@ -1216,6 +1240,8 @@ private:
     std::condition_variable cv_;
     std::unordered_map<int, std::deque<Task>> jobs_;
     std::deque<int> job_order_;
+    std::unordered_set<int> paused_;
+    std::unordered_set<int> cancelled_;
     std::size_t count_ = 0;
     bool stopping_ = false;
 };
@@ -1347,6 +1373,45 @@ public:
         return job_id;
     }
 
+    void control_job(int job_id, const std::string& action)
+    {
+        std::scoped_lock lock(progress_mutex_);
+        auto it = jobs_.find(job_id);
+        if (it == jobs_.end() || it->second.done_reported || it->second.cancelled)
+        {
+            log_line("[JobControlError] job=" + std::to_string(job_id) + " reason=not-active");
+            return;
+        }
+        auto& job = it->second;
+        const auto removed = queue_.control(job_id, action);
+        if (action == "delete")
+        {
+            job.cancelled = true;
+            job.taken += removed;
+            total_taken_ += removed;
+        }
+        log_line("[JobControl] job=" + std::to_string(job_id) + " state=" + action
+                 + " removed=" + std::to_string(removed));
+        if (removed)
+        {
+            log_line("[TaskQueueProgress] " + std::to_string(total_taken_) + "/" + std::to_string(total_enqueued_)
+                + " job=" + std::to_string(job_id) + " job_progress=" + std::to_string(job.taken) + "/" + std::to_string(job.total)
+                + " job_remaining=" + std::to_string(job.total - job.taken)
+                + " remaining=" + std::to_string(total_enqueued_ - total_taken_));
+            if (job.taken == job.total)
+            {
+                job.done_reported = true;
+                log_line("[TaskQueueJobDone] " + std::to_string(total_taken_) + "/" + std::to_string(total_enqueued_)
+                    + " job=" + std::to_string(job_id) + " job_progress=" + std::to_string(job.taken) + "/" + std::to_string(job.total)
+                    + " job_remaining=0 remaining=" + std::to_string(total_enqueued_ - total_taken_));
+                if (total_taken_ == total_enqueued_)
+                    log_line("[TaskQueueDone] " + std::to_string(total_taken_) + "/" + std::to_string(total_enqueued_)
+                        + " job=" + std::to_string(job_id) + " job_progress=" + std::to_string(job.taken) + "/" + std::to_string(job.total)
+                        + " job_remaining=0 remaining=0");
+            }
+        }
+    }
+
     void stop(bool discard_pending)
     {
         if (stopped_.exchange(true))
@@ -1365,6 +1430,7 @@ public:
 
 private:
     struct JobProgress {
+        bool cancelled = false;
         std::size_t total = 0;
         std::size_t taken = 0;
         std::size_t last_reported_taken = 0;
@@ -1396,15 +1462,10 @@ private:
 
     void enqueue_branch_task(BranchTaskSpec spec)
     {
-        {
-            std::scoped_lock lock(progress_mutex_);
-            ++total_enqueued_;
-            auto it = jobs_.find(spec.job_id);
-            if (it != jobs_.end())
-                ++it->second.total;
-        }
-
-        queue_.push(Task{
+        std::scoped_lock lock(progress_mutex_);
+        auto it = jobs_.find(spec.job_id);
+        if (it != jobs_.end() && it->second.cancelled) return;
+        if (!queue_.push(Task{
             std::move(spec.position_command),
             spec.eval_limit,
             spec.max_book_ply,
@@ -1414,7 +1475,9 @@ private:
             spec.branch_width,
             spec.branch_depth,
             std::nullopt,
-        });
+        })) return;
+        ++total_enqueued_;
+        if (it != jobs_.end()) ++it->second.total;
     }
 
     void retire_worker(bookminer::UsiEngine& engine, std::atomic<bool>& alive)
@@ -1460,8 +1523,8 @@ private:
                     log_line("[EngineUnavailable] engine=" + std::to_string(engine.thread_id())
                         + " job=" + std::to_string(task->job_id) + " : " + ex.what());
                     retire_worker(engine, alive);
-                    if (!stopped_.load())
-                        queue_.push(std::move(*task));
+                    if (!stopped_.load() && !queue_.push(*task))
+                        report_task_done(*task);
                     return;
                 }
                 failed = true;
@@ -1492,8 +1555,8 @@ private:
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(TaskDeferSleepMilliseconds));
-        if (!stopped_.load())
-            queue_.push_deferred(std::move(task));
+        if (!stopped_.load() && !queue_.push_deferred(task))
+            report_task_done(task);
     }
 
     void progress_reporter_loop()
@@ -4668,6 +4731,13 @@ int main(int argc, char* argv[])
                         + " book_extend_ply=" + std::to_string(command_defaults.book_extend_ply)
                         + " eval_limit=" + std::to_string(command_defaults.eval_limit));
                 }
+            }
+            else if (command == "job")
+            {
+                if (tokens.size() != 3 || (tokens[1] != "pause" && tokens[1] != "resume" && tokens[1] != "delete"))
+                    log_line("Usage : job pause|resume|delete id");
+                else if (task_workers)
+                    task_workers->control_job(parse_integer(tokens[2]), tokens[1]);
             }
             else if (command == "e")
             {

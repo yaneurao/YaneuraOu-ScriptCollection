@@ -13,6 +13,17 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_job_control_updates_only_existing_job(self):
+        instance = Mock()
+        instance.task_job_items = {7: Mock()}
+        instance.task_job_states = {}
+        gui.BookMinerGui._handle_task_job_list_line(instance, '[JobControl] job=7 state=pause removed=0')
+        self.assertEqual(instance.task_job_states[7], 'pause')
+        gui.BookMinerGui._handle_task_job_list_line(instance, '[JobControl] job=7 state=resume removed=0')
+        self.assertEqual(instance.task_job_states[7], 'resume')
+        gui.BookMinerGui._handle_task_job_list_line(instance, '[JobControl] job=8 state=delete removed=3')
+        self.assertNotIn(8, instance.task_job_states)
+
     def test_auto_peta_schedule_shows_estimate_and_states(self):
         start = gui.datetime(2026, 11, 15, 9, 0, 0)
         schedule = gui.auto_peta_schedule_text

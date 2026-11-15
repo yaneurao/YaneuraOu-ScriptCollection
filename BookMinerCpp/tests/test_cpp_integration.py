@@ -16,6 +16,80 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
+    def test_job_pause_resume_and_delete_with_running_engine(self):
+        import json
+        try:
+            import cshogi
+        except ImportError:
+            self.skipTest('cshogi is required to construct fixture positions')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            engine = root / 'engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys,time\n'
+                'for line in sys.stdin:\n'
+                ' line=line.strip()\n'
+                ' if line=="usi": print("usiok",flush=True)\n'
+                ' elif line=="isready": print("readyok",flush=True)\n'
+                ' elif line.startswith("go "):\n'
+                '  open("searches.txt","a").write("go\\n")\n'
+                '  time.sleep(.5)\n'
+                '  print("info multipv 1 score cp 100 pv 3c3d",flush=True)\n'
+                '  print("info multipv 2 score cp 0 pv 8c8d",flush=True)\n'
+                '  print("bestmove 3c3d",flush=True)\n'
+                ' elif line=="quit": break\n')
+            engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 2, 'multipv_delta': 0}]))
+            positions = []
+            for move in ('1g1f', '2g2f', '3g3f', '4g4f', '5g5f', '6g6f', '7g7f', '9g9f'):
+                board = cshogi.Board()
+                board.push_usi(move)
+                positions.append('sfen ' + board.sfen())
+            (root / 'book/think_sfens.txt').write_text('\n'.join(positions) + '\n')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                    stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                def wait_for(needle):
+                    deadline = time.monotonic() + 15
+                    while time.monotonic() < deadline:
+                        data = log.read_text()
+                        if needle in data: return data
+                        if process.poll() is not None: break
+                        time.sleep(.02)
+                    self.fail('missing ' + needle + ': ' + log.read_text())
+                def send(text):
+                    process.stdin.write(text + '\n')
+                    process.stdin.flush()
+                try:
+                    wait_for('[CommandReady]')
+                    send('sd 0 1 200 1 1000')
+                    send('e')
+                    wait_for('[TaskQueueStart]')
+                    wait_for('[0] ')
+                    send('job pause 1')
+                    wait_for('[JobControl] job=1 state=pause')
+                    time.sleep(1)
+                    count = len((root / 'searches.txt').read_text().splitlines())
+                    time.sleep(.8)
+                    self.assertEqual(len((root / 'searches.txt').read_text().splitlines()), count)
+                    send('job resume 1')
+                    wait_for('[JobControl] job=1 state=resume')
+                    deadline = time.monotonic() + 5
+                    while len((root / 'searches.txt').read_text().splitlines()) <= count and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    self.assertGreater(len((root / 'searches.txt').read_text().splitlines()), count)
+                    send('job delete 1')
+                    wait_for('[JobControl] job=1 state=delete')
+                    wait_for('[TaskQueueJobDone]')
+                finally:
+                    if process.poll() is None:
+                        send('!')
+                    process.wait(timeout=15)
+                    process.stdin.close()
+
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix='bookminer-cpp-test-')

@@ -551,6 +551,7 @@ class BookMinerGui(ttk.Frame):
             )
         )
         self.task_job_items: dict[int, TaskJobListItem] = {}
+        self.task_job_states: dict[int, str] = {}
         self.completed_task_jobs: set[int] = set()
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.backup_status = tk.StringVar(value="次回自動保存 -")
@@ -1262,6 +1263,7 @@ class BookMinerGui(ttk.Frame):
         self.task_queue_total_highwater = 0
         self.task_queue_taken_highwater = 0
         self.task_job_items.clear()
+        self.task_job_states.clear()
         self.completed_task_jobs.clear()
         self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
@@ -1291,7 +1293,7 @@ class BookMinerGui(ttk.Frame):
             command=self.on_task_list_mode_toggled,
         )
         check.pack(side="left", padx=(12, 0))
-        Tooltip(check, "jobごとの enqueue 進捗一覧に切り替えます。完了した job は一覧から消えます。")
+        Tooltip(check, "jobごとの enqueue 進捗一覧に切り替えます。C++版では右クリックで一時停止・再開・削除できます。")
 
     def _add_log_content(self, parent: ttk.Frame, key: str, height: int) -> None:
         text = scrolledtext.ScrolledText(parent, wrap="word", height=height)
@@ -1311,6 +1313,7 @@ class BookMinerGui(ttk.Frame):
             list_frame,
             columns=(
                 "job",
+                "state",
                 "remaining",
                 "total",
                 "deferred",
@@ -1323,6 +1326,7 @@ class BookMinerGui(ttk.Frame):
             height=height,
         )
         tree.heading("job", text="job")
+        tree.heading("state", text="状態")
         tree.heading("remaining", text="残り")
         tree.heading("total", text="総数")
         tree.heading("deferred", text="defer")
@@ -1331,6 +1335,7 @@ class BookMinerGui(ttk.Frame):
         tree.heading("book_extend_ply", text="extend_ply")
         tree.heading("branch", text="branch")
         tree.column("job", width=58, minwidth=48, anchor="w", stretch=False)
+        tree.column("state", width=75, minwidth=60, anchor="w", stretch=False)
         tree.column("remaining", width=64, minwidth=52, anchor="e", stretch=False)
         tree.column("total", width=64, minwidth=52, anchor="e", stretch=False)
         tree.column("deferred", width=56, minwidth=46, anchor="e", stretch=False)
@@ -1342,10 +1347,29 @@ class BookMinerGui(ttk.Frame):
         yscroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=yscroll.set)
         tree.grid(row=0, column=0, sticky="nsew")
+        tree.bind("<Button-3>", lambda event, t=tree: self._show_job_menu(event, t))
         yscroll.grid(row=0, column=1, sticky="ns")
 
         self.task_job_views.append((text, list_frame, tree))
         self._refresh_task_job_tree(tree)
+
+    def _show_job_menu(self, event, tree: ttk.Treeview) -> None:
+        row = tree.identify_row(event.y)
+        if not row or not self.use_cpp or not self.is_running() or not self.command_ready:
+            return
+        job_id = int(row)
+        tree.selection_set(row)
+        state = self.task_job_states.get(job_id, "running")
+        menu = tk.Menu(tree, tearoff=False)
+        menu.add_command(label="再開" if state == "pause" else "一時停止",
+                         command=lambda: self.send_command(f"job {'resume' if state == 'pause' else 'pause'} {job_id}"),
+                         state="disabled" if state == "delete" else "normal")
+        menu.add_command(label="削除", command=lambda: self.send_command(f"job delete {job_id}"),
+                         state="disabled" if state == "delete" else "normal")
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def _add_log_pane(self, paned: ttk.PanedWindow, title: str, key: str, height: int) -> None:
         frame = ttk.Frame(paned, padding=(0, 0, 0, 4))
@@ -1461,6 +1485,7 @@ class BookMinerGui(ttk.Frame):
                 iid=str(job_id),
                 values=(
                     f"job {job_id}",
+                    {"pause": "一時停止", "delete": "削除中"}.get(self.task_job_states.get(job_id), "実行中"),
                     remaining_display,
                     total_display,
                     deferred_display,
@@ -1852,6 +1877,13 @@ class BookMinerGui(ttk.Frame):
         self._maybe_start_auto_enqueue()
 
     def _handle_task_job_list_line(self, line: str) -> None:
+        control = re.search(r"\[JobControl\] job=(\d+) state=(pause|resume|delete)", line)
+        if control:
+            job_id = int(control.group(1))
+            if job_id in self.task_job_items:
+                self.task_job_states[job_id] = control.group(2)
+                self._refresh_task_job_views()
+            return
         match = TASK_QUEUE_JOB_STATUS_RE.search(line)
         if match is None:
             return
@@ -1868,6 +1900,7 @@ class BookMinerGui(ttk.Frame):
             if job_text and job_text.isdigit():
                 self.completed_task_jobs.add(int(job_text))
             self.task_job_items.clear()
+            self.task_job_states.clear()
             self._refresh_task_job_views()
             return
 
@@ -1881,6 +1914,7 @@ class BookMinerGui(ttk.Frame):
             return
 
         if phase == "JobDone":
+            self.task_job_states.pop(job_id, None)
             self.completed_task_jobs.add(job_id)
             self.task_job_items.pop(job_id, None)
             self._refresh_task_job_views()
