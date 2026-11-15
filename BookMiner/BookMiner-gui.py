@@ -40,7 +40,7 @@ MINING_SETTING_DEFAULTS = {
     "peta_next_start_sfens_path": "book/peta_start_sfens.txt",
     "max_book_ply": 200,
     "peta_shock_threads": 4,
-    "consecutive_node_ratio": 0.7,
+    "consecutive_node_ratio": 0.8,
 }
 
 
@@ -768,7 +768,7 @@ class BookMinerGui(ttk.Frame):
             ("peta nextの開始局面ファイル", self.setting_start_path, ""),
             ("定跡を掘るときの最大手数", self.setting_max_ply, "手目まで"),
             ("peta shock の並列数", self.setting_threads, "スレッド"),
-            ("連続探索時のノード数", self.setting_node_ratio, "倍（初期値 0.7）"),
+            ("連続探索時のノード数", self.setting_node_ratio, "倍（初期値 0.8）"),
         ]
         parent.columnconfigure(4, weight=1)
         for row, (label, variable, suffix) in enumerate(rows):

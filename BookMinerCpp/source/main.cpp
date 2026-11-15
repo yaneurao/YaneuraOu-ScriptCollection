@@ -221,7 +221,7 @@ private:
 };
 
 MiningStats g_mining_stats;
-std::atomic<double> g_consecutive_node_ratio{0.7};
+std::atomic<double> g_consecutive_node_ratio{0.8};
 
 std::vector<std::string> split_ws(const std::string& line)
 {

@@ -12,7 +12,7 @@ int main(int argc, char** argv)
         out << "{}";
     }
     const auto defaults = bookminer::load_book_miner_settings({path});
-    if (defaults.consecutive_node_ratio != 0.7) throw std::runtime_error("node ratio default changed");
+    if (defaults.consecutive_node_ratio != 0.8) throw std::runtime_error("node ratio default changed");
     if (defaults.peta_shock_engine_path != "YO-MATERIAL.exe" || defaults.peta_shock_threads != 4)
         throw std::runtime_error("peta shock defaults changed");
     {

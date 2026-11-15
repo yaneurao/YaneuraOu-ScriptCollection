@@ -297,7 +297,7 @@ class BookMinerSettings:
 
     # この手数に到達したら、それ以上掘らない。
     max_book_ply : int = MAX_BOOK_PLY
-    consecutive_node_ratio : float = 0.7
+    consecutive_node_ratio : float = 0.8
 
     # peta_nextで辿り始める開始局面集合ファイル。
     peta_next_start_sfens_path : str = PETA_NEXT_START_SFENS_PATH

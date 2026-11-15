@@ -11,7 +11,7 @@
     max_book_ply: 200,
 
     // 同じエンジンが直前の局面も探索したときのノード数の倍率。
-    consecutive_node_ratio: 0.7,
+    consecutive_node_ratio: 0.8,
 
     // GUIから起動するBookMinerCpp実行ファイル。省略時はBookMinerCpp.exeを自動検出。
     // 相対パスはBookMinerフォルダ基準とする。

@@ -226,7 +226,7 @@ int main(int argc, char** argv)
             if (commands.find("go nodes 45\n") == std::string::npos)
                 throw std::runtime_error("configured consecutive node ratio was not used");
         }
-        g_consecutive_node_ratio.store(0.7);
+        g_consecutive_node_ratio.store(0.8);
 
         bookminer::BookStore path_book;
         std::optional<TaskResume> path_resume;
