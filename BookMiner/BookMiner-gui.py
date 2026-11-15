@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import json
 import math
@@ -42,6 +43,27 @@ MINING_SETTING_DEFAULTS = {
     "peta_shock_threads": 4,
     "consecutive_node_ratio": 0.8,
 }
+
+
+def auto_peta_schedule_text(next_backup: datetime | None, interval: int | None,
+                            count: int, every: int, *, pending: bool = False,
+                            running: bool = False, saving: bool = False) -> str:
+    if pending:
+        return "次回自動peta shock 開始待ち"
+    if running:
+        return "自動peta shock 実行中"
+    if every == 0:
+        return "自動peta shock 無効"
+    if saving:
+        return "次回自動peta shock 自動保存中"
+    if next_backup is None or interval is None:
+        return "次回自動peta shock -"
+    remaining = max(1, every - count)
+    try:
+        scheduled = next_backup + timedelta(seconds=interval * (remaining - 1))
+    except OverflowError:
+        return f"次回自動peta shock 自動保存あと{remaining}回"
+    return f"次回自動peta shock {scheduled:%Y/%m/%d %H:%M:%S}頃（自動保存あと{remaining}回）"
 
 
 def load_mining_settings(path: Path) -> dict:
@@ -498,6 +520,8 @@ class BookMinerGui(ttk.Frame):
         self.auto_backup_count = 0
         self.auto_peta_pending = False
         self.backup_in_progress = False
+        self.next_backup_at: datetime | None = None
+        self.next_backup_interval: int | None = None
         self.ignore_current_backup = False
         self.settings_apply_pending = False
         self.settings_apply_outstanding = 0
@@ -530,6 +554,7 @@ class BookMinerGui(ttk.Frame):
         self.completed_task_jobs: set[int] = set()
         self.task_job_views: list[tuple[scrolledtext.ScrolledText, ttk.Frame, ttk.Treeview]] = []
         self.backup_status = tk.StringVar(value="次回自動保存 -")
+        self.auto_peta_status = tk.StringVar(value="次回自動peta shock -")
         self.book_positions_text = "定跡局面数 -"
         self.peta_positions_count = 0
         self.peta_positions_text = "peta定跡局面数 0"
@@ -869,6 +894,9 @@ class BookMinerGui(ttk.Frame):
         self.auto_backup_count = 0
         self.auto_peta_pending = False
         self.ignore_current_backup = self.backup_in_progress
+        self.next_backup_at = None
+        self.next_backup_interval = None
+        self._update_auto_peta_status()
         if self.is_running():
             if self.send_command("reload-settings"):
                 self.settings_apply_outstanding += 1
@@ -1163,6 +1191,9 @@ class BookMinerGui(ttk.Frame):
             padx=(12, 0),
             pady=3,
         )
+        peta_schedule = ttk.Label(commands, textvariable=self.auto_peta_status)
+        peta_schedule.grid(row=10, column=8, columnspan=7, sticky="w", padx=(12, 0), pady=3)
+        Tooltip(peta_schedule, "自動保存が予定どおり完了した場合の目安です。保存時間や他の処理により遅れます。")
         self.command_buttons = [
             self.peta_button,
             self.peta_latest_button,
@@ -1214,6 +1245,9 @@ class BookMinerGui(ttk.Frame):
         self.peta_next_cancel_pending = False
         self.peta_shock_cancel_pending = False
         self.backup_status.set("次回自動保存 -")
+        self.auto_peta_status.set("次回自動peta shock -")
+        self.next_backup_at = None
+        self.next_backup_interval = None
         self.book_positions_text = "定跡局面数 -"
         self.peta_positions_count = 0
         self.peta_positions_text = "peta定跡局面数 0"
@@ -1550,6 +1584,14 @@ class BookMinerGui(ttk.Frame):
             self.busy_action = None
             self._append_log("task", "[GUI] 自動 peta shock の開始に失敗しました。\n")
             self._update_buttons()
+        self._update_auto_peta_status()
+
+    def _update_auto_peta_status(self) -> None:
+        self.auto_peta_status.set(auto_peta_schedule_text(
+            self.next_backup_at, self.next_backup_interval, self.auto_backup_count,
+            self.mining_settings["auto_peta_shock_every_n_saves"],
+            pending=self.auto_peta_pending, running=self.busy_action == "auto_peta_shock",
+            saving=self.backup_in_progress))
 
     def _on_process_ended(self) -> None:
         self._flush_output_buffer()
@@ -1558,6 +1600,10 @@ class BookMinerGui(ttk.Frame):
             return_code = process.poll()
             self._append_log("other", f"\n[GUI] {self.bookminer_name} exited. return code = {return_code}\n")
         self.process = None
+        self.next_backup_at = None
+        self.next_backup_interval = None
+        self.backup_status.set("次回自動保存 -")
+        self.auto_peta_status.set("次回自動peta shock -")
         self.reading_peta_book = False
         self.peta_positions_count = 0
         self.peta_positions_text = "peta定跡局面数 -"
@@ -1643,6 +1689,8 @@ class BookMinerGui(ttk.Frame):
         self._handle_task_queue_progress_line(line)
         self._handle_mining_progress_line(line)
         self._handle_auto_enqueue_line(line)
+        if any(marker in line for marker in ("[Backup", "auto save failed", "[PetaShock", "[PetaCommandDone]", "Exception :", "peta_shock")):
+            self._update_auto_peta_status()
 
     def _handle_peta_makebook_context_line(self, line: str) -> None:
         if PETA_MAKEBOOK_START_RE.search(line):
@@ -1690,6 +1738,13 @@ class BookMinerGui(ttk.Frame):
             if tag in ("BackupServiceStarted", "BackupNext") and next_match is not None:
                 next_time = next_match.group(1).replace("_", " ")
                 self.backup_status.set(f"次回自動保存 {next_time}")
+                interval_match = re.search(r"\binterval=(\d+)", rest)
+                try:
+                    self.next_backup_at = datetime.strptime(next_time, "%Y/%m/%d %H:%M:%S")
+                    self.next_backup_interval = int(interval_match.group(1)) if interval_match else None
+                except ValueError:
+                    self.next_backup_at = None
+                    self.next_backup_interval = None
             return
 
         if COMMAND_READY_RE.search(line):
@@ -2085,6 +2140,7 @@ class BookMinerGui(ttk.Frame):
             return
         if "[BackupStart]" in line:
             self.backup_in_progress = True
+            self.next_backup_at = None
         if "[BackupDone]" in line:
             self.backup_in_progress = False
             every = self.mining_settings["auto_peta_shock_every_n_saves"]
@@ -3325,7 +3381,7 @@ class BookMinerGui(ttk.Frame):
         configure_state("peta_read_button", "normal" if command_enabled and not any_busy else "disabled")
         next_running = self.busy_action == "manual_peta_next" or (
             auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_NEXT)
-        self.next_button.configure(text="cancel" if next_running else "peta next")
+        self.next_button.configure(text="cancel" if next_running else " peta next")
         configure_state("next_button", "normal" if command_enabled and (
             (next_running and not self.peta_next_cancel_pending) or (not next_running and not peta_book_busy)) else "disabled")
         configure_state("refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")

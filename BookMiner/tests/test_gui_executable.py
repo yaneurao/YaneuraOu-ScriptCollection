@@ -13,6 +13,37 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_auto_peta_schedule_shows_estimate_and_states(self):
+        start = gui.datetime(2026, 11, 15, 9, 0, 0)
+        schedule = gui.auto_peta_schedule_text
+        self.assertIn('2026/11/15 15:00:00頃（自動保存あと3回）', schedule(start, 10800, 0, 3))
+        self.assertIn('2026/11/15 12:00:00頃（自動保存あと2回）', schedule(start, 10800, 1, 3))
+        self.assertIn('開始待ち', schedule(start, 10800, 0, 3, pending=True))
+        self.assertIn('実行中', schedule(start, 10800, 0, 3, running=True))
+        self.assertIn('自動保存中', schedule(None, 10800, 1, 3, saving=True))
+        self.assertIn('無効', schedule(start, 10800, 0, 0))
+        self.assertEqual(schedule(None, None, 0, 3), '次回自動peta shock -')
+
+    def test_auto_peta_schedule_uses_backup_events(self):
+        instance = Mock()
+        instance.mining_settings = {'auto_peta_shock_every_n_saves': 2}
+        instance.auto_backup_count = 0
+        instance.auto_peta_pending = False
+        instance.ignore_current_backup = False
+        instance.settings_apply_pending = False
+        instance.busy_action = None
+        gui.BookMinerGui._handle_startup_line(instance, '[BackupNext] next=2026/11/15_09:00:00 interval=10800')
+        self.assertEqual(instance.next_backup_at, gui.datetime(2026, 11, 15, 9))
+        self.assertEqual(instance.next_backup_interval, 10800)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupStart]')
+        self.assertIsNone(instance.next_backup_at)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Exception : auto save failed')
+        self.assertEqual(instance.auto_backup_count, 0)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupStart]')
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupDone]')
+        self.assertEqual(instance.auto_backup_count, 1)
+        self.assertFalse(instance.auto_peta_pending)
+
     def test_idle_engine_loss_updates_display(self):
         instance = Mock()
         gui.BookMinerGui._handle_startup_line(instance, '[EngineAlive] 0/1 dead=0')
