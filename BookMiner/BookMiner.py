@@ -12,7 +12,7 @@ import re
 import random
 from pathlib import Path
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeAlias, Any, Callable, Generic, TypeVar
 from collections import deque
 from threading import Condition, Event, Lock, Thread
@@ -444,6 +444,8 @@ LAST_REPORT = time.time()
 #                     load/save
 # ============================================================
 
+BOOK_SAVE_LOCK = Lock()
+
 def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
     with book.lock:
         if ply_limit is None:
@@ -508,7 +510,7 @@ def snapshot_book_position_for_write(book:Book, sfen:Sfen)->tuple[str, list[Move
     return f"{sfen} {ply}", moveinfos
 
 
-def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None)->int:
+def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None, cancel:Event|None = None)->int:
     if sfens is None:
         sfens = collect_yaneuraou_book_sfens(book, ply_limit)
 
@@ -522,6 +524,8 @@ def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[S
     try:
         book_for_write : dict[str, list[BookLib.BookMove]] = {}
         for count, sfen in enumerate(sfens, 1):
+            if cancel is not None:
+                check_peta_shock_cancel(cancel)
             sfen_with_ply, moveinfos = snapshot_book_position_for_write(book, sfen)
             book_for_write[sfen_with_ply] = [
                 BookLib.BookMove(move_info.move, "none", move_info.eval, move_info.depth, 1) # type:ignore[arg-type]
@@ -532,6 +536,7 @@ def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[S
                 print_book_write_progress(count, total)
 
         BookLib.write_yaneuraou_book(book_for_write, temp_path)
+        check_peta_shock_cancel(cancel)
         os.replace(temp_path, path)
         print_book_write_done(path, total, total)
     except Exception:
@@ -545,9 +550,9 @@ def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[S
     return len(sfens)
 
 
-def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None)->int:
+def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None, cancel:Event|None = None)->int:
     if BookLib.is_ybb_path(path):
-        return write_ybb_book_records(book, path, ply_limit, sfens)
+        return write_ybb_book_records(book, path, ply_limit, sfens, cancel)
 
     if sfens is None:
         sfens = collect_yaneuraou_book_sfens(book, ply_limit)
@@ -564,6 +569,8 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
             w.write(YANEURAOU_BOOK_HEADER_V1 + '\n')
             w.write(f"# NOE:{total}\n")
             for count, sfen in enumerate(sfens, 1):
+                if cancel is not None:
+                    check_peta_shock_cancel(cancel)
                 sfen_with_ply, moveinfos = snapshot_book_position_for_write(book, sfen)
 
                 w.write(f'sfen {sfen_with_ply}\n')
@@ -574,6 +581,7 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
                 if count % BOOK_WRITE_PROGRESS_INTERVAL == 0:
                     print_book_write_progress(count, total)
 
+        check_peta_shock_cancel(cancel)
         os.replace(temp_path, path)
         print_book_write_done(path, total, total)
     except Exception:
@@ -599,23 +607,30 @@ def save_book(book:Book, filepath:str):
     return count
 
 
-def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None)->str:
-    with book.lock:
-        saved_revision = book.revision
-    sfens = collect_yaneuraou_book_sfens(book, ply_limit)
-    ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
-    path = os.path.join(
-        save_dir,
-        f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
-    )
-    print(f"start save_book_backup , path = {path}")
-    write_yaneuraou_book_records(book, path, ply_limit, sfens)
-    print(f"..save_book_backup has done, {len(sfens)} positions.")
-    if ply_limit is None:
+def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None)->str:
+    while not BOOK_SAVE_LOCK.acquire(timeout=0.1):
+        check_peta_shock_cancel(cancel)
+    try:
+        check_peta_shock_cancel(cancel)
         with book.lock:
-            if book.revision == saved_revision:
-                book.mark_clean(path, saved_revision)
-    return path
+            saved_revision = book.revision
+        sfens = collect_yaneuraou_book_sfens(book, ply_limit)
+        check_peta_shock_cancel(cancel)
+        ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
+        path = os.path.join(
+            save_dir,
+            f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
+        )
+        print(f"start save_book_backup , path = {path}")
+        write_yaneuraou_book_records(book, path, ply_limit, sfens, cancel)
+        print(f"..save_book_backup has done, {len(sfens)} positions.")
+        if ply_limit is None:
+            with book.lock:
+                if book.revision == saved_revision:
+                    book.mark_clean(path, saved_revision)
+        return path
+    finally:
+        BOOK_SAVE_LOCK.release()
 
 
 def load_book(book:Book, filepath:str, *, fast:bool = False):
@@ -982,6 +997,13 @@ def atomic_position_output(path:str):
 
 class PetaNextCancelled(Exception):
     pass
+
+class PetaShockCancelled(Exception):
+    pass
+
+def check_peta_shock_cancel(cancel:Event|None):
+    if cancel is not None and cancel.is_set():
+        raise PetaShockCancelled()
 
 def check_peta_next_cancel(cancel:Event|None):
     if cancel is not None and cancel.is_set():
@@ -2348,7 +2370,7 @@ def has_considered(infos:PositionInfo)->bool:
     """
     return get_best(infos)[0] is not None
 
-def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None)->str:
+def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None)->str:
     """
     やねうら王 定跡形式で書き出す。
     """
@@ -2363,7 +2385,7 @@ def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None)-
 	#					// # NOE:258
     # のようにレコード数を書き出す。
 
-    path = save_book_backup(book, save_dir, ply_limit)
+    path = save_book_backup(book, save_dir, ply_limit, cancel)
     print(f"write path = {path}")
     print(f"..w command write has done. path = {path}")
     return path
@@ -2498,6 +2520,7 @@ def read_yaneuraou_book_file(
     *,
     normalize_eval:bool = True,
     copy_moveinfos:bool = True,
+    cancel:Event|None = None,
 )->int:
     """
     やねうら王定跡フォーマットを読み込み、1局面ごとに on_position() を呼ぶ。
@@ -2508,6 +2531,7 @@ def read_yaneuraou_book_file(
             on_position,
             normalize_eval=normalize_eval,
             copy_moveinfos=copy_moveinfos,
+            cancel=cancel,
         )
 
     sfen : Sfen|None = None
@@ -2539,6 +2563,8 @@ def read_yaneuraou_book_file(
     first = True
     with open(path, 'r', encoding='utf-8') as source:
         for raw_line in source:
+            if cancel is not None:
+                check_peta_shock_cancel(cancel)
             line = raw_line.rstrip()
             if not line:
                 continue
@@ -2581,6 +2607,7 @@ def read_ybb_book_file(
     *,
     normalize_eval:bool = True,
     copy_moveinfos:bool = True,
+    cancel:Event|None = None,
 )->int:
     """
     CommonLib の .ybb reader から BookMiner 内部形式へ変換して読み込む。
@@ -2591,6 +2618,8 @@ def read_ybb_book_file(
     print_book_read_start(path, total_positions)
 
     for sfen_with_ply, book_moves in BookLib.read_yaneuraou_book_blocks(path):
+        if cancel is not None:
+            check_peta_shock_cancel(cancel)
         count += 1
         if count % BOOK_READ_PROGRESS_INTERVAL == 0:
             print_book_read_progress(count, total_positions)
@@ -2667,7 +2696,7 @@ def read_bookminer_backup(book:Book, path:str):
     read_regular_book_fast(book, path, "BookMiner backup book")
 
 
-def read_regular_book_fast(book:Book, path:str, label:str):
+def read_regular_book_fast(book:Book, path:str, label:str, cancel:Event|None = None):
     """
     正規形と仮定できる通常定跡DBを高速に読み込む。
     flip merge と評価値の旧形式補正は行わない。
@@ -2675,6 +2704,8 @@ def read_regular_book_fast(book:Book, path:str, label:str):
     print(f"read {label} , path = {path}")
 
     def append_position(sfen:Sfen, ply:int, moveinfos:list[MoveInfo]):
+        if cancel is not None:
+            check_peta_shock_cancel(cancel)
         position = book.body.get(sfen)
         if position is None:
             book.body[sfen] = PositionInfo(moveinfos, ply)
@@ -2684,12 +2715,10 @@ def read_regular_book_fast(book:Book, path:str, label:str):
             position.moveinfos.sort(key=lambda move: move.eval if move.eval is not None else VALUE_MIN, reverse=True)
 
     with book.lock:
-        read_yaneuraou_book_file(
-            path,
-            append_position,
-            normalize_eval=False,
-            copy_moveinfos=False,
-        )
+        kwargs = {'normalize_eval': False, 'copy_moveinfos': False}
+        if cancel is not None:
+            kwargs['cancel'] = cancel
+        read_yaneuraou_book_file(path, append_position, **kwargs)
 
     print(f"..read {label} done..len(book) = {len(book.body)}.")
 
@@ -2883,7 +2912,7 @@ def is_yaneuraou_progress_bar_line(line:str)->bool:
     return bool(bar) and all(ch == "." for ch in bar)
 
 
-def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None)->str:
+def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None, cancel:Event|None = None)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
     makebook peta_shock で source_book_path と同じ拡張子の book/backup/peta_book-* に変換する。
@@ -2921,6 +2950,7 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
     print(f"peta book   = {peta_path}")
     print(f"command     = {makebook_command}")
 
+    check_peta_shock_cancel(cancel)
     process = subprocess.Popen(
         [engine_path],
         stdin=subprocess.PIPE,
@@ -2959,8 +2989,22 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
     reported_error = False
 
     while True:
+        if cancel is not None and cancel.is_set():
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            if os.path.exists(peta_temp_path):
+                os.remove(peta_temp_path)
+            raise PetaShockCancelled()
         try:
-            line = output_queue.get(timeout=1)
+            line = output_queue.get(timeout=0.2 if cancel is not None else 1)
             if line is None:
                 output_done = True
             else:
@@ -2984,6 +3028,10 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
             break
 
     return_code = process.wait()
+    if cancel is not None and cancel.is_set():
+        if os.path.exists(peta_temp_path):
+            os.remove(peta_temp_path)
+        raise PetaShockCancelled()
     if return_code != 0 or reported_error or not reported_completion:
         if os.path.exists(peta_temp_path):
             os.remove(peta_temp_path)
@@ -2999,7 +3047,7 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
     return peta_path
 
 
-def read_peta_book(peta_book_path:str|None = None):
+def read_peta_book(peta_book_path:str|None = None, cancel:Event|None = None):
     """
     最新または指定されたpeta_shock済み定跡DBを peta_book に読み込む。
     """
@@ -3007,27 +3055,41 @@ def read_peta_book(peta_book_path:str|None = None):
 
     print(f"prepare to read peta shocked book , path = {peta_path}")
     global peta_book
-    peta_book = Book()
+    previous = peta_book
+    target = Book()
+    if cancel is None:
+        peta_book = target
     try:
-        read_regular_book_fast(peta_book, peta_path, "peta shocked book")
+        check_peta_shock_cancel(cancel)
+        if cancel is None:
+            read_regular_book_fast(target, peta_path, "peta shocked book")
+        else:
+            read_regular_book_fast(target, peta_path, "peta shocked book", cancel)
+        check_peta_shock_cancel(cancel)
     except Exception:
-        peta_book = Book()
-        print("[PetaBookPositions] positions=0")
+        peta_book = previous if cancel is not None else Book()
+        print(f"[PetaBookPositions] positions={len(peta_book.body)}")
         raise
+    peta_book = target
     print(f"[PetaBookPositions] positions={len(peta_book.body)}")
     print("reading the peta_book has done.")
 
 
-def make_and_read_peta_book(source_book_path:str|None = None, settings:BookMinerSettings|None = None):
+def make_and_read_peta_book(source_book_path:str|None = None, settings:BookMinerSettings|None = None, cancel:Event|None = None):
     """
     最新または指定された通常定跡DBをpeta_shock化し、生成されたpeta_bookを読み込む。
     """
     source_book_path = resolve_peta_source_book_path(source_book_path)
-    peta_path = run_peta_shock_makebook(source_book_path, settings)
-    read_peta_book(peta_path)
+    peta_path = (run_peta_shock_makebook(source_book_path, settings) if cancel is None
+                 else run_peta_shock_makebook(source_book_path, settings, cancel))
+    check_peta_shock_cancel(cancel)
+    if cancel is None:
+        read_peta_book(peta_path)
+    else:
+        read_peta_book(peta_path, cancel)
 
 
-def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None, settings:BookMinerSettings|None = None):
+def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], None]|None = None, settings:BookMinerSettings|None = None, cancel:Event|None = None):
     """
     現在の定跡DBを書き出し、その書き出したファイルをpeta_shock化して読み込む。
     周回作業で現在のDBをpeta_bookへ反映するための一括コマンド。
@@ -3042,9 +3104,13 @@ def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], Non
     else:
         if reset_auto_backup_timer is not None:
             reset_auto_backup_timer()
-        source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR)
+        source_book_path = (write_to_yaneuraou_book(book, BOOK_BACKUP_DIR) if cancel is None
+                            else write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, cancel=cancel))
     print(f"p command source book = {source_book_path}")
-    make_and_read_peta_book(source_book_path, settings)
+    if cancel is None:
+        make_and_read_peta_book(source_book_path, settings)
+    else:
+        make_and_read_peta_book(source_book_path, settings, cancel)
     print("..p command has done.")
     print("[PetaCommandDone]")
 
@@ -4310,6 +4376,8 @@ def user_input(from_gui:bool = False):
 
     peta_next_cancel = Event()
     peta_next_thread : Thread|None = None
+    peta_shock_cancel = Event()
+    peta_shock_thread : Thread|None = None
     while True:
         try:
             if not from_gui:
@@ -4318,6 +4386,12 @@ def user_input(from_gui:bool = False):
             if not inp:
                 continue
             i = inp[0].lower()
+            if i == 'cancel-peta-shock':
+                if peta_shock_thread is not None and peta_shock_thread.is_alive():
+                    peta_shock_cancel.set()
+                else:
+                    print('[PetaShockCancelIgnored] no peta shock is running')
+                continue
             if i == 'cancel-peta-next':
                 if peta_next_thread is not None and peta_next_thread.is_alive():
                     peta_next_cancel.set()
@@ -4328,6 +4402,11 @@ def user_input(from_gui:bool = False):
                     and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
                               'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
                 print('Error : peta command is running. wait for peta command completion.')
+                continue
+            if (peta_shock_thread is not None and peta_shock_thread.is_alive()
+                    and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
+                              'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
+                print('Error : peta book is loading. wait for peta read completion.')
                 continue
             if i == 'h':
                 print("Help : ")
@@ -4343,6 +4422,7 @@ def user_input(from_gui:bool = False):
                 print("  R    : read peta shocked book , r (peta book path)")
                 print("  P    : write backup, make and read peta shocked book")
                 print("  PL   : make and read peta shocked book from latest backup")
+                print("  cancel-peta-shock : cancel the running peta shock")
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PJ   : peta rejoin , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
@@ -4358,12 +4438,18 @@ def user_input(from_gui:bool = False):
             elif i == 'q':
                 print("quit")
                 engine_manager.global_settings.quit = True
+                if peta_shock_thread is not None and peta_shock_thread.is_alive():
+                    peta_shock_cancel.set()
+                    peta_shock_thread.join()
                 save_book_main()
                 break
 
             elif i == '!':
                 print("quit without saving")
                 engine_manager.global_settings.quit = True
+                if peta_shock_thread is not None and peta_shock_thread.is_alive():
+                    peta_shock_cancel.set()
+                    peta_shock_thread.join()
                 break
 
             elif i == 'w':
@@ -4494,15 +4580,34 @@ def user_input(from_gui:bool = False):
                 print("[PetaReadDone]")
 
             elif i == 'p':
-                # write and peta_read
-                write_and_read_peta_book(book, reset_auto_backup_timer, book_miner_settings)
+                peta_shock_cancel.clear()
+                settings_snapshot = replace(book_miner_settings)
+                def run_shock():
+                    try:
+                        write_and_read_peta_book(book, reset_auto_backup_timer, settings_snapshot, peta_shock_cancel)
+                    except PetaShockCancelled:
+                        print('[PetaShockCancelled]')
+                    except Exception as exc:
+                        print(f'Exception : peta shock failed: {exc}')
+                peta_shock_thread = Thread(target=run_shock, daemon=True)
+                peta_shock_thread.start()
 
             elif i == 'pl' or i == 'peta_shock_latest':
                 # latest regular backup -> peta_read
                 print("start pl command : peta_shock latest backup, and read peta book.")
-                make_and_read_peta_book(None, book_miner_settings)
-                print("..pl command has done.")
-                print("[PetaCommandDone]")
+                peta_shock_cancel.clear()
+                settings_snapshot = replace(book_miner_settings)
+                def run_shock_latest():
+                    try:
+                        make_and_read_peta_book(None, settings_snapshot, peta_shock_cancel)
+                        print("..pl command has done.")
+                        print("[PetaCommandDone]")
+                    except PetaShockCancelled:
+                        print('[PetaShockCancelled]')
+                    except Exception as exc:
+                        print(f'Exception : peta shock failed: {exc}')
+                peta_shock_thread = Thread(target=run_shock_latest, daemon=True)
+                peta_shock_thread.start()
             
             elif i == 'pn':
                 # peta_next

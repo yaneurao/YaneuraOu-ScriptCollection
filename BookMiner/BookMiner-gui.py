@@ -548,6 +548,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_tmp_seen: dict[tuple[str, bool, bool, bool], str] = {}
         self.busy_action: str | None = None
         self.peta_next_cancel_pending = False
+        self.peta_shock_cancel_pending = False
         self.enqueue_pending = False
         self.manual_backup_pending = False
         self.peta_makebook_active = False
@@ -911,19 +912,19 @@ class BookMinerGui(ttk.Frame):
             text=" peta_shock",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
-            command=self.send_peta_shock,
+            command=self.on_peta_shock_button,
         )
         self.peta_button.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.peta_button, "`p` を送信します。未変更なら読み込み済みDBを再利用し、変更済みなら定跡DBを書き出して peta shock 化します。")
+        Tooltip(self.peta_button, "未変更なら読み込み済みDBを再利用し、変更済みなら定跡DBを書き出して peta shock 化します。実行中は cancel で中止できます。")
         self.peta_latest_button = ttk.Button(
             commands,
             text=" peta_shock_latest",
             width=17,
             style=PETA_BUTTON_STYLE,
-            command=self.send_peta_shock_latest,
+            command=self.on_peta_shock_latest_button,
         )
         self.peta_latest_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.peta_latest_button, "`pl` を送信します。DBを保存せず、book/backup/ にある最新の通常bookを peta shock 化して読み込みます。")
+        Tooltip(self.peta_latest_button, "DBを保存せず、book/backup/ にある最新の通常bookを peta shock 化して読み込みます。実行中は cancel で中止できます。")
         self.peta_read_button = ttk.Button(
             commands,
             text=" peta_read",
@@ -1200,6 +1201,7 @@ class BookMinerGui(ttk.Frame):
 
     def _reset_progress(self) -> None:
         self.peta_next_cancel_pending = False
+        self.peta_shock_cancel_pending = False
         self.backup_status.set("次回自動保存 -")
         self.book_positions_text = "定跡局面数 -"
         self.peta_positions_count = 0
@@ -1695,7 +1697,8 @@ class BookMinerGui(ttk.Frame):
             self.peta_positions_text = f"peta定跡局面数 {self.peta_positions_count:,}"
             self.reading_peta_book = False
             self._update_mining_status()
-        if "reading the peta_book has done" in lower or "exception : peta read failed" in lower:
+        if ("reading the peta_book has done" in lower or "exception : peta read failed" in lower
+                or "[petashockcancelled]" in lower or "exception : peta shock failed" in lower):
             self.reading_peta_book = False
             self.peta_positions_text = f"peta定跡局面数 {self.peta_positions_count:,}"
             self._update_mining_status()
@@ -2029,6 +2032,18 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
         lower = line.lower()
+        if '[PetaShockCancelled]' in line:
+            self.peta_shock_cancel_pending = False
+            self.peta_makebook_active = False
+            self.auto_peta_pending = False
+            if self.busy_action in {'manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'}:
+                self.busy_action = None
+            self._append_log('peta', '[GUI] peta shock を中止しました。\n')
+            self._update_buttons()
+            return
+        if 'exception : peta shock failed' in lower:
+            self.peta_shock_cancel_pending = False
+            self.peta_makebook_active = False
         if 'Exception :' in line:
             self.peta_next_cancel_pending = False
         if '[PetaNextCancelled]' in line:
@@ -2573,6 +2588,23 @@ class BookMinerGui(ttk.Frame):
             return False
 
         return True
+
+    def _cancel_peta_shock(self) -> None:
+        if not self.peta_shock_cancel_pending and self.send_command('cancel-peta-shock'):
+            self.peta_shock_cancel_pending = True
+            self._update_buttons()
+
+    def on_peta_shock_button(self) -> None:
+        if self.busy_action == 'manual_peta_shock':
+            self._cancel_peta_shock()
+        else:
+            self.send_peta_shock()
+
+    def on_peta_shock_latest_button(self) -> None:
+        if self.busy_action in {'manual_peta_shock_latest', 'auto_peta_shock'}:
+            self._cancel_peta_shock()
+        else:
+            self.send_peta_shock_latest()
 
     def send_peta_shock(self) -> bool:
         if not self._begin_manual_action("manual_peta_shock"):
@@ -3258,8 +3290,14 @@ class BookMinerGui(ttk.Frame):
             if widget is not None:
                 widget.configure(state=state)
 
-        configure_state("peta_button", "normal" if command_enabled and not any_busy else "disabled")
-        configure_state("peta_latest_button", "normal" if command_enabled and not any_busy else "disabled")
+        shock_running = self.busy_action == 'manual_peta_shock'
+        latest_running = self.busy_action in {'manual_peta_shock_latest', 'auto_peta_shock'}
+        self.peta_button.configure(text='cancel' if shock_running else ' peta_shock')
+        self.peta_latest_button.configure(text='cancel' if latest_running else ' peta_shock_latest')
+        configure_state("peta_button", "normal" if command_enabled and (
+            (shock_running and not self.peta_shock_cancel_pending) or (not shock_running and not any_busy)) else "disabled")
+        configure_state("peta_latest_button", "normal" if command_enabled and (
+            (latest_running and not self.peta_shock_cancel_pending) or (not latest_running and not any_busy)) else "disabled")
         configure_state("peta_read_button", "normal" if command_enabled and not any_busy else "disabled")
         next_running = self.busy_action == "manual_peta_next" or (
             auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_NEXT)

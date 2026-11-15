@@ -13,6 +13,55 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_peta_shock_button_changes_to_cancel(self):
+        for action, button in (('manual_peta_shock', 'peta_button'),
+                               ('manual_peta_shock_latest', 'peta_latest_button'),
+                               ('auto_peta_shock', 'peta_latest_button')):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.is_running.return_value = True
+                instance.command_ready = True
+                instance.busy_action = action
+                instance.enqueue_pending = False
+                instance.manual_backup_pending = False
+                instance.peta_makebook_active = True
+                instance.peta_shock_cancel_pending = False
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                gui.BookMinerGui._update_buttons(instance)
+                getattr(instance, button).configure.assert_any_call(text='cancel')
+                getattr(instance, button).configure.assert_any_call(state='normal')
+
+    def test_peta_shock_cancel_acknowledgement_clears_busy(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.busy_action = action
+                instance.peta_makebook_active = True
+                instance.peta_shock_cancel_pending = True
+                instance.auto_peta_pending = True
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaShockCancelled]')
+                self.assertIsNone(instance.busy_action)
+                self.assertFalse(instance.peta_makebook_active)
+                self.assertFalse(instance.peta_shock_cancel_pending)
+                self.assertFalse(instance.auto_peta_pending)
+                instance._update_buttons.assert_called_once()
+
+    def test_shock_cancel_sends_once_in_manual_and_auto_modes(self):
+        for action, handler in (('manual_peta_shock', gui.BookMinerGui.on_peta_shock_button),
+                                ('manual_peta_shock_latest', gui.BookMinerGui.on_peta_shock_latest_button),
+                                ('auto_peta_shock', gui.BookMinerGui.on_peta_shock_latest_button)):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.busy_action = action
+                handler(instance)
+                instance._cancel_peta_shock.assert_called_once()
+        instance = Mock()
+        instance.peta_shock_cancel_pending = False
+        instance.send_command.return_value = True
+        gui.BookMinerGui._cancel_peta_shock(instance)
+        gui.BookMinerGui._cancel_peta_shock(instance)
+        instance.send_command.assert_called_once_with('cancel-peta-shock')
+
     def test_peta_next_button_changes_to_cancel_while_running(self):
         instance = Mock()
         instance.is_running.return_value = True

@@ -35,6 +35,42 @@ int main(int argc, char** argv)
     { std::ofstream out(source); out << "source"; }
     const auto old_cwd = std::filesystem::current_path();
     std::filesystem::current_path(root);
+    {
+        bookminer::BookStore book;
+        std::atomic<bool> cancel{false}, interrupted{false};
+        g_save_mutex.lock();
+        std::thread worker([&] {
+            try { (void)save_book_backup(book, std::nullopt, &cancel); }
+            catch (const PetaShockCancelled&) { interrupted = true; }
+        });
+        cancel = true;
+        worker.join();
+        g_save_mutex.unlock();
+        if (!interrupted)
+            throw std::runtime_error("cancellation did not interrupt waiting for another backup");
+    }
+    {
+        bookminer::BookStore current, incoming;
+        current.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 10, 1}});
+        incoming.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("2g2f"), 20, 1}});
+        auto cancel_before_commit = [](bookminer::BookProgressKind kind, std::size_t,
+                                       std::optional<std::size_t>, const fs::path&, void*) {
+            if (kind == bookminer::BookProgressKind::Progress) throw PetaShockCancelled{};
+        };
+        for (const auto* extension : {".db", ".ybb"})
+        {
+            const auto path = root / "book" / (std::string("read-cancel") + extension);
+            incoming.save_yaneuraou_book(path, std::nullopt, nullptr, nullptr);
+            int token = 1;
+            bool interrupted = false;
+            try { current.load_yaneuraou_book(path, false, cancel_before_commit, &token); }
+            catch (const PetaShockCancelled&) { interrupted = true; }
+            const auto previous = current.find_position_copy(bookminer::StartSfenPly1);
+            if (!interrupted || !previous || previous->moves.size() != 1
+                || previous->moves.front().move16 != bookminer::move16_from_usi("7g7f"))
+                throw std::runtime_error("cancelled peta read changed the previous book");
+        }
+    }
     bookminer::BookMinerSettings settings;
     const auto unicode_engine = root / std::filesystem::path(u8"エンジン.exe");
     { std::ofstream out(unicode_engine); out << "engine"; }

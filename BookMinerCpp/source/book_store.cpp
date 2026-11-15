@@ -747,6 +747,8 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
                 report_progress(progress, user, BookProgressKind::Progress, done, static_cast<std::size_t>(record_count), path);
         }
 
+        if (user != nullptr)
+            report_progress(progress, user, BookProgressKind::Progress, static_cast<std::size_t>(record_count), static_cast<std::size_t>(record_count), path);
         {
             std::scoped_lock lock(mutex_);
             size_ = run.size();
@@ -860,6 +862,8 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         throw std::runtime_error("failed to read book: " + path.string());
     append_position();
     auto run = make_sorted_run_from_map(loaded);
+    if (user != nullptr)
+        report_progress(progress, user, BookProgressKind::Progress, sfen_line_count, total, path);
     {
         std::scoped_lock lock(mutex_);
         size_ = run.size();
@@ -1436,7 +1440,11 @@ std::size_t BookStore::save_yaneuraou_book(
             {
                 auto count_cursors = make_cursors();
                 while (next_entry(count_cursors) != nullptr)
+                {
                     ++position_count;
+                    if (user != nullptr && position_count % BookWriteProgressInterval == 0)
+                        report_progress(progress, user, BookProgressKind::Progress, position_count, std::nullopt, path);
+                }
             }
             report_progress(progress, user, BookProgressKind::Start, 0, position_count, path);
 
@@ -1526,8 +1534,13 @@ std::size_t BookStore::save_yaneuraou_book(
             positions.push_back(SaveEntry{entry.key, entry.position.ply, {}, entry.position.moves});
     }
 
+    std::size_t prepared_count = 0;
     for (auto& position : positions)
+    {
         position.sfen = trim_sfen(unpack_sfen_bytes(position.key.bytes));
+        if (user != nullptr && ++prepared_count % BookWriteProgressInterval == 0)
+            report_progress(progress, user, BookProgressKind::Progress, prepared_count, std::nullopt, path);
+    }
 
     std::sort(positions.begin(), positions.end(), [](const SaveEntry& lhs, const SaveEntry& rhs) {
         return lhs.sfen < rhs.sfen;

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from threading import Event, Thread
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,42 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_cancel_interrupts_wait_for_another_backup(self):
+        cancel, stopped = Event(), Event()
+        def save():
+            try:
+                bookminer.save_book_backup(bookminer.Book(), 'unused', cancel=cancel)
+            except bookminer.PetaShockCancelled:
+                stopped.set()
+        bookminer.BOOK_SAVE_LOCK.acquire()
+        try:
+            thread = Thread(target=save, daemon=True)
+            thread.start()
+            cancel.set()
+            self.assertTrue(stopped.wait(2))
+            thread.join(timeout=2)
+        finally:
+            bookminer.BOOK_SAVE_LOCK.release()
+
+    def test_cancelled_peta_read_preserves_previous_book(self):
+        previous = bookminer.Book()
+        previous.body['previous'] = object()
+        cancel = Event()
+        original = bookminer.peta_book
+        bookminer.peta_book = previous
+        try:
+            def cancelled_read(book, _path, _label, _cancel):
+                book.body['partial'] = object()
+                cancel.set()
+            with patch.object(bookminer, 'resolve_peta_book_path', return_value='peta.db'), \
+                 patch.object(bookminer, 'read_regular_book_fast', side_effect=cancelled_read):
+                with self.assertRaises(bookminer.PetaShockCancelled):
+                    bookminer.read_peta_book('peta.db', cancel)
+            self.assertIs(bookminer.peta_book, previous)
+            self.assertIn('previous', bookminer.peta_book.body)
+        finally:
+            bookminer.peta_book = original
+
     def test_failed_peta_read_clears_partial_book_and_stale_probe(self):
         old_book = bookminer.peta_book
         try:

@@ -230,11 +230,29 @@ class CppIntegrationTest(unittest.TestCase):
             '#YANEURAOU-DB2016 1.00\n'
             'sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\n'
             '7g7f none 0 1\n')
-        result = subprocess.run([str(binary), '--from_gui'], input='p\n!\n',
-                                capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('..peta_shock makebook has done', result.stdout)
-        self.assertIn('[PetaBookPositions] positions=0', result.stdout)
+        log_path = root / 'run.log'
+        with log_path.open('w') as output:
+            process = subprocess.Popen([str(binary), '--from_gui'], stdin=subprocess.PIPE,
+                                       stdout=output, stderr=subprocess.STDOUT, text=True)
+            try:
+                process.stdin.write('p\n')
+                process.stdin.flush()
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    contents = log_path.read_text()
+                    if '[PetaCommandDone]' in contents or process.poll() is not None:
+                        break
+                    time.sleep(.05)
+                self.assertIn('[PetaCommandDone]', contents)
+                self.assertIn('..peta_shock makebook has done', contents)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                process.wait(timeout=30)
+                process.stdin.close()
+            self.assertEqual(process.returncode, 0, contents)
+        self.assertIn('[PetaBookPositions] positions=0', contents)
         self.assertIn(' threads 4\n', (root / 'peta-commands.txt').read_text())
 
 

@@ -1,5 +1,9 @@
 # 10. peta shock 化
 
+GUI の `peta_shock` または `peta_shock_latest` の実行中は、そのボタンが `cancel` に変わります。押すと処理を中止できます。変換中のやねうら王プロセスを終了し、未完成の一時ファイルを削除します。読み込みが完了していない場合、それまでメモリ上にあった peta 定跡は保持されます。自動 peta shock の実行中は `peta_shock_latest` の場所に `cancel` が表示されます。
+
+定跡DBの保存・読み込み中にもキャンセルできますが、大きなデータの一括処理中などは中止まで時間がかかる場合があります。CLI では実行中に `cancel-peta-shock` を送ります。
+
 この章では、peta shock 化そのものだけを説明します。
 
 peta shock 化した DB を使って `book/think_sfens.txt` を作る操作、つまり `peta next`、`peta refutation`、`peta rejoin`、`peta unsolved`、`peta opponent` については、次の章で説明します。

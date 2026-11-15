@@ -30,11 +30,13 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <csignal>
 #include <fcntl.h>
 #include <sys/select.h>
 #include <sys/wait.h>
@@ -3457,7 +3459,16 @@ struct PetaProcessResult {
     int exit_code = 1;
     bool completed = false;
     bool reported_error = false;
+    bool cancelled = false;
 };
+
+struct PetaShockCancelled {};
+
+void check_peta_shock_cancel(const std::atomic<bool>* cancelled)
+{
+    if (cancelled && cancelled->load())
+        throw PetaShockCancelled{};
+}
 
 void emit_prefixed_output_line(std::string line, PetaProcessResult& result)
 {
@@ -3511,7 +3522,7 @@ std::string quote_windows_arg(const fs::path& path)
     return quoted;
 }
 
-PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
+PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input, const std::atomic<bool>* cancelled = nullptr)
 {
     constexpr int PetaShockProgressIntervalSeconds = 10;
     PetaProcessResult result;
@@ -3563,6 +3574,13 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
 
     while (true)
     {
+        if (cancelled && cancelled->load())
+        {
+            TerminateProcess(pi.hProcess, 1);
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            result.cancelled = true;
+            break;
+        }
         DWORD available = 0;
         if (!PeekNamedPipe(child_stdout_read, nullptr, 0, nullptr, &available, nullptr))
             break;
@@ -3602,7 +3620,16 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
 
     if (exit_code == STILL_ACTIVE)
     {
-        WaitForSingleObject(pi.hProcess, INFINITE);
+        while (WaitForSingleObject(pi.hProcess, 200) == WAIT_TIMEOUT)
+        {
+            if (cancelled && cancelled->load())
+            {
+                TerminateProcess(pi.hProcess, 1);
+                result.cancelled = true;
+                WaitForSingleObject(pi.hProcess, INFINITE);
+                break;
+            }
+        }
         GetExitCodeProcess(pi.hProcess, &exit_code);
     }
     CloseHandle(pi.hThread);
@@ -3618,7 +3645,7 @@ void set_nonblocking(int fd)
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input)
+PetaProcessResult run_process_with_input(const fs::path& executable, const fs::path& cwd, const std::string& input, const std::atomic<bool>* cancelled = nullptr)
 {
     constexpr int PetaShockProgressIntervalSeconds = 10;
     PetaProcessResult process_result;
@@ -3665,6 +3692,17 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
 
     while (!output_eof || !child_done)
     {
+        if (cancelled && cancelled->load())
+        {
+            if (!child_done)
+            {
+                kill(pid, SIGKILL);
+                waitpid(pid, &status, 0);
+                child_done = true;
+            }
+            process_result.cancelled = true;
+            break;
+        }
         fd_set read_set;
         FD_ZERO(&read_set);
         if (!output_eof)
@@ -3725,7 +3763,7 @@ PetaProcessResult run_process_with_input(const fs::path& executable, const fs::p
 #endif
 
 fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source_book_path,
-                                const bookminer::BookMinerSettings& settings)
+                                const bookminer::BookMinerSettings& settings, const std::atomic<bool>* cancelled = nullptr)
 {
     const fs::path engine_path = find_peta_shock_engine(app_dir, settings);
     const std::string source_book_rel = to_book_dir_relative_path(source_book_path);
@@ -3755,7 +3793,13 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
         makebook_command + "\n"
         "quit\n";
 
-    const auto result = run_process_with_input(engine_path, app_dir, commands);
+    check_peta_shock_cancel(cancelled);
+    const auto result = run_process_with_input(engine_path, app_dir, commands, cancelled);
+    if (result.cancelled || (cancelled && cancelled->load()))
+    {
+        fs::remove(peta_temp_path, ec);
+        throw PetaShockCancelled{};
+    }
     if (result.exit_code != 0 || result.reported_error || !result.completed)
     {
         fs::remove(peta_temp_path, ec);
@@ -3771,13 +3815,42 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     return peta_path;
 }
 
-fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> ply_limit)
+void shock_write_progress(bookminer::BookProgressKind kind, std::size_t current,
+                          std::optional<std::size_t> total, const fs::path& path, void* user)
 {
-    std::scoped_lock save_lock(g_save_mutex);
+    if (kind != bookminer::BookProgressKind::Done)
+        check_peta_shock_cancel(static_cast<const std::atomic<bool>*>(user));
+    if (kind == bookminer::BookProgressKind::Progress && !total)
+        return;
+    book_write_progress(kind, current, total, path, nullptr);
+}
+
+fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> ply_limit,
+                          const std::atomic<bool>* cancelled = nullptr)
+{
+    std::unique_lock save_lock(g_save_mutex, std::defer_lock);
+    if (cancelled)
+    {
+        while (!save_lock.try_lock())
+        {
+            check_peta_shock_cancel(cancelled);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+    else
+        save_lock.lock();
     const auto timestamp = make_time_stamp();
     const auto saving_path = make_backup_saving_path(timestamp, ply_limit);
     log_line("start save_book_backup , path = " + saving_path.string());
-    const auto written_count = book.save_yaneuraou_book(saving_path, ply_limit, book_write_progress, nullptr);
+    check_peta_shock_cancel(cancelled);
+    const auto written_count = book.save_yaneuraou_book(saving_path, ply_limit,
+        cancelled ? shock_write_progress : book_write_progress, const_cast<std::atomic<bool>*>(cancelled));
+    if (cancelled && cancelled->load())
+    {
+        std::error_code ec;
+        fs::remove(saving_path, ec);
+        throw PetaShockCancelled{};
+    }
     auto path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
     bookminer::replace_book_file(saving_path, path);
     log_line("..save_book_backup has done, " + std::to_string(written_count) + " positions.");
@@ -3915,12 +3988,23 @@ std::optional<fs::path> load_latest_book_backup(bookminer::BookStore& book)
     return path;
 }
 
-void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::string>& peta_book_path)
+void shock_read_progress(bookminer::BookProgressKind kind, std::size_t current,
+                         std::optional<std::size_t> total, const fs::path& path, void* user)
+{
+    if (kind != bookminer::BookProgressKind::Done)
+        check_peta_shock_cancel(static_cast<const std::atomic<bool>*>(user));
+    book_read_progress(kind, current, total, path, nullptr);
+}
+
+void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::string>& peta_book_path,
+                    const std::atomic<bool>* cancelled = nullptr)
 {
     const fs::path peta_path = resolve_peta_book_path(peta_book_path);
 
     log_line("read peta shocked book , path = " + peta_path.string());
-    peta_book.load_yaneuraou_book(peta_path, false, book_read_progress, nullptr);
+    check_peta_shock_cancel(cancelled);
+    peta_book.load_yaneuraou_book(peta_path, false, cancelled ? shock_read_progress : book_read_progress,
+                                 const_cast<std::atomic<bool>*>(cancelled));
     log_line("[PetaBookPositions] positions=" + std::to_string(peta_book.size()));
     log_line("reading the peta_book has done.");
 }
@@ -3928,10 +4012,11 @@ void read_peta_book(bookminer::BookStore& peta_book, const std::optional<std::st
 fs::path make_peta_book(
     const fs::path& app_dir,
     const std::optional<std::string>& source_book_path,
-    const bookminer::BookMinerSettings& settings)
+    const bookminer::BookMinerSettings& settings,
+    const std::atomic<bool>* cancelled = nullptr)
 {
     const fs::path source = resolve_peta_source_book_path(source_book_path);
-    return run_peta_shock_makebook(app_dir, source, settings);
+    return run_peta_shock_makebook(app_dir, source, settings, cancelled);
 }
 
 class PetaBookReadJob {
@@ -3961,6 +4046,7 @@ public:
         if (thread_.joinable())
             thread_.join();
 
+        shock_ = false;
         running_ = true;
         thread_ = std::thread([
             this,
@@ -3990,6 +4076,60 @@ public:
         return true;
     }
 
+    bool start_shock(std::function<fs::path(const std::atomic<bool>*)> prepare, std::string done_message)
+    {
+        if (running_.load())
+            return false;
+        if (thread_.joinable())
+            thread_.join();
+        cancelled_ = false;
+        shock_ = true;
+        running_ = true;
+        thread_ = std::thread([this, prepare = std::move(prepare), done_message = std::move(done_message)] {
+            bool succeeded = false, was_cancelled = false;
+            std::optional<std::string> failure;
+            try
+            {
+                const auto path = prepare(&cancelled_);
+                check_peta_shock_cancel(&cancelled_);
+                read_peta_book(peta_book_, std::optional<std::string>{path.string()}, &cancelled_);
+                log_line(done_message);
+                succeeded = true;
+            }
+            catch (const PetaShockCancelled&) { was_cancelled = true; }
+            catch (const std::exception& ex) { failure = ex.what(); }
+            shock_ = false;
+            running_ = false;
+            if (was_cancelled)
+                log_line("[PetaShockCancelled]");
+            else if (failure)
+                log_line("Exception : peta shock failed: " + *failure);
+            else if (succeeded)
+                log_line("[PetaCommandDone]");
+        });
+        return true;
+    }
+
+    bool cancel_shock()
+    {
+        if (!running_.load() || !shock_.load())
+            return false;
+        cancelled_ = true;
+        return true;
+    }
+
+    void remember_saved_source(const fs::path& path, std::uint64_t revision)
+    {
+        std::scoped_lock lock(saved_source_mutex_);
+        saved_source_ = std::make_pair(path, revision);
+    }
+
+    std::optional<std::pair<fs::path, std::uint64_t>> take_saved_source()
+    {
+        std::scoped_lock lock(saved_source_mutex_);
+        return std::exchange(saved_source_, std::nullopt);
+    }
+
     void join()
     {
         if (thread_.joinable())
@@ -3999,6 +4139,10 @@ public:
 private:
     bookminer::BookStore& peta_book_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> shock_{false};
+    std::atomic<bool> cancelled_{false};
+    std::mutex saved_source_mutex_;
+    std::optional<std::pair<fs::path, std::uint64_t>> saved_source_;
     std::thread thread_;
 };
 
@@ -4082,6 +4226,7 @@ void print_help()
     log_line("  R : read peta shocked book , r (peta book path)");
     log_line("  P : write backup, make and read peta shocked book");
     log_line("  PL: make and read peta shocked book from latest backup");
+    log_line("  cancel-peta-shock : cancel the running peta shock");
     log_line("  PN : peta_shock next         , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit) (normal_fallback:0|1)");
     log_line("  PR : peta refutation         , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
     log_line("  PJ : peta rejoin             , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)");
@@ -4236,9 +4381,15 @@ int main(int argc, char* argv[])
                 if (!peta_command_job.cancel_next())
                     log_line("[PetaNextCancelIgnored] no peta next is running");
             }
+            else if (command == "cancel-peta-shock")
+            {
+                if (!peta_book_read_job.cancel_shock())
+                    log_line("[PetaShockCancelIgnored] no peta shock is running");
+            }
             else if (command == "q")
             {
                 log_line("quit");
+                peta_book_read_job.cancel_shock();
                 const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, std::nullopt);
                 if (book.revision() == before_revision)
@@ -4257,6 +4408,7 @@ int main(int argc, char* argv[])
             else if (command == "!")
             {
                 log_line("quit without saving");
+                peta_book_read_job.cancel_shock();
                 if (auto_save_service)
                     auto_save_service->stop();
                 if (task_workers)
@@ -4386,34 +4538,37 @@ int main(int argc, char* argv[])
                 if (reject_if_peta_busy())
                     continue;
 
-                fs::path source_book_path;
+                if (const auto saved = peta_book_read_job.take_saved_source())
+                {
+                    clean_source_path = saved->first;
+                    clean_source_revision = saved->second;
+                }
+                std::optional<fs::path> reused_source;
                 const auto current_revision = book.revision();
                 if (clean_source_path.has_value()
                     && fs::is_regular_file(*clean_source_path)
                     && clean_source_revision == current_revision)
                 {
-                    source_book_path = *clean_source_path;
-                    log_line("p command source book reused = " + source_book_path.string());
+                    reused_source = *clean_source_path;
+                    log_line("p command source book reused = " + reused_source->string());
                 }
                 else
                 {
-                    const auto before_revision = book.revision();
                     if (auto_save_service)
                         auto_save_service->reset_timer();
-                    source_book_path = save_book_backup(book, std::nullopt);
-                    if (book.revision() == before_revision)
-                    {
-                        clean_source_path = source_book_path;
-                        clean_source_revision = before_revision;
-                    }
                 }
                 log_line("start p command : write backup, peta_shock, and read peta book.");
-                log_line("p command source book = " + source_book_path.string());
-                const fs::path peta_path = make_peta_book(app_dir, std::optional<std::string>{source_book_path.string()}, book_miner_settings);
-                if (!peta_book_read_job.start(
-                        std::optional<std::string>{peta_path.string()},
-                        "..p command has done.",
-                        "[PetaCommandDone]"))
+                const auto settings = book_miner_settings;
+                if (!peta_book_read_job.start_shock(
+                    [&, reused_source, settings](const std::atomic<bool>* cancelled) {
+                        const auto revision = book.revision();
+                        const auto source = reused_source ? *reused_source : save_book_backup(book, std::nullopt, cancelled);
+                        if (!reused_source && book.revision() == revision)
+                            peta_book_read_job.remember_saved_source(source, revision);
+                        check_peta_shock_cancel(cancelled);
+                        log_line("p command source book = " + source.string());
+                        return make_peta_book(app_dir, std::optional<std::string>{source.string()}, settings, cancelled);
+                    }, "..p command has done."))
                 {
                     log_line("Error : peta book is loading. wait for peta read completion.");
                 }
@@ -4424,11 +4579,11 @@ int main(int argc, char* argv[])
                     continue;
 
                 log_line("start pl command : peta_shock latest backup, and read peta book.");
-                const fs::path peta_path = make_peta_book(app_dir, std::nullopt, book_miner_settings);
-                if (!peta_book_read_job.start(
-                        std::optional<std::string>{peta_path.string()},
-                        "..pl command has done.",
-                        "[PetaCommandDone]"))
+                const auto settings = book_miner_settings;
+                if (!peta_book_read_job.start_shock(
+                    [&, settings](const std::atomic<bool>* cancelled) {
+                        return make_peta_book(app_dir, std::nullopt, settings, cancelled);
+                    }, "..pl command has done."))
                 {
                     log_line("Error : peta book is loading. wait for peta read completion.");
                 }
