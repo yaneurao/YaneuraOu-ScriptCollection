@@ -4504,7 +4504,11 @@ int main(int argc, char* argv[])
             if (!from_gui)
                 logger.prompt();
             if (!std::getline(std::cin, line))
+            {
+                peta_book_read_job.cancel_shock();
+                peta_command_job.cancel_next();
                 break;
+            }
 
             auto tokens = split_ws(line);
             if (tokens.empty())

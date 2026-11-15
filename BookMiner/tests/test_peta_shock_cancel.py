@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipIf(os.name == 'nt', 'fixture uses a Unix executable script')
 class PetaShockCancelTests(unittest.TestCase):
-    def run_backend(self, binary=None):
+    def run_backend(self, binary=None, eof_during_shock=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             backup = root / 'book/backup'
@@ -74,6 +74,15 @@ class PetaShockCancelTests(unittest.TestCase):
                     wait_for('[peta_shock] child-ready')
                     pid = int(child_pid.read_text())
                     self.assertTrue(temporary.exists())
+                    if eof_during_shock:
+                        process.stdin.close()
+                        process.wait(timeout=15)
+                        self.assertEqual(process.returncode, 0)
+                        self.assertFalse(temporary.exists())
+                        self.assertEqual(target.read_text(), content)
+                        with self.assertRaises(ProcessLookupError):
+                            os.kill(pid, 0)
+                        return
                     if command == 'pl':
                         send('w')
                     send('cancel-peta-shock')
@@ -89,7 +98,10 @@ class PetaShockCancelTests(unittest.TestCase):
                 self.assertIn('startpos moves 7g7f', (root / 'book/think_sfens.txt').read_text())
             finally:
                 if process.poll() is None:
-                    send('!')
+                    if process.stdin.closed:
+                        process.kill()
+                    else:
+                        send('!')
                     process.wait(timeout=20)
                 reader.join(timeout=5)
                 process.stdin.close()
@@ -98,6 +110,13 @@ class PetaShockCancelTests(unittest.TestCase):
     def test_python_process_stops_child_and_preserves_book(self):
         self.run_backend()
 
+    def test_python_stops_peta_child_when_input_closes(self):
+        self.run_backend(eof_during_shock=True)
+
     @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY'), 'C++ binary not provided')
     def test_cpp_process_stops_child_and_preserves_book(self):
         self.run_backend(os.environ['BOOKMINER_TEST_BINARY'])
+
+    @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY'), 'C++ binary not provided')
+    def test_cpp_stops_peta_child_when_input_closes(self):
+        self.run_backend(os.environ['BOOKMINER_TEST_BINARY'], eof_during_shock=True)

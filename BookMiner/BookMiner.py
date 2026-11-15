@@ -2343,11 +2343,13 @@ class EngineManager:
 
 # eコマンドのtask番号。(連番で増えていく)
 job_counter : int = 0
+job_counter_lock = Lock()
 
 def get_job_counter()->int:
     global job_counter
-    job_counter += 1
-    return job_counter
+    with job_counter_lock:
+        job_counter += 1
+        return job_counter
 
 
 def get_best(infos:PositionInfo)->tuple[Eval, MoveStr]:
@@ -4196,6 +4198,25 @@ def put_position_commands(
     print(f"({job_counter_local}) put position commands , done.")
 
 
+def enqueue_position_commands_async(book:Book, path:str, engine_manager:EngineManager,
+                                    eval_limit:int, max_book_ply:int, book_extend_ply:int,
+                                    branch_width:int = 0, branch_depth:int = 0):
+    Thread(target=put_position_commands,
+           args=(book, path, engine_manager, eval_limit, max_book_ply, book_extend_ply,
+                 branch_width, branch_depth), daemon=True).start()
+
+
+def perform_auto_backup(book:Book, save_dir:str)->bool:
+    print('[BackupStart]')
+    try:
+        save_book_backup(book, save_dir)
+    except Exception as exc:
+        print(f'Exception : auto save failed: {exc}')
+        return False
+    print('[BackupDone]')
+    return True
+
+
 def merge_flipped_positions(book:Book):
     """
     flipした局面を削除する。
@@ -4370,9 +4391,7 @@ def user_input(from_gui:bool = False):
                 if next_backup_timestamp != next_backup_snapshot:
                     continue
 
-            print("[BackupStart]")
-            save_book_backup(book, BOOK_BACKUP_DIR)
-            print("[BackupDone]")
+            perform_auto_backup(book, BOOK_BACKUP_DIR)
             with backup_condition:
                 if next_backup_timestamp == next_backup_snapshot:
                     next_backup_timestamp = time.time() + book_miner_settings.auto_save_interval_seconds
@@ -4565,17 +4584,8 @@ def user_input(from_gui:bool = False):
                 if len(inp) > 1:
                     print("Usage : e")
                 else:
-                    Thread(
-                        target=lambda: put_position_commands(
-                            book,
-                            path,
-                            engine_manager,
-                            eval_limit,
-                            max_book_ply,
-                            book_extend_ply,
-                        ),
-                        daemon=True,
-                    ).start()
+                    enqueue_position_commands_async(book, path, engine_manager,
+                                                    eval_limit, max_book_ply, book_extend_ply)
 
             elif i == 'eb':
                 path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
@@ -4593,19 +4603,9 @@ def user_input(from_gui:bool = False):
                     elif branch_depth <= 0:
                         print("Error : branch_depth must be positive integer.")
                     else:
-                        Thread(
-                            target=lambda: put_position_commands(
-                                book,
-                                path,
-                                engine_manager,
-                                eval_limit,
-                                max_book_ply,
-                                book_extend_ply,
-                                branch_width,
-                                branch_depth,
-                            ),
-                            daemon=True,
-                        ).start()
+                        enqueue_position_commands_async(book, path, engine_manager,
+                                                        eval_limit, max_book_ply, book_extend_ply,
+                                                        branch_width, branch_depth)
 
             elif i == 'i':
                 if len(inp) < 2:
@@ -4843,6 +4843,15 @@ def user_input(from_gui:bool = False):
                         eval_limit=eval_limit,
                     )
 
+        except EOFError:
+            engine_manager.global_settings.quit = True
+            peta_next_cancel.set()
+            if peta_shock_thread is not None and peta_shock_thread.is_alive():
+                peta_shock_cancel.set()
+                peta_shock_thread.join()
+            if concurrent_manual_backup is not None:
+                concurrent_manual_backup.join()
+            break
         except Exception as e:
             print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
 

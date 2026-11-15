@@ -21,6 +21,91 @@ spec.loader.exec_module(miner)
 
 
 class EngineProtocolTests(unittest.TestCase):
+    def test_concurrent_jobs_receive_distinct_ids(self):
+        ids = queue.Queue()
+        def allocate():
+            for _ in range(500):
+                ids.put(miner.get_job_counter())
+        threads = [threading.Thread(target=allocate) for _ in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        result = [ids.get_nowait() for _ in range(6000)]
+        self.assertEqual(len(set(result)), 6000)
+
+    def test_auto_backup_worker_retries_after_a_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'book/backup').mkdir(parents=True)
+            (root / 'settings').mkdir()
+            (root / 'settings/engine_settings.json5').write_text('[]')
+            (root / 'settings/book_miner_settings.json5').write_text('{auto_save_interval_seconds: 1}')
+            code = (f'import importlib.util,sys\ns=importlib.util.spec_from_file_location("miner_retry", {str(MODULE_PATH)!r})\n'
+                    'm=importlib.util.module_from_spec(s);sys.modules[s.name]=m;s.loader.exec_module(m)\n'
+                    'original=m.save_book_backup\ncount=0\n'
+                    'def flaky(*args,**kwargs):\n'
+                    ' global count\n count+=1\n'
+                    ' if count==1: raise OSError("simulated failure")\n'
+                    ' return original(*args,**kwargs)\n'
+                    'm.save_book_backup=flaky\nm.user_input(from_gui=True)\n')
+            process = subprocess.Popen([sys.executable, '-u', '-c', code], cwd=root,
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True)
+            lines = queue.Queue()
+            reader = threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True)
+            reader.start()
+            captured = []
+            try:
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    try:
+                        line = lines.get(timeout=.5)
+                    except queue.Empty:
+                        if process.poll() is not None:
+                            break
+                        continue
+                    captured.append(line)
+                    if '[BackupDone]' in line:
+                        break
+                output = ''.join(captured)
+                self.assertIn('Exception : auto save failed: simulated failure', output)
+                self.assertIn('[BackupDone]', output)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+                reader.join(timeout=5)
+                process.stdin.close()
+                process.stdout.close()
+
+    def test_delayed_enqueue_keeps_its_own_settings(self):
+        scheduled = []
+        class DelayedThread:
+            def __init__(self, target, args, daemon):
+                self.target, self.args = target, args
+            def start(self):
+                scheduled.append(self)
+        book, manager = miner.Book(), Mock()
+        with patch.object(miner, 'Thread', DelayedThread), patch.object(miner, 'put_position_commands') as put:
+            miner.enqueue_position_commands_async(book, 'first.txt', manager, 100, 150, 4)
+            miner.enqueue_position_commands_async(book, 'second.txt', manager, 900, 200, 9, 3, 2)
+            for thread in reversed(scheduled):
+                thread.target(*thread.args)
+        self.assertEqual(put.call_args_list[0].args[1:], ('second.txt', manager, 900, 200, 9, 3, 2))
+        self.assertEqual(put.call_args_list[1].args[1:], ('first.txt', manager, 100, 150, 4, 0, 0))
+
+    def test_failed_auto_backup_does_not_report_success_and_can_retry(self):
+        with patch.object(miner, 'save_book_backup', side_effect=[OSError('disk full'), 'backup.ybb']) as save, \
+             patch.object(miner, 'print') as log:
+            self.assertFalse(miner.perform_auto_backup(miner.Book(), 'backup'))
+            self.assertFalse(any('[BackupDone]' in str(call) for call in log.call_args_list))
+            self.assertTrue(any('Exception : auto save failed: disk full' in str(call) for call in log.call_args_list))
+            self.assertTrue(miner.perform_auto_backup(miner.Book(), 'backup'))
+            self.assertTrue(any('[BackupDone]' in str(call) for call in log.call_args_list))
+            self.assertEqual(save.call_count, 2)
+
     def test_enqueue_merges_duplicates_after_resolving_default_limits(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'think_sfens.txt'
