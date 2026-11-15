@@ -52,6 +52,7 @@ public:
     const EngineConfig& config() const noexcept { return config_; }
     bool started() const noexcept { return started_; }
     bool connection_broken() const noexcept { return connection_broken_; }
+    bool process_alive() const noexcept;
 
 private:
     void send_line(const std::string& command);

@@ -1240,8 +1240,10 @@ public:
         active_workers_.store(static_cast<int>(engines_.size()));
         for (auto& engine : engines_)
         {
-            threads_.emplace_back([this, engine_ptr = engine.get()] {
-                worker_loop(*engine_ptr);
+            auto alive = std::make_shared<std::atomic<bool>>(true);
+            worker_alive_.push_back(alive);
+            threads_.emplace_back([this, engine_ptr = engine.get(), alive] {
+                worker_loop(*engine_ptr, *alive);
             });
         }
         progress_reporter_thread_ = std::thread([this] {
@@ -1414,7 +1416,17 @@ private:
         });
     }
 
-    void worker_loop(bookminer::UsiEngine& engine)
+    void retire_worker(bookminer::UsiEngine& engine, std::atomic<bool>& alive)
+    {
+        std::scoped_lock lock(engine_alive_mutex_);
+        if (!alive.exchange(false))
+            return;
+        const int remaining = active_workers_.fetch_sub(1) - 1;
+        log_line("[EngineAlive] " + std::to_string(remaining) + "/" + std::to_string(engines_.size())
+                 + " dead=" + std::to_string(engine.thread_id()));
+    }
+
+    void worker_loop(bookminer::UsiEngine& engine, std::atomic<bool>& alive)
     {
         while (true)
         {
@@ -1444,10 +1456,9 @@ private:
             {
                 if (engine.connection_broken())
                 {
-                    const int remaining = active_workers_.fetch_sub(1) - 1;
                     log_line("[EngineUnavailable] engine=" + std::to_string(engine.thread_id())
                         + " job=" + std::to_string(task->job_id) + " : " + ex.what());
-                    log_line("[EngineAlive] " + std::to_string(remaining) + "/" + std::to_string(engines_.size()));
+                    retire_worker(engine, alive);
                     if (!stopped_.load())
                         queue_.push(std::move(*task));
                     return;
@@ -1487,15 +1498,23 @@ private:
     void progress_reporter_loop()
     {
         std::unique_lock lock(progress_reporter_mutex_);
+        auto next_progress = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!stopped_.load())
         {
-            if (progress_reporter_cv_.wait_for(lock, std::chrono::seconds(10), [this] {
+            if (progress_reporter_cv_.wait_for(lock, std::chrono::seconds(1), [this] {
                     return stopped_.load();
                 }))
             {
                 break;
             }
-            report_periodic_task_progress();
+            for (std::size_t i = 0; i < engines_.size(); ++i)
+                if (worker_alive_[i]->load() && !engines_[i]->process_alive())
+                    retire_worker(*engines_[i], *worker_alive_[i]);
+            if (std::chrono::steady_clock::now() >= next_progress)
+            {
+                report_periodic_task_progress();
+                next_progress = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            }
         }
     }
 
@@ -1711,8 +1730,10 @@ private:
     std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines_;
     TaskQueue queue_;
     std::vector<std::thread> threads_;
+    std::vector<std::shared_ptr<std::atomic<bool>>> worker_alive_;
     std::thread progress_reporter_thread_;
     std::atomic<int> active_workers_{0};
+    std::mutex engine_alive_mutex_;
     std::atomic<int> next_job_id_{1};
     std::atomic<bool> stopped_{false};
     std::mutex progress_mutex_;

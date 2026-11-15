@@ -13,6 +13,12 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_idle_engine_loss_updates_display(self):
+        instance = Mock()
+        gui.BookMinerGui._handle_startup_line(instance, '[EngineAlive] 0/1 dead=0')
+        self.assertEqual(instance.engine_status_text, 'エンジン起動数 0/1')
+        instance._update_mining_status.assert_called_once()
+
     def test_shock_completion_after_cancel_request_resets_button(self):
         for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'):
             with self.subTest(action=action):

@@ -498,6 +498,22 @@ void UsiEngine::wait_usi(const std::string& wait_text, const LogCallback&)
     }
 }
 
+bool UsiEngine::process_alive() const noexcept
+{
+    if (!started_)
+        return false;
+#ifdef _WIN32
+    return process_ && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT;
+#else
+    if (pid_ <= 0)
+        return false;
+    siginfo_t info{};
+    if (waitid(P_PID, static_cast<id_t>(pid_), &info, WEXITED | WNOHANG | WNOWAIT) == 0)
+        return info.si_pid == 0;
+    return errno != ECHILD;
+#endif
+}
+
 void UsiEngine::close_process()
 {
     if (!started_)

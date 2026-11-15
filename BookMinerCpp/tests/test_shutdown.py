@@ -18,6 +18,63 @@ except ImportError:
 @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY') and os.name != 'nt',
                      'Set BOOKMINER_TEST_BINARY to a built POSIX BookMinerCpp executable')
 class ShutdownTest(unittest.TestCase):
+    def test_idle_engine_exit_is_reported_before_any_enqueue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / 'bookminer'
+            shutil.copy2(os.environ['BOOKMINER_TEST_BINARY'], binary)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            engine = root / 'idle-exit-engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys,time\n'
+                              'for line in sys.stdin:\n'
+                              ' line=line.strip()\n'
+                              ' if line=="usi": print("usiok",flush=True)\n'
+                              ' elif line=="isready":\n'
+                              '  print("readyok",flush=True)\n'
+                              '  time.sleep(0.7)\n'
+                              '  sys.exit(0)\n')
+            engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+            (root / 'book/think_sfens.txt').write_text('startpos\n')
+            process = subprocess.Popen([str(binary), '--from_gui'], cwd=root, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            lines = queue.Queue()
+            reader = threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True)
+            reader.start()
+            captured = []
+            try:
+                deadline = time.monotonic() + 15
+                sent = False
+                while time.monotonic() < deadline:
+                    try:
+                        line = lines.get(timeout=.5)
+                    except queue.Empty:
+                        if process.poll() is not None:
+                            break
+                        continue
+                    captured.append(line)
+                    if '[EngineAlive] 0/1' in line and not sent:
+                        process.stdin.write('e\n')
+                        process.stdin.flush()
+                        sent = True
+                    if 'no search engines are available' in line:
+                        break
+                output = ''.join(captured)
+                self.assertIn('[CommandReady]', output)
+                self.assertIn('[EngineAlive] 0/1', output)
+                self.assertIn('no search engines are available', output)
+                self.assertNotIn('[TaskQueueStart]', output)
+            finally:
+                if process.poll() is None:
+                    process.stdin.write('!\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+                reader.join(timeout=5)
+                process.stdin.close()
+                process.stdout.close()
+
     @unittest.skipUnless(cshogi is not None, 'cshogi is required for this fixture')
     def test_failed_engine_resumes_branch_after_already_mined_prefix(self):
         with tempfile.TemporaryDirectory() as tmp:
