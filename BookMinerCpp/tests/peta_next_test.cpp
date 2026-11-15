@@ -191,6 +191,7 @@ int main(int argc, char** argv)
                    " elif line=='isready': print('readyok',flush=True)\n"
                    " elif line.startswith('position '): move='3c3d' if ' w ' in line else '7g7f'\n"
                    " elif line.startswith('go '):\n"
+                   "  open(__file__+'.nodes','a').write(line+'\\n')\n"
                    "  print('info multipv 1 score cp 42 pv '+move,flush=True)\n"
                    "  print('info multipv 2 score cp 20 pv '+('8c8d' if move=='3c3d' else '2g2f'),flush=True)\n"
                    "  print('bestmove '+move,flush=True)\n"
@@ -202,6 +203,7 @@ int main(int argc, char** argv)
         config.multipv = 100;
         config.nodes = 100;
         bookminer::UsiEngine engine(0, config, roots_path.parent_path());
+        g_consecutive_node_ratio.store(0.45);
         engine.start([](const std::string&) {});
         engine.isready([](const std::string&) {});
         bookminer::BookStore book;
@@ -218,6 +220,13 @@ int main(int argc, char** argv)
         book.end_search(lease);
         if (run() != TaskResult::Done || resume || !book.find_position_copy(child.sfen()))
             throw std::runtime_error("branch search did not resume at the suspended child");
+        {
+            std::ifstream in(engine_path.string() + ".nodes");
+            const std::string commands((std::istreambuf_iterator<char>(in)), {});
+            if (commands.find("go nodes 45\n") == std::string::npos)
+                throw std::runtime_error("configured consecutive node ratio was not used");
+        }
+        g_consecutive_node_ratio.store(0.7);
 
         bookminer::BookStore path_book;
         std::optional<TaskResume> path_resume;

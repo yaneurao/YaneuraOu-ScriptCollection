@@ -292,7 +292,10 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
     send_line("setoption name MultiPV value " + std::to_string(multipv));
     send_line("position " + position_command);
 
-    const auto base_nodes = static_cast<std::uint64_t>(std::llround(static_cast<double>(config_.nodes) * node_ratio));
+    const long double scaled_nodes = static_cast<long double>(config_.nodes) * node_ratio;
+    const auto base_nodes = scaled_nodes >= static_cast<long double>(std::numeric_limits<std::uint64_t>::max())
+        ? std::numeric_limits<std::uint64_t>::max()
+        : static_cast<std::uint64_t>(std::round(scaled_nodes));
     std::uint64_t nodes = std::max<std::uint64_t>(1, base_nodes);
     const std::uint64_t half_nodes = std::max<std::uint64_t>(1, nodes / 2);
     std::uint64_t searched_nodes = 0;

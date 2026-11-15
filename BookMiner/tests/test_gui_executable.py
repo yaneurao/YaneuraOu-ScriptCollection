@@ -390,6 +390,7 @@ class GuiExecutableTests(unittest.TestCase):
             instance.setting_start_path.get.return_value = 'book/開始.txt'
             instance.setting_max_ply.get.return_value = '250'
             instance.setting_threads.get.return_value = '8'
+            instance.setting_node_ratio.get.return_value = '0.5'
             instance.backup_in_progress = False
             instance.is_running.return_value = True
             instance.send_command.return_value = True
@@ -402,6 +403,7 @@ class GuiExecutableTests(unittest.TestCase):
                 'peta_next_start_sfens_path': 'book/開始.txt',
                 'max_book_ply': 250,
                 'peta_shock_threads': 8,
+                'consecutive_node_ratio': 0.5,
             })
             instance.send_command.assert_called_once_with('reload-settings')
             instance.game_ply_limit.set.assert_called_once_with('250')

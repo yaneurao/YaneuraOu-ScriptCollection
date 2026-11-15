@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import os
+import math
 import time
 import subprocess
 import tempfile
@@ -296,6 +297,7 @@ class BookMinerSettings:
 
     # この手数に到達したら、それ以上掘らない。
     max_book_ply : int = MAX_BOOK_PLY
+    consecutive_node_ratio : float = 0.7
 
     # peta_nextで辿り始める開始局面集合ファイル。
     peta_next_start_sfens_path : str = PETA_NEXT_START_SFENS_PATH
@@ -692,6 +694,10 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
         "max_book_ply",
         settings.max_book_ply,
     )
+    ratio = raw_settings.get('consecutive_node_ratio', settings.consecutive_node_ratio)
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or not 0 < ratio <= 100:
+        raise ValueError('consecutive_node_ratio must be greater than 0 and at most 100')
+    settings.consecutive_node_ratio = float(ratio)
     settings.peta_next_start_sfens_path = read_non_empty_str(
         "peta_next_start_sfens_path",
         settings.peta_next_start_sfens_path,
@@ -709,6 +715,7 @@ def load_book_miner_settings(path:str = BOOK_MINER_SETTINGS_JSON_PATH)->BookMine
         "BookMiner settings : "
         f"auto_save_interval_seconds = {settings.auto_save_interval_seconds}, "
         f"max_book_ply = {settings.max_book_ply}, "
+        f"consecutive_node_ratio = {settings.consecutive_node_ratio}, "
         f"peta_next_start_sfens_path = {settings.peta_next_start_sfens_path}, "
         f"peta_shock_engine_path = {settings.peta_shock_engine_path}, "
         f"peta_shock_threads = {settings.peta_shock_threads}"
@@ -1577,9 +1584,9 @@ class EngineManager:
             searched = False
             if not position_info or not has_considered(position_info):
                 searched = True
-                # 2つ目以降の局面では、1手前で探索しているので7掛けで良い。
+                # 同じエンジンが1手前を探索していれば設定した倍率を使う。
                 # ⇨ 途中で合流した場合、1手前で探索してるとは限らない。last_thinking_plyを用いるように変更する。
-                node_ratio = 0.7 if last_thinking_ply + 1 == ply else 1.0
+                node_ratio = self.book_miner_settings.consecutive_node_ratio if last_thinking_ply + 1 == ply else 1.0
 
                 # この局面について探索するのでこれをログに出力しておく。
                 print(f"[{engine.thread_settings.thread_id}] {current_sfen} {ply} , {node_ratio}")

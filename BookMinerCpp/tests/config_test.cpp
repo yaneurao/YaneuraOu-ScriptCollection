@@ -12,6 +12,7 @@ int main(int argc, char** argv)
         out << "{}";
     }
     const auto defaults = bookminer::load_book_miner_settings({path});
+    if (defaults.consecutive_node_ratio != 0.7) throw std::runtime_error("node ratio default changed");
     if (defaults.peta_shock_engine_path != "YO-MATERIAL.exe" || defaults.peta_shock_threads != 4)
         throw std::runtime_error("peta shock defaults changed");
     {
@@ -22,6 +23,17 @@ int main(int argc, char** argv)
     if (settings.peta_shock_engine_path != R"(dir\engine.exe)" || settings.peta_shock_threads != 4
         || settings.peta_next_start_sfens_path != "book/a//b.txt")
         throw std::runtime_error("JSON5 path or thread settings were not read correctly");
+
+    { std::ofstream out(path); out << "{consecutive_node_ratio: 0.45}"; }
+    if (bookminer::load_book_miner_settings({path}).consecutive_node_ratio != 0.45)
+        throw std::runtime_error("node ratio not loaded");
+    for (const char* value : {"0", "-1", "101", "NaN", "true", "0.7oops"})
+    {
+        { std::ofstream out(path); out << "{consecutive_node_ratio: " << value << "}"; }
+        try { (void)bookminer::load_book_miner_settings({path}); }
+        catch (const std::exception&) { continue; }
+        throw std::runtime_error(std::string("invalid node ratio accepted: ") + value);
+    }
 
     for (const char* value : {"0", "-1", "1.5", "true", "4294967296"})
     {

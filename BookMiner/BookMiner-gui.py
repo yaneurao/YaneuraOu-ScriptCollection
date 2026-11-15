@@ -5,6 +5,7 @@ import argparse
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import json
+import math
 import os
 import pickle
 import queue
@@ -39,6 +40,7 @@ MINING_SETTING_DEFAULTS = {
     "peta_next_start_sfens_path": "book/peta_start_sfens.txt",
     "max_book_ply": 200,
     "peta_shock_threads": 4,
+    "consecutive_node_ratio": 0.7,
 }
 
 
@@ -58,6 +60,9 @@ def load_mining_settings(path: Path) -> dict:
             raise ValueError(f"{key} の値が不正です: {value}")
     if not isinstance(result["peta_next_start_sfens_path"], str) or not result["peta_next_start_sfens_path"].strip():
         raise ValueError("peta_next_start_sfens_path は空にできません。")
+    ratio = result["consecutive_node_ratio"]
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or not 0 < ratio <= 100:
+        raise ValueError("consecutive_node_ratio は 0 より大きく 100 以下で指定してください。")
     return result
 
 
@@ -488,6 +493,7 @@ class BookMinerGui(ttk.Frame):
         self.setting_start_path = tk.StringVar(value=str(mining_settings["peta_next_start_sfens_path"]))
         self.setting_max_ply = tk.StringVar(value=str(mining_settings["max_book_ply"]))
         self.setting_threads = tk.StringVar(value=str(mining_settings["peta_shock_threads"]))
+        self.setting_node_ratio = tk.StringVar(value=str(mining_settings["consecutive_node_ratio"]))
         self.setting_status = tk.StringVar(value="")
         self.auto_backup_count = 0
         self.auto_peta_pending = False
@@ -762,6 +768,7 @@ class BookMinerGui(ttk.Frame):
             ("peta nextの開始局面ファイル", self.setting_start_path, ""),
             ("定跡を掘るときの最大手数", self.setting_max_ply, "手目まで"),
             ("peta shock の並列数", self.setting_threads, "スレッド"),
+            ("連続探索時のノード数", self.setting_node_ratio, "倍（初期値 0.7）"),
         ]
         parent.columnconfigure(4, weight=1)
         for row, (label, variable, suffix) in enumerate(rows):
@@ -775,7 +782,7 @@ class BookMinerGui(ttk.Frame):
             else:
                 ttk.Label(controls, text=suffix).pack(side="left", padx=(8, 0))
         files = ttk.LabelFrame(parent, text="ファイルをVS Codeで編集", padding=8)
-        files.grid(row=6, column=0, columnspan=4, sticky="w", pady=(16, 0))
+        files.grid(row=7, column=0, columnspan=4, sticky="w", pady=(16, 0))
         for column, (label, path, initial) in enumerate((
             ("think_sfens.txt", BASE_DIR / "book" / "think_sfens.txt", ""),
             ("think_unsolved_sfens.txt", BASE_DIR / "book" / "think_unsolved_sfens.txt", ""),
@@ -783,8 +790,8 @@ class BookMinerGui(ttk.Frame):
         )):
             ttk.Button(files, text=label, command=lambda p=path, value=initial: self._edit_file(p, value)).grid(
                 row=0, column=column, padx=(0, 8), pady=2)
-        ttk.Button(parent, text="適用", command=self.apply_mining_settings).grid(row=7, column=0, sticky="w", pady=(18, 0))
-        ttk.Label(parent, textvariable=self.setting_status).grid(row=8, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        ttk.Button(parent, text="適用", command=self.apply_mining_settings).grid(row=8, column=0, sticky="w", pady=(18, 0))
+        ttk.Label(parent, textvariable=self.setting_status).grid(row=9, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
     def _edit_start_sfens(self) -> None:
         value = self.setting_start_path.get().strip()
@@ -841,13 +848,17 @@ class BookMinerGui(ttk.Frame):
             every = int(self.setting_shock_every.get().strip())
             max_ply = int(self.setting_max_ply.get().strip())
             threads = int(self.setting_threads.get().strip())
+            ratio = float(self.setting_node_ratio.get().strip())
             path = self.setting_start_path.get().strip()
             if not 1 <= seconds <= 2147483647 or not 0 <= every <= 2147483647:
                 raise ValueError("保存間隔は正の数、保存回数は0以上で指定してください。")
             if not 1 <= max_ply <= 2147483647 or not 1 <= threads <= 4294967295 or not path:
                 raise ValueError("最大手数・並列数には正の整数、開始局面ファイルにはパスを指定してください。")
+            if not math.isfinite(ratio) or not 0 < ratio <= 100:
+                raise ValueError("連続探索時のノード数の倍率は 0 より大きく 100 以下で指定してください。")
             updates = {"auto_save_interval_seconds": seconds, "auto_peta_shock_every_n_saves": every,
-                       "peta_next_start_sfens_path": path, "max_book_ply": max_ply, "peta_shock_threads": threads}
+                       "peta_next_start_sfens_path": path, "max_book_ply": max_ply, "peta_shock_threads": threads,
+                       "consecutive_node_ratio": ratio}
             fallback = BOOK_MINER_CPP_SETTINGS_PATH if self.use_cpp else None
             save_mining_settings(BOOK_MINER_SETTINGS_PATH, updates, fallback)
         except (OSError, ValueError, InvalidOperation, OverflowError) as exc:

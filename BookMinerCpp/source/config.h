@@ -19,6 +19,7 @@ struct EngineConfig {
 struct BookMinerSettings {
     int auto_save_interval_seconds = 3 * 60 * 60;
     int max_book_ply = 200;
+    double consecutive_node_ratio = 0.7;
     std::string peta_next_start_sfens_path = "book/peta_start_sfens.txt";
     std::string peta_shock_engine_path = "YO-MATERIAL.exe";
     std::uint32_t peta_shock_threads = 4;

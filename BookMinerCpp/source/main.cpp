@@ -221,6 +221,7 @@ private:
 };
 
 MiningStats g_mining_stats;
+std::atomic<double> g_consecutive_node_ratio{0.7};
 
 std::vector<std::string> split_ws(const std::string& line)
 {
@@ -482,7 +483,7 @@ ThinkOnceResult think_sfen_once(
         return ThinkOnceResult{ThinkOnceStatus::Position, std::move(position), lease.sfen, false};
     }
 
-    const double node_ratio = last_thinking_ply + 1 == ply ? 0.7 : 1.0;
+    const double node_ratio = last_thinking_ply + 1 == ply ? g_consecutive_node_ratio.load() : 1.0;
     {
         std::ostringstream oss;
         oss << "[" << engine.thread_id() << "] " << lease.sfen << " " << ply << " , " << node_ratio;
@@ -4478,8 +4479,10 @@ int main(int argc, char* argv[])
         log_line(
             "BookMiner settings : auto_save_interval_seconds = " + std::to_string(book_miner_settings.auto_save_interval_seconds)
             + ", max_book_ply = " + std::to_string(book_miner_settings.max_book_ply)
+            + ", consecutive_node_ratio = " + std::to_string(book_miner_settings.consecutive_node_ratio)
             + ", peta_next_start_sfens_path = " + book_miner_settings.peta_next_start_sfens_path);
         max_book_ply = book_miner_settings.max_book_ply;
+        g_consecutive_node_ratio.store(book_miner_settings.consecutive_node_ratio);
         command_defaults.game_ply_limit = max_book_ply;
 
         log_line("[StartupStage] stage=book_read message=定跡DBを読み込み中");
@@ -4627,6 +4630,7 @@ int main(int argc, char* argv[])
             {
                 const auto updated = bookminer::load_book_miner_settings({BookMinerSettingsPath, BookMinerCppSettingsPath});
                 book_miner_settings = updated;
+                g_consecutive_node_ratio.store(updated.consecutive_node_ratio);
                 max_book_ply = updated.max_book_ply;
                 command_defaults.game_ply_limit = updated.max_book_ply;
                 auto_save_service->set_interval(updated.auto_save_interval_seconds);

@@ -281,6 +281,18 @@ class EngineProtocolTests(unittest.TestCase):
                 self.assertIsNone(task.resume)
                 self.assertEqual(len(book.body), 4)
 
+    def test_consecutive_search_uses_configured_ratio(self):
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings(consecutive_node_ratio=0.45)
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        engine = Mock()
+        engine.thread_settings = SimpleNamespace(thread_id=0)
+        engine.last_go_searched_nodes = 100
+        engine.go.side_effect = lambda _sfen, _ratio, ply: [miner.MoveInfo({1: '7g7f', 2: '3c3d'}[ply], 0)]
+        task = miner.Task(miner.SFEN_START, 1, 100, book_extend_ply=2)
+        self.assertEqual(manager.start_thinking(miner.Book(), engine, task), miner.TASK_RESULT_DONE)
+        self.assertEqual([call.args[1] for call in engine.go.call_args_list], [1.0, 0.45])
+
     def test_engine_specific_multipv_settings_are_used(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Path(directory) / 'engine_settings.json5'

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -294,6 +295,25 @@ std::optional<std::uint32_t> positive_u32_field(const std::string& object, const
     throw std::runtime_error("invalid positive integer for " + name + ": " + text);
 }
 
+std::optional<double> node_ratio_field(const std::string& object, const std::string& name)
+{
+    const std::regex pattern(field_prefix(name));
+    std::smatch match;
+    if (!std::regex_search(object, match, pattern)) return std::nullopt;
+    const auto pos = static_cast<std::size_t>(match.position() + match.length());
+    auto end = pos;
+    while (end < object.size() && !std::isspace(static_cast<unsigned char>(object[end]))
+           && object[end] != ',' && object[end] != '}' && object[end] != ']') ++end;
+    const auto text = object.substr(pos, end - pos);
+    try {
+        std::size_t parsed = 0;
+        const double value = std::stod(text, &parsed);
+        if (parsed == text.size() && std::isfinite(value) && value > 0 && value <= 100)
+            return value;
+    } catch (const std::exception&) {}
+    throw std::runtime_error("invalid consecutive_node_ratio (must be > 0 and <= 100): " + text);
+}
+
 std::string filename_stem_or_default(const std::string& path, const std::string& fallback)
 {
     if (path.empty())
@@ -360,6 +380,8 @@ BookMinerSettings load_book_miner_settings(const std::vector<std::filesystem::pa
         settings.auto_save_interval_seconds = static_cast<int>(std::max<long long>(1, *value));
     if (auto value = number_field(text, "max_book_ply"))
         settings.max_book_ply = static_cast<int>(std::max<long long>(1, *value));
+    if (auto value = node_ratio_field(text, "consecutive_node_ratio"))
+        settings.consecutive_node_ratio = *value;
     const auto trim_setting = [](const std::string& value, const std::string& name) {
         const auto first = value.find_first_not_of(" \t\r\n");
         if (first == std::string::npos)
