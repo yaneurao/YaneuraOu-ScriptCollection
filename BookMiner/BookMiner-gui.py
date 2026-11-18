@@ -2135,7 +2135,8 @@ class BookMinerGui(ttk.Frame):
         if '[PetaShockCancelled]' in line:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
-            self.auto_peta_pending = False
+            if self.busy_action == 'auto_peta_shock':
+                self.auto_peta_pending = False
             if self.busy_action in {'manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'}:
                 self.busy_action = None
             self._append_log('peta', '[GUI] peta shock を中止しました。\n')
@@ -2259,6 +2260,9 @@ class BookMinerGui(ttk.Frame):
                 self._maybe_start_auto_enqueue()
                 return
             if self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest"}:
+                self.auto_backup_count = 0
+                self.auto_peta_pending = False
+                self._append_log("task", "[GUI] 手動 peta shock が完了したため、自動 peta shock の保存回数をリセットしました。\n")
                 self.peta_shock_cancel_pending = False
                 self.busy_action = None
                 self._update_buttons()

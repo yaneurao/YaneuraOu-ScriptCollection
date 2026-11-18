@@ -124,8 +124,39 @@ class GuiExecutableTests(unittest.TestCase):
                 self.assertIsNone(instance.busy_action)
                 self.assertFalse(instance.peta_makebook_active)
                 self.assertFalse(instance.peta_shock_cancel_pending)
-                self.assertFalse(instance.auto_peta_pending)
+                self.assertEqual(instance.auto_peta_pending, action != 'auto_peta_shock')
                 instance._update_buttons.assert_called_once()
+
+    def test_manual_peta_success_resets_automatic_schedule(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest'):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.busy_action = action
+                instance.auto_backup_count = 2
+                instance.auto_peta_pending = True
+                instance.settings_apply_pending = False
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaCommandDone]')
+                self.assertEqual(instance.auto_backup_count, 0)
+                self.assertFalse(instance.auto_peta_pending)
+                self.assertIsNone(instance.busy_action)
+                instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
+                instance.ignore_current_backup = False
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupDone]')
+                self.assertEqual(instance.auto_backup_count, 1)
+                self.assertFalse(instance.auto_peta_pending)
+
+    def test_manual_peta_failure_and_cancel_preserve_automatic_schedule(self):
+        for event in ('[PetaShockCancelled]', 'Exception : peta shock failed: error'):
+            with self.subTest(event=event):
+                instance = Mock()
+                instance.busy_action = 'manual_peta_shock'
+                instance.auto_backup_count = 2
+                instance.auto_peta_pending = True
+                instance.settings_apply_pending = False
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, event)
+                self.assertEqual(instance.auto_backup_count, 2)
+                self.assertTrue(instance.auto_peta_pending)
 
     def test_shock_cancel_sends_once_in_manual_and_auto_modes(self):
         for action, handler in (('manual_peta_shock', gui.BookMinerGui.on_peta_shock_button),
