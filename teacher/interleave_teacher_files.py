@@ -200,6 +200,13 @@ def main() -> None:
         )
 
     manifest_path = args.output / args.manifest
+    if not args.no_manifest:
+        for item in items:
+            if manifest_path.resolve() == item.output_file.resolve() or (
+                manifest_path.exists() and item.output_file.exists()
+                and os.path.samefile(manifest_path, item.output_file)
+            ):
+                raise ValueError(f"manifest must not be the same file as an output: {item.output_file}")
     if not args.no_manifest and manifest_path.exists():
         manifest_stat = manifest_path.stat()
         for item in items:

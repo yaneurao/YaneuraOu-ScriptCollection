@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 import heapq
+import os
 from pathlib import Path
 import re
 import shutil
@@ -1024,7 +1025,12 @@ def main() -> None:
     if args.output.is_dir():
         targets = list(args.output.glob(f"{args.prefix}-*.{args.output_format}"))
         if not args.no_manifest:
-            targets.append(args.output / f"{args.prefix}-manifest.tsv")
+            manifest_path = args.output / f"{args.prefix}-manifest.tsv"
+            if manifest_path.exists():
+                for output_file in targets:
+                    if output_file.exists() and os.path.samefile(manifest_path, output_file):
+                        raise ValueError(f"manifest must not be the same file as an output: {output_file}")
+            targets.append(manifest_path)
         targets = [path for path in targets if path.exists()]
         if targets:
             input_ids = {(stat.st_dev, stat.st_ino) for stat in

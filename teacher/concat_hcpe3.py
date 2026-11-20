@@ -9,6 +9,7 @@ so concatenating complete HCPE3 files is valid.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 
@@ -167,6 +168,10 @@ def main() -> None:
         for i in range(1, len(output_groups) + 1)
     ]
     manifest_path = args.output / f"{args.prefix}-manifest.tsv"
+    if not args.no_manifest and manifest_path.exists():
+        for output_file in output_files:
+            if output_file.exists() and os.path.samefile(manifest_path, output_file):
+                raise ValueError(f"manifest must not be the same file as an output: {output_file}")
 
     # --force permits overwriting old outputs, but never an input linked to one
     # of those output paths (including the manifest).
