@@ -216,7 +216,7 @@ pu None 99999 200 6 400
 book/book_opponent/
 ```
 
-Python版 BookMiner.py / BookMinerCpp ともに、相手定跡として `.db` と `.ybb` の両方を読みます。`.ybb` は CommonLib の probe 処理で on the fly に参照します。
+Python版 BookMiner.py / BookMinerCpp ともに、相手定跡として `.db` と `.ybb` の両方を読み、必要な局面をファイルから探します。**`.db` は SFEN 文字列順にソートされている必要があります。** 未ソートの場合、存在する局面を見つけられないことがあります。`.ybb` は PackedSfen 順のインデックスが必要です。これらの順序は `peta opponent` の実行時にファイル全体を走査して検証しないため、外部から入手した定跡は事前に確認してください。
 
 GUIでは `peta opponent`、CLIでは `po` コマンドです。
 

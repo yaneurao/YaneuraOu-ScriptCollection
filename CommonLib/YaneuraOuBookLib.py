@@ -443,7 +443,7 @@ class DbBookProbe(BookProbe):
             if key is not None:
                 return pos, next_pos, key
 
-    def _read_moves_after(self, offset: int) -> list[BookMove]:
+    def _read_moves_after(self, offset: int, target: str) -> list[BookMove]:
         self.file.seek(offset)
         moves: list[BookMove] = []
         while True:
@@ -460,10 +460,12 @@ class DbBookProbe(BookProbe):
             if line.startswith("\ufeff"):
                 line = line.lstrip("\ufeff")
             if line.startswith("sfen "):
-                break
+                if trim_number(line[5:].strip()) != target:
+                    break
+                continue
             if line.startswith("#") or line.startswith("//"):
                 continue
-            moves.append(parse_book_move(line))
+            insert_book_move(moves, parse_book_move(line))
         return moves
 
     def probe(self, sfen: str) -> list[BookMove] | None:
@@ -489,7 +491,7 @@ class DbBookProbe(BookProbe):
         _pos, next_pos, key = entry
         if key != target:
             return None
-        return self._read_moves_after(next_pos)
+        return self._read_moves_after(next_pos, target)
 
 
 def open_book_probe(path: str | Path) -> BookProbe:

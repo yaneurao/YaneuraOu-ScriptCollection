@@ -14,6 +14,16 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_opponent_probe_considers_later_duplicate_position_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'opponent.db'
+            sfen = miner.cshogi.Board().sfen().rsplit(' ', 1)[0]
+            path.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {sfen} 1\n7g7f none 10 1 1\n'
+                            f'sfen {sfen} 3\n2g2f none 20 1 1\n')
+            with miner.BookLib.open_book_probe(path) as probe:
+                candidates = miner.candidate_best_moves_for_probe(probe, sfen, 0)
+            self.assertEqual(candidates, [('2g2f', 20)])
+
     def test_completion_is_announced_after_result_is_ready_and_busy_is_cleared(self):
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
