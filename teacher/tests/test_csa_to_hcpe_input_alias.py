@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'csa_to_hcpe.py'
+sys.path.insert(0, str(SCRIPT.parent))
 
 
 class CsaInputAliasTests(unittest.TestCase):
@@ -22,6 +23,7 @@ class CsaInputAliasTests(unittest.TestCase):
             root = Path(directory)
             source, output = root / 'game.csa', root / 'output.hcpe'
             source.write_text('game')
+            output.write_bytes(b'previous')
             args = SimpleNamespace(input=source, output=output, no_recursive=False,
                                    include_draw=True, out_maxmove=False, filter_moves=0,
                                    filter_rating=0, uniq=False, progress_interval=0, teacher_eval=0)
@@ -31,6 +33,27 @@ class CsaInputAliasTests(unittest.TestCase):
                  patch.object(module, 'write_game_hcpe', side_effect=OSError('disk full')):
                 with self.assertRaisesRegex(OSError, 'disk full'):
                     module.main()
+            self.assertEqual(output.read_bytes(), b'previous')
+            self.assertFalse(list(root.glob('.output.hcpe.*.tmp')))
+
+    def test_successful_conversion_publishes_complete_output(self):
+        import cshogi
+        import csa_to_hcpe as module
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / 'game.csa', root / 'output.hcpe'
+            source.write_text('game')
+            output.write_bytes(b'previous')
+            args = SimpleNamespace(input=source, output=output, no_recursive=False,
+                                   include_draw=True, out_maxmove=False, filter_moves=0,
+                                   filter_rating=0, uniq=False, progress_interval=0, teacher_eval=0)
+            board = cshogi.Board()
+            game = SimpleNamespace(endgame='%TORYO', moves=[board.move_from_usi('7g7f')],
+                                   sfen=board.sfen(), win=1)
+            with patch.object(module, 'parse_args', return_value=args), \
+                 patch.object(module, 'parse_csa_games', return_value=[game]):
+                module.main()
+            self.assertEqual(output.stat().st_size, module.HCPE.itemsize)
 
     def test_output_alias_does_not_destroy_csa(self):
         with tempfile.TemporaryDirectory() as directory:

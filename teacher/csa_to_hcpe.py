@@ -19,6 +19,11 @@ import cshogi
 from cshogi import CSA
 import numpy as np
 
+try:
+    from .atomic_output import atomic_binary_output
+except ImportError:
+    from atomic_output import atomic_binary_output
+
 
 COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
@@ -265,7 +270,7 @@ def main() -> None:
     stats = Stats(files=len(csa_files))
     duplicates: set[str] = set()
 
-    with args.output.open("wb") as output:
+    with atomic_binary_output(args.output) as output:
         for index, path in enumerate(csa_files, start=1):
             if args.progress_interval and (
                 index == 1 or index == len(csa_files) or index % args.progress_interval == 0
