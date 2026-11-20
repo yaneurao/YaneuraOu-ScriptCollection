@@ -9,6 +9,10 @@ import argparse
 import os
 import sys
 from pathlib import Path
+try:
+    from .atomic_output import atomic_binary_output
+except ImportError:
+    from atomic_output import atomic_binary_output
 
 
 HCPE_RECORD_SIZE = 38
@@ -42,7 +46,7 @@ def filter_hcpe_by_eval(
     removed = 0
     chunk_size = HCPE_RECORD_SIZE * chunk_records
 
-    with input_path.open("rb") as r, output_path.open("wb") as w:
+    with input_path.open("rb") as r, atomic_binary_output(output_path) as w:
         while True:
             data = r.read(chunk_size)
             if not data:

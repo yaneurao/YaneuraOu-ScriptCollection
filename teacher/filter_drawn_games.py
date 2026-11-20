@@ -18,6 +18,10 @@ import argparse
 import os
 import sys
 from pathlib import Path
+try:
+    from .atomic_output import atomic_binary_output
+except ImportError:
+    from atomic_output import atomic_binary_output
 
 
 # 各形式のレコードレイアウト。
@@ -84,7 +88,7 @@ def filter_drawn_games(
     removed = 0
     chunk_size = record_size * chunk_records
 
-    with input_path.open("rb") as r, output_path.open("wb") as w:
+    with input_path.open("rb") as r, atomic_binary_output(output_path) as w:
         while True:
             data = r.read(chunk_size)
             if not data:
