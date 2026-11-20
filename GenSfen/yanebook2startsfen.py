@@ -34,55 +34,33 @@ def retrieve_yanebook(yanebook_path: str, startsfens_path: str):
         if sfen == None:
             return
 
-        if sfen in book:
-            # 登録されているなら無視
-            pass
-        else:
-            sfen_f     = flipped_sfen(sfen)
-            # flipped sfenのほうも調べる。
-            if sfen_f in book:
-                # flipした局面が登録されているなら無視
-                pass
+        # A frontier found earlier may later appear as a book position.
+        sfen_f = flipped_sfen(sfen)
+        startsfens.pop(sfen, None)
+        startsfens.pop(sfen_f, None)
+        book.add(sfen)
+        board = cshogi.Board(sfen)
+        board.move_number = ply
+        for move in moves:
+            if move in ("none", "None", "null", "0000", "pass", "resign", "win"):
+                continue
+            move32 = board.move_from_usi(move)
+            if not move32 or move32 not in board.legal_moves:
+                raise ValueError(f"illegal book move {move!r}: {board.sfen()}")
+            board.push(move32)
+            next_sfen, next_ply = trim_sfen_ply(board.sfen())
+            board.pop()
+            next_sfen_f = flipped_sfen(next_sfen)
+            if next_sfen in book or next_sfen_f in book:
+                continue
+            existing = next_sfen if next_sfen in startsfens else next_sfen_f
+            if existing in startsfens:
+                startsfens[existing] = min(startsfens[existing], next_ply)
             else:
-                # movesをfrontier nodesに登録する。
-                board = cshogi.Board(sfen) # type:ignore
-                board.move_number = ply
-                for move in moves:
-                    # moveで1手進める。
-                    if move in ("none", "None", "null", "0000", "pass", "resign", "win"):
-                        continue
-                    move32 = board.move_from_usi(move)
-                    if not move32 or move32 not in board.legal_moves:
-                        raise ValueError(f"illegal book move {move!r}: {board.sfen()}")
-                    board.push(move32)
-                    next_sfen , next_ply = trim_sfen_ply(board.sfen())
+                startsfens[next_sfen] = next_ply
+            if len(startsfens) % 10000 == 0:
+                print(len(startsfens))
 
-                    # 1手進めた結果、flipped sfenのほうが登録されている可能性が出てくる。
-
-                    if next_sfen in startsfens:
-                        # 登録されている。手数が若いか比較する。
-                        book_ply = startsfens[next_sfen]
-                        if next_ply < book_ply:
-                            # plyは見つかった最短の手数にする必要がある。
-                            startsfens[next_sfen] = next_ply
-                    else:
-                        next_sfen_f = flipped_sfen(next_sfen)
-                        # flipした局面が登録されているか
-                        if next_sfen_f in startsfens:
-                            book_ply = startsfens[next_sfen_f]
-                            if next_ply < book_ply:
-                                # plyは見つかった最短の手数にする必要がある。
-                                startsfens[next_sfen_f] = next_ply
-                        else:
-                            # 登録されていないことが確定したので、flipしていないほうとして登録する。
-                            startsfens[next_sfen] = next_ply
-
-                    # 進捗を出力する。
-                    if len(startsfens) % 10000 == 0:
-                        print(len(startsfens))
-
-                    board.pop()
-            
         sfen = None
         moves = []
 
