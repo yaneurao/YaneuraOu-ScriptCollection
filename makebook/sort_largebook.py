@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import os
 import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
+from contextlib import contextmanager
 from pathlib import Path
 
 from convert_db_to_ybb import (
@@ -35,6 +37,20 @@ from YaneuraOuBookLib import (
 
 
 DEFAULT_CHUNK_POSITIONS = 500000
+
+
+@contextmanager
+def atomic_db_output(destination: str):
+    """Publish a completed DB only after the writer has succeeded."""
+    path = Path(destination)
+    fd, name = tempfile.mkstemp(prefix=f'.{path.name}.', suffix='.tmp', dir=path.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        yield str(temporary)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 @dataclass
@@ -234,10 +250,10 @@ def sort_largebook(
             src, work_dir, chunk_positions=chunk_positions, ignore_book_ply=ignore_book_ply,
             preserve_move_order=preserve_move_order,
         )
-        output_db = str(work_dir / "sorted.db") if is_ybb_path(dst) else dst
-        positions, entries = merge_runs_bounded(runs, output_db, work_dir, max_open_runs,
-                                                preserve_move_order)
         if is_ybb_path(dst):
+            output_db = str(work_dir / "sorted.db")
+            positions, entries = merge_runs_bounded(runs, output_db, work_dir, max_open_runs,
+                                                    preserve_move_order)
             convert_db_to_ybb(
                 Path(output_db),
                 ybb_path_from_output(Path(dst)),
@@ -247,6 +263,10 @@ def sort_largebook(
                 max_open_runs,
                 True,
             )
+        else:
+            with atomic_db_output(dst) as output_db:
+                positions, entries = merge_runs_bounded(runs, output_db, work_dir, max_open_runs,
+                                                        preserve_move_order)
         print(f"runs      = {run_stats.runs}")
         print(f"positions = {positions}")
         print(f"entries   = {entries}")

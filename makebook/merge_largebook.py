@@ -27,7 +27,7 @@ from YaneuraOuBookLib import (
     write_yaneuraou_header,
     ybb_path_from_output,
 )
-from sort_largebook import DEFAULT_CHUNK_POSITIONS, tmp_root_from_arg, write_base_group
+from sort_largebook import DEFAULT_CHUNK_POSITIONS, atomic_db_output, tmp_root_from_arg, write_base_group
 
 
 MERGE_SIDE_MODES = {"bw", "wb"}
@@ -197,11 +197,11 @@ def merge_largebook(
             max_open_runs=max_open_runs,
             ignore_book_ply=ignore_book_ply,
         )
-        output_db = str(work_dir / "merged.db") if is_ybb_path(dst) else dst
-        same_nodes, different_nodes1, different_nodes2, positions, entries = merge_sorted_books(
-            sorted1, sorted2, output_db, mode
-        )
         if is_ybb_path(dst):
+            output_db = str(work_dir / "merged.db")
+            same_nodes, different_nodes1, different_nodes2, positions, entries = merge_sorted_books(
+                sorted1, sorted2, output_db, mode
+            )
             convert_db_to_ybb(
                 Path(output_db),
                 ybb_path_from_output(Path(dst)),
@@ -211,6 +211,11 @@ def merge_largebook(
                 max_open_runs,
                 True,
             )
+        else:
+            with atomic_db_output(dst) as output_db:
+                same_nodes, different_nodes1, different_nodes2, positions, entries = merge_sorted_books(
+                    sorted1, sorted2, output_db, mode
+                )
         if mode:
             print(f"mode      = {mode}")
         print(f"same nodes = {same_nodes} , different nodes =  {different_nodes1} + {different_nodes2}")

@@ -3,14 +3,47 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cshogi
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'makebook'))
+import sort_largebook
+import merge_largebook
 
 
 class LargeBookSortTests(unittest.TestCase):
+    def test_failed_sort_and_merge_preserve_existing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / 'input.db', root / 'output.db'
+            source.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {cshogi.Board().sfen()}\n'
+                              '7g7f none 0 10 1\n')
+            options = dict(tmp_dir=str(root), chunk_positions=10, chunk_bytes=1024,
+                           max_open_runs=2, ignore_book_ply=False, keep_temp=False)
+            def fail_sort(runs, destination, *args):
+                Path(destination).write_bytes(b'partial')
+                raise OSError('disk full')
+            def fail_merge(first, second, destination, mode):
+                Path(destination).write_bytes(b'partial')
+                raise OSError('disk full')
+            for action in ('sort', 'merge'):
+                with self.subTest(action=action):
+                    output.write_bytes(b'existing')
+                    if action == 'sort':
+                        with patch.object(sort_largebook, 'merge_runs_bounded', side_effect=fail_sort):
+                            with self.assertRaisesRegex(OSError, 'disk full'):
+                                sort_largebook.sort_largebook(str(source), str(output), **options)
+                    else:
+                        with patch.object(merge_largebook, 'run_sort_largebook'), \
+                             patch.object(merge_largebook, 'merge_sorted_books', side_effect=fail_merge):
+                            with self.assertRaisesRegex(OSError, 'disk full'):
+                                merge_largebook.merge_largebook(str(source), str(source), str(output), mode='', **options)
+                    self.assertEqual(output.read_bytes(), b'existing')
+                    self.assertFalse(list(root.glob('.output.db.*.tmp')))
+
     def test_tab_separated_moves_keep_values_when_sorting(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
