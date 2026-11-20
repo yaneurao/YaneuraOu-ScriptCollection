@@ -12,9 +12,22 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'makebook'))
 import sort_largebook
 import merge_largebook
+import YaneuraOuBookLib as booklib
 
 
 class LargeBookSortTests(unittest.TestCase):
+    def test_small_book_writer_keeps_previous_output_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'output.db'
+            output.write_bytes(b'previous')
+            book = {cshogi.Board().sfen(): [booklib.BookMove('7g7f', 'none', 0, 1, 1)]}
+            with patch.object(booklib, 'write_yaneuraou_book_block', side_effect=OSError('disk full')):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    booklib.write_yaneuraou_db_book(book, str(output))
+            self.assertEqual(output.read_bytes(), b'previous')
+            self.assertFalse(list(root.glob('.output.db.*.tmp')))
+
     def test_failed_sort_and_merge_preserve_existing_output(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

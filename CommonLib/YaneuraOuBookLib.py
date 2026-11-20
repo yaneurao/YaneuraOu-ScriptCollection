@@ -592,10 +592,17 @@ def normalized_book_entries(
 
 
 def write_yaneuraou_db_book(book: dict[str, list[BookMove]], dst: str) -> None:
-    with open(dst, "w", encoding="utf-8", newline="\r\n") as f:
-        write_yaneuraou_header(f)
-        for sfen, moves in normalized_book_entries(book):
-            write_yaneuraou_book_block(f, sfen, moves)
+    output = Path(dst)
+    fd, name = tempfile.mkstemp(prefix=f'.{output.name}.', suffix='.tmp', dir=output.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\r\n") as f:
+            write_yaneuraou_header(f)
+            for sfen, moves in normalized_book_entries(book):
+                write_yaneuraou_book_block(f, sfen, moves)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def pack_sfen(board: cshogi.Board) -> bytes:
