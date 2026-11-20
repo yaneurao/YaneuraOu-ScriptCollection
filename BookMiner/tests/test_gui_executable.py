@@ -13,6 +13,69 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_failed_enqueue_during_peta_keeps_peta_running_and_queue_count(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock', 'manual_peta_read'):
+            for command in ('e', 'eb'):
+                with self.subTest(action=action, command=command):
+                    instance = Mock()
+                    instance.settings_apply_pending = False
+                    instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                    instance.busy_action = action
+                    instance.enqueue_pending = True
+                    instance.task_queue_remaining = 123
+                    gui.BookMinerGui._handle_auto_enqueue_line(
+                        instance, f'Exception : command failed, command={command} : no search engines are available')
+                    self.assertEqual(instance.busy_action, action)
+                    self.assertFalse(instance.enqueue_pending)
+                    self.assertEqual(instance.task_queue_remaining, 123)
+                    instance._update_buttons.assert_called_once()
+
+    def test_other_command_error_does_not_clear_running_peta(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock', 'manual_peta_read'):
+            with self.subTest(action=action):
+                instance = Mock()
+                instance.settings_apply_pending = False
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                instance.busy_action = action
+                instance.enqueue_pending = False
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Exception : command failed, command=job : bad id')
+                self.assertEqual(instance.busy_action, action)
+                instance._update_buttons.assert_not_called()
+
+    def test_failed_enqueue_keeps_other_jobs_and_stops_auto_enqueue(self):
+        instance = Mock()
+        instance.settings_apply_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        instance.busy_action = 'manual_enqueue'
+        instance.enqueue_pending = False
+        instance.task_queue_remaining = 321
+        gui.BookMinerGui._handle_auto_enqueue_line(
+            instance, 'Exception : command failed, command=e : missing file')
+        self.assertIsNone(instance.busy_action)
+        self.assertEqual(instance.task_queue_remaining, 321)
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_ENQUEUE
+        instance.busy_action = 'auto_enqueue'
+        gui.BookMinerGui._handle_auto_enqueue_line(
+            instance, 'Exception : command failed, command=eb : missing file')
+        instance._abort_auto_enqueue.assert_called_once()
+
+    def test_unrelated_worker_error_does_not_reset_peta_next_cancel(self):
+        instance = Mock()
+        instance.settings_apply_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        instance.busy_action = 'manual_peta_next'
+        instance.peta_next_cancel_pending = True
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[TaskWorkerError] Exception : worker disconnected')
+        self.assertTrue(instance.peta_next_cancel_pending)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Exception : command failed, command=job : bad id')
+        self.assertEqual(instance.busy_action, 'manual_peta_next')
+        self.assertTrue(instance.peta_next_cancel_pending)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaNextCancelIgnored] no peta next is running')
+        self.assertFalse(instance.peta_next_cancel_pending)
+        instance.busy_action = 'auto_enqueue'
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Exception : command failed, command=job : bad id')
+        instance._abort_auto_enqueue.assert_not_called()
     def test_job_control_updates_only_existing_job(self):
         instance = Mock()
         instance.task_job_items = {7: Mock()}

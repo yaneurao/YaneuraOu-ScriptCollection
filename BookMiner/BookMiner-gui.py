@@ -2149,8 +2149,13 @@ class BookMinerGui(ttk.Frame):
         if 'exception : peta shock failed' in lower:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
-        if 'Exception :' in line:
+        if ('peta command failed' in lower or
+                re.search(r'command=(?:pn|peta_next)\s*:', lower) is not None):
             self.peta_next_cancel_pending = False
+        if '[PetaNextCancelIgnored]' in line:
+            self.peta_next_cancel_pending = False
+            self._update_buttons()
+            return
         if '[PetaNextCancelled]' in line:
             self.peta_next_cancel_pending = False
             if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
@@ -2199,20 +2204,24 @@ class BookMinerGui(ttk.Frame):
             self._append_log("other", "[GUI] DB手動保存に失敗しました。\n")
             self._update_buttons()
             return
-        if self.busy_action == "manual_enqueue" and (
+        if re.search(r"exception\s*:\s*command failed,\s*command=job\s*:", lower):
+            # Job controls are independent of peta and auto-enqueue commands.
+            return
+        enqueue_failed = (
             "put position commands error" in lower
             or "error : task workers are not running" in lower
             or "usage : e" in lower
-        ):
-            self._append_log("other", "[GUI] enqueue failed. manual busy state was cleared.\n")
-            self.busy_action = None
-            self.enqueue_pending = False
-            self.task_queue_remaining = 0
-            self._update_buttons()
-            return
-
-        if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and "put position commands error" in lower:
+            or re.search(r"exception\s*:\s*command failed,\s*command=(?:e|eb)\s*:", lower) is not None
+        )
+        if self.auto_enqueue_state == AUTO_ENQUEUE_ENQUEUE and enqueue_failed:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner could not enqueue the positions.")
+            return
+        if enqueue_failed and (self.busy_action == "manual_enqueue" or self.enqueue_pending):
+            self._append_log("other", "[GUI] enqueue failed. manual busy state was cleared.\n")
+            if self.busy_action == "manual_enqueue":
+                self.busy_action = None
+            self.enqueue_pending = False
+            self._update_buttons()
             return
 
         if "error : peta command is running" in lower:
@@ -2227,9 +2236,11 @@ class BookMinerGui(ttk.Frame):
         if "Exception :" in line and "auto save failed" not in lower and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
             self._abort_auto_enqueue("auto enqueue stopped: BookMiner.py reported an exception.")
             return
-        if ("Exception :" in line and self.busy_action == "auto_peta_shock"
-                and "command=pl" not in lower and "peta" not in lower):
-            # A search worker can fail while the independent peta job is still running.
+        if ("Exception :" in line and self.busy_action in
+                {"manual_peta_shock", "manual_peta_shock_latest", "auto_peta_shock", "manual_peta_read"}
+                and "peta shock failed" not in lower and "peta read failed" not in lower
+                and re.search(r"command=(?:p|pl|peta_shock_latest|r)\s*:", lower) is None):
+            # Independent commands can fail while this peta job is still running.
             return
         if "Exception :" in line and "auto save failed" not in lower and self.busy_action is not None:
             self._append_log("other", "[GUI] BookMiner command failed. busy state was cleared.\n")
