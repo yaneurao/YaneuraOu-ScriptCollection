@@ -168,6 +168,17 @@ def main() -> None:
     ]
     manifest_path = args.output / f"{args.prefix}-manifest.tsv"
 
+    # --force permits overwriting old outputs, but never an input linked to one
+    # of those output paths (including the manifest).
+    targets = output_files + ([] if args.no_manifest else [manifest_path])
+    existing_targets = [target for target in targets if target.exists()]
+    if existing_targets:
+        input_ids = {(stat.st_dev, stat.st_ino) for stat in (path.stat() for path in input_files)}
+        for target in existing_targets:
+            stat = target.stat()
+            if (stat.st_dev, stat.st_ino) in input_ids:
+                raise ValueError(f"output must not be the same file as an input: {target}")
+
     existing = [path for path in output_files if path.exists()]
     if not args.no_manifest and manifest_path.exists():
         existing.append(manifest_path)

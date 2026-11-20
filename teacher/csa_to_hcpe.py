@@ -248,6 +248,12 @@ def main() -> None:
     args = parse_args()
 
     csa_files = collect_csa_files(args.input, recursive=not args.no_recursive)
+    if args.output.exists():
+        output_stat = args.output.stat()
+        for source in csa_files:
+            source_stat = source.stat()
+            if (output_stat.st_dev, output_stat.st_ino) == (source_stat.st_dev, source_stat.st_ino):
+                raise ValueError(f"output must not be the same file as input CSA: {source}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     endgames = {"%TORYO", "%KACHI"}
