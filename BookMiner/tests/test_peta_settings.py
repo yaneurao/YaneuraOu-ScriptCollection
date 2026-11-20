@@ -16,6 +16,35 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_uppercase_source_uses_temporary_hard_link_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                for extension in ('.DB', '.YBB'):
+                    with self.subTest(extension=extension):
+                        source = backup / ('book_miner-20261029000000_1' + extension)
+                        source.write_text('source')
+                        aliases = []
+                        def run(original, settings, cancel, *, engine_source_path):
+                            alias = Path(engine_source_path)
+                            aliases.append(alias)
+                            self.assertEqual(original, str(source))
+                            self.assertEqual(alias.suffix, extension.lower())
+                            self.assertTrue(os.path.samefile(source, alias))
+                            raise ValueError('engine failed')
+                        with patch.object(bookminer, '_run_peta_shock_makebook', side_effect=run):
+                            with self.assertRaisesRegex(ValueError, 'engine failed'):
+                                bookminer.run_peta_shock_makebook(str(source))
+                        self.assertFalse(aliases[0].exists())
+                        self.assertEqual(source.read_text(), 'source')
+                        self.assertEqual(bookminer.parse_regular_book_backup_name(str(source)), ('20261029000000', 1))
+            finally:
+                os.chdir(old_cwd)
+
     def test_engine_input_failure_stops_child_and_removes_partial_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -2965,9 +2965,17 @@ std::string peta_refutation(
         + " skipped_by_ply=" + std::to_string(skipped_by_ply);
 }
 
+bool is_text_book_path(const fs::path& path)
+{
+    auto extension = path.extension().native();
+    for (auto& ch : extension)
+        if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+    return extension == fs::path(".db").native();
+}
+
 bool is_supported_opponent_book_path(const fs::path& path)
 {
-    return path.extension() == ".db" || bookminer::is_yane_bin_book_path(path);
+    return is_text_book_path(path) || bookminer::is_yane_bin_book_path(path);
 }
 
 std::vector<fs::path> collect_opponent_book_paths()
@@ -3354,7 +3362,7 @@ std::vector<fs::path> collect_book_backup_paths()
         const auto filename = entry.path().filename().string();
         if (filename.rfind(std::string(BookDbName) + "-", 0) != 0)
             continue;
-        const bool is_text_book = entry.path().extension() == ".db";
+        const bool is_text_book = is_text_book_path(entry.path());
         const bool is_ybb_book = bookminer::is_yane_bin_book_path(entry.path());
         if (!is_text_book && !is_ybb_book)
             continue;
@@ -3395,7 +3403,7 @@ std::vector<fs::path> collect_peta_book_paths()
         const auto filename = entry.path().filename().string();
         if (filename.rfind(std::string(PetaBookDbName) + "-", 0) != 0)
             continue;
-        const bool is_text_book = entry.path().extension() == ".db";
+        const bool is_text_book = is_text_book_path(entry.path());
         const bool is_ybb_book = bookminer::is_yane_bin_book_path(entry.path());
         if (!is_text_book && !is_ybb_book)
             continue;
@@ -3418,7 +3426,7 @@ fs::path get_latest_peta_book()
 
 bool is_supported_peta_book_path(const fs::path& path)
 {
-    return path.extension() == ".db" || bookminer::is_yane_bin_book_path(path);
+    return is_text_book_path(path) || bookminer::is_yane_bin_book_path(path);
 }
 
 void ensure_supported_peta_book_path(const fs::path& path, const std::string& label)
@@ -3450,7 +3458,7 @@ fs::path make_backup_saving_path(const std::string& timestamp, std::optional<int
 std::optional<std::pair<std::string, std::size_t>> parse_regular_book_backup_name(const fs::path& path)
 {
     const std::string filename = path.filename().string();
-    const std::regex pattern("^" + std::string(BookDbName) + R"(-(\d{14})_(\d+)(?:\.db|\.ybb)$)");
+    const std::regex pattern("^" + std::string(BookDbName) + R"(-(\d{14})_(\d+)(?:\.db|\.ybb)$)", std::regex::icase);
     std::smatch match;
     if (!std::regex_match(filename, match, pattern))
         return std::nullopt;
@@ -3940,7 +3948,32 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
                                 const bookminer::BookMinerSettings& settings, const std::atomic<bool>* cancelled = nullptr)
 {
     const fs::path engine_path = find_peta_shock_engine(app_dir, settings);
-    const std::string source_book_rel = to_book_dir_relative_path(source_book_path);
+    // The engine's makebook command checks suffixes case-sensitively. Use a
+    // same-volume hard link when the selected input has an uppercase suffix.
+    (void)to_book_dir_relative_path(source_book_path);
+    struct SourceAlias {
+        fs::path path;
+        bool owned = false;
+        ~SourceAlias() { if (owned) { std::error_code error; fs::remove(path, error); } }
+    } source_alias;
+    fs::path engine_source = source_book_path;
+    const fs::path engine_extension = bookminer::is_yane_bin_book_path(source_book_path) ? ".ybb" : ".db";
+    if (source_book_path.extension() != engine_extension)
+    {
+        source_alias.path = bookminer::temp_book_path(source_book_path.parent_path() / ("peta-source" + engine_extension.string()));
+        source_alias.owned = true;
+        std::error_code error;
+        if (!fs::remove(source_alias.path, error) || error)
+            throw std::runtime_error("failed to prepare peta source link: " + path_to_utf8(source_alias.path));
+        source_alias.owned = false;
+        fs::create_hard_link(source_book_path, source_alias.path, error);
+        if (error)
+            throw std::runtime_error("cannot create peta source hard link; rename the source extension to lowercase: "
+                                     + path_to_utf8(source_book_path) + " : " + error.message());
+        source_alias.owned = true;
+        engine_source = source_alias.path;
+    }
+    const std::string source_book_rel = to_book_dir_relative_path(engine_source);
     const fs::path peta_path = peta_book_backup_path_from_source(source_book_path);
     fs::create_directories(BookBackupDir);
     const fs::path peta_temp_path = bookminer::temp_book_path(peta_path);

@@ -2893,7 +2893,7 @@ def parse_regular_book_backup_name(path:str)->tuple[str,int]|None:
     """
     filename = os.path.basename(path)
     pattern = rf"^{re.escape(BOOK_DB_NAME)}-(\d{{14}})_(\d+)(?:\.db|\.ybb)$"
-    match = re.fullmatch(pattern, filename)
+    match = re.fullmatch(pattern, filename, flags=re.IGNORECASE)
     if match is None:
         return None
     return match.group(1), int(match.group(2))
@@ -2935,6 +2935,23 @@ def is_yaneuraou_progress_bar_line(line:str)->bool:
 
 
 def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None, cancel:Event|None = None)->str:
+    extension = os.path.splitext(source_book_path)[1]
+    normalized_extension = extension.lower()
+    if extension != normalized_extension and normalized_extension in ('.db', '.ybb'):
+        to_book_dir_relative_path(source_book_path)
+        check_peta_shock_cancel(cancel)
+        # やねうら王の形式判定は小文字拡張子を要求する。巨大な定跡をコピーせず渡す。
+        with tempfile.TemporaryDirectory(prefix='.peta-source-', dir=os.path.dirname(os.path.abspath(source_book_path))) as directory:
+            alias = os.path.join(directory, 'source' + normalized_extension)
+            try:
+                os.link(source_book_path, alias)
+            except OSError as exc:
+                raise RuntimeError(f'cannot create peta source hard link; rename the source extension to lowercase: {source_book_path}') from exc
+            return _run_peta_shock_makebook(source_book_path, settings, cancel, engine_source_path=alias)
+    return _run_peta_shock_makebook(source_book_path, settings, cancel)
+
+
+def _run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None, cancel:Event|None = None, *, engine_source_path:str|None = None)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
     makebook peta_shock で source_book_path と同じ拡張子の book/backup/peta_book-* に変換する。
@@ -2945,7 +2962,7 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
     if not os.path.isfile(engine_path):
         raise Exception(f"peta shock engine not found : {engine_path}")
 
-    source_book_rel = to_book_dir_relative_path(source_book_path)
+    source_book_rel = to_book_dir_relative_path(engine_source_path or source_book_path)
     peta_path = peta_book_backup_path_from_source(source_book_path)
     peta_temp_path = temp_book_path(peta_path)
     peta_temp_rel = to_book_dir_relative_path(peta_temp_path)

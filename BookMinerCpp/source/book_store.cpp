@@ -174,9 +174,13 @@ void report_progress(BookProgressCallback progress, void* user, BookProgressKind
         progress(kind, current, total, path, user);
 }
 
-bool has_suffix(const std::string& text, const std::string& suffix)
+bool is_split_bin_book_path(const std::filesystem::path& path)
 {
-    return text.size() >= suffix.size() && text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+    auto filename = path.filename().native();
+    for (auto& ch : filename)
+        if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+    return filename.ends_with(std::filesystem::path("-index.ybb").native())
+        || filename.ends_with(std::filesystem::path("-moves.ybb").native());
 }
 
 void read_exact(std::istream& in, char* data, std::size_t size, const std::filesystem::path& path)
@@ -709,10 +713,10 @@ std::filesystem::path temp_book_path(const std::filesystem::path& path)
 
 bool is_yane_bin_book_path(const std::filesystem::path& path)
 {
-    const auto filename = path.filename().string();
-    return path.extension() == ".ybb"
-        && !has_suffix(filename, "-index.ybb")
-        && !has_suffix(filename, "-moves.ybb");
+    auto extension = path.extension().native();
+    for (auto& ch : extension)
+        if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+    return extension == std::filesystem::path(".ybb").native() && !is_split_bin_book_path(path);
 }
 
 void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool normalize_eval, BookProgressCallback progress, void* user)
@@ -798,7 +802,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
         return;
     }
 
-    if (has_suffix(path.filename().string(), "-index.ybb") || has_suffix(path.filename().string(), "-moves.ybb"))
+    if (is_split_bin_book_path(path))
         throw std::runtime_error("split ybb is not supported. specify a single .ybb path: " + path.string());
 
     std::ifstream in(path);
@@ -1175,6 +1179,8 @@ std::unique_ptr<BookProbe> open_book_probe(const std::filesystem::path& path, bo
 {
     if (is_yane_bin_book_path(path))
         return std::make_unique<YbbBookProbe>(path, normalize_eval);
+    if (is_split_bin_book_path(path))
+        throw std::runtime_error("split ybb is not supported: " + path.string());
     return std::make_unique<DbBookProbe>(path, normalize_eval);
 }
 
@@ -1550,7 +1556,7 @@ std::size_t BookStore::save_yaneuraou_book(
         return position_count;
     }
 
-    if (has_suffix(path.filename().string(), "-index.ybb") || has_suffix(path.filename().string(), "-moves.ybb"))
+    if (is_split_bin_book_path(path))
         throw std::runtime_error("saving split ybb is no longer supported. specify a single .ybb path: " + path.string());
 
     struct SaveEntry {

@@ -31,6 +31,8 @@ int main(int argc, char** argv)
                "commands = sys.stdin.read()\n"
                "pathlib.Path('commands.txt').write_text(commands)\n"
                "command = next(line for line in commands.splitlines() if line.startswith('makebook '))\n"
+               "source = pathlib.Path('book') / command.split()[2]\n"
+               "if not source.is_file() or source.suffix not in ('.db', '.ybb'): raise RuntimeError('invalid input')\n"
                "output = pathlib.Path('book') / command.split()[3]\n"
                "if pathlib.Path('simulate-error').exists():\n"
                " output.write_text('partial')\n"
@@ -126,6 +128,34 @@ int main(int argc, char** argv)
     const std::string default_commands((std::istreambuf_iterator<char>(in_default)), {});
     if (default_commands.find(" threads ") != std::string::npos)
         throw std::runtime_error("single-thread default unexpectedly changed the command");
+    for (const auto* extension : {".DB", ".YBB"})
+    {
+        const auto upper_source = root / "book" / "backup" / (std::string("upper") + extension);
+        { std::ofstream out(upper_source); out << "source"; }
+        (void)run_peta_shock_makebook(root, upper_source, settings);
+        std::ifstream commands_in(root / "commands.txt");
+        const std::string contents((std::istreambuf_iterator<char>(commands_in)), {});
+        const auto begin = contents.find("makebook peta_shock ") + std::string("makebook peta_shock ").size();
+        const auto end = contents.find(' ', begin);
+        const auto alias = fs::path("book") / contents.substr(begin, end - begin);
+        if (alias.extension() != (std::string(extension) == ".DB" ? ".db" : ".ybb") || fs::exists(alias))
+            throw std::runtime_error("uppercase source alias was not lowercase or not cleaned up");
+        std::ifstream source_in(upper_source);
+        std::string source_data; source_in >> source_data;
+        if (source_data != "source") throw std::runtime_error("uppercase source was changed");
+    }
+    {
+        const auto upper_source = root / "book" / "backup" / "upper.YBB";
+        { std::ofstream marker(root / "simulate-error"); }
+        bool alias_failed = false;
+        try { (void)run_peta_shock_makebook(root, upper_source, settings); }
+        catch (const std::runtime_error&) { alias_failed = true; }
+        std::filesystem::remove(root / "simulate-error");
+        if (!alias_failed) throw std::runtime_error("failed uppercase peta shock was accepted");
+        for (const auto& entry : fs::directory_iterator(root / "book" / "backup"))
+            if (entry.path().filename().string().find("peta-source") != std::string::npos)
+                throw std::runtime_error("failed peta shock left a source alias");
+    }
     { std::ofstream marker(root / "simulate-error"); }
     bool failed = false;
     try { (void)run_peta_shock_makebook(root, source, settings); }

@@ -16,6 +16,25 @@ int main(int argc, char** argv)
     if (argc != 2) return 2;
     const std::filesystem::path dir(argv[1]);
     {
+        const auto path = dir / std::filesystem::path(u8"定跡.YBB");
+        bookminer::BookStore source, loaded;
+        source.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 42, 0}});
+        source.save_yaneuraou_book(path, std::nullopt, nullptr, nullptr);
+        loaded.load_yaneuraou_book(path, false, nullptr, nullptr);
+        const auto found = loaded.find_position_copy(bookminer::StartSfenPly1);
+        auto probe = bookminer::open_book_probe(path);
+        const auto probed = probe->find_position_copy(bookminer::StartSfenPly1);
+        if (!found || !probed || found->moves.empty() || probed->moves.empty()
+            || found->moves.front().eval != 42 || probed->moves.front().eval != 42)
+            throw std::runtime_error("uppercase .YBB was not written, read and probed as binary");
+        if (bookminer::is_yane_bin_book_path(dir / "book-INDEX.YBB"))
+            throw std::runtime_error("legacy split binary name accepted as a single ybb");
+        bool rejected = false;
+        try { (void)bookminer::open_book_probe(dir / "book-INDEX.YBB"); }
+        catch (const std::runtime_error&) { rejected = true; }
+        if (!rejected) throw std::runtime_error("legacy split binary probe was not rejected");
+    }
+    {
         const auto output = dir / "target.ybb";
         const auto old_temporary = dir / "tmp-target.ybb";
         { std::ofstream out(old_temporary); out << "unrelated"; }

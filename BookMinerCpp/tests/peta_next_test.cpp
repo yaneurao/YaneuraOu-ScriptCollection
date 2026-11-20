@@ -7,6 +7,15 @@ int main(int argc, char** argv)
     if (argc != 2)
         return 2;
     {
+        if (!is_supported_opponent_book_path("opponent.DB") || !is_supported_opponent_book_path("opponent.YBB")
+            || !is_supported_peta_book_path("book.Db") || !is_supported_peta_book_path("book.YbB")
+            || is_supported_opponent_book_path("opponent-INDEX.YBB"))
+            throw std::runtime_error("book extension matching is not case insensitive");
+        const auto parsed = parse_regular_book_backup_name("book_miner-20261120000000_42.YBB");
+        if (!parsed || parsed->first != "20261120000000" || parsed->second != 42)
+            throw std::runtime_error("uppercase backup extension lost source metadata");
+    }
+    {
         bookminer::PositionInfo position;
         position.moves = {{bookminer::move16_from_usi("7g7f"), -100, 10},
                           {bookminer::move16_from_usi("2g2f"), -200, 10}};
