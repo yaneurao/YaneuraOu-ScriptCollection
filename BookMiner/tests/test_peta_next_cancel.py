@@ -59,6 +59,10 @@ class PetaNextCancelTests(unittest.TestCase):
                 process.stdin.flush()
                 wait_for('[PetaNextDone]')
                 self.assertTrue(output.read_text().startswith('startpos,'))
+                process.stdin.write('pj 30 100 200 6 400\n')
+                process.stdin.flush()
+                wait_for('[PetaRejoinDone]')
+                self.assertFalse(any('Error : peta command is running' in line for line in captured))
             finally:
                 if process.poll() is None:
                     process.stdin.write('!\n')

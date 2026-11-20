@@ -14,6 +14,23 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_completion_is_announced_after_result_is_ready_and_busy_is_cleared(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos\n')
+            active = Event()
+            active.set()
+            def before_done():
+                self.assertTrue((Path(directory) / 'think_sfens.txt').is_file())
+                active.clear()
+            def observe(*args, **kwargs):
+                if args and str(args[0]).startswith('[PetaNextDone]'):
+                    self.assertFalse(active.is_set())
+            with patch.object(miner, 'print', side_effect=observe):
+                miner.peta_next(5, 10, 100, str(roots), before_done=before_done)
+            self.assertFalse(active.is_set())
+
     def test_start_positions_support_slash_comments(self):
         moves = ('5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g '
                  '3c3d 7i6h 2b7g+ 6h7g 3a2b 3i3h 2b3c 6i7h 7a6b 9g9f '

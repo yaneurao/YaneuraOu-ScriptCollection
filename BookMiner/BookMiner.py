@@ -3225,6 +3225,7 @@ def peta_next(
     eval_limit:int|None = None,
     fallback_book:Book|None = None,
     cancel:Event|None = None,
+    before_done:Callable[[], None]|None = None,
 ):
     """
     r/pコマンドでメモリに読み込まれたpeta_book(peta_shock化された定跡)を
@@ -3426,6 +3427,8 @@ def peta_next(
 
     print(f"{next_name} done.")
     done_tag = "PetaRefutationDone" if refutation_book is not None else "PetaNextDone"
+    if before_done is not None:
+        before_done()
     print(f"[{done_tag}] path={bw_path} count={bw_count}")
 
 
@@ -4432,6 +4435,7 @@ def user_input(from_gui:bool = False):
     # enable_print_log()
 
     peta_next_cancel = Event()
+    peta_next_active = Event()
     peta_next_thread : Thread|None = None
     peta_shock_cancel = Event()
     peta_shock_active = Event()
@@ -4453,12 +4457,12 @@ def user_input(from_gui:bool = False):
                     print('[PetaShockCancelIgnored] no peta shock is running')
                 continue
             if i == 'cancel-peta-next':
-                if peta_next_thread is not None and peta_next_thread.is_alive():
+                if peta_next_active.is_set():
                     peta_next_cancel.set()
                 else:
                     print('[PetaNextCancelIgnored] no peta next is running')
                 continue
-            if (peta_next_thread is not None and peta_next_thread.is_alive()
+            if (peta_next_active.is_set()
                     and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
                               'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
                 print('Error : peta command is running. wait for peta command completion.')
@@ -4721,19 +4725,28 @@ def user_input(from_gui:bool = False):
                     print("Error : eval_limit must be non-negative integer.")
                     continue
                 start_path = book_miner_settings.peta_next_start_sfens_path
-                peta_next_cancel.clear()
+                peta_next_cancel = Event()
+                peta_next_active = Event()
+                peta_next_active.set()
                 def run_peta_next(diff=peta_eval_diff, steps=max_step, ply=max_book_ply,
                                   path=start_path, extend=book_extend_ply, limit=eval_limit,
-                                  fallback=normal_fallback):
+                                  fallback=normal_fallback, cancel=peta_next_cancel, active=peta_next_active):
                     try:
                         peta_next(diff, steps, ply, path, extend, eval_limit=limit,
-                                  fallback_book=book if fallback else None, cancel=peta_next_cancel)
+                                  fallback_book=book if fallback else None, cancel=cancel,
+                                  before_done=active.clear)
                     except PetaNextCancelled:
+                        active.clear()
                         print('[PetaNextCancelled]')
                     except Exception as exc:
+                        active.clear()
                         print(f'Exception : peta command failed: {exc}')
                 peta_next_thread = Thread(target=run_peta_next, daemon=True)
-                peta_next_thread.start()
+                try:
+                    peta_next_thread.start()
+                except Exception:
+                    peta_next_active.clear()
+                    raise
 
             elif i == 'pj' or i == 'peta_rejoin':
                 # peta_rejoin

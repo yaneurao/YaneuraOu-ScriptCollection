@@ -7,6 +7,26 @@ int main(int argc, char** argv)
     if (argc != 2)
         return 2;
     {
+        bool running_when_notified = true;
+        std::string completion;
+        PetaCommandJob* job_ptr = nullptr;
+        PetaCommandJob job([&](const std::string& message) {
+            running_when_notified = job_ptr->running();
+            completion = message;
+        });
+        job_ptr = &job;
+        if (!job.start([] { return std::string("[PetaNextDone] test"); }, true))
+            throw std::runtime_error("could not start peta command");
+        job.join();
+        if (running_when_notified || completion != "[PetaNextDone] test")
+            throw std::runtime_error("peta completion reported before command became idle");
+        if (!job.start([]() -> std::string { throw std::runtime_error("test failure"); }))
+            throw std::runtime_error("could not restart peta command");
+        job.join();
+        if (running_when_notified || completion.find("Exception : peta command failed") != 0)
+            throw std::runtime_error("peta failure reported before command became idle");
+    }
+    {
         TaskQueue queue;
         Task first, other;
         first.job_id = 1;

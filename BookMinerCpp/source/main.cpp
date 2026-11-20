@@ -2415,7 +2415,7 @@ std::size_t merge_black_white_think_sfens(const std::filesystem::path& black_pat
     return count;
 }
 
-void peta_next(
+std::string peta_next(
     const bookminer::BookStore* source_book,
     const bookminer::BookStore& peta_book,
     int peta_eval_diff,
@@ -2464,8 +2464,8 @@ void peta_next(
     const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path, cancelled);
 
     log_line(std::string(filter_refutation ? "peta_next_refutation" : "peta_next") + " done.");
-    log_line(std::string("[") + (filter_refutation ? "PetaNextRefutationDone" : "PetaNextDone")
-        + "] path=" + output_path.string() + " count=" + std::to_string(count));
+    return std::string("[") + (filter_refutation ? "PetaNextRefutationDone" : "PetaNextDone")
+        + "] path=" + output_path.string() + " count=" + std::to_string(count);
 }
 
 bool peta_leaf_rejoins_peta_book(
@@ -2642,7 +2642,7 @@ std::vector<std::string> peta_rejoin_for_turn(
     return think_sfens;
 }
 
-void peta_rejoin(
+std::string peta_rejoin(
     const bookminer::BookStore& peta_book,
     int peta_eval_diff,
     int max_step,
@@ -2681,11 +2681,11 @@ void peta_rejoin(
     const std::size_t count = merge_black_white_think_sfens(black_path, white_path, output_path);
 
     log_line("peta_rejoin done.");
-    log_line("[PetaRejoinDone] path=" + output_path.string()
+    return "[PetaRejoinDone] path=" + output_path.string()
         + " count=" + std::to_string(count)
         + " processed_nodes=" + std::to_string(stats.processed_nodes)
         + " leaf_nodes=" + std::to_string(stats.leaf_nodes)
-        + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes));
+        + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes);
 }
 
 std::optional<std::string> peta_pv_leaf_position_command(
@@ -2749,7 +2749,7 @@ std::optional<std::string> peta_pv_leaf_position_command(
     }
 }
 
-void peta_unsolved(
+std::string peta_unsolved(
     const bookminer::BookStore& peta_book,
     int eval_diff,
     int max_book_ply,
@@ -2860,7 +2860,7 @@ void peta_unsolved(
         make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
 
     log_line("peta_unsolved done.");
-    log_line("[PetaUnsolvedDone] path=" + output_path.string()
+    return "[PetaUnsolvedDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
         + " input_games=" + std::to_string(input_games)
         + " processed_prefixes=" + std::to_string(processed_prefixes)
@@ -2868,10 +2868,10 @@ void peta_unsolved(
         + " skipped_by_eval_diff=" + std::to_string(skipped_by_eval_diff)
         + " skipped_by_ply=" + std::to_string(skipped_by_ply)
         + " skipped_no_peta=" + std::to_string(skipped_no_peta)
-        + " skipped_no_leaf=" + std::to_string(skipped_no_leaf));
+        + " skipped_no_leaf=" + std::to_string(skipped_no_leaf);
 }
 
-void peta_refutation(
+std::string peta_refutation(
     const bookminer::BookStore& book,
     const bookminer::BookStore& peta_book,
     int eval_refutation_margin,
@@ -2959,10 +2959,10 @@ void peta_refutation(
     write_position_commands_file(output_path, think_sfens);
 
     log_line("peta_refutation done.");
-    log_line("[PetaRefutationDone] path=" + output_path.string()
+    return "[PetaRefutationDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
         + " skipped_by_eval_limit=" + std::to_string(skipped_by_eval_limit)
-        + " skipped_by_ply=" + std::to_string(skipped_by_ply));
+        + " skipped_by_ply=" + std::to_string(skipped_by_ply);
 }
 
 bool is_supported_opponent_book_path(const fs::path& path)
@@ -3115,7 +3115,7 @@ std::optional<std::string> peta_pv_leaf_position_command_from_position_random(
     }
 }
 
-void peta_opponent(
+std::string peta_opponent(
     const bookminer::BookStore& peta_book,
     int eval_diff,
     int max_book_ply,
@@ -3245,7 +3245,7 @@ void peta_opponent(
     write_position_command_entries_file(output_path, think_sfens);
 
     log_line("peta_opponent done.");
-    log_line("[PetaOpponentDone] path=" + output_path.string()
+    return "[PetaOpponentDone] path=" + output_path.string()
         + " count=" + std::to_string(think_sfens.size())
         + " opponent_books=" + std::to_string(opponent_paths.size())
         + " processed_nodes=" + std::to_string(processed_nodes)
@@ -3253,7 +3253,7 @@ void peta_opponent(
         + " leaf_nodes=" + std::to_string(leaf_nodes)
         + " skipped_by_ply=" + std::to_string(skipped_by_ply)
         + " retired_repetition=" + std::to_string(retired_repetition)
-        + " retired_max_step=" + std::to_string(retired_max_step));
+        + " retired_max_step=" + std::to_string(retired_max_step);
 }
 
 fs::path executable_dir(const char* argv0)
@@ -4333,6 +4333,11 @@ private:
 
 class PetaCommandJob {
 public:
+    explicit PetaCommandJob(std::function<void(const std::string&)> completion_logger = log_line)
+        : completion_logger_(std::move(completion_logger))
+    {
+    }
+
     ~PetaCommandJob()
     {
         join();
@@ -4343,7 +4348,7 @@ public:
         return running_.load();
     }
 
-    bool start(std::function<void()> command, bool cancellable_next = false)
+    bool start(std::function<std::string()> command, bool cancellable_next = false)
     {
         if (running_.load())
             return false;
@@ -4354,23 +4359,22 @@ public:
         cancellable_next_ = cancellable_next;
         running_ = true;
         thread_ = std::thread([this, command = std::move(command)] {
+            std::string completion;
             try
             {
-                command();
+                completion = command();
             }
             catch (const PetaNextCancelled&)
             {
-                running_ = false;
-                cancellable_next_ = false;
-                log_line("[PetaNextCancelled]");
-                return;
+                completion = "[PetaNextCancelled]";
             }
             catch (const std::exception& ex)
             {
-                log_line(std::string("Exception : peta command failed: ") + ex.what());
+                completion = std::string("Exception : peta command failed: ") + ex.what();
             }
             cancellable_next_ = false;
             running_ = false;
+            completion_logger_(completion);
         });
         return true;
     }
@@ -4392,6 +4396,7 @@ public:
     const std::atomic<bool>* cancellation_flag() const { return &cancelled_; }
 
 private:
+    std::function<void(const std::string&)> completion_logger_;
     std::atomic<bool> running_{false};
     std::atomic<bool> cancellable_next_{false};
     std::atomic<bool> cancelled_{false};
@@ -4904,7 +4909,7 @@ int main(int argc, char* argv[])
                         eval_limit,
                         &peta_command_job
                     ] {
-                        peta_next(
+                        return peta_next(
                             nullptr,
                             peta_book,
                             peta_eval_diff,
@@ -4972,7 +4977,7 @@ int main(int argc, char* argv[])
                         eval_limit,
                         eval_drop
                     ] {
-                        peta_rejoin(
+                        return peta_rejoin(
                             peta_book,
                             peta_eval_diff,
                             max_step,
@@ -5021,7 +5026,7 @@ int main(int argc, char* argv[])
                             start_sfens_path,
                             eval_refutation_margin
                         ] {
-                            peta_next(
+                            return peta_next(
                                 &book,
                                 peta_book,
                                 peta_eval_diff,
@@ -5090,7 +5095,7 @@ int main(int argc, char* argv[])
                         book_extend_ply,
                         eval_limit
                     ] {
-                        peta_next(
+                        return peta_next(
                             &book,
                             peta_book,
                             peta_eval_diff,
@@ -5125,7 +5130,7 @@ int main(int argc, char* argv[])
                         refutation_eval_limit,
                         command_max_book_ply
                     ] {
-                        peta_refutation(
+                        return peta_refutation(
                             book,
                             peta_book,
                             eval_refutation_margin,
@@ -5179,7 +5184,7 @@ int main(int argc, char* argv[])
                         book_extend_ply,
                         eval_limit
                     ] {
-                        peta_unsolved(
+                        return peta_unsolved(
                             peta_book,
                             eval_diff,
                             command_max_book_ply,
@@ -5234,7 +5239,7 @@ int main(int argc, char* argv[])
                         book_extend_ply,
                         eval_limit
                     ] {
-                        peta_opponent(
+                        return peta_opponent(
                             peta_book,
                             eval_diff,
                             command_max_book_ply,
