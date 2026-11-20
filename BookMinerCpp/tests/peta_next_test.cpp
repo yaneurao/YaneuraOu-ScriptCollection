@@ -367,17 +367,21 @@ int main(int argc, char** argv)
         std::getline(in, line);
         if (!failed || line != "existing")
             throw std::runtime_error("missing merge input damaged existing output");
-#ifndef _WIN32
-        const auto temporary = bookminer::temp_book_path(output);
-        std::filesystem::create_symlink("/dev/full", temporary);
         failed = false;
-        try { write_position_commands_file(output, {"startpos"}); }
+        try { write_position_file(output, [](std::ostream& out) { out.setstate(std::ios::badbit); }); }
         catch (const std::runtime_error&) { failed = true; }
         std::ifstream in2(output);
         std::getline(in2, line);
         if (!failed || line != "existing")
             throw std::runtime_error("failed write damaged existing output or was not reported");
-#endif
+        in2.close();
+        const auto old_temporary = std::filesystem::path(output.string() + ".tmp");
+        { std::ofstream out(old_temporary); out << "unrelated"; }
+        write_position_commands_file(output, {"startpos"});
+        std::ifstream old_in(old_temporary);
+        std::getline(old_in, line);
+        if (line != "unrelated")
+            throw std::runtime_error("position output damaged an unrelated old temporary file");
     }
     auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
     bookminer::BookStore book;

@@ -3942,12 +3942,13 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     const fs::path engine_path = find_peta_shock_engine(app_dir, settings);
     const std::string source_book_rel = to_book_dir_relative_path(source_book_path);
     const fs::path peta_path = peta_book_backup_path_from_source(source_book_path);
+    fs::create_directories(BookBackupDir);
     const fs::path peta_temp_path = bookminer::temp_book_path(peta_path);
     const std::string peta_temp_rel = to_book_dir_relative_path(peta_temp_path);
 
-    fs::create_directories(BookBackupDir);
     std::error_code ec;
-    fs::remove(peta_temp_path, ec);
+    if (!fs::remove(peta_temp_path, ec) || ec)
+        throw std::runtime_error("failed to prepare temporary peta book: " + path_to_utf8(peta_temp_path));
 
     std::string makebook_command = "makebook peta_shock " + source_book_rel + " " + peta_temp_rel;
     if (settings.peta_shock_threads != 1)
@@ -3993,7 +3994,15 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     if (!fs::is_regular_file(peta_temp_path) || fs::file_size(peta_temp_path) == 0)
         throw std::runtime_error("peta_shock makebook failed. output file was not created : " + peta_temp_path.string());
 
-    bookminer::replace_book_file(peta_temp_path, peta_path);
+    try
+    {
+        bookminer::replace_book_file(peta_temp_path, peta_path);
+    }
+    catch (...)
+    {
+        fs::remove(peta_temp_path, ec);
+        throw;
+    }
     log_line("..peta_shock makebook has done, path = " + peta_path.string());
     return peta_path;
 }

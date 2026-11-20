@@ -108,9 +108,13 @@ int main(int argc, char** argv)
         throw std::runtime_error("UTF-8 engine path was not resolved");
     settings.peta_shock_engine_path = "engine directory/custom engine";
     settings.peta_shock_threads = 4;
+    const auto old_temp = root / "book" / "backup" / "tmp-peta_book-20261029000000_1.db";
+    { std::ofstream out(old_temp); out << "unrelated"; }
     const auto output = run_peta_shock_makebook(root, source, settings);
     if (!std::filesystem::is_regular_file(output))
         throw std::runtime_error("peta shock output missing");
+    { std::ifstream in(old_temp); std::string text; in >> text;
+      if (text != "unrelated") throw std::runtime_error("peta shock damaged an unrelated old temporary file"); }
     std::ifstream in(root / "commands.txt");
     const std::string commands((std::istreambuf_iterator<char>(in)), {});
     if (commands.find(" threads 4\n") == std::string::npos)

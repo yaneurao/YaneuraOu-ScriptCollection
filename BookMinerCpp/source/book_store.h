@@ -137,6 +137,7 @@ std::string move16_to_usi(std::uint16_t move16);
 std::int16_t normalize_book_eval(int eval);
 std::string trim_sfen(const std::string& sfen_with_optional_prefix_and_ply);
 std::pair<std::string, int> trim_sfen_ply(const std::string& sfen_with_optional_prefix_and_ply);
+// Reserve a unique temporary file next to path, preserving its extension.
 std::filesystem::path temp_book_path(const std::filesystem::path& path);
 void replace_book_file(const std::filesystem::path& source, const std::filesystem::path& destination);
 bool is_yane_bin_book_path(const std::filesystem::path& path);

@@ -2,6 +2,8 @@
 #include "sfen_position.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <charconv>
 #include <cstring>
 #include <fstream>
@@ -16,6 +18,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace bookminer {
@@ -666,10 +671,40 @@ std::string trim_sfen(const std::string& sfen_with_optional_prefix_and_ply)
 
 std::filesystem::path temp_book_path(const std::filesystem::path& path)
 {
-    const auto extension = path.extension().string();
-    if (extension == ".db" || extension == ".ybb")
-        return path.parent_path() / ("tmp-" + path.stem().string() + extension);
-    return std::filesystem::path(path.string() + ".tmp");
+    static std::atomic<std::uint64_t> sequence{0};
+#ifdef _WIN32
+    const auto process_id = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const auto process_id = static_cast<unsigned long>(::getpid());
+#endif
+    for (int attempt = 0; attempt < 1024; ++attempt)
+    {
+        auto candidate = path.parent_path() / ("tmp-" + std::to_string(process_id) + "-"
+            + std::to_string(sequence.fetch_add(1)) + "-");
+        candidate += path.filename().native();
+#ifdef _WIN32
+        const HANDLE handle = CreateFileW(candidate.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                          FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(handle);
+            return candidate;
+        }
+        const auto error = GetLastError();
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS)
+            throw std::system_error(static_cast<int>(error), std::system_category(), "failed to create temporary book");
+#else
+        const int fd = ::open(candidate.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0666);
+        if (fd >= 0)
+        {
+            ::close(fd);
+            return candidate;
+        }
+        if (errno != EEXIST)
+            throw std::system_error(errno, std::generic_category(), "failed to create temporary book");
+#endif
+    }
+    throw std::runtime_error("could not allocate a unique temporary book path");
 }
 
 bool is_yane_bin_book_path(const std::filesystem::path& path)
@@ -1547,8 +1582,8 @@ std::size_t BookStore::save_yaneuraou_book(
     });
 
     std::filesystem::create_directories(path.parent_path());
-    const auto tmp_path = temp_book_path(path);
     report_progress(progress, user, BookProgressKind::Start, 0, positions.size(), path);
+    const auto tmp_path = temp_book_path(path);
 
     try
     {

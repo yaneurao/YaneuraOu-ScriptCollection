@@ -15,6 +15,26 @@ int main(int argc, char** argv)
 {
     if (argc != 2) return 2;
     const std::filesystem::path dir(argv[1]);
+    {
+        const auto output = dir / "target.ybb";
+        const auto old_temporary = dir / "tmp-target.ybb";
+        { std::ofstream out(old_temporary); out << "unrelated"; }
+        const auto first = bookminer::temp_book_path(output);
+        const auto second = bookminer::temp_book_path(output);
+        if (first == second || first.extension() != ".ybb" || second.extension() != ".ybb"
+            || !std::filesystem::is_regular_file(first) || !std::filesystem::is_regular_file(second))
+            throw std::runtime_error("temporary book paths are not unique, reserved, and format-preserving");
+        std::filesystem::remove(first);
+        std::filesystem::remove(second);
+        bookminer::BookStore book;
+        book.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 5, 0}});
+        book.save_yaneuraou_book(output, std::nullopt, nullptr, nullptr);
+        std::ifstream in(old_temporary);
+        std::string content;
+        in >> content;
+        if (content != "unrelated")
+            throw std::runtime_error("book save damaged an unrelated old temporary file");
+    }
     const auto existing = dir / "existing.db";
     { std::ofstream out(existing); out << "original"; }
     try
