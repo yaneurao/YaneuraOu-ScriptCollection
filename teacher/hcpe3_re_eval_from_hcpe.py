@@ -28,6 +28,11 @@ from cshogi.dlshogi import (
     FEATURES1_NUM, FEATURES2_NUM,
 )
 
+try:
+    from .atomic_output import atomic_binary_output
+except ImportError:
+    from atomic_output import atomic_binary_output
+
 COMMON_LIB_DIR = Path(__file__).resolve().parents[1] / "CommonLib"
 sys.path.insert(0, str(COMMON_LIB_DIR))
 
@@ -172,7 +177,7 @@ def main():
 
     Path(args.out_hcpe3).parent.mkdir(parents=True, exist_ok=True)
     with open(args.hcpe, 'rb') as f_in, \
-         open(args.out_hcpe3, 'wb') as f_out, \
+         atomic_binary_output(Path(args.out_hcpe3)) as f_out, \
          tqdm(total=total, desc="re-eval", unit='pos') as pbar:
 
         while True:
