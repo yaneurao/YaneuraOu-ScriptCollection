@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import date, timedelta
 from html.parser import HTMLParser
@@ -27,6 +28,13 @@ CSA_TERMINAL_MARKERS = {
     "%ILLEGAL_MOVE",
     "%TIME_UP",
 }
+
+
+def unique_temporary_path(destination: Path) -> Path:
+    # Create the staging file on the destination volume with a unique name.
+    with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", suffix=".tmp",
+                                     dir=destination.parent, delete=False) as temporary:
+        return Path(temporary.name)
 
 
 class FloodgateDownloadError(Exception):
@@ -184,7 +192,7 @@ def download_changed_file(
     if remote_bytes is not None and local_bytes == remote_bytes:
         return 0, True, remote_bytes, local_bytes
 
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = unique_temporary_path(destination)
     try:
         bytes_written = download_to_file(url, temporary, timeout, should_stop)
         if remote_bytes is not None and bytes_written != remote_bytes:
@@ -198,7 +206,10 @@ def download_changed_file(
         temporary.unlink(missing_ok=True)
         raise
 
-    temporary.replace(destination)
+    try:
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
     return bytes_written, False, remote_bytes, local_bytes
 
 
@@ -498,7 +509,7 @@ def download_floodgate_kif(
             local_bytes=local_bytes,
         )
 
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = unique_temporary_path(destination)
     try:
         bytes_written = download_to_file(archive_url, temporary, job.timeout, should_stop)
         if stop_requested(should_stop):
@@ -524,7 +535,10 @@ def download_floodgate_kif(
         temporary.unlink(missing_ok=True)
         raise
 
-    temporary.replace(destination)
+    try:
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
     return FloodgateDownloadStats(
         year=year,

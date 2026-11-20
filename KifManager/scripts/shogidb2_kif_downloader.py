@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import tempfile
 import sys
 import time
 from dataclasses import dataclass
@@ -19,6 +20,13 @@ SHOGIDB2_DEFAULT_OUTPUT_DIR = "downloaded-kif/shogidb2"
 USER_AGENT = "YaneuraOu-KifManager-ShogiDB2-Kif-Downloader/1.0"
 GAME_PATH_RE = re.compile(r"^/games/([0-9a-fA-F]+)$")
 UNSAFE_FILENAME_CHARS = '<>:"/\\|?*'
+
+
+def unique_temporary_path(destination: Path) -> Path:
+    # Create the staging file on the destination volume with a unique name.
+    with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", suffix=".tmp",
+                                     dir=destination.parent, delete=False) as temporary:
+        return Path(temporary.name)
 
 
 class ShogiDb2DownloadError(Exception):
@@ -413,9 +421,12 @@ def download_shogidb2_kif(
                         if log is not None:
                             log("stop requested\n")
                         break
-                    temporary = destination.with_name(destination.name + ".tmp")
-                    temporary.write_text(kif, encoding="utf-8", newline="\n")
-                    temporary.replace(destination)
+                    temporary = unique_temporary_path(destination)
+                    try:
+                        temporary.write_text(kif, encoding="utf-8", newline="\n")
+                        temporary.replace(destination)
+                    finally:
+                        temporary.unlink(missing_ok=True)
                     downloaded += 1
                     if log is not None:
                         log(f"[page {page} {index}/{len(game_urls)}] downloaded: {destination.name}\n")

@@ -31,6 +31,13 @@ TAG_RE = re.compile(r"<[^>]+>")
 UNSAFE_FILENAME_CHARS = '<>:"/\\|?*'
 
 
+def unique_temporary_path(destination: Path) -> Path:
+    # Create the staging file on the destination volume with a unique name.
+    with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", suffix=".tmp",
+                                     dir=destination.parent, delete=False) as temporary:
+        return Path(temporary.name)
+
+
 class DenryuDownloadError(Exception):
     pass
 
@@ -215,7 +222,7 @@ def download_to_file(
         if not limiter.wait(should_stop):
             raise DenryuDownloadError("停止要求を受け付けました。")
 
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = unique_temporary_path(destination)
     bytes_written = 0
     try:
         request = Request(url, headers={"User-Agent": USER_AGENT})
@@ -300,7 +307,7 @@ def fetch_archive_content_length(
 
 def write_bytes_atomically(destination: Path, data: bytes) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = unique_temporary_path(destination)
     try:
         temporary.write_bytes(data)
         temporary.replace(destination)
@@ -311,7 +318,7 @@ def write_bytes_atomically(destination: Path, data: bytes) -> None:
 
 def copy_file_atomically(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = unique_temporary_path(destination)
     try:
         shutil.copyfile(source, temporary)
         temporary.replace(destination)
