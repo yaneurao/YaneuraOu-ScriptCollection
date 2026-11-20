@@ -271,6 +271,10 @@ def convert_ybb_to_db(
     chunk_bytes: int,
     max_open_runs: int,
 ) -> None:
+    if chunk_positions <= 0 or chunk_bytes <= 0:
+        raise ValueError("chunk_positions and chunk_bytes must be positive")
+    if max_open_runs < 2:
+        raise ValueError("max_open_runs must be at least 2")
     input_ybb = resolve_ybb_input(input_base)
     record_count, flags = read_ybb_header(input_ybb)
     print(f"input positions: {record_count:,}")
@@ -381,6 +385,8 @@ def main() -> None:
         raise ValueError("--chunk-positions must be positive")
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
+    if args.max_open_runs < 2:
+        raise ValueError("--max-open-runs must be at least 2")
 
     try:
         resolve_ybb_input(args.input_base)

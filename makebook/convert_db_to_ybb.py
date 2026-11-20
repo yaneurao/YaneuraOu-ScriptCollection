@@ -333,6 +333,10 @@ def convert_db_to_ybb(
     max_open_runs: int,
     include_depth: bool,
 ) -> None:
+    if chunk_positions <= 0 or chunk_bytes <= 0:
+        raise ValueError("chunk_positions and chunk_bytes must be positive")
+    if max_open_runs < 2:
+        raise ValueError("max_open_runs must be at least 2")
     move_struct = MOVE_DEPTH_STRUCT if include_depth else MOVE_STRUCT
     move_record_size = move_struct.size
     flags = FLAG_MOVE_DEPTH if include_depth else 0
@@ -465,6 +469,8 @@ def main() -> None:
         raise ValueError("--chunk-positions must be positive")
     if args.chunk_bytes <= 0:
         raise ValueError("--chunk-bytes must be positive")
+    if args.max_open_runs < 2:
+        raise ValueError("--max-open-runs must be at least 2")
 
     tmp_dir_existed = args.tmp_dir.exists()
     work_dir = make_work_dir(args.tmp_dir)

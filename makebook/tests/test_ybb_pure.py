@@ -19,6 +19,31 @@ from YaneuraOuBookLib import read_yaneuraou_book
 
 
 class PureYbbTests(unittest.TestCase):
+    def test_conversion_limits_rejected_before_reading_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / 'missing'
+            for limits, message in (((0, 1024, 2), 'chunk_positions'),
+                                    ((1, 0, 2), 'chunk_bytes'),
+                                    ((1, 1024, 1), 'max_open_runs'),
+                                    ((1, 1024, 0), 'max_open_runs')):
+                with self.subTest(limits=limits):
+                    for converter in (pure.convert_db_to_ybb, native_to_ybb.convert_db_to_ybb):
+                        with self.assertRaisesRegex(ValueError, message):
+                            converter(missing, root / 'out.ybb', root, *limits, True)
+                    for converter in (pure.convert_ybb_to_db, native_to_db.convert_ybb_to_db):
+                        with self.assertRaisesRegex(ValueError, message):
+                            converter(missing, root / 'out.db', root, *limits)
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_merge_rejects_invalid_fan_in(self):
+        for limit in (0, 1, -1):
+            with self.subTest(limit=limit):
+                with self.assertRaisesRegex(ValueError, 'max_open_runs'):
+                    pure.reduce_ybb_runs([Path('a'), Path('b')], Path('.'), limit, 4, 1)
+                with self.assertRaisesRegex(ValueError, 'max_open_runs'):
+                    pure.reduce_db_runs([Path('a'), Path('b')], Path('.'), limit, 1)
+
     def test_writers_preserve_existing_dot_tmp_and_output_on_failure(self):
         writers = (
             lambda out: native_to_ybb.write_final_ybb([], out, 0, 4, 0),

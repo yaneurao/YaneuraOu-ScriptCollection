@@ -862,6 +862,8 @@ def reduce_ybb_runs(
     move_record_size: int,
     progress_interval: int,
 ) -> list[Path]:
+    if max_open_runs < 2:
+        raise ValueError("max_open_runs must be at least 2")
     stage = 0
     current = run_paths
     while len(current) > max_open_runs:
@@ -896,6 +898,8 @@ def reduce_db_runs(
     max_open_runs: int,
     progress_interval: int,
 ) -> list[Path]:
+    if max_open_runs < 2:
+        raise ValueError("max_open_runs must be at least 2")
     stage = 0
     current = run_paths
     while len(current) > max_open_runs:
@@ -992,6 +996,15 @@ def write_final_ybb(
         raise
 
 
+def validate_conversion_limits(chunk_positions: int, chunk_bytes: int, max_open_runs: int) -> None:
+    if chunk_positions <= 0:
+        raise ValueError("chunk_positions must be positive")
+    if chunk_bytes <= 0:
+        raise ValueError("chunk_bytes must be positive")
+    if max_open_runs < 2:
+        raise ValueError("max_open_runs must be at least 2")
+
+
 def convert_db_to_ybb(
     input_db: Path,
     output_base: Path,
@@ -1001,6 +1014,7 @@ def convert_db_to_ybb(
     max_open_runs: int,
     include_depth: bool,
 ) -> None:
+    validate_conversion_limits(chunk_positions, chunk_bytes, max_open_runs)
     move_struct = YBB_MOVE_DEPTH_STRUCT if include_depth else YBB_MOVE_STRUCT
     move_record_size = move_struct.size
     flags = YBB_FLAG_MOVE_DEPTH if include_depth else 0
@@ -1152,6 +1166,7 @@ def convert_ybb_to_db(
     chunk_bytes: int,
     max_open_runs: int,
 ) -> None:
+    validate_conversion_limits(chunk_positions, chunk_bytes, max_open_runs)
     input_ybb = resolve_ybb_input(input_base)
     record_count, flags = read_ybb_header(input_ybb)
     print(f"input positions: {record_count:,}")
