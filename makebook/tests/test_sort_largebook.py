@@ -11,6 +11,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class LargeBookSortTests(unittest.TestCase):
+    def test_tab_separated_moves_keep_values_when_sorting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'input.db'
+            source.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {cshogi.Board().sfen()}\n'
+                              '7g7f\t3c3d\t-120\t31\t42\n', encoding='utf-8')
+            for script in ('sort.py', 'sort_largebook.py'):
+                output = root / (script + '.db')
+                result = subprocess.run([sys.executable, str(ROOT / 'makebook' / script), str(source), str(output),
+                                         *(['--tmp-dir', str(root)] if script == 'sort_largebook.py' else [])],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('7g7f 3c3d -120 31 42', output.read_text())
+
     def test_many_runs_merge_in_multiple_passes(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

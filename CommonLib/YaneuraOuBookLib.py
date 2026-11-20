@@ -150,19 +150,7 @@ def cleanup_work_dir(work_dir: str | Path, tmp_dir: str | Path, tmp_dir_existed:
 
 
 def split_space_tokens(line: str) -> list[str]:
-    tokens: list[str] = []
-    pos = 0
-    n = len(line)
-    while pos < n:
-        while pos < n and line[pos] == " ":
-            pos += 1
-        if pos >= n:
-            break
-        start = pos
-        while pos < n and line[pos] != " ":
-            pos += 1
-        tokens.append(line[start:pos])
-    return tokens
+    return line.split()
 
 
 def normalize_move(move: str) -> str:
