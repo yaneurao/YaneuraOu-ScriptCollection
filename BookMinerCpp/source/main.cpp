@@ -3011,7 +3011,7 @@ std::vector<CandidateBookMove> candidate_best_moves_from_position(
         return {};
 
     std::vector<CandidateBookMove> moves;
-    const int eval_low = best_eval - eval_diff;
+    const std::int64_t eval_low = static_cast<std::int64_t>(best_eval) - eval_diff;
     for (const auto& moveinfo : position.moves)
     {
         const int eval = static_cast<int>(moveinfo.eval);

@@ -7,6 +7,14 @@ int main(int argc, char** argv)
     if (argc != 2)
         return 2;
     {
+        bookminer::PositionInfo position;
+        position.moves = {{bookminer::move16_from_usi("7g7f"), -100, 10},
+                          {bookminer::move16_from_usi("2g2f"), -200, 10}};
+        const auto moves = candidate_best_moves_from_position(position, false, std::numeric_limits<int>::max());
+        if (moves.size() != 2)
+            throw std::runtime_error("large opponent eval_diff overflowed and discarded candidate moves");
+    }
+    {
         bool running_when_notified = true;
         std::string completion;
         PetaCommandJob* job_ptr = nullptr;
