@@ -1,15 +1,37 @@
 import os
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'csa_to_hcpe.py'
 
 
 class CsaInputAliasTests(unittest.TestCase):
+    def test_output_write_error_is_not_reported_as_skipped_game(self):
+        spec = importlib.util.spec_from_file_location('csa_to_hcpe_test', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / 'game.csa', root / 'output.hcpe'
+            source.write_text('game')
+            args = SimpleNamespace(input=source, output=output, no_recursive=False,
+                                   include_draw=True, out_maxmove=False, filter_moves=0,
+                                   filter_rating=0, uniq=False, progress_interval=0, teacher_eval=0)
+            game = SimpleNamespace(endgame='%TORYO', moves=[1])
+            with patch.object(module, 'parse_args', return_value=args), \
+                 patch.object(module, 'parse_csa_games', return_value=[game]), \
+                 patch.object(module, 'write_game_hcpe', side_effect=OSError('disk full')):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    module.main()
+
     def test_output_alias_does_not_destroy_csa(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

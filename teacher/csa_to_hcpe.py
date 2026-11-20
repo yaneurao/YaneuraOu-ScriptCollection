@@ -313,6 +313,10 @@ def main() -> None:
 
                 try:
                     positions = write_game_hcpe(kif, output, args.teacher_eval)
+                except OSError:
+                    # A partial write can leave the output corrupt; never
+                    # continue as if only this game's conversion failed.
+                    raise
                 except Exception as exc:  # noqa: BLE001
                     stats.skipped_error += 1
                     print(f"skip convert error: {path}: {exc}", file=sys.stderr)
