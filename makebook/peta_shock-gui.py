@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import errno
 import pickle
 import queue
 import shutil
@@ -169,7 +170,7 @@ def run_peta_shock(
         raise PetaShockError(f"convert_db_to_ybb.py not found: {converter_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if input_path == output_path:
+    if input_path == output_path or (output_path.exists() and os.path.samefile(input_path, output_path)):
         raise PetaShockError("input and output paths must be different")
 
     work_dir = Path(tempfile.mkdtemp(prefix="peta-shock-gui-", dir=input_path.parent))
@@ -210,9 +211,21 @@ def run_peta_shock(
             )
             if not peta_ybb.is_file() or peta_ybb.stat().st_size == 0:
                 raise PetaShockError(f"peta-shock .ybb was not created: {peta_ybb}")
-            if output_path.exists():
-                output_path.unlink()
-            os.replace(peta_ybb, output_path)
+            try:
+                os.replace(peta_ybb, output_path)
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+                # A work directory alongside the input can be on another drive.
+                # Stage on the output drive before replacing the existing file.
+                fd, staged_name = tempfile.mkstemp(prefix=".peta-shock-", suffix=".tmp", dir=output_path.parent)
+                staged_path = Path(staged_name)
+                try:
+                    with os.fdopen(fd, "wb") as staged, peta_ybb.open("rb") as source:
+                        shutil.copyfileobj(source, staged, length=1024 * 1024)
+                    os.replace(staged_path, output_path)
+                finally:
+                    staged_path.unlink(missing_ok=True)
             log(f"wrote: {quote_for_log(output_path)}")
     except Exception:
         log(f"keep work dir for inspection: {quote_for_log(work_dir)}")

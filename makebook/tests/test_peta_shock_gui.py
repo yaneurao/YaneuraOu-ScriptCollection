@@ -1,4 +1,6 @@
 import importlib.util
+import errno
+import os
 from pathlib import Path
 import tempfile
 import tkinter as tk
@@ -12,6 +14,59 @@ spec.loader.exec_module(module)
 
 
 class PetaShockThreadTests(unittest.TestCase):
+    def test_ybb_replacement_failure_preserves_existing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output, engine = root / 'in.ybb', root / 'out.ybb', root / 'engine'
+            source.write_bytes(b'input')
+            output.write_bytes(b'old')
+            engine.touch()
+            def fake_engine(**kwargs):
+                (kwargs['book_dir'] / kwargs['output_name']).write_bytes(b'new')
+            with patch.object(module, 'run_engine_peta_shock', side_effect=fake_engine), \
+                 patch.object(module.os, 'replace', side_effect=PermissionError('locked')):
+                with self.assertRaises(PermissionError):
+                    module.run_peta_shock(input_path=source, output_path=output, engine_path=engine,
+                                          converter_path=root / 'unused', log=lambda _: None)
+            self.assertEqual(output.read_bytes(), b'old')
+
+    def test_ybb_cross_device_replacement_and_hardlink_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output, engine = root / 'in.ybb', root / 'out.ybb', root / 'engine'
+            source.write_bytes(b'input')
+            output.write_bytes(b'old')
+            engine.touch()
+            def fake_engine(**kwargs):
+                (kwargs['book_dir'] / kwargs['output_name']).write_bytes(b'new')
+            real_replace = os.replace
+            def replace(src, dst):
+                if Path(src).name == 'peta.ybb':
+                    raise OSError(errno.EXDEV, 'cross-device')
+                real_replace(src, dst)
+            with patch.object(module, 'run_engine_peta_shock', side_effect=fake_engine), \
+                 patch.object(module.os, 'replace', side_effect=replace):
+                module.run_peta_shock(input_path=source, output_path=output, engine_path=engine,
+                                      converter_path=root / 'unused', log=lambda _: None)
+            self.assertEqual(output.read_bytes(), b'new')
+            output.write_bytes(b'old')
+            def failed_replace(src, dst):
+                if Path(src).name == 'peta.ybb':
+                    raise OSError(errno.EXDEV, 'cross-device')
+                raise PermissionError('locked')
+            with patch.object(module, 'run_engine_peta_shock', side_effect=fake_engine), \
+                 patch.object(module.os, 'replace', side_effect=failed_replace):
+                with self.assertRaises(PermissionError):
+                    module.run_peta_shock(input_path=source, output_path=output, engine_path=engine,
+                                          converter_path=root / 'unused', log=lambda _: None)
+            self.assertEqual(output.read_bytes(), b'old')
+            self.assertFalse(list(root.glob('.peta-shock-*.tmp')))
+            output.unlink()
+            os.link(source, output)
+            with self.assertRaises(module.PetaShockError):
+                module.run_peta_shock(input_path=source, output_path=output, engine_path=engine,
+                                      converter_path=root / 'unused', log=lambda _: None)
+            self.assertEqual(source.read_bytes(), b'input')
     def test_engine_command_contains_requested_threads(self):
         with patch.object(module, 'stream_process') as process:
             for threads in (1, 8):
