@@ -11,6 +11,7 @@
 
 import argparse
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -139,6 +140,13 @@ def main():
     args = parser.parse_args()
     if args.top_k <= 0:
         raise ValueError("--top-k must be positive")
+    if args.batch_size <= 0:
+        raise ValueError("--batch-size must be positive")
+    output_path = Path(args.out_hcpe3)
+    for name, source in (("HCPE", Path(args.hcpe)), ("model", Path(args.model))):
+        if output_path.resolve() == source.resolve() or (
+                output_path.exists() and source.exists() and os.path.samefile(output_path, source)):
+            raise ValueError(f"output must not be the same file as {name}")
 
     providers = (
         ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
