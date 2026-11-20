@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import struct
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, TextIO
@@ -647,7 +648,6 @@ def ybb_record_from_book_block(sfen: str, moves: list[BookMove]) -> tuple[bytes,
 def write_ybb_book(book: dict[str, list[BookMove]], dst: str | Path) -> None:
     output_path = Path(dst)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_tmp = output_path.with_name(output_path.name + ".tmp")
 
     records = [
         ybb_record_from_book_block(sfen, moves)
@@ -662,9 +662,11 @@ def write_ybb_book(book: dict[str, list[BookMove]], dst: str | Path) -> None:
 
     flags = YBB_FLAG_MOVE_DEPTH
     index_size = YBB_HEADER_STRUCT.size + len(records) * YBB_INDEX_STRUCT.size
+    fd, temporary = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent)
+    output_tmp = Path(temporary)
 
     try:
-        with output_tmp.open("w+b") as output_file:
+        with os.fdopen(fd, "w+b") as output_file:
             output_file.write(YBB_HEADER_STRUCT.pack(YBB_MAGIC, len(records), flags))
             index_offset = YBB_HEADER_STRUCT.size
             move_offset = 0

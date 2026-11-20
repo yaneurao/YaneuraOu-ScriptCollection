@@ -1,8 +1,11 @@
 import random
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import cshogi
 import numpy as np
@@ -11,10 +14,53 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ybb_db_converter_pure as pure
 import convert_db_to_ybb as native_to_ybb
 import convert_ybb_to_db as native_to_db
+import YaneuraOuBookLib as booklib
 from YaneuraOuBookLib import read_yaneuraou_book
 
 
 class PureYbbTests(unittest.TestCase):
+    def test_writers_preserve_existing_dot_tmp_and_output_on_failure(self):
+        writers = (
+            lambda out: native_to_ybb.write_final_ybb([], out, 0, 4, 0),
+            lambda out: pure.write_final_ybb([], out, 0, 4, 0),
+            lambda out: native_to_db.write_final_db([], out, 0),
+            lambda out: pure.write_final_db([], out, 0),
+            lambda out: booklib.write_ybb_book({}, out),
+        )
+        for writer in writers:
+            with self.subTest(writer=writer), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / 'result.ybb'
+                old_tmp = root / 'result.ybb.tmp'
+                output.write_bytes(b'old output')
+                old_tmp.write_bytes(b'unrelated data')
+                with patch('os.replace', side_effect=PermissionError('locked')):
+                    with self.assertRaisesRegex(PermissionError, 'locked'):
+                        writer(output)
+                self.assertEqual(output.read_bytes(), b'old output')
+                self.assertEqual(old_tmp.read_bytes(), b'unrelated data')
+                self.assertEqual(set(root.iterdir()), {output, old_tmp})
+                writer(output)
+                self.assertEqual(old_tmp.read_bytes(), b'unrelated data')
+
+    def test_concurrent_writers_use_distinct_temporary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'result.ybb'
+            barrier = threading.Barrier(2)
+            real_replace = booklib.os.replace
+            used = []
+            def synchronized_replace(src, dst):
+                used.append(Path(src))
+                barrier.wait(timeout=5)
+                real_replace(src, dst)
+            with patch('os.replace', side_effect=synchronized_replace), ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(booklib.write_ybb_book, {}, output) for _ in range(2)]
+                for future in futures:
+                    future.result(timeout=10)
+            self.assertEqual(len(set(used)), 2)
+            self.assertTrue(output.is_file())
+            self.assertEqual(list(output.parent.glob('.result.ybb.*.tmp')), [])
+
     def test_positions_with_missing_pieces_match_cshogi(self):
         for sfen in ('4k4/9/9/9/9/9/9/9/4K4 b - 1',
                      '4k4/9/9/9/9/9/9/9/4K4 b 2P2p 1'):

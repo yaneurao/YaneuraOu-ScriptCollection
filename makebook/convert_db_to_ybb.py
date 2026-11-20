@@ -266,12 +266,13 @@ def write_final_ybb(
     output_path = ybb_path_from_output(output_base)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    output_tmp = output_path.with_name(output_path.name + ".tmp")
     total = sum(read_ybb_run_count(path) for path in run_paths)
     index_size = HEADER_STRUCT.size + total * INDEX_STRUCT.size
+    fd, temporary = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent)
+    output_tmp = Path(temporary)
 
     try:
-        with output_tmp.open("w+b") as output_file:
+        with os.fdopen(fd, "w+b") as output_file:
             output_file.write(HEADER_STRUCT.pack(MAGIC, total, flags))
             index_offset = HEADER_STRUCT.size
             move_offset = 0

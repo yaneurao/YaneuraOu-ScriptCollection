@@ -962,11 +962,12 @@ def write_final_ybb(
 ) -> None:
     output_path = ybb_path_from_output(output_base)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_tmp = output_path.with_name(output_path.name + ".tmp")
     total = sum(read_run_count(path, RUN_MAGIC_YBB) for path in run_paths)
     index_size = YBB_HEADER_STRUCT.size + total * YBB_INDEX_STRUCT.size
+    fd, temporary = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent)
+    output_tmp = Path(temporary)
     try:
-        with output_tmp.open("w+b") as output_file:
+        with os.fdopen(fd, "w+b") as output_file:
             output_file.write(YBB_HEADER_STRUCT.pack(YBB_MAGIC, total, flags))
             index_offset = YBB_HEADER_STRUCT.size
             move_offset = 0
@@ -1121,10 +1122,11 @@ def ybb_record_to_db_block(packed_sfen: bytes, ply: int, moves_blob: bytes, flag
 
 def write_final_db(run_paths: list[Path], output_db: Path, progress_interval: int) -> None:
     output_db.parent.mkdir(parents=True, exist_ok=True)
-    output_tmp = output_db.with_name(output_db.name + ".tmp")
     total = sum(read_run_count(path, RUN_MAGIC_DB) for path in run_paths)
+    fd, temporary = tempfile.mkstemp(prefix=f".{output_db.name}.", suffix=".tmp", dir=output_db.parent)
+    output_tmp = Path(temporary)
     try:
-        with output_tmp.open("wb") as output_file:
+        with os.fdopen(fd, "wb") as output_file:
             output_file.write(f"{YANEURAOU_BOOK_HEADER_V1}\n".encode("ascii"))
             output_file.write(f"# NOE:{total}\n".encode("ascii"))
             if run_paths:

@@ -327,11 +327,12 @@ def convert_ybb_to_db(
 
 def write_final_db(run_paths: list[Path], output_db: Path, progress_interval: int) -> None:
     output_db.parent.mkdir(parents=True, exist_ok=True)
-    output_tmp = output_db.with_name(output_db.name + ".tmp")
     total = sum(read_db_run_count(path) for path in run_paths)
+    fd, temporary = tempfile.mkstemp(prefix=f".{output_db.name}.", suffix=".tmp", dir=output_db.parent)
+    output_tmp = Path(temporary)
 
     try:
-        with output_tmp.open("wb") as output_file:
+        with os.fdopen(fd, "wb") as output_file:
             output_file.write(f"{YANEURAOU_BOOK_HEADER_V1}\n".encode("ascii"))
             output_file.write(f"# NOE:{total}\n".encode("ascii"))
 
