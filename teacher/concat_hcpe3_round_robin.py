@@ -1021,6 +1021,18 @@ def main() -> None:
         args.pattern or ('*.hcpe*' if args.output_format == 'hcpe' else '*.hcpe3'),
         args.recursive,
     )
+    if args.output.is_dir():
+        targets = list(args.output.glob(f"{args.prefix}-*.{args.output_format}"))
+        if not args.no_manifest:
+            targets.append(args.output / f"{args.prefix}-manifest.tsv")
+        targets = [path for path in targets if path.exists()]
+        if targets:
+            input_ids = {(stat.st_dev, stat.st_ino) for stat in
+                         (path.stat() for source in source_inputs for path in source.files)}
+            for path in targets:
+                stat = path.stat()
+                if (stat.st_dev, stat.st_ino) in input_ids:
+                    raise ValueError(f"output must not be the same file as an input: {path}")
     allowed = {'.hcpe3', '.hcpe'} if args.output_format == 'hcpe' else {'.hcpe3'}
     for source in source_inputs:
         for path in source.files:

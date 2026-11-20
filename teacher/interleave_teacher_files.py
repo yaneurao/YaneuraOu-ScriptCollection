@@ -200,6 +200,12 @@ def main() -> None:
         )
 
     manifest_path = args.output / args.manifest
+    if not args.no_manifest and manifest_path.exists():
+        manifest_stat = manifest_path.stat()
+        for item in items:
+            source_stat = item.input_file.stat()
+            if (manifest_stat.st_dev, manifest_stat.st_ino) == (source_stat.st_dev, source_stat.st_ino):
+                raise ValueError(f"manifest must not be the same file as an input: {item.input_file}")
     existing = [item.output_file for item in items if item.output_file.exists()]
     if not args.no_manifest and manifest_path.exists():
         existing.append(manifest_path)
