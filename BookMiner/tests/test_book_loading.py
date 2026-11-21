@@ -16,6 +16,25 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_fast_load_ignores_unscored_moves_and_saves_scored_moves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'input.db'
+            board = bookminer.cshogi.Board()
+            board.push_usi('7g7f')
+            child = bookminer.trim_sfen(board.sfen())
+            source.write_text('#YANEURAOU-DB2016 1.00\n'
+                              f'sfen {bookminer.SFEN_START} 1\n'
+                              '7g7f none 100 0\n2g2f none None 0\n'
+                              f'sfen {child} 2\n3c3d none None 0\n')
+            book = bookminer.Book()
+            bookminer.read_bookminer_backup(book, str(source))
+            self.assertEqual([move.move for move in book.body[bookminer.SFEN_START].moveinfos], ['7g7f'])
+            self.assertNotIn(child, book.body)
+            output = root / 'output.db'
+            bookminer.write_yaneuraou_book_records(book, str(output), None)
+            self.assertIn('7g7f none 100', output.read_text())
+
     def test_simultaneous_saves_use_distinct_temporary_files(self):
         book = bookminer.Book()
         book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)

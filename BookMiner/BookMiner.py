@@ -2574,7 +2574,9 @@ def read_yaneuraou_book_file(
                 if moveinfo.eval is not None
             ]
         else:
-            considered_moveinfos = moveinfos
+            # C++版と同様、未評価手は定跡の思考済みデータとして保持しない。
+            considered_moveinfos = ([moveinfo for moveinfo in moveinfos if moveinfo.eval is not None]
+                                    if any(moveinfo.eval is None for moveinfo in moveinfos) else moveinfos)
         if considered_moveinfos:
             on_position(sfen, ply, considered_moveinfos)
         sfen = None
