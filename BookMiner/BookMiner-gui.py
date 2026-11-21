@@ -1087,7 +1087,10 @@ class BookMinerGui(ttk.Frame):
         self.unsolved_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.unsolved_button,
-            "`pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。min_depths は指し手の順位ごとの最低depthです（例: 10,8,6,4）。",
+            "入力: book/think_unsolved_sfens.txt（棋譜）\n"
+            "出力: book/think_sfens.txt（掘る局面）\n"
+            "min_depths は指し手の順位ごとの最低depthです（例: 10,8,6,4）。\n"
+            "`pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。",
         )
         ttk.Label(commands, text="min_depths").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_unsolved_min_depths, width=12).grid(row=7, column=3, sticky="w", pady=3)
