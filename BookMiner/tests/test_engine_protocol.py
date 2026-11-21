@@ -117,6 +117,19 @@ class EngineProtocolTests(unittest.TestCase):
             task = manager.put_task.call_args.args[0]
             self.assertEqual((task.book_extend_ply, task.eval_limit, task.max_book_ply), (10, 400, 200))
 
+    def test_enqueue_accepts_utf8_bom_and_rejects_unknown_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'think_sfens.txt'
+            path.write_text('startpos, eval_limit=123\nstartpos moves 7g7f, eval_limt=999\n', encoding='utf-8-sig')
+            manager = Mock()
+            manager.engine_alive_count.return_value = 1
+            with patch.object(miner, 'print') as log:
+                miner.put_position_commands(miner.Book(), str(path), manager, 400, 200, 10)
+            manager.put_task.assert_called_once()
+            self.assertEqual(manager.put_task.call_args.args[0].eval_limit, 123)
+            self.assertTrue(any('line 2' in str(call) and 'unknown metadata: eval_limt' in str(call)
+                                for call in log.call_args_list))
+
     def test_existing_position_records_shorter_ply_even_when_visited(self):
         for visited in (set(), {miner.SFEN_START}):
             with self.subTest(visited=bool(visited)):

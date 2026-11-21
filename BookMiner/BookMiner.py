@@ -942,6 +942,8 @@ def parse_position_command_entry(line:PositionStr)->PositionCommandEntry:
                 max_book_ply = int(value)
                 if max_book_ply <= 0:
                     raise ValueError("game_ply_limit must be positive integer or None")
+        else:
+            raise ValueError(f"unknown metadata: {key}")
 
     return PositionCommandEntry(position_cmd, book_extend_ply, eval_limit, max_book_ply)
 
@@ -4221,30 +4223,27 @@ def put_position_commands(
         print(f"({job_counter_local}) put position commands Error : file not found, path = {path}")
         return
 
-    with open(path, 'r') as r:
-        raw_lines = [
-            (line_number, line.strip())
-            for line_number, line in enumerate(r, 1)
-            if line.strip() and not line.lstrip().startswith('#')
-        ]
-
     entries : dict[PositionStr, PositionCommandEntry] = {}
     skipped = 0
-    for line_number, line in raw_lines:
-        try:
-            entry = parse_position_command_entry(line)
-            decode_position_string(entry.position_cmd)
-        except Exception as exc:
-            skipped += 1
-            print(f"({job_counter_local}) skip illegal position command line {line_number}: {line} : {exc}")
-            continue
-        add_position_command_entry(
-            entries,
-            entry.position_cmd,
-            book_extend_ply if entry.book_extend_ply is None else entry.book_extend_ply,
-            eval_limit if entry.eval_limit is None else entry.eval_limit,
-            max_book_ply if entry.max_book_ply is None else entry.max_book_ply,
-        )
+    with open(path, 'r', encoding='utf-8-sig') as r:
+        for line_number, raw_line in enumerate(r, 1):
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            try:
+                entry = parse_position_command_entry(line)
+                decode_position_string(entry.position_cmd)
+            except Exception as exc:
+                skipped += 1
+                print(f"({job_counter_local}) skip illegal position command line {line_number}: {line} : {exc}")
+                continue
+            add_position_command_entry(
+                entries,
+                entry.position_cmd,
+                book_extend_ply if entry.book_extend_ply is None else entry.book_extend_ply,
+                eval_limit if entry.eval_limit is None else entry.eval_limit,
+                max_book_ply if entry.max_book_ply is None else entry.max_book_ply,
+            )
 
     total = len(entries)
     print(f'({job_counter_local}) read {total} position commands.')

@@ -1008,6 +1008,8 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
                 entry.max_book_ply = parsed;
             }
         }
+        else
+            throw std::runtime_error("unknown metadata: " + key);
     }
     return entry;
 }

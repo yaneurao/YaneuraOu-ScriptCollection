@@ -436,6 +436,15 @@ int main(int argc, char** argv)
         const auto bom_position = read_position_commands_file(input, 400, 200, 10);
         if (bom_position.size() != 1 || bom_position[0].position_command != "startpos")
             throw std::runtime_error("UTF-8 BOM was retained in the position command");
+        { std::ofstream out(input); out << "startpos\nstartpos moves 7g7f, eval_limt=999\n"; }
+        bool rejected = false;
+        try { (void)read_position_commands_file(input, 400, 200, 10); }
+        catch (const std::exception& error) {
+            const std::string message = error.what();
+            rejected = message.find(":2") != std::string::npos
+                && message.find("unknown metadata: eval_limt") != std::string::npos;
+        }
+        if (!rejected) throw std::runtime_error("unknown metadata was silently ignored");
     }
     {
         const auto dir = roots_path.parent_path();
