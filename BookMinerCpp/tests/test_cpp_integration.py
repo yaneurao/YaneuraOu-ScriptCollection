@@ -16,6 +16,14 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
+    def test_peta_shock_cancellation_preserves_unrelated_temporary_file(self):
+        env = os.environ.copy()
+        env['BOOKMINER_TEST_BINARY'] = str(self.binary)
+        test_dir = ROOT.parents[0] / 'BookMiner' / 'tests'
+        subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(test_dir),
+                        '-p', 'test_peta_shock_cancel.py'], env=env, check=True,
+                       capture_output=True, text=True, timeout=90)
+
     def test_cpp_peta_cancel_and_immediate_next_command(self):
         env = os.environ.copy()
         env['BOOKMINER_TEST_BINARY'] = str(self.binary)

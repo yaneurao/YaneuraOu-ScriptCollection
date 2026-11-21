@@ -1,8 +1,12 @@
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import sys
 import tempfile
+from threading import Barrier
 import unittest
+from unittest.mock import patch
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / 'BookMiner.py'
 spec = importlib.util.spec_from_file_location('bookminer_loading_test', MODULE_PATH)
@@ -12,6 +16,61 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_simultaneous_saves_use_distinct_temporary_files(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'book.db'
+            original_replace = os.replace
+            barrier = Barrier(2)
+            temporary_names = []
+            def replace(source, destination):
+                temporary_names.append(source)
+                barrier.wait(timeout=5)
+                original_replace(source, destination)
+            with patch.object(bookminer.os, 'replace', side_effect=replace), ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(bookminer.write_yaneuraou_book_records, book, str(path), None) for _ in range(2)]
+                for future in futures:
+                    future.result(timeout=10)
+            self.assertEqual(len(set(temporary_names)), 2)
+            self.assertIn('7g7f', path.read_text())
+            self.assertEqual(list(path.parent.glob('.book-*.db')), [])
+
+    def test_save_preserves_unrelated_fixed_temp_on_success_and_failure(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for extension in ('.db', '.ybb'):
+                with self.subTest(extension=extension):
+                    output = root / ('book' + extension)
+                    legacy = root / ('tmp-book' + extension)
+                    legacy.write_text('unrelated')
+                    output.write_text('previous')
+                    with patch.object(bookminer.os, 'replace', side_effect=PermissionError('locked')):
+                        with self.assertRaisesRegex(PermissionError, 'locked'):
+                            bookminer.write_yaneuraou_book_records(book, str(output), None)
+                    self.assertEqual(legacy.read_text(), 'unrelated')
+                    self.assertEqual(output.read_text(), 'previous')
+                    self.assertEqual(set(root.glob('.book-*' + extension)), set())
+                    bookminer.write_yaneuraou_book_records(book, str(output), None)
+                    self.assertEqual(legacy.read_text(), 'unrelated')
+
+    def test_tied_min_int16_scores_save_without_underflow(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([
+            bookminer.MoveInfo('7g7f', -32768), bookminer.MoveInfo('2g2f', -32768)], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            for extension in ('.db', '.ybb'):
+                with self.subTest(extension=extension):
+                    path = str(Path(directory) / ('book' + extension))
+                    bookminer.write_yaneuraou_book_records(book, path, None)
+                    reloaded = bookminer.Book()
+                    bookminer.read_bookminer_backup(reloaded, path)
+                    self.assertEqual([move.eval for move in reloaded.body[bookminer.SFEN_START].moveinfos],
+                                     [-32768, -32768])
+        self.assertEqual([move.eval for move in book.body[bookminer.SFEN_START].moveinfos], [-32768, -32768])
+
     def test_duplicate_move_in_single_block_keeps_latest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

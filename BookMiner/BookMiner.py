@@ -463,13 +463,13 @@ def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
     return sfens
 
 
-def temp_book_path(path:str)->str:
+def reserve_temp_book_path(path:str)->str:
     directory, filename = os.path.split(path)
     stem, extension = os.path.splitext(filename)
-    if extension.lower() in (".db", ".ybb"):
-        temp_name = f"tmp-{stem}{extension}"
-        return os.path.join(directory, temp_name) if directory else temp_name
-    return f"{path}.tmp"
+    suffix = extension if extension.lower() in ('.db', '.ybb') else '.tmp'
+    fd, name = tempfile.mkstemp(prefix=f'.{stem}-', suffix=suffix, dir=directory or '.')
+    os.close(fd)
+    return name
 
 
 def book_progress_total_text(total:int|None)->str:
@@ -501,7 +501,8 @@ def snapshot_book_position_for_write(book:Book, sfen:Sfen)->tuple[str, list[Move
 
     moveinfos.sort(key=lambda x: x.eval, reverse=True) # type:ignore
 
-    if len(moveinfos) >= 2 and moveinfos[0].eval == moveinfos[1].eval:
+    if (len(moveinfos) >= 2 and moveinfos[0].eval == moveinfos[1].eval
+            and moveinfos[0].eval > -(2**15)):
         besteval = moveinfos[0].eval
         for i in range(1, len(moveinfos)):
             if besteval == moveinfos[i].eval:
@@ -520,7 +521,7 @@ def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[S
     if dirpath:
         os.makedirs(dirpath, exist_ok=True)
 
-    temp_path = temp_book_path(path)
+    temp_path = reserve_temp_book_path(path)
     total = len(sfens)
     print_book_write_start(path, total)
     try:
@@ -563,7 +564,7 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
     if dirpath:
         os.makedirs(dirpath, exist_ok=True)
 
-    temp_path = temp_book_path(path)
+    temp_path = reserve_temp_book_path(path)
     total = len(sfens)
     print_book_write_start(path, total)
     try:
@@ -2962,6 +2963,15 @@ def run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|Non
 
 
 def _run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|None = None, cancel:Event|None = None, *, engine_source_path:str|None = None)->str:
+    peta_path = peta_book_backup_path_from_source(source_book_path)
+    os.makedirs(BOOK_BACKUP_DIR, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='peta-tmp-', dir=BOOK_BACKUP_DIR) as directory:
+        temporary = os.path.join(directory, 'result' + os.path.splitext(peta_path)[1])
+        return _run_peta_shock_with_output(source_book_path, settings, cancel, engine_source_path, peta_path, temporary)
+
+
+def _run_peta_shock_with_output(source_book_path:str, settings:BookMinerSettings|None, cancel:Event|None,
+                                engine_source_path:str|None, peta_path:str, peta_temp_path:str)->str:
     """
     YO-MATERIAL.exe を子プロセスとして起動し、
     makebook peta_shock で source_book_path と同じ拡張子の book/backup/peta_book-* に変換する。
@@ -2973,13 +2983,7 @@ def _run_peta_shock_makebook(source_book_path:str, settings:BookMinerSettings|No
         raise Exception(f"peta shock engine not found : {engine_path}")
 
     source_book_rel = to_book_dir_relative_path(engine_source_path or source_book_path)
-    peta_path = peta_book_backup_path_from_source(source_book_path)
-    peta_temp_path = temp_book_path(peta_path)
     peta_temp_rel = to_book_dir_relative_path(peta_temp_path)
-    os.makedirs(BOOK_BACKUP_DIR, exist_ok=True)
-
-    if os.path.exists(peta_temp_path):
-        os.remove(peta_temp_path)
 
     makebook_command = f"makebook peta_shock {source_book_rel} {peta_temp_rel}"
     if settings.peta_shock_threads != 1:

@@ -22,7 +22,9 @@ class PetaShockCancelTests(unittest.TestCase):
             (root / 'settings').mkdir()
             source = backup / 'book_miner-20261029000000_1.db'
             target = backup / 'peta_book-20261029000000_1.db'
-            temporary = backup / 'tmp-peta_book-20261029000000_1.db'
+            temporary_path_file = root / 'temporary-path.txt'
+            legacy_temporary = backup / 'tmp-peta_book-20261029000000_1.db'
+            legacy_temporary.write_text('unrelated')
             content = ('#YANEURAOU-DB2016 1.00\n'
                        'sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\n'
                        '7g7f none 0 1\n')
@@ -34,7 +36,9 @@ class PetaShockCancelTests(unittest.TestCase):
                               f'pathlib.Path({str(child_pid)!r}).write_text(str(os.getpid()))\n'
                               'for line in sys.stdin:\n'
                               ' if line.startswith("makebook "):\n'
-                              f'  pathlib.Path({str(temporary)!r}).write_text("partial")\n'
+                              f'  target = pathlib.Path({str(root / "book")!r}) / line.split()[3]\n'
+                              '  target.write_text("partial")\n'
+                              f'  pathlib.Path({str(temporary_path_file)!r}).write_text(str(target.resolve()))\n'
                               '  print("child-ready",flush=True)\n'
                               '  time.sleep(120)\n')
             engine.chmod(0o755)
@@ -73,6 +77,7 @@ class PetaShockCancelTests(unittest.TestCase):
                     send(command)
                     wait_for('[peta_shock] child-ready')
                     pid = int(child_pid.read_text())
+                    temporary = Path(temporary_path_file.read_text())
                     self.assertTrue(temporary.exists())
                     if eof_during_shock:
                         process.stdin.close()
@@ -80,6 +85,7 @@ class PetaShockCancelTests(unittest.TestCase):
                         self.assertEqual(process.returncode, 0)
                         self.assertFalse(temporary.exists())
                         self.assertEqual(target.read_text(), content)
+                        self.assertEqual(legacy_temporary.read_text(), 'unrelated')
                         with self.assertRaises(ProcessLookupError):
                             os.kill(pid, 0)
                         return
@@ -91,6 +97,7 @@ class PetaShockCancelTests(unittest.TestCase):
                         wait_for('[ManualBackupDone]')
                     self.assertFalse(temporary.exists())
                     self.assertEqual(target.read_text(), content)
+                    self.assertEqual(legacy_temporary.read_text(), 'unrelated')
                     with self.assertRaises(ProcessLookupError):
                         os.kill(pid, 0)
                 send('pn 30 10 200 6 400 0')

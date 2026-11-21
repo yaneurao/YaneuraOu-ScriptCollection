@@ -56,14 +56,16 @@ class PetaSettingsTests(unittest.TestCase):
             engine.touch()
             destination = backup / 'peta_book-20261029000000_1.db'
             destination.write_text('previous')
-            temporary = backup / 'tmp-peta_book-20261029000000_1.db'
+            temporary = []
             process = Mock()
             process.stdout = io.StringIO('')
             process.stdin = Mock()
             process.stdin.write.side_effect = BrokenPipeError('closed')
             process.poll.return_value = None
             def start(*_args, **_kwargs):
-                temporary.write_text('partial')
+                path = next(backup.glob('peta-tmp-*')) / 'result.db'
+                path.write_text('partial')
+                temporary.append(path)
                 return process
             settings = bookminer.BookMinerSettings(peta_shock_engine_path=str(engine))
             old_cwd = os.getcwd()
@@ -77,7 +79,7 @@ class PetaSettingsTests(unittest.TestCase):
                 os.chdir(old_cwd)
             process.terminate.assert_called_once()
             process.wait.assert_called_once()
-            self.assertFalse(temporary.exists())
+            self.assertFalse(temporary[0].exists())
             self.assertEqual(destination.read_text(), 'previous')
 
     def test_cancel_interrupts_wait_for_another_backup(self):
@@ -156,6 +158,8 @@ class PetaSettingsTests(unittest.TestCase):
             backup.mkdir(parents=True)
             source = backup / 'book_miner-20261029000000_1.db'
             source.write_text('source', encoding='utf8')
+            legacy_temporary = backup / 'tmp-peta_book-20261029000000_1.db'
+            legacy_temporary.write_text('unrelated')
             engine = root / 'engine directory' / 'custom engine'
             engine.parent.mkdir()
             engine.write_text('#!/usr/bin/env python3\nimport pathlib, sys\ncommands = sys.stdin.read()\npathlib.Path("commands.txt").write_text(commands)\ncommand = next(line for line in commands.splitlines() if line.startswith("makebook "))\noutput = command.split()[3]\n(pathlib.Path("book") / output).write_text("result")\nif pathlib.Path("simulate-error").exists(): print("info string Error! : write failed")\nelif not pathlib.Path("simulate-incomplete").exists(): print("Making a peta-shock book has been completed.")\n', encoding='utf8')
@@ -177,7 +181,8 @@ class PetaSettingsTests(unittest.TestCase):
                         with self.assertRaisesRegex(Exception, 'failed or did not report completion'):
                             bookminer.run_peta_shock_makebook(str(source), settings)
                         self.assertEqual(Path(output).read_text(), 'result')
-                        self.assertFalse(Path(bookminer.temp_book_path(output)).exists())
+                        self.assertEqual(list(backup.glob('peta-tmp-*')), [])
+                        self.assertEqual(legacy_temporary.read_text(), 'unrelated')
                         (root / marker).unlink()
             finally:
                 os.chdir(old_cwd)
