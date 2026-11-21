@@ -3800,7 +3800,7 @@ def peta_unsolved(
     skipped_no_peta = 0
     skipped_no_leaf = 0
 
-    with open(unsolved_sfens_path, 'r') as f:
+    with open(unsolved_sfens_path, 'r', encoding='utf-8-sig') as f:
         for line_no, line in enumerate(f, start=1):
             position_line = line.strip()
             if not position_line or position_line.startswith('#'):

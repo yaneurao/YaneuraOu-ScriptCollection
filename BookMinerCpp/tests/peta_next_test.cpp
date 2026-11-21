@@ -120,7 +120,7 @@ int main(int argc, char** argv)
         });
         board.push_usi("7g7f");
         peta.merge_position(board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 401, 0}});
-        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f 3c3d\n"; }
+        { std::ofstream out("book/think_unsolved_sfens.txt", std::ios::binary); out << "\xef\xbb\xbf# comment\r\nstartpos moves 7g7f 3c3d\r\n"; }
         (void)peta_unsolved(peta, {10, 8, 6, 4}, 200, 9999, std::nullopt, 400);
         std::ifstream result("book/think_sfens.txt");
         std::string text((std::istreambuf_iterator<char>(result)), {});
@@ -129,6 +129,21 @@ int main(int argc, char** argv)
             || text.find("startpos moves 2g2f") != std::string::npos
             || text.find("startpos moves 1g1f") != std::string::npos)
             throw std::runtime_error("unsolved depth thresholds or eval cutoff failed");
+        result.close();
+        bookminer::BookStore second;
+        auto root_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        second.merge_position(root_board.sfen_with_ply(), 1, {
+            {bookminer::move16_from_usi("7g7f"), 501, 1},
+            {bookminer::move16_from_usi("2g2f"), 0, 0},
+        });
+        root_board.push_usi("7g7f");
+        second.merge_position(root_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), -401, 0}});
+        (void)peta_unsolved(second, {2, 1}, 200, 9999, std::nullopt, 400);
+        std::ifstream second_result("book/think_sfens.txt");
+        const std::string second_text((std::istreambuf_iterator<char>(second_result)), {});
+        if (second_text.find("startpos moves 2g2f") == std::string::npos
+            || second_text.find("startpos moves 7g7f") != std::string::npos)
+            throw std::runtime_error("unsolved eval cutoff did not respect best move depth");
         std::filesystem::current_path(old_cwd);
     }
     {

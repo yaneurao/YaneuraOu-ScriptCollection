@@ -2777,8 +2777,15 @@ std::string peta_unsolved(
     std::size_t skipped_no_leaf = 0;
 
     std::string raw_line;
+    bool first_line = true;
     while (std::getline(input, raw_line))
     {
+        if (first_line && raw_line.size() >= 3
+            && static_cast<unsigned char>(raw_line[0]) == 0xef
+            && static_cast<unsigned char>(raw_line[1]) == 0xbb
+            && static_cast<unsigned char>(raw_line[2]) == 0xbf)
+            raw_line.erase(0, 3);
+        first_line = false;
         if (!raw_line.empty() && raw_line.back() == '\r')
             raw_line.pop_back();
         const std::string position_line = trim_copy(raw_line);
