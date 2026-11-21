@@ -12,6 +12,25 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_readers_sort_first_block_and_after_merging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = root / 'unsorted.db'
+            db.write_text('#YANEURAOU-DB2016 1.00\n'
+                          f'sfen {bookminer.SFEN_START} 1\n'
+                          '7g7f none 10 0\n2g2f none 100 1\n')
+            ybb = root / 'unsorted.ybb'
+            move = bookminer.BookLib.BookMove
+            bookminer.BookLib.write_ybb_book({bookminer.SFEN_START_PLY1: [
+                move('7g7f', 'none', 10, 0, 1), move('2g2f', 'none', 100, 1, 1)]}, ybb)
+            for path in (db, ybb):
+                for reader in (bookminer.read_bookminer_backup, bookminer.read_yaneuraou_book):
+                    with self.subTest(path=path, reader=reader.__name__):
+                        book = bookminer.Book()
+                        reader(book, str(path))
+                        self.assertEqual([m.move for m in book.body[bookminer.SFEN_START].moveinfos],
+                                         ['2g2f', '7g7f'])
+
     def test_flipped_duplicate_keeps_shortest_ply(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'flipped.db'

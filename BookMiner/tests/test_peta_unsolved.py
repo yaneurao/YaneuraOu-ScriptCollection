@@ -13,6 +13,20 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_unsorted_peta_file_uses_evaluation_order_for_depths(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            source = root / 'peta.db'
+            source.write_text('#YANEURAOU-DB2016 1.00\n'
+                              f'sfen {miner.SFEN_START} 1\n'
+                              '7g7f none 10 0\n2g2f none 100 1\n')
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            peta = miner.Book()
+            miner.read_regular_book_fast(peta, str(source), 'test')
+            with patch.object(miner, 'peta_book', peta):
+                miner.peta_unsolved((1, 0), eval_limit=400)
+            self.assertEqual((root / 'think_sfens.txt').read_text(), '')
+
     def test_eval_limit_applies_only_to_depth_zero_best(self):
         book = miner.Book()
         board = miner.cshogi.Board()

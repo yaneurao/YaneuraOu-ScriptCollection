@@ -2678,6 +2678,7 @@ def merge_moveinfos(position_info:PositionInfo, moveinfos:list[MoveInfo]):
                 break
         else:
             position_info.moveinfos.append(MoveInfo(moveinfo_new.move, moveinfo_new.eval, moveinfo_new.depth))
+    position_info.moveinfos.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
 
 
 def read_yaneuraou_book(book:Book, path:str):
@@ -2700,7 +2701,9 @@ def read_yaneuraou_book(book:Book, path:str):
                 book.body[sfen_f].ply = min(book.body[sfen_f].ply, ply)
             else:
                 # 定跡本体に見つからなかったので、新規局面として登録する。
-                book.body[sfen] = PositionInfo([MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos], ply)
+                copied = [MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos]
+                copied.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
+                book.body[sfen] = PositionInfo(copied, ply)
 
     with book.lock:
         read_yaneuraou_book_file(path, append_position)
@@ -2728,11 +2731,11 @@ def read_regular_book_fast(book:Book, path:str, label:str, cancel:Event|None = N
             check_peta_shock_cancel(cancel)
         position = book.body.get(sfen)
         if position is None:
+            moveinfos.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
             book.body[sfen] = PositionInfo(moveinfos, ply)
         else:
             merge_moveinfos(position, moveinfos)
             position.ply = min(position.ply, ply)
-            position.moveinfos.sort(key=lambda move: move.eval if move.eval is not None else VALUE_MIN, reverse=True)
 
     with book.lock:
         kwargs = {'normalize_eval': False, 'copy_moveinfos': False}
