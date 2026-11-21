@@ -16,6 +16,30 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_db_comments_and_indented_lines_load_and_probe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'comments.db'
+            path.write_text('  #YANEURAOU-DB2016 1.00\r\n'
+                            '  // comment\r\n\t  \r\n'
+                            f'  sfen {bookminer.SFEN_START} 1  \r\n'
+                            '  7g7f none 10 0 \r\n  // another comment\r\n'
+                            '\t2g2f none 20 0\r\n', encoding='utf-8-sig')
+            for reader in (bookminer.read_bookminer_backup, bookminer.read_yaneuraou_book):
+                book = bookminer.Book()
+                reader(book, str(path))
+                self.assertEqual([m.move for m in book.body[bookminer.SFEN_START].moveinfos], ['2g2f', '7g7f'])
+            with bookminer.BookLib.open_book_probe(path) as probe:
+                self.assertEqual({move.move for move in probe.probe(bookminer.SFEN_START)}, {'7g7f', '2g2f'})
+
+    def test_db_accepts_bom_only_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'book.db'
+            path.write_text('\ufeff\n#YANEURAOU-DB2016 1.00\n'
+                            f'sfen {bookminer.SFEN_START} 1\n7g7f none 10 0\n', encoding='utf8')
+            book = bookminer.Book()
+            bookminer.read_bookminer_backup(book, str(path))
+            self.assertEqual(book.body[bookminer.SFEN_START].moveinfos[0].move, '7g7f')
+
     def test_fast_load_ignores_unscored_moves_and_saves_scored_moves(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

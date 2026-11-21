@@ -2588,15 +2588,19 @@ def read_yaneuraou_book_file(
         for raw_line in source:
             if cancel is not None:
                 check_peta_shock_cancel(cancel)
-            line = raw_line.rstrip()
+            line = raw_line.strip()
             if not line:
                 continue
 
-            line = line.lstrip('\ufeff')
+            line = line.lstrip('\ufeff').lstrip()
+            if not line:
+                continue
             if YANEURAOU_BOOK_HEADER_V1 in line:
                 first = False
                 continue
 
+            if line.startswith('//'):
+                continue
             if line.startswith('#'):
                 parsed_total_positions = parse_noe_line(line)
                 if parsed_total_positions is not None and parsed_total_positions != total_positions:

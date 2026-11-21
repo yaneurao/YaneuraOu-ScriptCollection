@@ -15,6 +15,21 @@ int main(int argc, char** argv)
 {
     if (argc != 2) return 2;
     const std::filesystem::path dir(argv[1]);
+    std::filesystem::create_directories(dir);
+    {
+        const auto input = dir / "commented.db";
+        { std::ofstream out(input, std::ios::binary); out << "\xef\xbb\xbf  #YANEURAOU-DB2016 1.00\r\n"
+              << "  // comment\r\n\t  \r\n  sfen " << bookminer::StartSfenPly1
+              << "  \r\n  7g7f none 10 0  \r\n  // another comment\r\n\t2g2f none 20 0\r\n"; }
+        bookminer::BookStore book;
+        book.load_yaneuraou_book(input, false, nullptr, nullptr);
+        auto position = book.find_position_copy(bookminer::StartSfenPly1);
+        auto probe = bookminer::open_book_probe(input);
+        auto probed = probe->find_position_copy(bookminer::StartSfenPly1);
+        for (const auto* p : {&position, &probed})
+            if (!*p || (*p)->moves.size() != 2 || (*p)->moves[0].move16 != bookminer::move16_from_usi("2g2f"))
+                throw std::runtime_error("indented book comments or moves were not parsed correctly");
+    }
     {
         const auto path = dir / std::filesystem::path(u8"定跡.YBB");
         bookminer::BookStore source, loaded;

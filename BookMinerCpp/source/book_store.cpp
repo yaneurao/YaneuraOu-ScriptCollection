@@ -94,6 +94,24 @@ bool starts_with(const std::string& text, const std::string& prefix)
     return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
 }
 
+void normalize_db_line(std::string& line)
+{
+    auto trim = [&] {
+        const auto first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos) { line.clear(); return; }
+        const auto last = line.find_last_not_of(" \t\r");
+        if (last + 1 < line.size()) line.erase(last + 1);
+        if (first != 0) line.erase(0, first);
+    };
+    trim();
+    if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xef
+        && static_cast<unsigned char>(line[1]) == 0xbb && static_cast<unsigned char>(line[2]) == 0xbf)
+    {
+        line.erase(0, 3);
+        trim();
+    }
+}
+
 std::string join_tokens(const std::vector<std::string>& tokens)
 {
     std::string out;
@@ -864,21 +882,15 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
     std::string line;
     while (std::getline(in, line))
     {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
+        normalize_db_line(line);
         if (line.empty())
             continue;
-        if (line.size() >= 3 &&
-            static_cast<unsigned char>(line[0]) == 0xef &&
-            static_cast<unsigned char>(line[1]) == 0xbb &&
-            static_cast<unsigned char>(line[2]) == 0xbf)
-        {
-            line.erase(0, 3);
-        }
 
         if (line.find(YaneuraOuBookHeaderV1) != std::string::npos)
             continue;
 
+        if (starts_with(line, "//"))
+            continue;
         if (starts_with(line, "#"))
         {
             const std::string marker = "# NOE:";
@@ -1076,15 +1088,7 @@ private:
 
     static void strip_line_suffix(std::string& line)
     {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        if (line.size() >= 3
-            && static_cast<unsigned char>(line[0]) == 0xef
-            && static_cast<unsigned char>(line[1]) == 0xbb
-            && static_cast<unsigned char>(line[2]) == 0xbf)
-        {
-            line.erase(0, 3);
-        }
+        normalize_db_line(line);
     }
 
     void seek_to_line_start(std::uint64_t offset)
