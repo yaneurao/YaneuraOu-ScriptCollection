@@ -4061,7 +4061,10 @@ fs::path run_peta_shock_makebook(const fs::path& app_dir, const fs::path& source
     }
 
     if (!fs::is_regular_file(peta_temp_path) || fs::file_size(peta_temp_path) == 0)
+    {
+        fs::remove(peta_temp_path, ec);
         throw std::runtime_error("peta_shock makebook failed. output file was not created : " + peta_temp_path.string());
+    }
 
     try
     {

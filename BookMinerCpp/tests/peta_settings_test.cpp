@@ -39,6 +39,9 @@ int main(int argc, char** argv)
                " print('info string Error! : write failed')\n"
                "elif pathlib.Path('simulate-incomplete').exists():\n"
                " output.write_text('partial')\n"
+               "elif pathlib.Path('simulate-empty').exists():\n"
+               " output.write_text('')\n"
+               " print('Making a peta-shock book has been completed.')\n"
                "else:\n"
                " output.write_text('result')\n"
                " print('Making a peta-shock book has been completed.')\n";
@@ -166,6 +169,20 @@ int main(int argc, char** argv)
     if (!failed || content != "result")
         throw std::runtime_error("failed peta shock replaced the previous output");
     std::filesystem::remove(root / "simulate-error");
+    {
+        const auto previous_count = std::distance(fs::directory_iterator(root / "book" / "backup"), fs::directory_iterator{});
+        { std::ofstream marker(root / "simulate-empty"); }
+        bool empty_failed = false;
+        try { (void)run_peta_shock_makebook(root, source, settings); }
+        catch (const std::runtime_error&) { empty_failed = true; }
+        std::filesystem::remove(root / "simulate-empty");
+        const auto after_count = std::distance(fs::directory_iterator(root / "book" / "backup"), fs::directory_iterator{});
+        if (!empty_failed || previous_count != after_count)
+            throw std::runtime_error("empty peta output was accepted or left behind");
+        std::ifstream existing(output);
+        std::string existing_content; existing >> existing_content;
+        if (existing_content != "result") throw std::runtime_error("empty peta output replaced the existing book");
+    }
     { std::ofstream marker(root / "simulate-incomplete"); }
     failed = false;
     try { (void)run_peta_shock_makebook(root, source, settings); }
