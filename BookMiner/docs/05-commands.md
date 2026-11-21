@@ -269,15 +269,13 @@ pj 30 9999 200 6 400
 
 ## peta unsolved
 
-負けた棋譜などを `book/think_unsolved_sfens.txt` に入れておき、その棋譜上の各途中局面から peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。
+負けた棋譜を `book/think_unsolved_sfens.txt` に入れます。各途中局面で、評価値順に指定された最低depthに満たない指し手を調べ、そのPV leafを `book/think_sfens.txt` に書き出します。
 
 ```text
-pu None None 200 None 400
+pu 10,8,6,4 None 200 None 400
 ```
 
-引数は順に `eval_drop_limit`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` です。共通引数を省略または `None` 指定した場合は `sd` の値を使います。GUIで空欄にした場合は手順2のデフォルト値行が使われ、明示的に `None` と入力した場合は `None` として送信します。
-
-`eval_drop_limit` は、棋譜のroot局面の評価値からroot側視点でどれだけ悪化した途中局面を除外するかです。`None` の場合は `99999` 扱いになり、通常は評価値差では除外しません。
+引数は `min_depths`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` の順です。例では、1〜4番目の指し手にそれぞれdepth 10、8、6、4を要求します。`min_depths` の既定値は `10,8,6,4` です。最善手がdepth 0で評価値の絶対値が `eval_limit` を超える局面からは先をたどりません。それ以外の共通引数を省略または `None` 指定した場合は `sd` の値を使います。
 
 `pu` は `book/think_sfens.txt` を書き出すだけです。書き出し後の `enqueue` は手動で実行してください。
 

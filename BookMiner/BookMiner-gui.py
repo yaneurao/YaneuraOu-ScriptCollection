@@ -166,7 +166,7 @@ GUI_SETTING_DEFAULTS = {
     "peta_refutation_book_extend_ply": "",
     "peta_rejoin_book_extend_ply": "",
     "peta_unsolved_book_extend_ply": "",
-    "peta_unsolved_eval_drop_limit": "",
+    "peta_unsolved_min_depths": "10,8,6,4",
     "peta_unsolved_max_step": "",
     "peta_opponent_eval_diff": "",
     "peta_opponent_max_step": "",
@@ -346,9 +346,6 @@ def load_gui_settings() -> dict[str, str]:
     if isinstance(legacy_eval_refu, str) and legacy_eval_refu.strip():
         settings.setdefault("peta_refutation_eval_refu", legacy_eval_refu)
 
-    legacy_unsolved_eval_diff = data.get("peta_unsolved_eval_diff")
-    if isinstance(legacy_unsolved_eval_diff, str):
-        settings.setdefault("peta_unsolved_eval_drop_limit", legacy_unsolved_eval_diff)
 
     legacy_renamed_keys = {
         "peta_next_refutation_eval_diff": "peta_refutation_eval_diff",
@@ -667,10 +664,10 @@ class BookMinerGui(ttk.Frame):
                 GUI_SETTING_DEFAULTS["peta_unsolved_book_extend_ply"],
             )
         )
-        self.peta_unsolved_eval_drop_limit = tk.StringVar(
+        self.peta_unsolved_min_depths = tk.StringVar(
             value=gui_settings.get(
-                "peta_unsolved_eval_drop_limit",
-                GUI_SETTING_DEFAULTS["peta_unsolved_eval_drop_limit"],
+                "peta_unsolved_min_depths",
+                GUI_SETTING_DEFAULTS["peta_unsolved_min_depths"],
             )
         )
         self.peta_unsolved_max_step = tk.StringVar(
@@ -1090,10 +1087,10 @@ class BookMinerGui(ttk.Frame):
         self.unsolved_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
             self.unsolved_button,
-            "`pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。book/think_unsolved_sfens.txt の棋譜prefixからpeta_book上のPV leafを抽出します。空欄はデフォルト値行を使います。",
+            "`pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。min_depths は指し手の順位ごとの最低depthです（例: 10,8,6,4）。",
         )
-        ttk.Label(commands, text="eval_drop_limit").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
-        ttk.Entry(commands, textvariable=self.peta_unsolved_eval_drop_limit, width=8).grid(row=7, column=3, sticky="w", pady=3)
+        ttk.Label(commands, text="min_depths").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
+        ttk.Entry(commands, textvariable=self.peta_unsolved_min_depths, width=12).grid(row=7, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="max step").grid(row=7, column=6, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_unsolved_max_step, width=8).grid(row=7, column=7, sticky="w", pady=3)
         ttk.Label(commands, text="game ply limit").grid(row=7, column=8, sticky="w", padx=(12, 6), pady=3)
@@ -2679,7 +2676,7 @@ class BookMinerGui(ttk.Frame):
             "peta_refutation_book_extend_ply": self.peta_refutation_book_extend_ply.get(),
             "peta_rejoin_book_extend_ply": self.peta_rejoin_book_extend_ply.get(),
             "peta_unsolved_book_extend_ply": self.peta_unsolved_book_extend_ply.get(),
-            "peta_unsolved_eval_drop_limit": self.peta_unsolved_eval_drop_limit.get(),
+            "peta_unsolved_min_depths": self.peta_unsolved_min_depths.get(),
             "peta_unsolved_max_step": self.peta_unsolved_max_step.get(),
             "peta_opponent_eval_diff": self.peta_opponent_eval_diff.get(),
             "peta_opponent_max_step": self.peta_opponent_max_step.get(),
@@ -3232,13 +3229,13 @@ class BookMinerGui(ttk.Frame):
         return str(parsed)
 
     def send_peta_unsolved(self, auto: bool = False) -> bool:
-        eval_drop_limit = self._get_optional_int_token(
-            self.peta_unsolved_eval_drop_limit,
-            "peta unsolved eval_drop_limit",
-            auto,
-            non_negative=True,
-        )
-        if eval_drop_limit is None:
+        min_depths = self.peta_unsolved_min_depths.get().strip()
+        parts = min_depths.split(',')
+        if not all(part.isascii() and part.isdecimal() and int(part) <= 2147483647 for part in parts):
+            if auto:
+                self._append_log("task", "[AUTO] min_depths must be comma-separated non-negative integers.\n")
+            else:
+                messagebox.showerror("入力エラー", "min_depths には 10,8,6,4 のように0以上の整数をカンマ区切りで指定してください。")
             return False
         max_step = self._get_step2_int_token(
             self.peta_unsolved_max_step,
@@ -3287,7 +3284,7 @@ class BookMinerGui(ttk.Frame):
                 self.busy_action = None
                 self._update_buttons()
             return False
-        if self.send_command(f"pu {eval_drop_limit} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
+        if self.send_command(f"pu {min_depths} {max_step} {game_ply_limit} {book_extend_ply} {eval_limit}", origin=origin):
             return True
         if not auto:
             self.busy_action = None

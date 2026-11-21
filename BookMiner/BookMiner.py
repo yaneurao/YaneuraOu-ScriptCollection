@@ -3708,6 +3708,7 @@ def peta_pv_leaf_position_cmd(
     first_move:MoveStr,
     max_book_ply:int,
     max_step:int = PETA_DEFAULT_MAX_STEP,
+    eval_limit:int|None = None,
 )->PositionStr|None:
     """
     first_moveを指した後、peta_book上のbest PVをdepth 0またはDB外まで辿り、
@@ -3746,6 +3747,8 @@ def peta_pv_leaf_position_cmd(
 
         best = position_info.moveinfos[0]
         if best.depth <= 0:
+            if eval_limit is not None and abs(best.eval) > eval_limit:
+                return None
             return leaf_position_cmd
         if step >= max_step:
             return None
@@ -3763,25 +3766,22 @@ def peta_pv_leaf_position_cmd(
 
 
 def peta_unsolved(
-    eval_drop_limit:int = PETA_DEFAULT_INF_EVAL_DIFF,
+    min_depths:tuple[int, ...] = (10, 8, 6, 4),
     max_book_ply:int = MAX_BOOK_PLY,
     max_step:int = PETA_DEFAULT_MAX_STEP,
     book_extend_ply:int|None = None,
     unsolved_sfens_path:str|None = None,
     eval_limit:int|None = None,
 ):
-    """
-    book/think_unsolved_sfens.txt にある棋譜の各prefixについて、
-    peta_book上のbest PVをleafまで辿った局面を book/think_sfens.txt に書き出す。
-
-    eval_drop_limit は、棋譜rootの評価値からroot側視点で指定値以上悪化したprefixを除外する。
-    """
+    """棋譜の各局面で最低depthに満たない指し手のPV leafを列挙する。"""
+    if not min_depths or any(depth < 0 for depth in min_depths):
+        raise ValueError("min_depths must be non-empty non-negative integers")
 
     if unsolved_sfens_path is None:
         unsolved_sfens_path = os.path.join(BOOK_DIR, THINK_UNSOLVED_SFENS_NAME)
 
     print(
-        f"peta_unsolved, eval_drop_limit = {eval_drop_limit}, "
+        f"peta_unsolved, min_depths = {min_depths}, "
         f"max_book_ply = {max_book_ply}, max_step = {max_step}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
@@ -3795,7 +3795,7 @@ def peta_unsolved(
     processed_prefixes = 0
     input_games = 0
     candidates = 0
-    skipped_by_eval_drop_limit = 0
+    stopped_by_eval_limit = 0
     skipped_by_ply = 0
     skipped_no_peta = 0
     skipped_no_leaf = 0
@@ -3807,26 +3807,13 @@ def peta_unsolved(
                 continue
 
             input_games += 1
-            prefixes = iter_position_prefixes(position_line)
-            try:
-                root_position_cmd, root_sfen_with_ply = next(prefixes)
-            except StopIteration:
-                continue
-
-            root_sfen, root_ply = trim_sfen_ply(root_sfen_with_ply)
-            root_best, _ = peta_best_moveinfo_for_sfen(root_sfen)
-            if root_best is None or not isinstance(root_best.eval, int):
-                skipped_no_peta += 1
-                continue
-
-            root_eval = root_best.eval
-            for prefix_position_cmd, prefix_sfen_with_ply in [(root_position_cmd, root_sfen_with_ply), *prefixes]:
+            for prefix_position_cmd, prefix_sfen_with_ply in iter_position_prefixes(position_line):
                 processed_prefixes += 1
                 if processed_prefixes % PETA_UNSOLVED_PROGRESS_INTERVAL == 0:
                     print(
                         f"unsolved progress prefixes = {processed_prefixes} , "
                         f"think_sfens = {len(think_sfens)} , "
-                        f"skipped_by_eval_drop_limit = {skipped_by_eval_drop_limit} , "
+                        f"stopped_by_eval_limit = {stopped_by_eval_limit} , "
                         f"skipped_by_ply = {skipped_by_ply} , "
                         f"skipped_no_peta = {skipped_no_peta}"
                     )
@@ -3836,30 +3823,27 @@ def peta_unsolved(
                     skipped_by_ply += 1
                     continue
 
-                best, best_move = peta_best_moveinfo_for_sfen(prefix_sfen)
-                if best is None or not isinstance(best.eval, int):
+                position, flipped = find_book_position_with_flip(peta_book, prefix_sfen)
+                if position is None or not position.moveinfos:
                     skipped_no_peta += 1
                     continue
-
-                # evalは局面の手番側視点なので、rootから手番が反転していれば符号を反転する。
-                current_eval_from_root = best.eval if (prefix_ply - root_ply) % 2 == 0 else -best.eval
-                if root_eval - current_eval_from_root >= eval_drop_limit:
-                    skipped_by_eval_drop_limit += 1
-                    continue
-
-                candidates += 1
-                leaf_position_cmd = peta_pv_leaf_position_cmd(
-                    prefix_position_cmd,
-                    prefix_sfen_with_ply,
-                    best_move,
-                    max_book_ply,
-                    max_step,
-                )
-                if leaf_position_cmd is None:
-                    skipped_no_leaf += 1
-                    continue
-
-                add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                best = position.moveinfos[0]
+                if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
+                    stopped_by_eval_limit += 1
+                    break
+                for moveinfo, minimum in zip(position.moveinfos, min_depths):
+                    if moveinfo.depth >= minimum:
+                        continue
+                    candidates += 1
+                    move = moveinfo_move_in_sfen_orientation(moveinfo, flipped)
+                    leaf = peta_pv_leaf_position_cmd(
+                        prefix_position_cmd, prefix_sfen_with_ply, move,
+                        max_book_ply, max_step, eval_limit,
+                    )
+                    if leaf is None:
+                        skipped_no_leaf += 1
+                    else:
+                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
@@ -3869,7 +3853,7 @@ def peta_unsolved(
     print(
         f"[PetaUnsolvedDone] path={path} count={len(think_sfens)} "
         f"input_games={input_games} processed_prefixes={processed_prefixes} "
-        f"candidates={candidates} skipped_by_eval_drop_limit={skipped_by_eval_drop_limit} "
+        f"candidates={candidates} stopped_by_eval_limit={stopped_by_eval_limit} "
         f"skipped_by_ply={skipped_by_ply} skipped_no_peta={skipped_no_peta} "
         f"skipped_no_leaf={skipped_no_leaf}"
     )
@@ -4507,7 +4491,7 @@ def user_input(from_gui:bool = False):
                 print("  PN   : peta_shock next , pn (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PR  : peta refutation , pr (eval_refutation_margin) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PJ   : peta rejoin , pj (eval_drop) (peta_eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
-                print("  PU   : peta unsolved , pu (eval_drop_limit) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
+                print("  PU   : peta unsolved , pu (min_depths) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  PO   : peta opponent , po (eval_diff) (max_step) (game_ply_limit) (book_extend_ply) (eval_limit)")
                 print("  H : Help")
 
@@ -4843,14 +4827,20 @@ def user_input(from_gui:bool = False):
 
             elif i == 'pu':
                 # peta_unsolved
-                eval_drop_limit = parse_int_argument(inp, 1, PETA_DEFAULT_INF_EVAL_DIFF)
+                depth_text = inp[1] if len(inp) > 1 and inp[1].lower() != 'none' else '10,8,6,4'
+                depth_parts = depth_text.split(',')
+                if not all(part.isascii() and part.isdecimal() for part in depth_parts):
+                    print("Error : min_depths must be comma-separated non-negative integers.")
+                    continue
+                min_depths = tuple(int(part) for part in depth_parts)
+                if any(depth > 2147483647 for depth in min_depths):
+                    print("Error : min_depths must be comma-separated non-negative integers.")
+                    continue
                 max_step = parse_int_argument(inp, 2, command_defaults.max_step)
                 max_book_ply = parse_int_argument(inp, 3, command_defaults.game_ply_limit)
                 book_extend_ply = parse_int_argument(inp, 4, command_defaults.book_extend_ply)
                 eval_limit = parse_int_argument(inp, 5, command_defaults.eval_limit)
-                if eval_drop_limit < 0:
-                    print("Error : eval_drop_limit must be non-negative integer.")
-                elif max_book_ply <= 0:
+                if max_book_ply <= 0:
                     print("Error : max_book_ply must be positive integer.")
                 elif max_step <= 0:
                     print("Error : max_step must be positive integer.")
@@ -4860,7 +4850,7 @@ def user_input(from_gui:bool = False):
                     print("Error : eval_limit must be non-negative integer.")
                 else:
                     peta_unsolved(
-                        eval_drop_limit,
+                        min_depths,
                         max_book_ply,
                         max_step,
                         book_extend_ply,

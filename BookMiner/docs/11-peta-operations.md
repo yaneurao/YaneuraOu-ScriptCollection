@@ -41,7 +41,7 @@ enqueue
 | `peta next` | `pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit] [normal_fallback]` | peta book を root から辿り、leaf の先へ伸ばす候補を `book/think_sfens.txt` に書き出します。`normal_fallback` に `1` を指定すると通常 DB も参照します。 |
 | `peta refutation` | `pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `peta next` の leaf のうち、反駁された leaf だけを書き出します。 |
 | `peta rejoin` | `pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | peta book から抜けた leaf のうち、合法手1手で peta book に再合流するものだけを書き出します。`eval_drop` で再合流時の評価値低下量を絞れます。 |
-| `peta unsolved` | `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/think_unsolved_sfens.txt` の棋譜の各途中局面から、peta book 上の best PV leaf を書き出します。 |
+| `peta unsolved` | `pu [min_depths] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | 棋譜の各局面で最低depthに満たない指し手のPV leafを書き出します。 |
 | `peta opponent` | `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` | `book/book_opponent/` に置いた相手定跡と現行 peta book を辿り、対策候補 leaf を書き出します。 |
 | `enqueue` | `e` / `eb branch_width branch_depth` | `book/think_sfens.txt` を探索 queue に積みます。branch指定を使うと、掘った局面からMultiPV上位手を指定手数先まで展開します。 |
 
@@ -186,23 +186,17 @@ startpos moves 7g7f 3c3d 2g2f 8c8d 2f2e
 | `startpos moves 7g7f 3c3d 2g2f 8c8d` | 4手進めた局面 |
 | `startpos moves 7g7f 3c3d 2g2f 8c8d 2f2e` | 5手進めた局面 |
 
-そして、それぞれの途中局面から、読み込み済みの peta book 上で best move を選び続けます。leaf に到達したら、その leaf 局面を `book/think_sfens.txt` に書き出します。
+各局面では、peta bookの指し手を評価値順に調べ、指定した最低depthに満たない指し手のPV leafを `book/think_sfens.txt` に書き出します。GUIの `min_depths` が `10,8,6,4` なら、1番目はdepth 10、2番目は8、3番目は6、4番目は4が最低値です。5番目以降は対象外です。数値は必要な個数をカンマ区切りで指定できます。depthがちょうど最低値の場合は対象外です。
 
-![peta unsolved の入力と出力](assets/peta-unsolved-flow.svg)
-
-つまり `peta unsolved` は、負け棋譜そのものをすぐ enqueue する機能ではありません。負け棋譜の各途中局面を入口にして、peta book が「この先はここを掘るべき」と示す leaf を集める機能です。
+指定した指し手を指した後は、peta bookの最善手をleafまでたどります。棋譜またはPVをたどる途中で、最善手のdepthが0かつ評価値の絶対値が `eval_limit` を超える局面に到達した場合、その局面から先はたどりません。棋譜のその局面以降も対象外です。depthが0でない場合は、評価値が `eval_limit` を超えていても打ち切りません。
 
 GUIでは `peta unsolved`、CLIでは `pu` コマンドです。
 
 ```text
-pu None 99999 200 6 400
+pu 10,8,6,4 99999 200 6 400
 ```
 
-引数は `eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` の順です。
-
-`eval_drop_limit` は、棋譜の最初の局面から見て、途中局面の評価値がどれくらい悪化したら対象外にするかです。`None` の場合は `99999` 扱いなので、ほぼ除外しません。
-
-例として、棋譜の最初の局面が `+100` で、途中局面が root 側から見て `-50` になったとします。この悪化量は `150` です。`eval_drop_limit=100` なら、その途中局面は悪化しすぎているため除外されます。`eval_drop_limit=200` なら対象に残ります。
+引数は `min_depths max_step game_ply_limit book_extend_ply eval_limit` の順です。`min_depths` を省略または `None` とした場合は `10,8,6,4` を使います。ほかの引数で `None` を指定した場合は共通設定を使います。
 
 `peta unsolved` は `book/think_sfens.txt` を書き出すだけで、自動的には enqueue しません。負けた棋譜の変化周辺を確認してから、手動で `enqueue` します。
 
@@ -271,7 +265,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 | 値 | 使う場所 | 意味 |
 |---|---|---|
 | `eval_diff` | `peta next` / `pn`、`peta refutation` / `pr`、`peta rejoin` / `pj`、`peta opponent` / `po` | peta book の中で、best move からどれくらい評価値が離れた枝まで辿るか。`peta opponent` では各局面で best に近い候補をどこまで候補に入れるか。 |
-| `eval_drop_limit` | `peta unsolved` / `pu` | 棋譜の最初の局面から見て、途中局面の評価値がどれくらい悪化したら除外するか。 |
+| `min_depths` | `peta unsolved` / `pu` | 評価値順の指し手に必要な最低depthをカンマ区切りで指定。 |
 | `eval_drop` | `peta rejoin` / `pj` | leaf局面Xから合法手1手で局面Yに再合流したとき、`X_eval - Y_best_eval` がどれくらい以上ならXを書き出すか。空欄または `-9999` なら条件なし。 |
 | `eval_refutation_margin` | `peta refutation` / `pr` | peta shock後の反駁候補手と旧best手の評価値差がどれくらい以上なら抽出するか。 |
 | `max_step` | 手順2の各 peta 抽出コマンド | peta book の中で leaf を探す範囲を制限する値。`think_sfens.txt` には書き出されず、enqueue 後の探索条件にはならない。 |

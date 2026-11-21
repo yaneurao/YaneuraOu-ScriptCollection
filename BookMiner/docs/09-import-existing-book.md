@@ -301,7 +301,7 @@ GUI:
         peta next
         または peta refutation eval_diff 99999 eval refu. 100
         または peta rejoin eval_drop 空欄 eval_diff 99999
-        または peta unsolved eval_drop_limit None
+        または peta unsolved min_depths 10,8,6,4
         または peta opponent eval_diff 0 book extend ply 20
 手順3. enqueue
 ```

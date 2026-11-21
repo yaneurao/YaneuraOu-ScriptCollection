@@ -74,7 +74,7 @@ GUI 上でもこの手順が縦に並んでいます。
         [ peta next       ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [✓]
         [ peta refutation ] eval refu. [ R ]   eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta rejoin     ] eval_drop [ D ]    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
-        [ peta unsolved   ] eval_drop_limit [ X ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
+        [ peta unsolved   ] min_depths [ 10,8,6,4 ]             max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
         [ peta opponent   ]                    eval_diff [ X  ] max step [ Y     ] game ply limit [ P   ] book extend ply [ T ] eval_limit [ Z ] 自動 [ ]
 手順3. [ enqueue    ]                    上位N手 [ 0 ]  M手先まで [ 0 ]
 手順4. 自動enqueue  ☑ queueの残りが [ X ] より少なくなったら、手順2の自動チェック分をまとめてenqueue
@@ -101,7 +101,7 @@ GUI は各 peta 操作と `enqueue` の直前に `sd eval_diff max_step game_ply
 
 `peta rejoin` は、`eval_drop` が空欄なら `pj eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`eval_drop` を指定した場合は `pj eval_drop eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信し、leaf局面Xへ入った直前の枝の評価値 `X_eval` と、Xから合法手1手で再合流した局面Yのbestmove評価値 `Y_best_eval` について、`X_eval - Y_best_eval >= eval_drop` を満たすXだけを `book/think_sfens.txt` に書き出します。
 
-`peta unsolved` は `pu eval_drop_limit max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/think_unsolved_sfens.txt` にある棋譜の各途中局面から、peta_book 上の best PV を leaf まで辿った局面を `book/think_sfens.txt` に書き出します。`eval_drop_limit` は棋譜rootの評価値からroot側視点でどれだけ悪化した途中局面を除外するかです。負けた棋譜の変化周辺を重点的に掘りたいときに使います。`自動` にチェックすると、自動enqueueの手順2にも含めます。
+`peta unsolved` は `pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。棋譜の各局面で、順位ごとの最低depthに満たない手のPV leafを書き出します。`min_depths` の既定値 `10,8,6,4` は1〜4番目の手に必要なdepthです。詳しくは [peta unsolved](11-peta-operations.md#peta-unsolved) を参照してください。`自動` にチェックすると自動enqueueの手順2にも含めます。
 
 `peta opponent` は `po eval_diff max_step game_ply_limit book_extend_ply eval_limit` を送信します。`book/book_opponent/` に置いた過去配布定跡などを相手定跡とみなし、現在読み込んでいる peta_book と best 進行を辿ります。どちらかの定跡が切れた地点から、現在の peta_book の PV leaf まで進めた局面を `book/think_sfens.txt` に書き出します。
 
@@ -148,7 +148,7 @@ branch指定時は、入力局面を掘ることが確定してから上位手�
 開始局面ファイルの「編集」や、その下のファイル名ボタンからVS Codeで対象ファイルを開けます。開始局面ファイルは入力欄のパスを開くため、パスの変更を「適用」する前でも編集できます。ファイルがない場合は作成前に確認し、開始局面ファイルは `startpos` を初期内容にします。`think_sfens.txt` はpeta nextなどで上書きされるため、編集時には注意してください。VS Code本体が見つからない場合はインストール先とPATHを確認してください。
 
 採掘タブの数値入力欄は、ウィンドウを閉じるときに `BookMiner-gui.pickle` へ保存されます。
-保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `eval_drop_limit`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
+保存されるのは手順2のデフォルト値、各 `eval_diff`、peta unsolved の `min_depths`、各 `eval refu.`、各 `max step`、各 `book extend ply`、各 `eval_limit`、各 `game ply limit`、enqueue のbranch指定、手順2の `自動` チェック状態、手順2の折りたたみ状態、`自動enqueue` の queue 残数しきい値、ログ表示モードです。
 
 ウィンドウの `×` で閉じる場合、GUI は `q` コマンドを送信しません。
 DBを保存したい場合は、閉じる前に `DB手動保存` を押してください。

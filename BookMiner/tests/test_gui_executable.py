@@ -13,6 +13,20 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_unsolved_sends_depth_list_and_rejects_invalid_input(self):
+        instance = Mock()
+        instance.peta_unsolved_min_depths.get.return_value = '10,8,6,4'
+        instance._get_step2_int_token.side_effect = ['9999', '200', '6', '400']
+        instance._build_default_settings_command.return_value = 'sd 30 9999 200 6 400'
+        instance._begin_manual_action.return_value = True
+        instance.send_command.return_value = True
+        self.assertTrue(gui.BookMinerGui.send_peta_unsolved(instance))
+        self.assertEqual(instance.send_command.call_args_list[-1].args[0], 'pu 10,8,6,4 9999 200 6 400')
+        for value in ('', '10,,4', '-1,4', '1,', '1,abc', '2147483648'):
+            with self.subTest(value=value), patch.object(gui.messagebox, 'showerror'):
+                instance.peta_unsolved_min_depths.get.return_value = value
+                self.assertFalse(gui.BookMinerGui.send_peta_unsolved(instance))
+
     def test_failed_enqueue_during_peta_keeps_peta_running_and_queue_count(self):
         for action in ('manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock', 'manual_peta_read'):
             for command in ('e', 'eb'):

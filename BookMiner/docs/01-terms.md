@@ -229,7 +229,7 @@ peta shock 化によって、peta shock 前は2番手以下だった指し手が
 
 `book/think_unsolved_sfens.txt` にある棋譜の各途中局面から、peta_book 上の best PV を leaf まで辿り、次に掘る局面として `book/think_sfens.txt` に書き出す処理です。
 
-BookMiner の CLI では `pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]`、GUI では `peta unsolved` ボタンに対応します。`None` を指定するとデフォルト値を使います。`eval_drop_limit` は棋譜rootからどれだけ悪化した途中局面を除外するかです。書き出し後の enqueue は手動で実行します。詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-unsolved) を参照してください。
+BookMiner の CLI では `pu [min_depths] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]`、GUIでは `peta unsolved` ボタンに対応します。`min_depths` は指し手の順位ごとに必要な最低depthです。書き出し後の enqueue は手動で実行します。詳しくは [11. peta book を使って次に掘る局面を作る](11-peta-operations.md#peta-unsolved) を参照してください。
 
 ## peta opponent
 

@@ -161,7 +161,7 @@ flip hitした場合の指し手は、やねうら王の `flip_move(Move16)` で
 
 `pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、peta bookから抜けたleafのうち、合法手1手でpeta bookに再合流するものだけを書き出します。`eval_drop` で絞る場合は `pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` とします。再合流判定では、`SfenPosition::legal_moves()` で合法手を生成し、1手進めた局面をpeta book上でflip込みでprobeします。`eval_drop` 指定時は、leafへ入った直前の枝の評価値 `X_eval` と再合流先Yのbestmove評価値 `Y_best_eval` について、`X_eval - Y_best_eval >= eval_drop` を満たすものだけを書き出します。
 
-`pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`book/think_unsolved_sfens.txt` の棋譜の各途中局面から peta_book 上の best PV leaf を書き出します。共通引数に `None` を指定した場合は `sd` の値を使います。
+`pu [min_depths] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、棋譜の各途中局面で、順位ごとの最低depthに満たない指し手のPV leafを書き出します。`min_depths` の既定値は `10,8,6,4` です。最善手のdepthが0かつ評価値の絶対値が `eval_limit` を超える局面では先をたどりません。残りの引数に `None` を指定した場合は `sd` の値を使います。
 
 `po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]` は、`book/book_opponent/` の相手定跡と現行 peta_book を仮想対局させ、どちらかの定跡が切れた地点から現行 peta_book のPV leafまで辿った局面を書き出します。C++版は相手定跡として `.db` と `.ybb` の両方を扱い、相手定跡は全読み込みせず on-the-fly probe します。`book_extend_ply`、`eval_limit`、`game_ply_limit` を指定した場合、出力行に対応するメタ情報を付けます。`None` の場合はメタ情報を書かず、`e` 実行時に `sd` の値を使います。
 

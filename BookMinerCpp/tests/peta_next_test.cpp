@@ -106,6 +106,32 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        const auto old_cwd = std::filesystem::current_path();
+        const auto directory = roots_path.parent_path() / "unsolved-fixture";
+        std::filesystem::create_directories(directory / "book");
+        std::filesystem::current_path(directory);
+        bookminer::BookStore peta;
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        peta.merge_position(board.sfen_with_ply(), 1, {
+            {bookminer::move16_from_usi("7g7f"), 100, 9},
+            {bookminer::move16_from_usi("2g2f"), 90, 8},
+            {bookminer::move16_from_usi("6g6f"), 80, 5},
+            {bookminer::move16_from_usi("1g1f"), 70, 4},
+        });
+        board.push_usi("7g7f");
+        peta.merge_position(board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 401, 0}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f 3c3d\n"; }
+        (void)peta_unsolved(peta, {10, 8, 6, 4}, 200, 9999, std::nullopt, 400);
+        std::ifstream result("book/think_sfens.txt");
+        std::string text((std::istreambuf_iterator<char>(result)), {});
+        if (text.find("startpos moves 6g6f") == std::string::npos
+            || text.find("startpos moves 7g7f") != std::string::npos
+            || text.find("startpos moves 2g2f") != std::string::npos
+            || text.find("startpos moves 1g1f") != std::string::npos)
+            throw std::runtime_error("unsolved depth thresholds or eval cutoff failed");
+        std::filesystem::current_path(old_cwd);
+    }
+    {
         const std::string moves = "5i5h 5a5b 5h5i 5b5a 2g2f 8c8d 2f2e 8d8e 7g7f 4a3b 8h7g "
                                   "3c3d 7i6h 2b7g+ 6h7g 3a2b 3i3h 2b3c 6i7h 7a6b 9g9f "
                                   "9c9d 1g1f 1c1d 4g4f 6c6d 3g3f 6a5b";

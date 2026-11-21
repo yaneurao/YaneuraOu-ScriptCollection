@@ -32,7 +32,7 @@ pn eval_diff [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pr eval_refutation_margin [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pj [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 pj [eval_drop] [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
-pu [eval_drop_limit] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
+pu [min_depths] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 po [eval_diff] [max_step] [game_ply_limit] [book_extend_ply] [eval_limit]
 e
 eb branch_width branch_depth
