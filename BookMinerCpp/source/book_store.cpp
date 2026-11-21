@@ -378,6 +378,22 @@ auto find_entry_in_run(RunT& run, const PackedSfen& key)
 
 void sort_moves(std::vector<MoveInfo>& moves)
 {
+    if (moves.size() < 2)
+        return;
+    // A malformed or externally produced block may list one move twice.
+    // Keep the latest occurrence, as when merging duplicate position blocks.
+    std::size_t unique = 0;
+    for (std::size_t i = 0; i < moves.size(); ++i)
+    {
+        const auto move = moves[i];
+        const auto existing = std::find_if(moves.begin(), moves.begin() + unique,
+            [&](const MoveInfo& other) { return other.move16 == move.move16; });
+        if (existing == moves.begin() + unique)
+            moves[unique++] = move;
+        else
+            *existing = move;
+    }
+    moves.resize(unique);
     std::stable_sort(moves.begin(), moves.end(), [](const MoveInfo& lhs, const MoveInfo& rhs) {
         return lhs.eval > rhs.eval;
     });
@@ -1157,10 +1173,7 @@ private:
             if (parsed.eval.has_value())
             {
                 const MoveInfo move{parsed.move16, *parsed.eval, parsed.depth};
-                if (has_position)
-                    merge_book_move(position.moves, move);
-                else
-                    position.moves.push_back(move);
+                merge_book_move(position.moves, move);
                 section_has_moves = true;
             }
         }

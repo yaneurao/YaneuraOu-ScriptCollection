@@ -12,6 +12,26 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_duplicate_move_in_single_block_keeps_latest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = root / 'duplicates.db'
+            db.write_text('#YANEURAOU-DB2016 1.00\n'
+                          f'sfen {bookminer.SFEN_START} 1\n'
+                          '7g7f none 100 1\n2g2f none 30 2\n7g7f none 20 3\n')
+            ybb = root / 'duplicates.ybb'
+            move = bookminer.BookLib.BookMove
+            bookminer.BookLib.write_ybb_book({bookminer.SFEN_START_PLY1: [
+                move('7g7f', 'none', 100, 1, 1), move('2g2f', 'none', 30, 2, 1),
+                move('7g7f', 'none', 20, 3, 1)]}, ybb)
+            for path in (db, ybb):
+                for reader in (bookminer.read_bookminer_backup, bookminer.read_yaneuraou_book):
+                    with self.subTest(path=path, reader=reader.__name__):
+                        book = bookminer.Book()
+                        reader(book, str(path))
+                        self.assertEqual([(m.move, m.eval, m.depth) for m in book.body[bookminer.SFEN_START].moveinfos],
+                                         [('2g2f', 30, 2), ('7g7f', 20, 3)])
+
     def test_readers_sort_first_block_and_after_merging(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -23,6 +43,12 @@ class BookLoadingTests(unittest.TestCase):
             move = bookminer.BookLib.BookMove
             bookminer.BookLib.write_ybb_book({bookminer.SFEN_START_PLY1: [
                 move('7g7f', 'none', 10, 0, 1), move('2g2f', 'none', 100, 1, 1)]}, ybb)
+            # The writer sorts moves; reverse its records to exercise an unsorted input.
+            data = bytearray(ybb.read_bytes())
+            offset = bookminer.BookLib.YBB_HEADER_STRUCT.size + bookminer.BookLib.YBB_INDEX_STRUCT.size
+            size = bookminer.BookLib.YBB_MOVE_DEPTH_STRUCT.size
+            data[offset:offset + 2 * size] = data[offset + size:offset + 2 * size] + data[offset:offset + size]
+            ybb.write_bytes(data)
             for path in (db, ybb):
                 for reader in (bookminer.read_bookminer_backup, bookminer.read_yaneuraou_book):
                     with self.subTest(path=path, reader=reader.__name__):

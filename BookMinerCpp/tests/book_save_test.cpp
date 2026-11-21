@@ -54,6 +54,46 @@ int main(int argc, char** argv)
         if (content != "unrelated")
             throw std::runtime_error("book save damaged an unrelated old temporary file");
     }
+    {
+        const auto input = dir / "duplicate-moves.db";
+        { std::ofstream out(input); out << "#YANEURAOU-DB2016 1.00\nsfen " << bookminer::StartSfenPly1
+              << "\n7g7f none 100 1\n2g2f none 30 2\n7g7f none 20 3\nsfen " << bookminer::StartSfenPly1
+              << "\n7g7f none 15 4\n"; }
+        bookminer::BookStore book;
+        book.load_yaneuraou_book(input, false, nullptr, nullptr);
+        const auto position = book.find_position_copy(bookminer::StartSfenPly1);
+        auto probe = bookminer::open_book_probe(input);
+        const auto probed = probe->find_position_copy(bookminer::StartSfenPly1);
+        for (const auto* p : {&position, &probed})
+            if (!*p || (*p)->moves.size() != 2 || (*p)->moves[0].move16 != bookminer::move16_from_usi("2g2f")
+                || (*p)->moves[1].eval != 15 || (*p)->moves[1].depth != 4)
+                throw std::runtime_error("duplicate moves in one position were not merged");
+    }
+    {
+        const auto input = dir / "duplicate-test.ybb";
+        const auto key = bookminer::PackedSfen::from_sfen(bookminer::StartSfenPly1);
+        {
+            std::ofstream out(input, std::ios::binary);
+            out.write("YANE-BINBOOK-V1\0", 16);
+            auto u64 = [&](std::uint64_t x) { for (int i = 0; i < 8; ++i) out.put(static_cast<char>(x >> (8 * i))); };
+            auto u16 = [&](std::uint16_t x) { out.put(static_cast<char>(x)); out.put(static_cast<char>(x >> 8)); };
+            u64(1); u64(1);
+            out.write(reinterpret_cast<const char*>(key.bytes.data()), key.bytes.size());
+            u64(0); u16(1); u16(3);
+            u16(bookminer::move16_from_usi("7g7f")); u16(100); u16(1);
+            u16(bookminer::move16_from_usi("2g2f")); u16(30); u16(2);
+            u16(bookminer::move16_from_usi("7g7f")); u16(20); u16(3);
+        }
+        bookminer::BookStore book;
+        book.load_yaneuraou_book(input, false, nullptr, nullptr);
+        const auto position = book.find_position_copy(bookminer::StartSfenPly1);
+        auto probe = bookminer::open_book_probe(input);
+        const auto probed = probe->find_position_copy(bookminer::StartSfenPly1);
+        for (const auto* p : {&position, &probed})
+            if (!*p || (*p)->moves.size() != 2 || (*p)->moves[0].move16 != bookminer::move16_from_usi("2g2f")
+                || (*p)->moves[1].eval != 20 || (*p)->moves[1].depth != 3)
+                throw std::runtime_error("duplicate YBB moves in one position were not merged");
+    }
     const auto existing = dir / "existing.db";
     { std::ofstream out(existing); out << "original"; }
     try

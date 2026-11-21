@@ -15,6 +15,16 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_opponent_ybb_probe_uses_latest_duplicate_move_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'opponent.ybb'
+            move = miner.BookLib.BookMove
+            miner.BookLib.write_ybb_book({miner.SFEN_START_PLY1: [
+                move('7g7f', 'none', 100, 0, 1), move('2g2f', 'none', 30, 0, 1),
+                move('7g7f', 'none', 20, 0, 1)]}, path)
+            with miner.BookLib.open_book_probe(path) as probe:
+                self.assertEqual(miner.candidate_best_moves_for_probe(probe, miner.SFEN_START, 0), [('2g2f', 30)])
+
     def test_rejoin_stops_at_unextended_high_eval(self):
         peta = miner.Book()
         peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)

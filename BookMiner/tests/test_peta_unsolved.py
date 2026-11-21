@@ -13,6 +13,22 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_duplicate_move_does_not_occupy_multiple_ranks(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            source = root / 'peta.db'
+            source.write_text('#YANEURAOU-DB2016 1.00\n'
+                              f'sfen {miner.SFEN_START} 1\n'
+                              '7g7f none 100 0\n2g2f none 30 0\n7g7f none 20 3\n')
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            peta = miner.Book()
+            miner.read_regular_book_fast(peta, str(source), 'test')
+            with patch.object(miner, 'peta_book', peta):
+                miner.peta_unsolved((1, 0), eval_limit=400)
+            output = (root / 'think_sfens.txt').read_text()
+            self.assertIn('startpos moves 2g2f', output)
+            self.assertNotIn('startpos moves 7g7f', output)
+
     def test_unsorted_peta_file_uses_evaluation_order_for_depths(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):
             root = Path(directory)

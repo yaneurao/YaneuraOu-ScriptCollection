@@ -2681,6 +2681,17 @@ def merge_moveinfos(position_info:PositionInfo, moveinfos:list[MoveInfo]):
     position_info.moveinfos.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
 
 
+def unique_loaded_moveinfos(moveinfos:list[MoveInfo], ply:int)->list[MoveInfo]:
+    if len(moveinfos) < 2:
+        return moveinfos
+    if len({move.move for move in moveinfos}) == len(moveinfos):
+        moveinfos.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
+        return moveinfos
+    position = PositionInfo([], ply)
+    merge_moveinfos(position, moveinfos)
+    return position.moveinfos
+
+
 def read_yaneuraou_book(book:Book, path:str):
     """
     やねうら王 定跡形式を読み込む。
@@ -2702,8 +2713,7 @@ def read_yaneuraou_book(book:Book, path:str):
             else:
                 # 定跡本体に見つからなかったので、新規局面として登録する。
                 copied = [MoveInfo(moveinfo.move, moveinfo.eval, moveinfo.depth) for moveinfo in moveinfos]
-                copied.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
-                book.body[sfen] = PositionInfo(copied, ply)
+                book.body[sfen] = PositionInfo(unique_loaded_moveinfos(copied, ply), ply)
 
     with book.lock:
         read_yaneuraou_book_file(path, append_position)
@@ -2731,8 +2741,7 @@ def read_regular_book_fast(book:Book, path:str, label:str, cancel:Event|None = N
             check_peta_shock_cancel(cancel)
         position = book.body.get(sfen)
         if position is None:
-            moveinfos.sort(key=lambda move: move.eval if move.eval is not None else float('-inf'), reverse=True)
-            book.body[sfen] = PositionInfo(moveinfos, ply)
+            book.body[sfen] = PositionInfo(unique_loaded_moveinfos(moveinfos, ply), ply)
         else:
             merge_moveinfos(position, moveinfos)
             position.ply = min(position.ply, ply)
@@ -3972,6 +3981,9 @@ def candidate_best_moves_for_probe(probe:BookLib.BookProbe, sfen:Sfen, eval_diff
     book_moves, flipped_bookhit = find_probe_moves_with_flip(probe, sfen)
     if book_moves is None or not book_moves:
         return []
+
+    # YBB probes may contain repeated moves; the last value is authoritative.
+    book_moves = list({move.move: move for move in book_moves}.values())
 
     best_eval : int | None = None
     for book_move in book_moves:
