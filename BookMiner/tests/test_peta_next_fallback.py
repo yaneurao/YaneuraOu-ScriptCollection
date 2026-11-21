@@ -1,4 +1,5 @@
 import importlib.util
+import random
 from pathlib import Path
 import sys
 import tempfile
@@ -14,6 +15,63 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_rejoin_stops_at_unextended_high_eval(self):
+        peta = miner.Book()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory), \
+             patch.object(miner, 'peta_leaf_rejoins_peta_book', return_value=True) as rejoins:
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos\n')
+            miner.peta_rejoin(0, 10, 100, str(roots), eval_limit=400)
+            rejoins.assert_not_called()
+            peta.body[miner.SFEN_START].moveinfos[0].depth = 1
+            miner.peta_rejoin(0, 10, 100, str(roots), eval_limit=400)
+            self.assertGreater(rejoins.call_count, 0)
+
+    def test_opponent_pv_honors_depth_zero_eval_limit(self):
+        peta = miner.Book()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', -500, 0)], 1)
+        with patch.object(miner, 'peta_book', peta):
+            args = ('startpos', miner.SFEN_START_PLY1, 100, 10, 0, random.Random(1))
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd_from_position_random(*args, 400))
+            peta.body[miner.SFEN_START].moveinfos[0].depth = 1
+            self.assertEqual(miner.peta_pv_leaf_position_cmd_from_position_random(*args, 400),
+                             'startpos moves 7g7f')
+
+    def test_eval_limit_checks_normal_best_child_even_with_peta_hit(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        root = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+        peta.body[miner.SFEN_START] = root
+        board.push_usi('7g7f')
+        child = miner.trim_sfen_ply(board.sfen())[0]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(miner, 'peta_book', peta), patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos\n')
+            miner.peta_next(0, 10, 100, str(roots), eval_limit=400, fallback_book=normal)
+            self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
+            normal.body[miner.flipped_sfen(child)] = miner.PositionInfo([
+                miner.MoveInfo(miner.flipped_move('3c3d'), 0, 0)], 2)
+            miner.peta_next(0, 10, 100, str(roots), eval_limit=400, fallback_book=normal)
+            self.assertIn('startpos moves 7g7f 3c3d', (Path(directory) / 'think_sfens.txt').read_text())
+            normal.body[miner.flipped_sfen(child)].moveinfos[0].eval = None
+            miner.peta_next(0, 10, 100, str(roots), eval_limit=400, fallback_book=normal)
+            self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
+            root.moveinfos[0].depth = 1
+            miner.peta_next(0, 10, 100, str(roots), eval_limit=400, fallback_book=normal)
+            self.assertIn('startpos moves 7g7f', (Path(directory) / 'think_sfens.txt').read_text())
+
+    def test_normal_depth_uses_child_not_stored_depth(self):
+        normal = miner.Book()
+        position = miner.PositionInfo([miner.MoveInfo('7g7f', -500, 99)], 1)
+        self.assertTrue(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 0)], 2)
+        self.assertFalse(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
+
     def test_opponent_probe_considers_later_duplicate_position_block(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'opponent.db'

@@ -386,32 +386,6 @@ bool is_refuted_move_by_peta_impact(
     return peta_move_eval - static_cast<int>(peta_old_best->eval) >= eval_refutation_margin;
 }
 
-std::optional<int> get_move_eval(const bookminer::PositionInfo& position, const std::string& move)
-{
-    const auto move16 = bookminer::move16_from_usi(move);
-    if (move16 == 0)
-        return std::nullopt;
-
-    for (const auto& move_info : position.moves)
-        if (move_info.move16 == move16)
-            return static_cast<int>(move_info.eval);
-    return std::nullopt;
-}
-
-std::optional<int> get_book_move_eval(const bookminer::BookStore& book, const std::string& sfen, const std::string& move)
-{
-    auto lookup = find_book_position_with_flip(book, sfen);
-    if (!lookup.position.has_value())
-        return std::nullopt;
-
-    const std::uint16_t move16 = bookminer::move16_from_usi(move);
-    if (move16 == 0)
-        return std::nullopt;
-
-    const std::string book_move = bookminer::move16_to_usi(lookup.flipped ? bookminer::flipped_move16(move16) : move16);
-    return get_move_eval(*lookup.position, book_move);
-}
-
 enum class TaskResult {
     Done,
     Deferred,
@@ -535,15 +509,20 @@ void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer:
     visited.erase(key.flipped());
 }
 
+bool peta_cut_by_eval_limit(const bookminer::PositionInfo&, bool, const std::string&,
+                            std::optional<int>, const bookminer::BookStore*, bool);
+
 std::vector<std::string> thinking_candidate_moves(
     const bookminer::PositionInfo& position,
     int eval_limit,
-    std::optional<std::size_t> move_limit)
+    std::optional<std::size_t> move_limit,
+    const bookminer::BookStore& book,
+    const std::string& sfen_with_ply)
 {
     const auto best = get_best(position);
     if (!best.has_value())
         return {};
-    if (std::abs(best->first) > eval_limit)
+    if (peta_cut_by_eval_limit(position, false, sfen_with_ply, eval_limit, &book, true))
         return {};
 
     const std::size_t limit = move_limit.has_value()
@@ -553,7 +532,7 @@ std::vector<std::string> thinking_candidate_moves(
     for (std::size_t i = 0; i < limit; ++i)
     {
         const auto& move_info = position.moves[i];
-        if (std::abs(static_cast<int>(move_info.eval)) > eval_limit)
+        if (std::abs(static_cast<int>(move_info.eval)) > eval_limit && move_info.move16 != best->second)
             continue;
         candidate_moves.push_back(bookminer::move16_to_usi(move_info.move16));
     }
@@ -665,7 +644,8 @@ TaskResult start_thinking_best_line(
         const auto candidate_moves = thinking_candidate_moves(
             thought.position,
             eval_limit,
-            branch_task ? std::optional<std::size_t>(static_cast<std::size_t>(branch_width)) : std::nullopt);
+            branch_task ? std::optional<std::size_t>(static_cast<std::size_t>(branch_width)) : std::nullopt,
+            book, current_sfen + " " + std::to_string(current_ply));
 
         if (candidate_moves.empty())
             return TaskResult::Done;
@@ -850,7 +830,8 @@ TaskResult process_position_command(
                 const auto candidate_moves = thinking_candidate_moves(
                     thought.position,
                     eval_limit,
-                    static_cast<std::size_t>(branch_width));
+                    static_cast<std::size_t>(branch_width),
+                    book, thought.sfen + " " + std::to_string(ply));
                 if (candidate_moves.empty())
                 {
                     rest_branch_depth = 0;
@@ -890,8 +871,8 @@ TaskResult process_position_command(
 
         if (!has_considered(next_lookup.position) && current_lookup.position.has_value())
         {
-            const auto move_eval = get_book_move_eval(book, current_sfen, move);
-            if (move_eval.has_value() && std::abs(*move_eval) > eval_limit)
+            if (peta_cut_by_eval_limit(*current_lookup.position, current_lookup.flipped,
+                                       board.sfen_with_ply(), eval_limit, &book, true))
                 return TaskResult::Done;
         }
 
@@ -2106,6 +2087,33 @@ PetaNextLookup find_peta_next_position(const bookminer::BookStore& peta_book,
     return {hit.position, std::nullopt, hit.flipped};
 }
 
+// Only an unextended best line is cut by eval_limit. Normal-book depths
+// are not propagated, so test the best move's child in the normal book.
+bool peta_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flipped,
+                            const std::string& sfen_with_ply, std::optional<int> limit,
+                            const bookminer::BookStore* normal_book = nullptr,
+                            bool normal_position = false)
+{
+    if (!limit || position.moves.empty()) return false;
+    const auto best = std::max_element(position.moves.begin(), position.moves.end(),
+        [](const auto& a, const auto& b) { return a.eval < b.eval; });
+    if (std::abs(static_cast<int>(best->eval)) <= *limit) return false;
+    if (!normal_position && best->depth != 0) return false;
+    if (normal_book)
+    {
+        const auto move16 = flipped ? bookminer::flipped_move16(best->move16) : best->move16;
+        const auto move = bookminer::move16_to_usi(move16);
+        if (!move.empty())
+        {
+            auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
+            board.push_usi(move);
+            if (has_considered(find_book_position_with_flip(*normal_book, board.sfen()).position))
+                return false;
+        }
+    }
+    return true;
+}
+
 std::vector<std::string> peta_next_for_turn(
     const bookminer::BookStore* source_book,
     const bookminer::BookStore& peta_book,
@@ -2117,7 +2125,8 @@ std::vector<std::string> peta_next_for_turn(
     std::optional<int> eval_refutation_margin,
     const bookminer::BookStore* fallback_book = nullptr,
     const std::vector<PetaRootPosition>* loaded_roots = nullptr,
-    const std::atomic<bool>* cancelled = nullptr)
+    const std::atomic<bool>* cancelled = nullptr,
+    std::optional<int> eval_limit = std::nullopt)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
@@ -2214,6 +2223,9 @@ std::vector<std::string> peta_next_for_turn(
                 ++fallback_hits;
             const auto& moveinfos = position->moves;
             if (moveinfos.empty())
+                continue;
+
+            if (peta_cut_by_eval_limit(*position, hit.flipped, node.sfen_with_ply, eval_limit, fallback_book, hit.normal.has_value()))
                 continue;
 
             const int best_eval = hit.normal ? get_best(*position)->first : static_cast<int>(moveinfos.front().eval);
@@ -2435,7 +2447,7 @@ std::string peta_next(
 
     const auto roots = load_peta_next_root_positions(start_sfens_path, cancelled);
     check_peta_next_cancel(cancelled);
-    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled);
+    const auto black = peta_next_for_turn(source_book, peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled, eval_limit);
     check_peta_next_cancel(cancelled);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
@@ -2443,7 +2455,7 @@ std::string peta_next(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply, cancelled), cancelled);
 
-    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled);
+    const auto white = peta_next_for_turn(source_book, peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_refutation_margin, fallback_book, &roots, cancelled, eval_limit);
     check_peta_next_cancel(cancelled);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
@@ -2508,7 +2520,8 @@ std::vector<std::string> peta_rejoin_for_turn(
     const std::filesystem::path& start_sfens_path,
     std::optional<int> eval_drop,
     PetaRejoinStats& stats,
-    const std::vector<PetaRootPosition>* loaded_roots = nullptr)
+    const std::vector<PetaRootPosition>* loaded_roots = nullptr,
+    std::optional<int> eval_limit = std::nullopt)
 {
     std::vector<std::string> think_sfens;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
@@ -2594,6 +2607,8 @@ std::vector<std::string> peta_rejoin_for_turn(
             }
 
             const auto& moveinfos = hit.position->moves;
+            if (peta_cut_by_eval_limit(*hit.position, hit.flipped, node.sfen_with_ply, eval_limit))
+                continue;
             const int best_eval = static_cast<int>(moveinfos.front().eval);
             const std::int64_t eval_low = peta_is_own_turn(sfen, turn)
                 ? best_eval : static_cast<std::int64_t>(node.root_best_eval) - node.eval_diff;
@@ -2655,14 +2670,14 @@ std::string peta_rejoin(
 
     PetaRejoinStats stats;
     const auto roots = load_peta_next_root_positions(start_sfens_path);
-    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots);
+    const auto black = peta_rejoin_for_turn(peta_book, 1, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots, eval_limit);
     const fs::path black_path = fs::path(BookDir) / "think_sfens-black.txt";
     log_line("write book path = " + black_path.string() + ", len(think_sfens) = " + std::to_string(black.size()) + ".");
     write_position_command_entries_file(
         black_path,
         make_position_command_entries(black, book_extend_ply, eval_limit, max_book_ply));
 
-    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots);
+    const auto white = peta_rejoin_for_turn(peta_book, 0, peta_eval_diff, max_step, max_book_ply, start_sfens_path, eval_drop, stats, &roots, eval_limit);
     const fs::path white_path = fs::path(BookDir) / "think_sfens-white.txt";
     log_line("write book path = " + white_path.string() + ", len(think_sfens) = " + std::to_string(white.size()) + ".");
     write_position_command_entries_file(
@@ -2932,7 +2947,7 @@ std::string peta_refutation(
             continue;
         if (static_cast<int>(peta_best.eval) - static_cast<int>(peta_old_best->eval) < eval_refutation_margin)
             continue;
-        if (eval_limit.has_value() && std::abs(static_cast<int>(old_candidate->eval)) > *eval_limit)
+        if (eval_limit.has_value() && std::abs(static_cast<int>(peta_best.eval)) > *eval_limit)
         {
             ++skipped_by_eval_limit;
             continue;
@@ -3078,7 +3093,8 @@ std::optional<std::string> peta_pv_leaf_position_command_from_position_random(
     int max_book_ply,
     int max_step,
     int eval_diff,
-    std::mt19937_64& rng)
+    std::mt19937_64& rng,
+    std::optional<int> eval_limit = std::nullopt)
 {
     if (max_step <= 0)
         return std::nullopt;
@@ -3100,6 +3116,9 @@ std::optional<std::string> peta_pv_leaf_position_command_from_position_random(
             return std::nullopt;
         visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
 
+        const auto hit = find_peta_position_with_flip(peta_book, current_sfen);
+        if (hit.position && peta_cut_by_eval_limit(*hit.position, hit.flipped, current_sfen_with_ply, eval_limit))
+            return std::nullopt;
         const auto moves = candidate_best_moves_for_sfen(peta_book, current_sfen, eval_diff);
         const auto selected = choose_random_candidate_move(moves, rng);
         if (!selected.has_value())
@@ -3194,6 +3213,10 @@ std::string peta_opponent(
                 }
                 visited.insert(visited_key);
 
+                const auto own_hit = find_peta_position_with_flip(peta_book, sfen);
+                if (own_hit.position && peta_cut_by_eval_limit(*own_hit.position, own_hit.flipped, sfen_with_ply, eval_limit))
+                    break;
+
                 const auto moves = (ply % 2 == current_side)
                     ? candidate_best_moves_for_sfen(peta_book, sfen, eval_diff)
                     : candidate_best_moves_for_probe(*opponent_probe, sfen, eval_diff);
@@ -3207,7 +3230,8 @@ std::string peta_opponent(
                         max_book_ply,
                         max_step,
                         eval_diff,
-                        rng);
+                        rng,
+                        eval_limit);
                     if (leaf.has_value())
                     {
                         add_position_command_entry(

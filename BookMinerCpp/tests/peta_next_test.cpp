@@ -106,6 +106,32 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        bookminer::BookStore peta, normal;
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        peta.merge_position(board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 500, 0}});
+        { std::ofstream out(roots_path); out << "startpos\n"; }
+        auto leaves = peta_next_for_turn(nullptr, peta, 1, 0, 10, 100, roots_path,
+                                         std::nullopt, &normal, nullptr, nullptr, 400);
+        if (!leaves.empty()) throw std::runtime_error("eval_limit did not cut unexplored best move");
+        board.push_usi("7g7f");
+        normal.merge_position(board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 0, 0}});
+        leaves = peta_next_for_turn(nullptr, peta, 1, 0, 10, 100, roots_path,
+                                    std::nullopt, &normal, nullptr, nullptr, 400);
+        if (std::find(leaves.begin(), leaves.end(), "startpos moves 7g7f 3c3d") == leaves.end())
+            throw std::runtime_error("eval_limit ignored explored normal-book best child");
+        bookminer::PositionInfo normal_root;
+        normal_root.moves = {{bookminer::move16_from_usi("7g7f"), -500, 99}};
+        if (peta_cut_by_eval_limit(normal_root, false, bookminer::StartSfenPly1, 400, &normal, true))
+            throw std::runtime_error("normal-book best child was not detected");
+        if (thinking_candidate_moves(normal_root, 400, std::nullopt, normal, bookminer::StartSfenPly1).size() != 1)
+            throw std::runtime_error("best-line extension did not follow explored best move");
+        bookminer::BookStore empty;
+        if (!peta_cut_by_eval_limit(normal_root, false, bookminer::StartSfenPly1, 400, &empty, true))
+            throw std::runtime_error("normal-book stored depth was treated as propagated depth");
+        if (!thinking_candidate_moves(normal_root, 400, std::nullopt, empty, bookminer::StartSfenPly1).empty())
+            throw std::runtime_error("best-line extension did not stop at unexplored best move");
+    }
+    {
         const auto old_cwd = std::filesystem::current_path();
         const auto directory = roots_path.parent_path() / "unsolved-fixture";
         std::filesystem::create_directories(directory / "book");

@@ -281,6 +281,34 @@ class EngineProtocolTests(unittest.TestCase):
                 self.assertIsNone(task.resume)
                 self.assertEqual(len(book.body), 4)
 
+    def test_enqueue_crosses_unexplored_alternative_if_best_has_normal_child(self):
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings()
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        engine = Mock()
+        engine.thread_settings = SimpleNamespace(thread_id=0)
+        engine.last_go_searched_nodes = 100
+        engine.go.return_value = [miner.MoveInfo('3c3d', 0)]
+        book = miner.Book()
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('7g7f', 500), miner.MoveInfo('2g2f', 450)], 1)
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        book.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 0)], 2)
+        task = miner.Task(miner.SFEN_START, 1, 400, position_cmd='startpos moves 2g2f', book_extend_ply=1)
+        self.assertEqual(manager.start_thinking_position(book, engine, task), miner.TASK_RESULT_DONE)
+        self.assertEqual(engine.go.call_count, 1)
+
+    def test_best_line_can_follow_explored_best_above_eval_limit(self):
+        manager = object.__new__(miner.EngineManager)
+        book = miner.Book()
+        position = miner.PositionInfo([miner.MoveInfo('7g7f', 500)], 1)
+        self.assertEqual(manager.get_thinking_candidate_moves(position, 400, None, book, miner.SFEN_START_PLY1), [])
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        book.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 0)], 2)
+        self.assertEqual(manager.get_thinking_candidate_moves(position, 400, None, book, miner.SFEN_START_PLY1), ['7g7f'])
+
     def test_consecutive_search_uses_configured_ratio(self):
         manager = object.__new__(miner.EngineManager)
         manager.book_miner_settings = miner.BookMinerSettings(consecutive_node_ratio=0.45)

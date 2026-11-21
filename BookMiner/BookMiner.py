@@ -1788,6 +1788,7 @@ class EngineManager:
                 position_info,
                 eval_limit,
                 branch_width if branch_task else None,
+                book, f"{current_sfen} {ply}",
             )
 
             if not candidate_moves:
@@ -1907,6 +1908,7 @@ class EngineManager:
                         position_info,
                         eval_limit,
                         branch_width,
+                        book, f"{branch_sfen} {ply}",
                     )
                     if not candidate_moves:
                         branch_depth = 0
@@ -1932,11 +1934,11 @@ class EngineManager:
             next_sfen = trim_sfen(lookahead_board.sfen())
             next_position_info, _ = self.get_book_position_info(book, next_sfen)
 
-            # 次局面がbook上の思考済みノードでないなら、この手は定跡木から外へ出る枝。
-            # その枝の評価値がeval_limitを超えている場合は、棋譜末端までは辿らずに止める。
+            # 定跡木から外に出る場合は、bestmoveの先が掘れているかで判定する。
             if next_position_info is None or not has_considered(next_position_info):
-                move_eval = self.get_book_move_eval(book, current_sfen, move)
-                if isinstance(move_eval, int) and abs(move_eval) > eval_limit:
+                current_position, current_flipped = self.get_book_position_info(book, current_sfen)
+                if current_position is not None and peta_cut_by_eval_limit(
+                        current_position, current_flipped, board.sfen(), eval_limit, book, True):
                     return TASK_RESULT_DONE
 
             checked_push_usi(board, move, context=task.position_cmd)
@@ -1968,21 +1970,25 @@ class EngineManager:
         position_info:PositionInfo,
         eval_limit:int,
         move_limit:int | None = None,
+        book:Book|None = None,
+        sfen_with_ply:Sfen|None = None,
     )->list[MoveStr]:
         """
         best line/branchで辿ってよい候補手を、評価値条件つきで返す。
         """
-        besteval, _ = get_best(position_info)
+        besteval, bestmove = get_best(position_info)
         if besteval is None:
             return []
-        if abs(besteval) > eval_limit:
+        if abs(besteval) > eval_limit and (
+                book is None or sfen_with_ply is None or
+                peta_cut_by_eval_limit(position_info, False, sfen_with_ply, eval_limit, book, True)):
             return []
 
         moveinfos = position_info.moveinfos if move_limit is None else position_info.moveinfos[:move_limit]
         candidate_moves : list[MoveStr] = []
         for moveinfo in moveinfos:
             eval = moveinfo.eval
-            if eval is None or abs(eval) > eval_limit:
+            if eval is None or (abs(eval) > eval_limit and moveinfo.move != bestmove):
                 continue
             candidate_moves.append(moveinfo.move)
 
@@ -3214,6 +3220,29 @@ def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[Pos
     return position, flipped
 
 
+def peta_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sfen,
+                           eval_limit:int|None, normal_book:Book|None = None,
+                           normal_position:bool = False)->bool:
+    if eval_limit is None:
+        return False
+    scored = [move for move in position.moveinfos if isinstance(move.eval, int)]
+    if not scored:
+        return False
+    best = max(scored, key=lambda move: move.eval)
+    if abs(best.eval) <= eval_limit:
+        return False
+    if not normal_position and best.depth != 0:
+        return False
+    if normal_book is not None:
+        board = cshogi.Board(sfen_with_ply)
+        checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
+        with normal_book.lock:
+            child, _ = find_book_position_with_flip(normal_book, trim_sfen(board.sfen()))
+            if child is not None and has_considered(child):
+                return False
+    return True
+
+
 def peta_is_own_turn(sfen:Sfen, turn:int)->bool:
     parts = sfen.split()
     if len(parts) < 2 or parts[1] not in ('b', 'w'):
@@ -3365,6 +3394,12 @@ def peta_next(
                 moveinfos = position_info.moveinfos
                 if len(moveinfos)==0:
                     # なぜ指し手が登録されていない局面が定跡に書き出されているのであろうか…。
+                    continue
+
+                peta_position, _ = find_book_position_with_flip(peta_book, sfen)
+                normal_position = peta_position is None or not peta_position.moveinfos
+                if peta_cut_by_eval_limit(position_info, flipped_bookhit, sfen_with_ply, eval_limit,
+                                          fallback_book, normal_position):
                     continue
 
                 # scoreの降順のはずなので..
@@ -3652,6 +3687,9 @@ def peta_rejoin(
                     if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop) and add_unique_peta_leaf(
                             think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
                         total_rejoin_nodes += 1
+                    continue
+
+                if peta_cut_by_eval_limit(position_info, flipped_bookhit, sfen_with_ply, eval_limit):
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -3952,6 +3990,7 @@ def peta_pv_leaf_position_cmd_from_position_random(
     max_step:int,
     eval_diff:int,
     rng:random.Random,
+    eval_limit:int|None = None,
 )->PositionStr|None:
     if max_step <= 0:
         return None
@@ -3972,6 +4011,9 @@ def peta_pv_leaf_position_cmd_from_position_random(
             return None
         visited.add(current_sfen)
 
+        position, flipped = find_book_position_with_flip(peta_book, current_sfen)
+        if position is not None and peta_cut_by_eval_limit(position, flipped, current_sfen_with_ply, eval_limit):
+            return None
         moves = candidate_best_moves_for_sfen(peta_book, current_sfen, eval_diff)
         selected = choose_random_candidate_move(moves, rng)
         if selected is None:
@@ -4059,6 +4101,10 @@ def peta_opponent(
                         break
                     visited.add(sfen)
 
+                    position, flipped = find_book_position_with_flip(peta_book, sfen)
+                    if position is not None and peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit):
+                        break
+
                     if ply % 2 == current_side:
                         moves = candidate_best_moves_for_sfen(peta_book, sfen, eval_diff)
                     else:
@@ -4073,6 +4119,7 @@ def peta_opponent(
                             max_step,
                             eval_diff,
                             rng,
+                            eval_limit,
                         )
                         if leaf_position_cmd is not None:
                             add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply, eval_limit, max_book_ply)

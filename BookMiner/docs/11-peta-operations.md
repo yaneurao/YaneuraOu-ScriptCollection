@@ -226,6 +226,14 @@ po 0 99999 200 20 400
 
 相手定跡側の候補手が複数ある場合は、best から `eval_diff` 以内の候補からランダムに1手を選びます。分岐をすべて BFS で辿るのではなく、仮想敵との1本の進行として扱うためです。PV が千日手になった場合は、その leaf は採用せず retire します。
 
+## 評価値による打ち切り
+
+peta bookをたどるときは、局面の **bestmoveのdepthが0** で、さらに **評価値の絶対値が `eval_limit` を超える**場合、その局面から先をたどりません。たとえば `eval_limit=400` なら、depth 0・評価値 -500 は打ち切ります。depth 1・評価値 -500 や、depth 0・評価値 -400 は打ち切りません。
+
+GUIの `peta next` では、peta shock後に掘った通常DBも参照します。たとえばpeta bookではbestmoveがdepth 0・評価値 +500でも、その手の移動先が現在の通常DBですでに探索済みなら、先があるとみなしてたどります。通常DBのみにある局面では、保存されたdepthではなく、bestmoveの移動先に探索済みの局面があるかで同様に判定します。左右反転した局面も検索します。
+
+`peta rejoin`、`peta refutation`、`peta unsolved`、`peta opponent` の列挙は通常DBをフォールバックとしてたどりません。CLIの `pn` で通常DBも使う場合は最後の引数に `1` を指定します。書き出した手順をenqueueするときも、通常DBのbestmoveの移動先を確認してから、未探索の枝へ進むかを判定します。棋譜末端からのbest line延長でも、bestmoveの移動先が探索済みなら評価値が上限を超えていても続行します。branch探索のbestmove以外の候補手は、従来どおり各手の評価値でも絞ります。
+
 ## 共通引数とデフォルト値
 
 GUI の `デフォルト値` 行は、各 peta 操作や `enqueue` の直前に `sd ...` として BookMiner.py / BookMinerCpp へ送られます。
@@ -271,7 +279,7 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 | `max_step` | 手順2の各 peta 抽出コマンド | peta book の中で leaf を探す範囲を制限する値。`think_sfens.txt` には書き出されず、enqueue 後の探索条件にはならない。 |
 | `game_ply_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | この手数に到達したらそれ以上掘らない上限。 |
 | `book_extend_ply` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` の行ごとに、棋譜末端から best line を何手分延長するかを上書きする値。 |
-| `eval_limit` | 手順2の各 peta 抽出コマンドが書き出す行メタ情報、`enqueue` / `e` | `book/think_sfens.txt` を再生するとき、定跡木の外へ出る枝を評価値で止めるか。 |
+| `eval_limit` | peta 抽出、`enqueue` / `e` | 未延長のbestmoveについて、評価値の絶対値がこの値を超えたら先をたどらない。 |
 | `branch_width` / `branch_depth` | `enqueue` / `eb` | 入力局面を掘ったあと、MultiPV上位何手を何手先まで展開するか。`think_sfens.txt` には書き出されない enqueue 時設定。 |
 
 既存定跡から広く掘り始める初回は、`eval_diff 99999` と `eval_limit 99999` のように大きな値を使うと、評価値による枝刈りをほぼ無効化できます。通常運用では、目的に応じてこれらを小さくし、形勢が大きく傾いた枝を広げすぎないようにします。
