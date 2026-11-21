@@ -106,6 +106,39 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        board.push_usi("7g7f");
+        const auto key = bookminer::PackedSfen::from_sfen(board.sfen());
+        const auto input = roots_path.parent_path() / "empty-direct.ybb";
+        {
+            std::ofstream out(input, std::ios::binary);
+            out.write("YANE-BINBOOK-V1\0", 16);
+            auto write_u64 = [&](std::uint64_t x) { for (int i = 0; i < 8; ++i) out.put(static_cast<char>(x >> (8 * i))); };
+            write_u64(1); write_u64(0);
+            out.write(reinterpret_cast<const char*>(key.bytes.data()), key.bytes.size());
+            write_u64(0);
+            out.put(2); out.put(0); out.put(0); out.put(0);
+        }
+        bookminer::BookStore normal;
+        normal.load_yaneuraou_book(input, false, nullptr, nullptr);
+        const auto flipped = bookminer::flipped_sfen(board.sfen());
+        normal.merge_position(flipped, 2, {{bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 0}});
+        const auto hit = find_considered_book_position_with_flip(normal, board.sfen());
+        if (!hit.flipped || !has_considered(hit.position))
+            throw std::runtime_error("empty direct entry hid explored flipped position");
+        const auto peta_hit = find_peta_position_with_flip(normal, board.sfen());
+        if (!peta_hit.flipped || peta_hit.position == nullptr || peta_hit.position->moves.empty())
+            throw std::runtime_error("empty direct peta entry hid explored flipped position");
+        auto lease = normal.try_begin_search(board.sfen(), flipped);
+        if (!lease.acquired || lease.sfen != flipped || !has_considered(lease.position))
+            throw std::runtime_error("search lease ignored explored flipped position");
+        normal.end_search(lease);
+        bookminer::PositionInfo root;
+        root.moves = {{bookminer::move16_from_usi("7g7f"), 500, 0}};
+        if (peta_cut_by_eval_limit(root, false, bookminer::StartSfenPly1, 400, &normal, true))
+            throw std::runtime_error("eval_limit ignored flipped explored child behind empty entry");
+    }
+    {
         bookminer::BookStore peta, normal;
         auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         peta.merge_position(board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 500, 0}});

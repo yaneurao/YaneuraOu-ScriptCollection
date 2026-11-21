@@ -72,6 +72,36 @@ class PetaNextFallbackTest(unittest.TestCase):
         normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 0)], 2)
         self.assertFalse(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
 
+    def test_empty_direct_position_does_not_hide_considered_flipped_position(self):
+        peta, normal = miner.Book(), miner.Book()
+        position = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        child = miner.trim_sfen(board.sfen())
+        normal.body[child] = miner.PositionInfo([], 2)
+        normal.body[miner.flipped_sfen(child)] = miner.PositionInfo([
+            miner.MoveInfo(miner.flipped_move('3c3d'), 0)], 2)
+        self.assertFalse(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
+        hit, flipped = miner.find_peta_next_position(peta, normal, child)
+        self.assertTrue(flipped)
+        self.assertEqual(hit.moveinfos[0].move, miner.flipped_move('3c3d'))
+        peta.body[child] = miner.PositionInfo([], 2)
+        peta.body[miner.flipped_sfen(child)] = normal.body[miner.flipped_sfen(child)]
+        self.assertTrue(miner.find_peta_next_position(peta, None, child)[1])
+        self.assertTrue(miner.find_peta_position_with_flip(peta, child)[1])
+        normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', None)], 2)
+        self.assertFalse(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
+        self.assertTrue(miner.find_peta_next_position(peta, normal, child)[1])
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings()
+        engine = unittest.mock.Mock()
+        info, orientation, _, status, searched = manager.think_sfen_once(normal, engine, child, 2, 0, set())
+        self.assertEqual(status, miner.TASK_RESULT_DONE)
+        self.assertFalse(searched)
+        self.assertEqual(orientation, miner.flipped_sfen(child))
+        self.assertEqual(info.moveinfos[0].eval, 0)
+        engine.go.assert_not_called()
+
     def test_opponent_probe_considers_later_duplicate_position_block(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'opponent.db'

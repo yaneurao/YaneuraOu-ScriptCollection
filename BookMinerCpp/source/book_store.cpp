@@ -1246,15 +1246,22 @@ SearchLease BookStore::try_begin_search(const std::string& sfen, const std::stri
     lease.sfen = sfen;
     lease.flipped_sfen = flipped_sfen;
 
-    if (const auto* position = find_position_locked(key))
+    const auto* position = find_position_locked(key);
+    if (position && !position->moves.empty())
     {
         lease.position = *position;
     }
-    else if (const auto* flipped_position = find_position_locked(flipped_key))
+    else
     {
-        lease.sfen = flipped_sfen;
-        lease.flipped_sfen = sfen;
-        lease.position = *flipped_position;
+        const auto* flipped_position = find_position_locked(flipped_key);
+        if (flipped_position && (!flipped_position->moves.empty() || !position))
+        {
+            lease.sfen = flipped_sfen;
+            lease.flipped_sfen = sfen;
+            lease.position = *flipped_position;
+        }
+        else if (position)
+            lease.position = *position;
     }
 
     searching_.insert(key);

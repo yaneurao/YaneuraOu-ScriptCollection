@@ -1565,13 +1565,9 @@ class EngineManager:
                 # 他のスレッドが探索中なので、このtaskはqueue末尾へ戻して後で再試行する。
                 return None, current_sfen, last_thinking_ply, TASK_RESULT_DEFERRED, False
 
-            if current_sfen in book.body:
-                position_info = book.body[current_sfen]
-            elif current_sfen_f in book.body:
-                position_info = book.body[current_sfen_f]
+            position_info, flipped = find_considered_book_position_with_flip(book, current_sfen)
+            if flipped:
                 current_sfen = current_sfen_f
-            else:
-                position_info = None
 
             if position_info is not None and ply < position_info.ply:
                 position_info.ply = ply
@@ -1652,14 +1648,9 @@ class EngineManager:
         """
         book上の局面情報を返す。flip側でhitしたときは第2戻り値をTrueにする。
         """
-        sfen_f = flipped_sfen(sfen)
-
         with book.lock:
-            if sfen in book.body:
-                position, flipped = book.body[sfen], False
-            elif sfen_f in book.body:
-                position, flipped = book.body[sfen_f], True
-            else:
+            position, flipped = find_considered_book_position_with_flip(book, sfen)
+            if position is None:
                 return None, False
             if ply is not None and ply < position.ply:
                 position.ply = ply
@@ -1932,7 +1923,8 @@ class EngineManager:
             lookahead_board = cshogi.Board(board.sfen()) # type:ignore
             checked_push_usi(lookahead_board, move, context=task.position_cmd)
             next_sfen = trim_sfen(lookahead_board.sfen())
-            next_position_info, _ = self.get_book_position_info(book, next_sfen)
+            with book.lock:
+                next_position_info, _ = find_considered_book_position_with_flip(book, next_sfen)
 
             # 定跡木から外に出る場合は、bestmoveの先が掘れているかで判定する。
             if next_position_info is None or not has_considered(next_position_info):
@@ -3206,13 +3198,13 @@ def is_refuted_move_by_peta_impact(
 
 
 def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[PositionInfo|None, bool]:
-    position, flipped = find_book_position_with_flip(peta, sfen)
+    position, flipped = find_peta_position_with_flip(peta, sfen)
     if position is not None and position.moveinfos:
         return position, flipped
     if fallback is not None:
         # 掘削スレッドが更新する通常DBは、ロック中に局面単位でコピーする。
         with fallback.lock:
-            normal, normal_flipped = find_book_position_with_flip(fallback, sfen)
+            normal, normal_flipped = find_considered_book_position_with_flip(fallback, sfen)
             if normal is not None and has_considered(normal):
                 moves = [MoveInfo(m.move, m.eval, m.depth) for m in normal.moveinfos]
                 moves.sort(key=lambda m: m.eval if isinstance(m.eval, int) else -float('inf'), reverse=True)
@@ -3237,7 +3229,7 @@ def peta_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sf
         board = cshogi.Board(sfen_with_ply)
         checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
         with normal_book.lock:
-            child, _ = find_book_position_with_flip(normal_book, trim_sfen(board.sfen()))
+            child, _ = find_considered_book_position_with_flip(normal_book, trim_sfen(board.sfen()))
             if child is not None and has_considered(child):
                 return False
     return True
@@ -3396,7 +3388,7 @@ def peta_next(
                     # なぜ指し手が登録されていない局面が定跡に書き出されているのであろうか…。
                     continue
 
-                peta_position, _ = find_book_position_with_flip(peta_book, sfen)
+                peta_position, _ = find_peta_position_with_flip(peta_book, sfen)
                 normal_position = peta_position is None or not peta_position.moveinfos
                 if peta_cut_by_eval_limit(position_info, flipped_bookhit, sfen_with_ply, eval_limit,
                                           fallback_book, normal_position):
@@ -3434,7 +3426,7 @@ def peta_next(
                         next_position_cmd = append_position_move(position_cmd, move)
 
                         if refutation_book is not None:
-                            next_position_info, _ = find_book_position_with_flip(peta_book, next_sfen_trimmed)
+                            next_position_info, _ = find_peta_position_with_flip(peta_book, next_sfen_trimmed)
                             if next_position_info is None:
                                 if (
                                     move_index == 0
@@ -3495,6 +3487,27 @@ def find_book_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None,
     return None, False
 
 
+def find_peta_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
+    direct = book.body.get(sfen)
+    if direct is not None and direct.moveinfos:
+        return direct, False
+    flipped = book.body.get(flipped_sfen(sfen))
+    if flipped is not None and flipped.moveinfos:
+        return flipped, True
+    return (direct, False) if direct is not None else (flipped, flipped is not None)
+
+
+def find_considered_book_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
+    """探索済みの直向き・反転局面を優先する。呼び出し側で必要に応じてlockする。"""
+    direct = book.body.get(sfen)
+    if direct is not None and has_considered(direct):
+        return direct, False
+    flipped = book.body.get(flipped_sfen(sfen))
+    if flipped is not None and has_considered(flipped):
+        return flipped, True
+    return (direct, False) if direct is not None else (flipped, flipped is not None)
+
+
 def moveinfo_move_in_sfen_orientation(moveinfo:MoveInfo, flipped_bookhit:bool)->MoveStr:
     return flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
 
@@ -3522,7 +3535,7 @@ def best_moveinfo_in_sfen_orientation(position_info:PositionInfo, flipped_bookhi
 def peta_best_moveinfo_for_sfen(sfen:Sfen)->tuple[MoveInfo|None, MoveStr]:
     global peta_book
 
-    position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
+    position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, sfen)
     if position_info is None or not position_info.moveinfos:
         return None, "none"
 
@@ -3573,7 +3586,7 @@ def peta_leaf_rejoins_peta_book(
         next_board = cshogi.Board(sfen_with_ply)
         next_board.push(move32)
         next_sfen, _ = trim_sfen_ply(next_board.sfen())
-        position_info, flipped_bookhit = find_book_position_with_flip(peta_book, next_sfen)
+        position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, next_sfen)
         if position_info is None:
             continue
 
@@ -3638,7 +3651,7 @@ def peta_rejoin(
             if ply >= max_book_ply:
                 continue
 
-            position_info, _ = find_book_position_with_flip(peta_book, sfen)
+            position_info, _ = find_peta_position_with_flip(peta_book, sfen)
             if position_info is None or not position_info.moveinfos:
                 total_leaf_nodes += 1
                 if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop) and add_unique_peta_leaf(
@@ -3675,7 +3688,7 @@ def peta_rejoin(
                 if ply >= max_book_ply:
                     continue
 
-                position_info, flipped_bookhit = find_book_position_with_flip(peta_book, sfen)
+                position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, sfen)
                 is_leaf = position_info is None or not position_info.moveinfos
                 needs_leaf_eval = is_leaf and eval_drop is not None and eval_drop > PETA_REJOIN_EVAL_DROP_DISABLED
                 visit_key = (sfen, root_best_eval, leaf_eval if needs_leaf_eval else None, peta_eval_diff0)
@@ -3779,7 +3792,7 @@ def peta_pv_leaf_position_cmd(
             return None
         visited.add(current_sfen)
 
-        position_info, flipped_bookhit = find_book_position_with_flip(peta_book, current_sfen)
+        position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, current_sfen)
         if position_info is None or not position_info.moveinfos:
             return leaf_position_cmd
 
@@ -3861,7 +3874,7 @@ def peta_unsolved(
                     skipped_by_ply += 1
                     continue
 
-                position, flipped = find_book_position_with_flip(peta_book, prefix_sfen)
+                position, flipped = find_peta_position_with_flip(peta_book, prefix_sfen)
                 if position is None or not position.moveinfos:
                     skipped_no_peta += 1
                     continue
@@ -4011,7 +4024,7 @@ def peta_pv_leaf_position_cmd_from_position_random(
             return None
         visited.add(current_sfen)
 
-        position, flipped = find_book_position_with_flip(peta_book, current_sfen)
+        position, flipped = find_peta_position_with_flip(peta_book, current_sfen)
         if position is not None and peta_cut_by_eval_limit(position, flipped, current_sfen_with_ply, eval_limit):
             return None
         moves = candidate_best_moves_for_sfen(peta_book, current_sfen, eval_diff)
@@ -4101,7 +4114,7 @@ def peta_opponent(
                         break
                     visited.add(sfen)
 
-                    position, flipped = find_book_position_with_flip(peta_book, sfen)
+                    position, flipped = find_peta_position_with_flip(peta_book, sfen)
                     if position is not None and peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit):
                         break
 

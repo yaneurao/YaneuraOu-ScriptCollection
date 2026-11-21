@@ -289,6 +289,22 @@ BookPositionLookup find_book_position_with_flip(const bookminer::BookStore& book
     return {};
 }
 
+BookPositionLookup find_considered_book_position_with_flip(const bookminer::BookStore& book, const std::string& sfen)
+{
+    const auto key = bookminer::PackedSfen::from_sfen(sfen);
+    auto direct = book.find_position_copy(key);
+    if (has_considered(direct))
+        return {std::move(direct), false};
+    auto flipped = book.find_position_copy(key.flipped());
+    if (has_considered(flipped))
+        return {std::move(flipped), true};
+    if (direct)
+        return {std::move(direct), false};
+    if (flipped)
+        return {std::move(flipped), true};
+    return {};
+}
+
 std::vector<bookminer::MoveInfo> to_book_moves(const std::vector<bookminer::EngineMoveInfo>& engine_moves)
 {
     std::vector<bookminer::MoveInfo> moves;
@@ -867,7 +883,7 @@ TaskResult process_position_command(
         auto lookahead = board;
         lookahead.push_usi(move);
         const auto next_sfen = lookahead.sfen();
-        const auto next_lookup = find_book_position_with_flip(book, next_sfen);
+        const auto next_lookup = find_considered_book_position_with_flip(book, next_sfen);
 
         if (!has_considered(next_lookup.position) && current_lookup.position.has_value())
         {
@@ -1857,12 +1873,16 @@ struct PetaPositionHit {
 PetaPositionHit find_peta_position_with_flip(const bookminer::BookStore& peta_book, const std::string& sfen)
 {
     const auto key = bookminer::PackedSfen::from_sfen(sfen);
-    if (const auto* position = peta_book.find_position(key))
+    const auto* position = peta_book.find_position(key);
+    if (position && !position->moves.empty())
         return {position, false};
 
-    if (const auto* position = peta_book.find_position(key.flipped()))
-        return {position, true};
+    const auto* flipped = peta_book.find_position(key.flipped());
+    if (flipped && !flipped->moves.empty())
+        return {flipped, true};
 
+    if (position) return {position, false};
+    if (flipped) return {flipped, true};
     return {};
 }
 
@@ -2080,7 +2100,7 @@ PetaNextLookup find_peta_next_position(const bookminer::BookStore& peta_book,
         return {hit.position, std::nullopt, hit.flipped};
     if (fallback_book != nullptr)
     {
-        auto normal = find_book_position_with_flip(*fallback_book, sfen);
+        auto normal = find_considered_book_position_with_flip(*fallback_book, sfen);
         if (has_considered(normal.position))
             return {nullptr, std::move(normal.position), normal.flipped};
     }
@@ -2107,7 +2127,7 @@ bool peta_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flippe
         {
             auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
             board.push_usi(move);
-            if (has_considered(find_book_position_with_flip(*normal_book, board.sfen()).position))
+            if (has_considered(find_considered_book_position_with_flip(*normal_book, board.sfen()).position))
                 return false;
         }
     }
