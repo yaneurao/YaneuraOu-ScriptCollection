@@ -3335,6 +3335,7 @@ void book_read_progress(bookminer::BookProgressKind kind, std::size_t current, s
 {
     switch (kind)
     {
+    case bookminer::BookProgressKind::Checkpoint: break;
     case bookminer::BookProgressKind::Start:
         log_line("[BookReadStart] 0/" + progress_total_text(total) + " path=" + path.string());
         break;
@@ -3351,6 +3352,7 @@ void book_write_progress(bookminer::BookProgressKind kind, std::size_t current, 
 {
     switch (kind)
     {
+    case bookminer::BookProgressKind::Checkpoint: break;
     case bookminer::BookProgressKind::Start:
         log_line("[BookWriteStart] 0/" + progress_total_text(total) + " path=" + path.string());
         break;
@@ -4275,6 +4277,8 @@ void shock_read_progress(bookminer::BookProgressKind kind, std::size_t current,
 {
     if (kind != bookminer::BookProgressKind::Done)
         check_peta_shock_cancel(static_cast<const std::atomic<bool>*>(user));
+    if (kind == bookminer::BookProgressKind::Checkpoint)
+        return;
     book_read_progress(kind, current, total, path, nullptr);
 }
 
@@ -4922,17 +4926,14 @@ int main(int argc, char* argv[])
                     reused_source = *clean_source_path;
                     log_line("p command source book reused = " + reused_source->string());
                 }
-                else
-                {
-                    if (auto_save_service)
-                        auto_save_service->reset_timer();
-                }
                 log_line("start p command : write backup, peta_shock, and read peta book.");
                 const auto settings = book_miner_settings;
                 if (!peta_book_read_job.start_shock(
                     [&, reused_source, settings](const std::atomic<bool>* cancelled) {
                         const auto revision = book.revision();
                         const auto source = reused_source ? *reused_source : save_book_backup(book, std::nullopt, cancelled);
+                        if (!reused_source && auto_save_service)
+                            auto_save_service->reset_timer();
                         if (!reused_source && book.revision() == revision)
                             peta_book_read_job.remember_saved_source(source, revision);
                         check_peta_shock_cancel(cancelled);

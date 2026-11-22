@@ -65,6 +65,7 @@ struct SearchLease {
 };
 
 enum class BookProgressKind {
+    Checkpoint, // Cancellation check without a user-visible progress update.
     Start,
     Progress,
     Done,

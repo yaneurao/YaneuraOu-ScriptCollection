@@ -315,13 +315,25 @@ bool packed_sfen_equal(const PackedSfen& lhs, const PackedSfen& rhs)
     return lhs.bytes == rhs.bytes;
 }
 
-std::vector<BookEntry> make_sorted_run_from_map(const BookStore::Map& map)
+std::vector<BookEntry> make_sorted_run_from_map(const BookStore::Map& map,
+    BookProgressCallback progress = nullptr, void* user = nullptr,
+    const std::filesystem::path& path = {})
 {
     std::vector<BookEntry> run;
+    if (user != nullptr)
+        report_progress(progress, user, BookProgressKind::Checkpoint, 0, std::nullopt, path);
     run.reserve(map.size());
+    std::size_t copied = 0;
     for (const auto& [key, position] : map)
+    {
         run.push_back(BookEntry{key, position});
-    std::sort(run.begin(), run.end(), [](const BookEntry& lhs, const BookEntry& rhs) {
+        if (user != nullptr && ++copied % BookReadProgressInterval == 0)
+            report_progress(progress, user, BookProgressKind::Checkpoint, copied, std::nullopt, path);
+    }
+    std::size_t comparisons = 0;
+    std::sort(run.begin(), run.end(), [&](const BookEntry& lhs, const BookEntry& rhs) {
+        if (user != nullptr && ++comparisons % 65536 == 0)
+            report_progress(progress, user, BookProgressKind::Checkpoint, comparisons, std::nullopt, path);
         return packed_sfen_less(lhs.key, rhs.key);
     });
     return run;
@@ -941,7 +953,7 @@ void BookStore::load_yaneuraou_book(const std::filesystem::path& path, bool norm
     if (in.bad())
         throw std::runtime_error("failed to read book: " + path.string());
     append_position();
-    auto run = make_sorted_run_from_map(loaded);
+    auto run = make_sorted_run_from_map(loaded, progress, user, path);
     if (user != nullptr)
         report_progress(progress, user, BookProgressKind::Progress, sfen_line_count, total, path);
     {

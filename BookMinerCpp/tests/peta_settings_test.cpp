@@ -201,6 +201,17 @@ int main(int argc, char** argv)
                 || previous->moves.front().move16 != bookminer::move16_from_usi("7g7f"))
                 throw std::runtime_error("cancelled peta read changed the previous book");
         }
+        auto cancel_sort = [](bookminer::BookProgressKind kind, std::size_t,
+                              std::optional<std::size_t>, const fs::path&, void*) {
+            if (kind == bookminer::BookProgressKind::Checkpoint) throw PetaShockCancelled{};
+        };
+        int token = 1;
+        bool interrupted = false;
+        try { current.load_yaneuraou_book(root / "book" / "read-cancel.db", false, cancel_sort, &token); }
+        catch (const PetaShockCancelled&) { interrupted = true; }
+        const auto previous = current.find_position_copy(bookminer::StartSfenPly1);
+        if (!interrupted || !previous || previous->moves.front().move16 != bookminer::move16_from_usi("7g7f"))
+            throw std::runtime_error("cancellation during peta sort changed the previous book");
     }
     bookminer::BookMinerSettings settings;
     const auto unicode_engine = root / std::filesystem::path(u8"エンジン.exe");

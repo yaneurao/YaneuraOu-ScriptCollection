@@ -16,6 +16,19 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_peta_backup_resets_timer_only_after_successful_save(self):
+        reset = Mock()
+        book = bookminer.Book()
+        with patch.object(bookminer, 'write_to_yaneuraou_book', side_effect=bookminer.PetaShockCancelled):
+            with self.assertRaises(bookminer.PetaShockCancelled):
+                bookminer.write_and_read_peta_book(book, reset, cancel=Event())
+        reset.assert_not_called()
+        with patch.object(bookminer, 'write_to_yaneuraou_book', return_value='saved.db'), \
+             patch.object(bookminer, 'make_and_read_peta_book', side_effect=bookminer.PetaShockCancelled):
+            with self.assertRaises(bookminer.PetaShockCancelled):
+                bookminer.write_and_read_peta_book(book, reset, cancel=Event())
+        reset.assert_called_once()
+
     def test_backup_does_not_overwrite_existing_same_second_file(self):
         book = bookminer.Book()
         book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)

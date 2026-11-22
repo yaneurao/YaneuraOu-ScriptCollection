@@ -3196,10 +3196,10 @@ def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], Non
         source_book_path = clean_source_path
         print(f"p command source book reused = {source_book_path}")
     else:
-        if reset_auto_backup_timer is not None:
-            reset_auto_backup_timer()
         source_book_path = (write_to_yaneuraou_book(book, BOOK_BACKUP_DIR) if cancel is None
                             else write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, cancel=cancel))
+        if reset_auto_backup_timer is not None:
+            reset_auto_backup_timer()
     print(f"p command source book = {source_book_path}")
     if cancel is None:
         make_and_read_peta_book(source_book_path, settings)
