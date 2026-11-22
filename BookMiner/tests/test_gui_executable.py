@@ -13,6 +13,58 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_manual_backup_button_cancels_once_while_peta_runs(self):
+        instance = Mock()
+        instance.busy_action = 'manual_peta_shock'
+        instance.manual_backup_pending = True
+        instance.manual_backup_cancel_pending = False
+        instance.send_command.return_value = True
+        gui.BookMinerGui.on_backup_button(instance)
+        gui.BookMinerGui.on_backup_button(instance)
+        instance.send_command.assert_called_once_with('cancel-manual-backup')
+        self.assertTrue(instance.manual_backup_cancel_pending)
+        self.assertEqual(instance.busy_action, 'manual_peta_shock')
+
+    def test_manual_and_peta_cancellation_are_independent(self):
+        for first in ('manual', 'peta'):
+            with self.subTest(first=first):
+                instance = Mock()
+                instance.busy_action = 'manual_peta_shock'
+                instance.manual_backup_pending = True
+                instance.manual_backup_cancel_pending = True
+                instance.peta_shock_cancel_pending = True
+                instance.peta_makebook_active = True
+                instance.auto_peta_pending = False
+                instance.settings_apply_pending = False
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+                if first == 'manual':
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, '[ManualBackupCancelled]')
+                    self.assertFalse(instance.manual_backup_pending)
+                    self.assertEqual(instance.busy_action, 'manual_peta_shock')
+                    self.assertTrue(instance.peta_shock_cancel_pending)
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaShockCancelled]')
+                else:
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaShockCancelled]')
+                    self.assertTrue(instance.manual_backup_pending)
+                    self.assertTrue(instance.manual_backup_cancel_pending)
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, '[ManualBackupCancelled]')
+                self.assertIsNone(instance.busy_action)
+                self.assertFalse(instance.manual_backup_pending)
+                self.assertFalse(instance.manual_backup_cancel_pending)
+
+    def test_manual_backup_legacy_progress_is_not_completion(self):
+        instance = Mock()
+        instance.busy_action = 'manual_backup'
+        instance.manual_backup_pending = True
+        instance.manual_backup_cancel_pending = True
+        instance.settings_apply_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '..w command write has done. path=x')
+        self.assertTrue(instance.manual_backup_pending)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[ManualBackupDone] path=x')
+        self.assertFalse(instance.manual_backup_pending)
+        self.assertFalse(instance.manual_backup_cancel_pending)
+
     def test_unsolved_sends_depth_list_and_rejects_invalid_input(self):
         instance = Mock()
         instance.peta_unsolved_min_depths.get.return_value = '10,8,6,4'

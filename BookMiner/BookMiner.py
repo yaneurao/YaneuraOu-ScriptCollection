@@ -449,9 +449,16 @@ LAST_REPORT = time.time()
 
 BOOK_SAVE_LOCK = Lock()
 
-def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
+def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None, cancel:Event|None = None)->list[Sfen]:
     with book.lock:
-        if ply_limit is None:
+        if cancel is not None:
+            sfens = []
+            for count, (sfen, position_info) in enumerate(book.body.items(), 1):
+                if count % 10000 == 0:
+                    check_peta_shock_cancel(cancel)
+                if ply_limit is None or position_info.ply <= ply_limit:
+                    sfens.append(sfen)
+        elif ply_limit is None:
             sfens = list(book.body.keys())
         else:
             sfens = [
@@ -461,6 +468,7 @@ def collect_yaneuraou_book_sfens(book:Book, ply_limit:int|None)->list[Sfen]:
             ]
 
     sfens.sort()
+    check_peta_shock_cancel(cancel)
     return sfens
 
 
@@ -516,7 +524,7 @@ def snapshot_book_position_for_write(book:Book, sfen:Sfen)->tuple[str, list[Move
 
 def write_ybb_book_records(book:Book, path:str, ply_limit:int|None, sfens:list[Sfen]|None = None, cancel:Event|None = None)->int:
     if sfens is None:
-        sfens = collect_yaneuraou_book_sfens(book, ply_limit)
+        sfens = collect_yaneuraou_book_sfens(book, ply_limit, cancel)
 
     dirpath = os.path.dirname(path)
     if dirpath:
@@ -559,7 +567,7 @@ def write_yaneuraou_book_records(book:Book, path:str, ply_limit:int|None, sfens:
         return write_ybb_book_records(book, path, ply_limit, sfens, cancel)
 
     if sfens is None:
-        sfens = collect_yaneuraou_book_sfens(book, ply_limit)
+        sfens = collect_yaneuraou_book_sfens(book, ply_limit, cancel)
 
     dirpath = os.path.dirname(path)
     if dirpath:
@@ -618,13 +626,18 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:
         check_peta_shock_cancel(cancel)
         with book.lock:
             saved_revision = book.revision
-        sfens = collect_yaneuraou_book_sfens(book, ply_limit)
+        sfens = collect_yaneuraou_book_sfens(book, ply_limit, cancel)
         check_peta_shock_cancel(cancel)
         ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
-        path = os.path.join(
-            save_dir,
-            f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
-        )
+        while True:
+            path = os.path.join(
+                save_dir,
+                f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
+            )
+            if not os.path.exists(path):
+                break
+            check_peta_shock_cancel(cancel)
+            time.sleep(0.1)
         print(f"start save_book_backup , path = {path}")
         write_yaneuraou_book_records(book, path, ply_limit, sfens, cancel)
         print(f"..save_book_backup has done, {len(sfens)} positions.")
@@ -4530,6 +4543,7 @@ def user_input(from_gui:bool = False):
     peta_shock_thread : Thread|None = None
     concurrent_manual_backup : Thread|None = None
     concurrent_manual_backup_active = Event()
+    manual_backup_cancel = Event()
     while True:
         try:
             if not from_gui:
@@ -4538,6 +4552,12 @@ def user_input(from_gui:bool = False):
             if not inp:
                 continue
             i = inp[0].lower()
+            if i == 'cancel-manual-backup':
+                if concurrent_manual_backup_active.is_set():
+                    manual_backup_cancel.set()
+                else:
+                    print('[ManualBackupCancelIgnored] no manual backup is running')
+                continue
             if i == 'cancel-peta-shock':
                 if peta_shock_active.is_set():
                     peta_shock_cancel.set()
@@ -4565,6 +4585,7 @@ def user_input(from_gui:bool = False):
                 print("  Q : quit")
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
+                print("  cancel-manual-backup : cancel the running manual backup")
                 print("  E : enqueue positions        , e")
                 print("  EB : enqueue branch positions , eb branch_width branch_depth")
                 print("  SD  : set defaults           , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit")
@@ -4619,30 +4640,27 @@ def user_input(from_gui:bool = False):
                 else:
                     ply_limit = int(inp[1])
 
-                # 定跡を書き出す。フル保存は自動バックアップの起点として扱う。
-                if ply_limit is None:
-                    reset_auto_backup_timer()
-                if peta_shock_active.is_set():
-                    concurrent_manual_backup_active.set()
-                    def run_concurrent_backup(limit=ply_limit):
-                        try:
-                            path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, limit)
-                            result = f'[ManualBackupDone] path={path}'
-                        except Exception as exc:
-                            result = f'Exception : command failed, command=w : {exc}'
-                        concurrent_manual_backup_active.clear()
-                        print(result)
-                    concurrent_manual_backup = Thread(target=run_concurrent_backup, daemon=True)
+                if concurrent_manual_backup is not None:
+                    concurrent_manual_backup.join()
+                manual_backup_cancel.clear()
+                concurrent_manual_backup_active.set()
+                def run_concurrent_backup(limit=ply_limit):
                     try:
-                        concurrent_manual_backup.start()
+                        path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, limit, manual_backup_cancel)
+                        if limit is None:
+                            reset_auto_backup_timer()
+                        result = f'[ManualBackupDone] path={path}'
+                    except PetaShockCancelled:
+                        result = '[ManualBackupCancelled]'
                     except Exception as exc:
-                        concurrent_manual_backup_active.clear()
-                        print(f'Exception : command failed, command=w : {exc}')
-                    continue
+                        result = f'Exception : command failed, command=w : {exc}'
+                    concurrent_manual_backup_active.clear()
+                    print(result)
+                concurrent_manual_backup = Thread(target=run_concurrent_backup, daemon=True)
                 try:
-                    path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, ply_limit)
-                    print(f"[ManualBackupDone] path={path}")
+                    concurrent_manual_backup.start()
                 except Exception as exc:
+                    concurrent_manual_backup_active.clear()
                     print(f"Exception : command failed, command=w : {exc}")
 
             elif i == 'reload-settings':

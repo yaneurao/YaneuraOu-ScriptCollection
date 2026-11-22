@@ -52,9 +52,82 @@ int main(int argc, char** argv)
     const auto old_cwd = std::filesystem::current_path();
     std::filesystem::current_path(root);
     {
+        bookminer::BookStore book;
+        book.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 10, 0}});
+        const auto first = save_book_backup(book, std::nullopt);
+        book.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 20, 0}});
+        const auto second = save_book_backup(book, std::nullopt);
+        if (first == second) throw std::runtime_error("same-second backup overwrote an existing backup");
+        bookminer::BookStore first_book, second_book;
+        first_book.load_yaneuraou_book(first, false, nullptr, nullptr);
+        second_book.load_yaneuraou_book(second, false, nullptr, nullptr);
+        if (first_book.find_position_copy(bookminer::StartSfenPly1)->moves[0].eval != 10
+            || second_book.find_position_copy(bookminer::StartSfenPly1)->moves[0].eval != 20)
+            throw std::runtime_error("backups did not preserve their separate snapshots");
+    }
+    {
+        const auto peta_file = root / "book" / "backup" / "isolation-peta.db";
+        { std::ofstream out(peta_file); out << "#YANEURAOU-DB2016 1.00\nsfen "
+              << bookminer::StartSfenPly1 << "\n7g7f none 0 0\n"; }
+        for (const bool cancel_manual : {true, false})
+        {
+            bookminer::BookStore peta_book;
+            PetaBookReadJob peta(peta_book);
+            ConcurrentManualBackup manual;
+            std::atomic<bool> peta_entered{false}, manual_entered{false}, peta_release{false}, manual_release{false};
+            auto wait_until = [](const std::atomic<bool>& flag) {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                while (!flag && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                return flag.load();
+            };
+            if (!peta.start_shock([&](const std::atomic<bool>* cancelled) {
+                    peta_entered = true;
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                    while (!peta_release) {
+                        check_peta_shock_cancel(cancelled);
+                        if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error("peta fixture timed out");
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    return peta_file;
+                }, "test peta done"))
+                throw std::runtime_error("could not start peta isolation fixture");
+            if (!manual.start([&](const std::atomic<bool>* cancelled) {
+                    manual_entered = true;
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                    while (!manual_release) {
+                        check_peta_shock_cancel(cancelled);
+                        if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error("manual fixture timed out");
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    return root / "manual.db";
+                }))
+                throw std::runtime_error("could not start manual isolation fixture");
+            if (!wait_until(peta_entered) || !wait_until(manual_entered)) {
+                peta_release = true; manual_release = true;
+                peta.join(); manual.join();
+                throw std::runtime_error("isolation fixture did not start");
+            }
+            if (cancel_manual) {
+                if (!manual.cancel()) throw std::runtime_error("manual cancellation was ignored");
+                manual.join();
+                if (!peta.shock_running()) throw std::runtime_error("manual cancellation stopped peta shock");
+                peta_release = true;
+                peta.join();
+                if (peta_book.size() != 1) throw std::runtime_error("peta shock did not complete after manual cancellation");
+            } else {
+                if (!peta.cancel_shock()) throw std::runtime_error("peta cancellation was ignored");
+                peta.join();
+                if (!manual.running()) throw std::runtime_error("peta cancellation stopped manual backup");
+                manual_release = true;
+                manual.join();
+            }
+        }
+    }
+    {
         ConcurrentManualBackup manual;
         std::atomic<bool> entered{false}, release{false};
-        if (!manual.start([&] {
+        if (!manual.start([&](const std::atomic<bool>*) {
                 entered = true;
                 while (!release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 return root / "manual.db";
@@ -68,6 +141,30 @@ int main(int argc, char** argv)
         manual.join();
         if (!running || manual.running())
             throw std::runtime_error("manual backup did not run concurrently");
+    }
+    {
+        ConcurrentManualBackup manual;
+        bookminer::BookStore book;
+        std::atomic<bool> entered{false};
+        g_save_mutex.lock();
+        if (!manual.start([&](const std::atomic<bool>* cancelled) {
+                entered = true;
+                return save_book_backup(book, std::nullopt, cancelled);
+            }))
+            throw std::runtime_error("manual backup did not start");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!entered.load() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!entered || !manual.cancel())
+        {
+            g_save_mutex.unlock();
+            manual.join();
+            throw std::runtime_error("manual backup cancellation was not accepted");
+        }
+        manual.join();
+        g_save_mutex.unlock();
+        if (manual.running() || manual.cancel())
+            throw std::runtime_error("cancelled manual backup remained active");
     }
     {
         bookminer::BookStore book;

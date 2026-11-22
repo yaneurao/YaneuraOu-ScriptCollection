@@ -16,6 +16,37 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_backup_does_not_overwrite_existing_same_second_file(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path(directory) / 'book_miner-20261029000000_1.db'
+            previous.write_text('previous')
+            with patch.object(bookminer, 'make_time_stamp', side_effect=['20261029000000', '20261029000001']), \
+                 patch.object(bookminer.time, 'sleep'):
+                saved = Path(bookminer.save_book_backup(book, directory))
+            self.assertEqual(previous.read_text(), 'previous')
+            self.assertEqual(saved.name, 'book_miner-20261029000001_1.db')
+            self.assertIn('7g7f', saved.read_text())
+
+    def test_cancel_during_manual_save_preserves_existing_file(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 0)], 1)
+        cancel = Event()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'book.db'
+            target.write_text('previous')
+            snapshot = bookminer.snapshot_book_position_for_write
+            def cancel_after_snapshot(*args):
+                result = snapshot(*args)
+                cancel.set()
+                return result
+            with patch.object(bookminer, 'snapshot_book_position_for_write', side_effect=cancel_after_snapshot):
+                with self.assertRaises(bookminer.PetaShockCancelled):
+                    bookminer.write_yaneuraou_book_records(book, str(target), None, cancel=cancel)
+            self.assertEqual(target.read_text(), 'previous')
+            self.assertEqual(list(target.parent.glob('.book-*.db')), [])
+
     def test_uppercase_source_uses_temporary_hard_link_and_cleans_up(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

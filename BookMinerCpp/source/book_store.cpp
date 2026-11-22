@@ -593,20 +593,33 @@ std::size_t BookStore::count_save_positions_locked(std::optional<int> ply_limit)
     return count;
 }
 
-std::vector<BookStore::Entry> BookStore::snapshot_save_entries_locked(std::optional<int> ply_limit) const
+std::vector<BookStore::Entry> BookStore::snapshot_save_entries_locked(std::optional<int> ply_limit,
+    BookProgressCallback progress, void* user, const std::filesystem::path& path) const
 {
     Map latest;
     latest.reserve(size_);
+    std::size_t checked = 0;
+    auto checkpoint = [&] {
+        if (user != nullptr && ++checked % BookWriteProgressInterval == 0)
+            report_progress(progress, user, BookProgressKind::Progress, checked, std::nullopt, path);
+    };
     for (const auto& run : runs_)
         for (const auto& entry : *run)
+        {
             latest[entry.key] = entry.position;
+            checkpoint();
+        }
     for (const auto& [key, position] : memtable_)
+    {
         latest[key] = position;
+        checkpoint();
+    }
 
     std::vector<Entry> entries;
     entries.reserve(latest.size());
     for (const auto& [key, position] : latest)
     {
+        checkpoint();
         if (position.moves.empty())
             continue;
         if (ply_limit.has_value() && position.ply > *ply_limit)
@@ -1593,10 +1606,15 @@ std::size_t BookStore::save_yaneuraou_book(
     std::vector<SaveEntry> positions;
     {
         std::scoped_lock lock(mutex_);
-        const auto entries = snapshot_save_entries_locked(ply_limit);
+        const auto entries = snapshot_save_entries_locked(ply_limit, progress, user, path);
         positions.reserve(entries.size());
+        std::size_t copied = 0;
         for (const auto& entry : entries)
+        {
             positions.push_back(SaveEntry{entry.key, entry.position.ply, {}, entry.position.moves});
+            if (user != nullptr && ++copied % BookWriteProgressInterval == 0)
+                report_progress(progress, user, BookProgressKind::Progress, copied, std::nullopt, path);
+        }
     }
 
     std::size_t prepared_count = 0;
@@ -1607,7 +1625,10 @@ std::size_t BookStore::save_yaneuraou_book(
             report_progress(progress, user, BookProgressKind::Progress, prepared_count, std::nullopt, path);
     }
 
-    std::sort(positions.begin(), positions.end(), [](const SaveEntry& lhs, const SaveEntry& rhs) {
+    std::size_t comparisons = 0;
+    std::sort(positions.begin(), positions.end(), [&](const SaveEntry& lhs, const SaveEntry& rhs) {
+        if (user != nullptr && ++comparisons % 65536 == 0)
+            report_progress(progress, user, BookProgressKind::Progress, comparisons, std::nullopt, path);
         return lhs.sfen < rhs.sfen;
     });
 

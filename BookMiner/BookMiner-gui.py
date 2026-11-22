@@ -215,7 +215,7 @@ PETA_REFUTATION_DONE_RE = re.compile(r"\[(?:PetaRefutationDone|PetaNextRefutatio
 PETA_REJOIN_DONE_RE = re.compile(r"\[PetaRejoinDone\]")
 PETA_UNSOLVED_DONE_RE = re.compile(r"\[PetaUnsolvedDone\]")
 PETA_OPPONENT_DONE_RE = re.compile(r"\[PetaOpponentDone\]")
-MANUAL_BACKUP_DONE_RE = re.compile(r"\[ManualBackupDone\]|\.\.w command write has done", re.IGNORECASE)
+MANUAL_BACKUP_DONE_RE = re.compile(r"\[ManualBackupDone\]", re.IGNORECASE)
 PETA_MAKEBOOK_START_RE = re.compile(r"start peta_shock makebook", re.IGNORECASE)
 PETA_MAKEBOOK_DONE_RE = re.compile(r"\.\.peta_shock makebook has done|peta_shock makebook failed", re.IGNORECASE)
 PETA_MAKEBOOK_CONTEXT_RE = re.compile(
@@ -580,6 +580,7 @@ class BookMinerGui(ttk.Frame):
         self.peta_shock_cancel_pending = False
         self.enqueue_pending = False
         self.manual_backup_pending = False
+        self.manual_backup_cancel_pending = False
         self.peta_makebook_active = False
         self.task_queue_remaining: int | None = None
         self.task_queue_total_highwater = 0
@@ -1184,10 +1185,10 @@ class BookMinerGui(ttk.Frame):
             commands,
             text="DB手動保存",
             width=STEP_BUTTON_WIDTH,
-            command=self.send_backup,
+            command=self.on_backup_button,
         )
         self.write_button.grid(row=10, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.write_button, "`w` を送信し、現在の定跡DBを book/backup/ に書き出します。")
+        Tooltip(self.write_button, "現在の定跡DBを book/backup/ に保存します。保存中はcancelで中止できます。")
         ttk.Label(commands, textvariable=self.backup_status).grid(
             row=10,
             column=2,
@@ -1277,6 +1278,7 @@ class BookMinerGui(ttk.Frame):
         self.ignore_current_backup = False
         self.busy_action = None
         self.manual_backup_pending = False
+        self.manual_backup_cancel_pending = False
         self.command_ready = False
         self._update_mining_status()
 
@@ -1647,6 +1649,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_tmp_seen = {}
         self.busy_action = None
         self.manual_backup_pending = False
+        self.manual_backup_cancel_pending = False
         self.command_ready = False
         self.engine_status_text = "エンジン起動数 -"
         self.enqueue_status_text = "enqueue -"
@@ -2136,6 +2139,17 @@ class BookMinerGui(ttk.Frame):
 
     def _handle_auto_enqueue_line(self, line: str) -> None:
         lower = line.lower()
+        if '[ManualBackupCancelled]' in line:
+            self.manual_backup_pending = False
+            self.manual_backup_cancel_pending = False
+            if self.busy_action == 'manual_backup':
+                self.busy_action = None
+            self._append_log('other', '[GUI] DB手動保存を中止しました。\n')
+            self._update_buttons()
+            return
+        if '[ManualBackupCancelIgnored]' in line:
+            # 完了通知とキャンセル要求が行き違った可能性がある。
+            return
         if '[PetaShockCancelled]' in line:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
@@ -2203,6 +2217,7 @@ class BookMinerGui(ttk.Frame):
             return
         if "exception : command failed, command=w" in lower:
             self.manual_backup_pending = False
+            self.manual_backup_cancel_pending = False
             if self.busy_action == "manual_backup":
                 self.busy_action = None
             self._append_log("other", "[GUI] DB手動保存に失敗しました。\n")
@@ -2250,12 +2265,14 @@ class BookMinerGui(ttk.Frame):
             self._append_log("other", "[GUI] BookMiner command failed. busy state was cleared.\n")
             if self.busy_action == "manual_backup":
                 self.manual_backup_pending = False
+                self.manual_backup_cancel_pending = False
             self.busy_action = None
             self._update_buttons()
             return
 
         if MANUAL_BACKUP_DONE_RE.search(line):
             changed = False
+            self.manual_backup_cancel_pending = False
             if self.busy_action == "manual_backup":
                 self.busy_action = None
                 changed = True
@@ -2774,8 +2791,17 @@ class BookMinerGui(ttk.Frame):
         if self.busy_action == "manual_backup":
             self.busy_action = None
         self.manual_backup_pending = False
+        self.manual_backup_cancel_pending = False
         self._update_buttons()
         return False
+
+    def on_backup_button(self) -> None:
+        if self.manual_backup_pending:
+            if not self.manual_backup_cancel_pending and self.send_command('cancel-manual-backup'):
+                self.manual_backup_cancel_pending = True
+                self._update_buttons()
+        else:
+            self.send_backup()
 
     def send_enqueue(self, auto: bool = False) -> bool:
         default_command = self._build_default_settings_command(auto)
@@ -3453,7 +3479,9 @@ class BookMinerGui(ttk.Frame):
             ),
         )
         configure_state("auto_check", "normal" if command_enabled and not command_busy else "disabled")
-        configure_state("write_button", "normal" if command_enabled and not manual_backup_pending else "disabled")
+        self.write_button.configure(text="cancel" if manual_backup_pending else "DB手動保存")
+        configure_state("write_button", "normal" if command_enabled and (
+            not manual_backup_pending or not getattr(self, 'manual_backup_cancel_pending', False)) else "disabled")
 
 
 def main() -> int:

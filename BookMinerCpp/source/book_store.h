@@ -116,7 +116,8 @@ private:
     void flush_memtable_locked();
     void compact_runs_locked();
     std::size_t count_save_positions_locked(std::optional<int> ply_limit) const;
-    std::vector<Entry> snapshot_save_entries_locked(std::optional<int> ply_limit) const;
+    std::vector<Entry> snapshot_save_entries_locked(std::optional<int> ply_limit, BookProgressCallback progress,
+                                                     void* user, const std::filesystem::path& path) const;
 
     mutable std::mutex mutex_;
     std::size_t size_ = 0;

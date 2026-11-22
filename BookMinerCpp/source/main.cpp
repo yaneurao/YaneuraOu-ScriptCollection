@@ -4110,20 +4110,31 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
     }
     else
         save_lock.lock();
-    const auto timestamp = make_time_stamp();
-    const auto saving_path = make_backup_saving_path(timestamp, ply_limit);
+    auto timestamp = make_time_stamp();
+    const auto saving_path = bookminer::temp_book_path(make_backup_saving_path(timestamp, ply_limit));
+    struct RemoveSavingFile {
+        fs::path path;
+        bool owned = true;
+        ~RemoveSavingFile() { if (owned) { std::error_code error; fs::remove(path, error); } }
+    } remove_saving_file{saving_path};
     log_line("start save_book_backup , path = " + saving_path.string());
     check_peta_shock_cancel(cancelled);
     const auto written_count = book.save_yaneuraou_book(saving_path, ply_limit,
         cancelled ? shock_write_progress : book_write_progress, const_cast<std::atomic<bool>*>(cancelled));
     if (cancelled && cancelled->load())
     {
-        std::error_code ec;
-        fs::remove(saving_path, ec);
         throw PetaShockCancelled{};
     }
     auto path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
+    while (fs::exists(path))
+    {
+        check_peta_shock_cancel(cancelled);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        timestamp = make_time_stamp();
+        path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
+    }
     bookminer::replace_book_file(saving_path, path);
+    remove_saving_file.owned = false;
     log_line("..save_book_backup has done, " + std::to_string(written_count) + " positions.");
     return path;
 }
@@ -4495,21 +4506,26 @@ class ConcurrentManualBackup {
 public:
     ~ConcurrentManualBackup() { join(); }
 
-    bool start(std::function<fs::path()> save)
+    bool start(std::function<fs::path(const std::atomic<bool>*)> save)
     {
         if (running_.load())
             return false;
         join();
+        cancelled_ = false;
         running_ = true;
         try
         {
             thread_ = std::thread([this, save = std::move(save)] {
                 std::optional<fs::path> result;
                 std::optional<std::string> failure;
-                try { result = save(); }
+                bool was_cancelled = false;
+                try { result = save(&cancelled_); }
+                catch (const PetaShockCancelled&) { was_cancelled = true; }
                 catch (const std::exception& ex) { failure = ex.what(); }
                 running_ = false;
-                if (failure)
+                if (was_cancelled)
+                    log_line("[ManualBackupCancelled]");
+                else if (failure)
                     log_line("Exception : command failed, command=w : " + *failure);
                 else
                 {
@@ -4528,10 +4544,12 @@ public:
     }
 
     bool running() const { return running_.load(); }
+    bool cancel() { if (!running_.load()) return false; cancelled_ = true; return true; }
     void join() { if (thread_.joinable()) thread_.join(); }
 
 private:
     std::atomic<bool> running_{false};
+    std::atomic<bool> cancelled_{false};
     std::thread thread_;
 };
 
@@ -4541,6 +4559,7 @@ void print_help()
     log_line("  Q : quit");
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
+    log_line("  cancel-manual-backup : cancel the running manual backup");
     log_line("  E : enqueue positions        , e");
     log_line("  EB: enqueue branch positions , eb branch_width branch_depth");
     log_line("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)");
@@ -4705,6 +4724,11 @@ int main(int argc, char* argv[])
             {
                 print_help();
             }
+            else if (command == "cancel-manual-backup")
+            {
+                if (!concurrent_manual_backup.cancel())
+                    log_line("[ManualBackupCancelIgnored] no manual backup is running");
+            }
             else if (command == "cancel-peta-next")
             {
                 if (!peta_command_job.cancel_next())
@@ -4758,29 +4782,15 @@ int main(int argc, char* argv[])
                     log_line("Exception : command failed, command=w : manual backup is already running");
                     continue;
                 }
-                if (!ply_limit.has_value() && auto_save_service)
-                    auto_save_service->reset_timer();
-                if (peta_book_read_job.shock_running())
-                {
-                    concurrent_manual_backup.start([&, ply_limit] {
+                concurrent_manual_backup.start([&, ply_limit](const std::atomic<bool>* cancelled) {
                         const auto revision = book.revision();
-                        const auto path = save_book_backup(book, ply_limit);
+                        const auto path = save_book_backup(book, ply_limit, cancelled);
+                        if (!ply_limit && auto_save_service)
+                            auto_save_service->reset_timer();
                         if (!ply_limit && book.revision() == revision)
                             peta_book_read_job.remember_saved_source(path, revision);
                         return path;
                     });
-                    continue;
-                }
-                const auto before_revision = book.revision();
-                const auto path = save_book_backup(book, ply_limit);
-                if (!ply_limit.has_value() && book.revision() == before_revision)
-                {
-                    clean_source_path = path;
-                    clean_source_revision = before_revision;
-                }
-                log_line("write path = " + path.string());
-                log_line("..w command write has done. path = " + path.string());
-                log_line("[ManualBackupDone] path=" + path.string());
             }
             else if (command == "reload-settings")
             {

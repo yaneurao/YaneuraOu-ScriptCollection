@@ -59,6 +59,8 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 `e` コマンド自体には引数を指定しません。探索条件は `book/think_sfens.txt` の各行のメタ情報で指定します。
 
+手動保存の `w` はバックグラウンドで実行され、`cancel-manual-backup` で中止できます。peta shockの `cancel-peta-shock` とは独立しています。キャンセルが保存完了後に届いた場合は、完成したDBを残します。
+
 `e` コマンドで棋譜を辿るとき、定跡木の内部ノードは `eval_limit` では打ち切りません。
 次の指し手が定跡木の外へ出る場合、bestmoveの評価値の絶対値がこの値を超え、かつbestmoveの移動先も探索済みでなければ、その先へ進みません。
 棋譜の末端まで到達できた場合は、そこから先の best line 延長でもこの値を使います。
