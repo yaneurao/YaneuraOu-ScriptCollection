@@ -196,6 +196,7 @@ class TaskResume:
     engine_id : int
     visited : set[Sfen]
     path_visited : set[Sfen]
+    branch_extension : bool = False
 
 
 @dataclass
@@ -1726,11 +1727,11 @@ class EngineManager:
         # `e`コマンドでbest lineを延長して掘る時の残り手数
         rest_ply = task.book_extend_ply
 
-        # `eb`コマンドでMultiPV上位手をbranch展開して掘る時の残り手数。
-        # branch_width > 0ならbranch_depth=0でも現在局面だけは掘る。
+        # `eb`コマンドでMultiPV上位手をbranch展開する残り手数。
         branch_width = task.branch_width
         branch_depth = task.branch_depth
         branch_task = branch_width > 0
+        branch_extension = False
 
         # 現在探索中の局面
         current_sfen = sfen
@@ -1745,10 +1746,18 @@ class EngineManager:
             branch_depth = resume.branch_depth
             last_thinking_ply = (resume.last_thinking_ply
                                  if resume.engine_id == engine.thread_settings.thread_id else PLY_MIN)
+            branch_extension = resume.branch_extension
+            if branch_extension:
+                branch_task = False
             visited = resume.visited
             task.resume = None
 
         while True:
+
+            if branch_task and branch_depth <= 0:
+                branch_task = False
+                branch_extension = True
+                rest_ply = task.book_extend_ply
 
             if not branch_task and rest_ply == 0:
                 break
@@ -1761,23 +1770,17 @@ class EngineManager:
                     visited.discard(current_sfen)
                     visited.discard(flipped_sfen(current_sfen))
                     task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
-                                             last_thinking_ply, engine.thread_settings.thread_id, visited, set())
+                                             last_thinking_ply, engine.thread_settings.thread_id, visited, set(), branch_extension)
                 raise
             if status == TASK_RESULT_DEFERRED:
                 task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
-                                         last_thinking_ply, engine.thread_settings.thread_id, visited, set())
+                                         last_thinking_ply, engine.thread_settings.thread_id, visited, set(), branch_extension)
                 return TASK_RESULT_DEFERRED
             if position_info is None:
                 return TASK_RESULT_DONE
-            if branch_task and not searched:
-                return TASK_RESULT_DONE
-
             # 次の局面を辿る。
             # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
             # そのため、bestがeval_limitを超えていたら、ここで延長を止める。
-            if branch_task and branch_depth <= 0:
-                return TASK_RESULT_DONE
-
             candidate_moves = self.get_thinking_candidate_moves(
                 position_info,
                 eval_limit,

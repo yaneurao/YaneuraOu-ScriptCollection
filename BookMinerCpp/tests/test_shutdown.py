@@ -84,7 +84,7 @@ class ShutdownTest(unittest.TestCase):
             (root / 'settings').mkdir()
             (root / 'book').mkdir()
             dead, healthy = root / 'dead-engine', root / 'healthy-engine'
-            engine_body = ('#!/usr/bin/env python3\nimport sys,time\n'
+            engine_body = ('#!/usr/bin/env python3\nimport sys,time,cshogi\n'
                            'count=0\nmove="7g7f"\n'
                            'for line in sys.stdin:\n'
                            ' line=line.strip()\n'
@@ -93,6 +93,9 @@ class ShutdownTest(unittest.TestCase):
                            ' elif line.startswith("position "):\n'
                            '  parts=line.split(); ply=int(parts[-1]); side=parts[-3]\n'
                            '  move="8c8d" if side=="w" else ("7g7f" if ply==3 else "2g2f")\n'
+                           '  board=cshogi.Board(line[len("position sfen "):])\n'
+                           '  legal=[cshogi.move_to_usi(m) for m in board.legal_moves]\n'
+                           '  if move not in legal: move=legal[0]\n'
                            ' elif line.startswith("go "):\n'
                            '  count+=1\n'
                            '  if CRASH and count>=2: sys.exit(1)\n'

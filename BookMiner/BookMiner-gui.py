@@ -1149,7 +1149,11 @@ class BookMinerGui(ttk.Frame):
             command=self.send_enqueue,
         )
         self.enqueue_button.grid(row=8, column=1, sticky="w", padx=(8, 0), pady=3)
-        Tooltip(self.enqueue_button, "`e` または `eb` を送信し、book/think_sfens.txt の局面を探索キューに積みます。")
+        Tooltip(self.enqueue_button,
+                "book/think_sfens.txt の局面を探索キューに積みます。\n"
+                "上位N手・M手先を指定した場合、M手先の各局面からさらにbook extend ply手だけbest lineを延長します。\n"
+                "行にbook_extend_plyが書かれている場合は、その値がデフォルト値より優先されます。"
+                "eval_limitやgame ply limit、千日手等により途中で止まることがあります。")
         ttk.Label(commands, text="上位N手").grid(row=8, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.enqueue_branch_width, width=6).grid(row=8, column=3, sticky="w", pady=3)
         ttk.Label(commands, text="M手先まで").grid(row=8, column=4, sticky="w", padx=(12, 6), pady=3)

@@ -49,6 +49,8 @@ startpos moves 7g7f 3c3d, book_extend_ply=20, eval_limit=400, game_ply_limit=200
 
 `book_extend_ply` は棋譜末端からの best line 延長手数、`eval_limit` は定跡木の外へ出る枝を評価値で止める上限、`game_ply_limit` は最大手数です。メタ情報が無い行、または値が `None` の行は、`sd` で設定したデフォルト値を使います。
 
+通常の `e` では、棋譜の末端を含む最大 `book_extend_ply` 局面を順に掘ります。既に通常DBにある局面もこの手数に含まれるため、新たにエンジンで探索する局面数は少なくなる場合があります。例えば20局面を連続して掘って最後の指し手の移動先が未探索なら、peta shock後の最初の指し手のdepthは19です（最後の局面の指し手をdepth 0として数えるため）。
+
 指定できるメタ情報はこの3種類です。キーの打ち間違いなど、未知のメタ情報は無視せずエラーにします。Python版は該当行をログに表示してスキップし、C++版はファイル名と行番号を表示してenqueueを中止します。
 
 同じ局面が複数行にある場合は、より大きいメタ情報を持つ行を採用します。数値指定は `None` より優先されます。
@@ -85,7 +87,7 @@ eb 2 3
 
 branch探索では、まず従来通り `think_sfens.txt` の棋譜を再生し、`eval_limit` や `game_ply_limit` による従来の判定を通った局面だけを掘ります。その局面を掘ったあと、上位手を見て展開します。最善手側は同じworkerがそのまま進めるため、直線的な延長で使っていた探索nodes倍率を引き継げます。2番手以降は、残りbranch depthを1つ減らしたtaskとしてqueue末尾へ積みます。
 
-内部taskでは `branch_depth=0` が「その局面だけ掘る」という意味になります。CLIの `eb` は正の `branch_width` と `branch_depth` を指定します。GUIで上位手数と手先までを両方0にした場合は、`eb` ではなく従来の `e` を送信します。
+枝を `branch_depth` 手先まで展開したら、各枝の局面からさらに `book_extend_ply` 手だけbest lineを延長します。`eval_limit`、`game_ply_limit`、千日手、終局等により途中で止まることがあります。CLIの `eb` は正の `branch_width` と `branch_depth` を指定します。GUIで上位手数と手先までを両方0にした場合は、`eb` ではなく `e` を送信します。
 
 ## `w`
 

@@ -276,7 +276,7 @@ class EngineProtocolTests(unittest.TestCase):
                 if self.calls == self.fail_at:
                     self.connection_broken = True
                     raise RuntimeError('engine disconnected')
-                return [miner.MoveInfo({1:'7g7f', 2:'3c3d', 3:'2g2f', 4:'8c8d'}[ply], 0)]
+                return [miner.MoveInfo({1:'7g7f', 2:'3c3d', 3:'2g2f', 4:'8c8d', 5:'2f2e', 6:'8d8e'}[ply], 0)]
 
         for position_cmd in (None, 'startpos moves 7g7f', 'startpos moves 7g7f 3c3d 2g2f'):
             with self.subTest(position_cmd=position_cmd):
@@ -292,7 +292,7 @@ class EngineProtocolTests(unittest.TestCase):
                 self.assertIsNotNone(task.resume)
                 self.assertEqual(run(book, FakeEngine(1), task), miner.TASK_RESULT_DONE)
                 self.assertIsNone(task.resume)
-                self.assertEqual(len(book.body), 4)
+                self.assertEqual(len(book.body), 6)
 
     def test_enqueue_crosses_unexplored_alternative_if_best_has_normal_child(self):
         manager = object.__new__(miner.EngineManager)

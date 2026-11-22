@@ -350,16 +350,19 @@ int main(int argc, char** argv)
         const auto engine_path = roots_path.parent_path() / "branch-retry-engine";
         {
             std::ofstream out(engine_path);
-            out << "#!/usr/bin/env python3\nimport sys\nmove='7g7f'\n"
+            out << "#!/usr/bin/env python3\nimport sys\nmove='7g7f'\nalt='3g3f'\n"
+                   "line_moves='7g7f 3c3d 2g2f 8c8d 2f2e 8d8e 6g6f 9c9d 1g1f 1c1d 4g4f 4c4d 3g3f 5c5d 9g9f 5a4b 5g5f 7c7d'.split()\n"
                    "for line in sys.stdin:\n"
                    " line=line.strip()\n"
                    " if line=='usi': print('usiok',flush=True)\n"
                    " elif line=='isready': print('readyok',flush=True)\n"
-                   " elif line.startswith('position '): move='3c3d' if ' w ' in line else '7g7f'\n"
+                   " elif line.startswith('position '):\n"
+                   "  ply=int(line.split()[-1]); move=line_moves[ply-1]\n"
+                   "  alt=('5g5f' if move=='3g3f' else '3g3f') if ply%2 else '7c7d'\n"
                    " elif line.startswith('go '):\n"
                    "  open(__file__+'.nodes','a').write(line+'\\n')\n"
                    "  print('info multipv 1 score cp 42 pv '+move,flush=True)\n"
-                   "  print('info multipv 2 score cp 20 pv '+('8c8d' if move=='3c3d' else '2g2f'),flush=True)\n"
+                   "  print('info multipv 2 score cp 20 pv '+alt,flush=True)\n"
                    "  print('bestmove '+move,flush=True)\n"
                    " elif line=='quit': break\n";
         }
@@ -381,7 +384,8 @@ int main(int argc, char** argv)
             return process_position_command(book, engine, "startpos", 1000, 200, 10,
                                             1, 1, 1, [](BranchTaskSpec) {}, resume);
         };
-        if (run() != TaskResult::Deferred || !resume || !resume->best_line)
+        if (run() != TaskResult::Deferred || !resume || !resume->best_line
+            || !resume->branch_extension || resume->rest_ply != 10)
             throw std::runtime_error("branch search did not suspend at the occupied child");
         book.end_search(lease);
         if (run() != TaskResult::Done || resume || !book.find_position_copy(child.sfen()))

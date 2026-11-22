@@ -16,6 +16,148 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
+    def test_two_branch_leaves_each_extend_twenty_plies(self):
+        import importlib.util
+        import json
+        try:
+            import cshogi  # noqa: F401
+        except ImportError:
+            self.skipTest('cshogi is required to construct fixture positions')
+        fixture = ROOT.parents[0] / 'BookMiner' / 'tests' / 'test_extend_ply.py'
+        spec = importlib.util.spec_from_file_location('extend_branch_fixture', fixture)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        root_sfen, first_moves, lines = module.make_branch_lines()
+        first = [module.miner.cshogi.move_to_usi(move) for move in first_moves]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            (root / 'book' / 'think_sfens.txt').write_text('startpos\n')
+            engine = root / 'engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                f'root={root_sfen!r}\nfirst={first!r}\nlines={lines!r}\n'
+                'key=root\nfor line in sys.stdin:\n'
+                ' line=line.strip()\n'
+                ' if line=="usi": print("usiok",flush=True)\n'
+                ' elif line=="isready": print("readyok",flush=True)\n'
+                ' elif line.startswith("position "):\n'
+                '  key=" ".join(line.split()[2:-1])\n'
+                '  open("searches.txt","a").write(key+"\\n")\n'
+                ' elif line.startswith("go "):\n'
+                '  moves=first if key==root else [lines[key]]\n'
+                '  for i,move in enumerate(moves):\n'
+                '   print(f"info multipv {i+1} score cp {-i} pv {move}",flush=True)\n'
+                '  print("bestmove "+moves[0],flush=True)\n'
+                ' elif line=="quit": break\n')
+            engine.chmod(0o755)
+            (root / 'settings' / 'engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 2, 'multipv_delta': 0}]))
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                    stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                def wait_for(needle):
+                    deadline = time.monotonic() + 25
+                    while time.monotonic() < deadline:
+                        data = log.read_text()
+                        if needle in data: return
+                        if process.poll() is not None: break
+                        time.sleep(.02)
+                    self.fail('missing ' + needle + ': ' + log.read_text())
+                try:
+                    wait_for('[CommandReady]')
+                    process.stdin.write('sd 30 99999 200 20 400\neb 2 1\n')
+                    process.stdin.flush()
+                    wait_for('[TaskQueueJobDone]')
+                    searches = (root / 'searches.txt').read_text().splitlines()
+                    self.assertEqual(len(searches), 41, log.read_text())
+                    self.assertEqual(len(set(searches)), 41)
+                    self.assertEqual(set(searches), {root_sfen, *lines.keys()})
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('!\n')
+                        process.stdin.flush()
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
+    def test_twenty_ply_and_branch_extension_end_to_end(self):
+        import importlib.util
+        import json
+        try:
+            import cshogi  # noqa: F401
+        except ImportError:
+            self.skipTest('cshogi is required to construct fixture positions')
+        fixture = ROOT.parents[0] / 'BookMiner' / 'tests' / 'test_extend_ply.py'
+        spec = importlib.util.spec_from_file_location('extend_ply_fixture', fixture)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        positions, moves = module.make_line(30)
+        cases = (("e", 200, None, None, 0, 20), ("e", 200, 6, None, 0, 6),
+                 ("e", 7, None, None, 0, 6), ("e", 200, None, 5, 0, 5),
+                 ("e", 200, None, None, 7, 20),
+                 ("eb 1 3", 200, None, None, 0, 23),
+                 ("eb 1 3", 200, None, None, 7, 23))
+        for command, max_ply, metadata, high_eval_ply, existing, expected in cases:
+            with self.subTest(command=command, max_ply=max_ply, metadata=metadata, high_eval_ply=high_eval_ply, existing=existing), \
+                 tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'settings').mkdir()
+                (root / 'book').mkdir()
+                if existing:
+                    backup = root / 'book' / 'backup'
+                    backup.mkdir()
+                    entries = sorted((positions[i], moves[i]) for i in range(existing))
+                    (backup / f'book_miner-20200101000000_{existing}.db').write_text(
+                        '#YANEURAOU-DB2016 1.00\n' + ''.join(
+                            f'sfen {position}\n{move} none 0 0\n' for position, move in entries))
+                (root / 'book' / 'think_sfens.txt').write_text(
+                    'startpos' + (f', book_extend_ply={metadata}' if metadata is not None else '') + '\n')
+                engine = root / 'engine'
+                engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                    f'moves = {moves!r}\nhigh_ply = {high_eval_ply!r}\n'
+                    'ply = 1\nfor line in sys.stdin:\n'
+                    ' line=line.strip()\n'
+                    ' if line=="usi": print("usiok",flush=True)\n'
+                    ' elif line=="isready": print("readyok",flush=True)\n'
+                    ' elif line.startswith("position "):\n'
+                    '  ply=int(line.split()[-1])\n'
+                    '  open("searches.txt","a").write(str(ply)+"\\n")\n'
+                    ' elif line.startswith("go "):\n'
+                    '  move=moves[ply-1]\n'
+                    '  score=500 if ply==high_ply else 0\n'
+                    '  print(f"info depth 1 multipv 1 score cp {score} pv {move}",flush=True)\n'
+                    '  print("bestmove "+move,flush=True)\n'
+                    ' elif line=="quit": break\n')
+                engine.chmod(0o755)
+                (root / 'settings' / 'engine_settings.json5').write_text(json.dumps([
+                    {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+                log = root / 'output.log'
+                with log.open('w') as output:
+                    process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                        stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                    def wait_for(needle):
+                        deadline = time.monotonic() + 20
+                        while time.monotonic() < deadline:
+                            data = log.read_text()
+                            if needle in data: return
+                            if process.poll() is not None: break
+                            time.sleep(.02)
+                        self.fail('missing ' + needle + ': ' + log.read_text())
+                    try:
+                        wait_for('[CommandReady]')
+                        process.stdin.write(f'sd 30 99999 {max_ply} 20 400\n{command}\n')
+                        process.stdin.flush()
+                        wait_for('[TaskQueueJobDone]')
+                        searches = (root / 'searches.txt').read_text().splitlines()
+                        self.assertEqual(searches, [str(i) for i in range(existing + 1, expected + 1)])
+                    finally:
+                        if process.poll() is None:
+                            process.stdin.write('!\n')
+                            process.stdin.flush()
+                        process.wait(timeout=20)
+                        process.stdin.close()
+
     def test_peta_shock_cancellation_preserves_unrelated_temporary_file(self):
         env = os.environ.copy()
         env['BOOKMINER_TEST_BINARY'] = str(self.binary)
