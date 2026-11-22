@@ -4611,6 +4611,9 @@ def user_input(from_gui:bool = False):
             elif i == 'q':
                 print("quit")
                 engine_manager.global_settings.quit = True
+                peta_next_cancel.set()
+                if peta_next_thread is not None:
+                    peta_next_thread.join()
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
@@ -4622,6 +4625,9 @@ def user_input(from_gui:bool = False):
             elif i == '!':
                 print("quit without saving")
                 engine_manager.global_settings.quit = True
+                peta_next_cancel.set()
+                if peta_next_thread is not None:
+                    peta_next_thread.join()
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
@@ -4991,6 +4997,8 @@ def user_input(from_gui:bool = False):
         except EOFError:
             engine_manager.global_settings.quit = True
             peta_next_cancel.set()
+            if peta_next_thread is not None:
+                peta_next_thread.join()
             if peta_shock_thread is not None and peta_shock_thread.is_alive():
                 peta_shock_cancel.set()
                 peta_shock_thread.join()

@@ -4752,6 +4752,8 @@ int main(int argc, char* argv[])
             {
                 log_line("quit");
                 peta_book_read_job.cancel_shock();
+                if (peta_command_job.cancel_next())
+                    peta_command_job.join();
                 concurrent_manual_backup.join();
                 const auto before_revision = book.revision();
                 const auto path = save_book_backup(book, std::nullopt);
@@ -4772,6 +4774,8 @@ int main(int argc, char* argv[])
             {
                 log_line("quit without saving");
                 peta_book_read_job.cancel_shock();
+                if (peta_command_job.cancel_next())
+                    peta_command_job.join();
                 concurrent_manual_backup.join();
                 if (auto_save_service)
                     auto_save_service->stop();
