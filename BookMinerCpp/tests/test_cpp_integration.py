@@ -16,6 +16,16 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
+    def test_eof_waits_for_manual_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [str(self.binary), '--from_gui', '--work-dir', directory],
+                input='w\n', text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('[ManualBackupDone]', result.stdout)
+            backups = list((Path(directory) / 'book' / 'backup').glob('book_miner-*'))
+            self.assertEqual(len(backups), 1, result.stdout)
+
     def test_two_branch_leaves_each_extend_twenty_plies(self):
         import importlib.util
         import json

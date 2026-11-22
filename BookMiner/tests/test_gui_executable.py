@@ -65,6 +65,20 @@ class GuiExecutableTests(unittest.TestCase):
         self.assertFalse(instance.manual_backup_pending)
         self.assertFalse(instance.manual_backup_cancel_pending)
 
+    def test_unrelated_failure_does_not_clear_manual_backup(self):
+        instance = Mock()
+        instance.busy_action = 'manual_backup'
+        instance.manual_backup_pending = True
+        instance.manual_backup_cancel_pending = True
+        instance.settings_apply_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Exception : command failed, command=sd : invalid')
+        self.assertEqual(instance.busy_action, 'manual_backup')
+        self.assertTrue(instance.manual_backup_pending)
+        self.assertTrue(instance.manual_backup_cancel_pending)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[ManualBackupCancelled]')
+        self.assertFalse(instance.manual_backup_pending)
+
     def test_unsolved_sends_depth_list_and_rejects_invalid_input(self):
         instance = Mock()
         instance.peta_unsolved_min_depths.get.return_value = '10,8,6,4'

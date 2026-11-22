@@ -2243,6 +2243,11 @@ class BookMinerGui(ttk.Frame):
             self._update_buttons()
             return
 
+        if "Exception :" in line and self.busy_action == "manual_backup":
+            # The backup worker reports its own failures with command=w above.
+            # Errors from independent commands must not end this backup's UI state.
+            return
+
         if "error : peta command is running" in lower:
             if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
                 self._abort_auto_enqueue("auto enqueue stopped: another peta command is running.")

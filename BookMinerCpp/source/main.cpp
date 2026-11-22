@@ -4706,6 +4706,11 @@ int main(int argc, char* argv[])
             {
                 peta_book_read_job.cancel_shock();
                 peta_command_job.cancel_next();
+                // The backup worker can still access the autosave service.  Join it
+                // before local objects are destroyed on EOF, as in q/! handling.
+                concurrent_manual_backup.join();
+                peta_book_read_job.join();
+                peta_command_job.join();
                 break;
             }
 
@@ -5386,6 +5391,11 @@ int main(int argc, char* argv[])
     catch (const std::exception& ex)
     {
         log_line(std::string("Exception : ") + ex.what());
+        peta_book_read_job.cancel_shock();
+        peta_command_job.cancel_next();
+        concurrent_manual_backup.join();
+        peta_book_read_job.join();
+        peta_command_job.join();
         return 1;
     }
 
