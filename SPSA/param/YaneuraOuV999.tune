@@ -62,7 +62,7 @@
 
 #context aspiration_window
 
-            delta     = 5@{3,10} + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 10193@{1,18000};
+            delta     = 5@{3,15} + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 10193@{1,18000};
 
 
 #context YaneuraOuWorker_clear2
@@ -168,7 +168,7 @@
 
 #context Search_Extensions3
 
-                int doubleMargin = -2@ + 204@ * PvNode - 152@ * !ttCapture - corrValAdj
+                int doubleMargin = -2@ + 204@ * PvNode - 152@{0,372} * !ttCapture - corrValAdj
                                  - 1175@ * ttMoveHistory / 114178 - (ss->ply > rootDepth) * 38@;
 
 #context Search_Extensions4
@@ -228,8 +228,8 @@
 #context Search_quiet_stat_score
 
             ss->statScore =
-              (2252@main{0,2252} * mainHistory[us][move.raw()] + 1126@continuation0{0,1126} * (*contHist[0])[movedPiece][move.to_sq()]
-               + 1093@continuation1{0,1093} * (*contHist[1])[movedPiece][move.to_sq()])
+              (2252@main{0,2252} * mainHistory[us][move.raw()] + 1126@continuation0{0,1200} * (*contHist[0])[movedPiece][move.to_sq()]
+               + 1093@continuation1{0,1160} * (*contHist[1])[movedPiece][move.to_sq()])
               / 1024;
 
 #context Search_Post_LMR_continuation_history_updates // search() Step 17.
@@ -271,11 +271,11 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 #context conthist_bonuses
 
     static constexpr std::array<ConthistBonus, 5> conthist_bonuses = {
-      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,420}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
 
 #add
     const std::array<ConthistBonus, 5> conthist_bonuses = {
-      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,400}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
+      {{1, 520@ply1{0,528}}, {2, 390@ply2{0,420}}, {3, 145@ply3{0,160}}, {4, 251@ply4{0,270}}, {6, 209@ply6{0,225}}}};
 
 #context update_quiet_histories_1a // update_quiet_histories()
 
@@ -310,11 +310,13 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
     for (auto& to : continuationCorrectionHistory)
         for (auto& h : to)
-            h.fill(5@3);
+            h.fill(5@3{0,16});
 
 #context Search_nullmove_2
 
-        Depth R = 7 + depth / 3 + std::clamp((ss->staticEval - beta) / 256@margin{1,512}, 0, ss->ply / 2)
+        const int nmpPlyCapQ10 = 512@plyCapQ10{256,1024};
+        Depth R = 7 + depth / 3
+                + std::clamp((ss->staticEval - beta) / 256@margin{1,512}, 0, ss->ply * nmpPlyCapQ10 / 1024)
                 - int(threadIdx & 1);
 
 #context Search_Capture_SEE_pruning_margin // Search step 14.
@@ -333,11 +335,11 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
 #context Search_fail_low_quiet_bonus // search() Step 21.
 
-        int bonusScale = -241@{-482,-241};
+        int bonusScale = -241@{-482,-230};
         bonusScale -= (ss - 1)->statScore / 98@{98,216};
-        bonusScale += std::min(59@{0,118} * depth, 420@{0,420});
-        bonusScale += 186@{0,186} * ((ss - 1)->moveCount > 9@{0,18});
-        bonusScale += 142@{0,142} * (!ss->inCheck && bestValue <= ss->staticEval - 106@{0,212});
+        bonusScale += std::min(59@{0,118} * depth, 420@{0,440});
+        bonusScale += 186@{0,195} * ((ss - 1)->moveCount > 9@{0,18});
+        bonusScale += 142@{0,150} * (!ss->inCheck && bestValue <= ss->staticEval - 106@{0,212});
         bonusScale += 159@{0,159} * (!(ss - 1)->inCheck && bestValue <= -(ss - 1)->staticEval - 68@{0,146});
 
         bonusScale = std::max(bonusScale, 0);
@@ -353,7 +355,7 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
         mainHistory[~us][((ss - 1)->currentMove).raw()] << scaledBonus * 215@{0,430} / 32768;
 
         if (type_of(pos.piece_on(prevSq)) != PAWN && ((ss - 1)->currentMove).type_of() != PROMOTION)
-            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq] << scaledBonus * 324@{0,500} / 8192;
+            sharedHistory.pawn_entry(pos)[pos.piece_on(prevSq)][prevSq] << scaledBonus * 324@{0,525} / 8192;
 
 #context Search_fail_low_capture_bonus // search() Step 21.
 
@@ -511,8 +513,28 @@ using Eval::PieceValue;
             const int effortSpan = 28710;
             // The historical parameter name denotes the interpolation endpoint.
             // 従来のパラメーター名を引き継ぐが、この値は補間終点の係数を表す。
-            const int effortMinimumQ10 = 731@minimumQ10{0,768};
+            const int effortMinimumQ10 = 731@minimumQ10{0,790};
 
 #context aspiration_window_growth
 
                 delta += 47@{43,94} * delta / 128;
+
+#context Time_falling_eval
+
+            const int fallingEvalSensitivityQ10 = 1024@sensitivity{512,2048};
+
+#context Time_best_move_instability
+
+            const int bestMoveInstabilitySensitivityMilli = 2229@sensitivity{1115,4458};
+
+#context Time_stable_best_move
+
+            const int stableBestMoveStartCenti = 496@start{200,1000};
+
+#context Time_increase_depth
+
+            const int increaseDepthRatioPercent = 50@ratio{25,75};
+
+#context Search_seek_mate_threshold
+
+        const int seekMateThresholdBase = 750@base{375,1500};
