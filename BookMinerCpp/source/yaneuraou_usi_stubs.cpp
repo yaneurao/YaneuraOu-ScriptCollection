@@ -139,7 +139,11 @@ void UnitTester::test(const std::string&, bool)
 } // namespace Test
 
 // BookMiner は探索用の置換表を使わない。
+#ifdef BOOKMINER_TT_COLOR
 Cluster* TranspositionTable::get_cluster(const Key, Color) const
+#else
+Cluster* TranspositionTable::get_cluster(const Key) const
+#endif
 {
     return nullptr;
 }

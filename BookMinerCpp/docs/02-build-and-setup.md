@@ -22,6 +22,8 @@ cd YaneuraOu-ScriptCollection/BookMinerCpp/source
 make CXX=clang++
 ```
 
+参照するやねうら王のソースを更新・切り替えた場合は、以前のオブジェクトファイルが残らないように `make clean` してからビルドしてください。やねうら王の局面履歴APIやソースファイル構成の新旧を、ソースに合わせて選択します。
+
 出力先は次の通りです。
 
 ```text

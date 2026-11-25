@@ -14,6 +14,11 @@ WINDOWS_HOST := $(filter MINGW% MSYS% CYGWIN%,$(UNAME_S))
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -ffunction-sections -fdata-sections
 CPPFLAGS ?=
 CPPFLAGS += -isystem $(YANEURAOU_ROOT) -DUSE_PIECE_VALUE -DTARGET_CPU=\"$(TARGET_CPU)\" -DUNICODE
+# The transposition-table API lost its side-to-move argument in newer sources.
+YANEURAOU_TT_COLOR := $(shell grep -F 'get_cluster' "$(YANEURAOU_ROOT)/tt.h" 2>/dev/null | grep -F 'Color')
+ifneq ($(YANEURAOU_TT_COLOR),)
+CPPFLAGS += -DBOOKMINER_TT_COLOR
+endif
 EXTRA_CPPFLAGS ?=
 CPPFLAGS += $(EXTRA_CPPFLAGS)
 ifeq ($(TARGET_CPU),ZEN1)
@@ -86,9 +91,18 @@ YANEURAOU_SOURCES := \
 	position.cpp \
 	extra/bitop.cpp \
 	extra/long_effect.cpp \
-	extra/sfen_packer.cpp \
-	eval/evaluate.cpp \
-	eval/evaluate_bona_piece.cpp
+	extra/sfen_packer.cpp
+
+ifneq ($(wildcard $(YANEURAOU_ROOT)/evaluate.cpp),)
+YANEURAOU_SOURCES += evaluate.cpp
+else
+YANEURAOU_SOURCES += eval/evaluate.cpp eval/evaluate_bona_piece.cpp
+endif
+
+ifneq ($(wildcard $(YANEURAOU_ROOT)/attacks.cpp),)
+YANEURAOU_SOURCES += attacks.cpp
+CPPFLAGS += -DBOOKMINER_YANEURAOU_ATTACKS
+endif
 
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.cpp=.o))
 YANEURAOU_ADAPTER_OBJECTS := $(addprefix $(BUILD_DIR)/yaneuraou_adapter/,$(YANEURAOU_ADAPTER_SOURCES:.cpp=.o))
@@ -106,6 +120,7 @@ $(TARGET): $(OBJECTS) $(YANEURAOU_LIB)
 
 $(YANEURAOU_LIB): $(YANEURAOU_LIB_OBJECTS)
 	@mkdir -p $(dir $@)
+	@rm -f $@
 	$(AR) $(ARFLAGS) $@ $^
 
 $(BUILD_DIR)/%.o: %.cpp

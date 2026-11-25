@@ -7,12 +7,16 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "bitboard.h"
 #include "movegen.h"
 #include "position.h"
 #include "types.h"
 #include "usi.h"
+#ifdef BOOKMINER_YANEURAOU_ATTACKS
+#include "attacks.h"
+#endif
 
 static_assert(sizeof(YaneuraOu::PackedSfen) == 32, "YaneuraOu::PackedSfen must be 32 bytes");
 
@@ -26,6 +30,9 @@ void ensure_yaneuraou_initialized()
 {
     std::call_once(g_yaneuraou_init_once, [] {
         YaneuraOu::Bitboards::init();
+#ifdef BOOKMINER_YANEURAOU_ATTACKS
+        YaneuraOu::Attacks::init();
+#endif
         YaneuraOu::Position::init();
     });
 }
@@ -62,6 +69,33 @@ std::string normalize_sfen_input(std::string sfen)
     return sfen;
 }
 
+// Older YaneuraOu versions require externally owned StateInfo objects;
+// newer versions keep their move history inside Position.
+template<class Position>
+auto set_position(Position& position, const std::string& sfen, std::deque<YaneuraOu::StateInfo>& states)
+{
+    states.clear();
+    if constexpr (requires { position.set(sfen, static_cast<YaneuraOu::StateInfo*>(nullptr)); })
+    {
+        states.emplace_back();
+        return position.set(sfen, &states.back());
+    }
+    else
+        return position.set(sfen);
+}
+
+template<class Position>
+void play_move(Position& position, YaneuraOu::Move move, std::deque<YaneuraOu::StateInfo>& states)
+{
+    if constexpr (requires { position.do_move(move, std::declval<YaneuraOu::StateInfo&>()); })
+    {
+        states.emplace_back();
+        position.do_move(move, states.back());
+    }
+    else
+        position.do_move(move);
+}
+
 } // namespace
 
 class SfenPosition::Impl {
@@ -86,9 +120,7 @@ public:
 
     void reset(const std::string& sfen)
     {
-        states.clear();
-        states.emplace_back(YaneuraOu::StateInfo{});
-        auto error = position.set(normalize_sfen_input(sfen), &states.back());
+        auto error = set_position(position, normalize_sfen_input(sfen), states);
         if (error.has_value())
             throw std::runtime_error(error->what());
     }
@@ -96,8 +128,7 @@ public:
     void push_usi(const std::string& move)
     {
         const auto yane_move = checked_usi_to_move(position, move);
-        states.emplace_back(YaneuraOu::StateInfo{});
-        position.do_move(yane_move, states.back());
+        play_move(position, yane_move, states);
     }
 
     std::vector<std::string> legal_moves() const
@@ -170,10 +201,9 @@ std::array<std::uint8_t, 32> pack_sfen_bytes(const std::string& sfen_with_option
     ensure_yaneuraou_initialized();
 
     std::deque<YaneuraOu::StateInfo> states;
-    states.emplace_back(YaneuraOu::StateInfo{});
 
     YaneuraOu::Position position;
-    auto error = position.set(normalize_sfen_input(sfen_with_optional_ply), &states.back());
+    auto error = set_position(position, normalize_sfen_input(sfen_with_optional_ply), states);
     if (error.has_value())
         throw std::runtime_error(error->what());
 
@@ -212,10 +242,9 @@ std::string flipped_sfen(const std::string& sfen_with_optional_ply)
     ensure_yaneuraou_initialized();
 
     std::deque<YaneuraOu::StateInfo> states;
-    states.emplace_back(YaneuraOu::StateInfo{});
 
     YaneuraOu::Position position;
-    auto error = position.set(normalize_sfen_input(sfen_with_optional_ply), &states.back());
+    auto error = set_position(position, normalize_sfen_input(sfen_with_optional_ply), states);
     if (error.has_value())
         throw std::runtime_error(error->what());
 
