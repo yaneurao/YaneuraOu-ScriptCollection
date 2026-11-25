@@ -2271,13 +2271,19 @@ class BookMinerGui(ttk.Frame):
             # Errors from independent commands must not end this backup's UI state.
             return
 
-        if "error : peta command is running" in lower:
+        if ("error : peta command is running" in lower
+                or "error : peta book is loading" in lower):
             if self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:
                 self._abort_auto_enqueue("auto enqueue stopped: another peta command is running.")
-            elif self.busy_action is not None and self.busy_action.startswith("manual_peta_"):
+            elif self.busy_action == "auto_peta_shock" or (
+                    self.busy_action is not None and self.busy_action.startswith("manual_peta_")):
                 self._append_log("other", "[GUI] peta command was rejected because another peta command is running.\n")
                 self.busy_action = None
+                self.peta_shock_cancel_pending = False
+                self.peta_next_cancel_pending = False
+                self.peta_unsolved_cancel_pending = False
                 self._update_buttons()
+                self._update_auto_peta_status()
             return
 
         if "Exception :" in line and "auto save failed" not in lower and self.auto_enqueue_state != AUTO_ENQUEUE_IDLE:

@@ -484,18 +484,27 @@ class GuiExecutableTests(unittest.TestCase):
                     instance._update_buttons.assert_called_once()
 
     def test_rejected_peta_command_does_not_leave_gui_busy(self):
-        for auto in (False, True):
-            with self.subTest(auto=auto):
-                instance = Mock()
-                instance.settings_apply_pending = False
-                instance.busy_action = 'auto_enqueue' if auto else 'manual_peta_next'
-                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if auto else gui.AUTO_ENQUEUE_IDLE
-                gui.BookMinerGui._handle_auto_enqueue_line(instance, 'Error : peta command is running. wait for peta command completion.')
-                if auto:
-                    instance._abort_auto_enqueue.assert_called_once()
-                else:
-                    self.assertIsNone(instance.busy_action)
-                    instance._update_buttons.assert_called_once()
+        for action in ('manual_peta_next', 'manual_peta_unsolved', 'manual_peta_shock',
+                       'auto_peta_shock', 'auto_enqueue'):
+            for error in ('Error : peta command is running. wait for peta command completion.',
+                          'Error : peta book is loading. wait for peta read completion.'):
+                with self.subTest(action=action, error=error):
+                    instance = Mock()
+                    instance.settings_apply_pending = False
+                    instance.busy_action = action
+                    instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if action == 'auto_enqueue' else gui.AUTO_ENQUEUE_IDLE
+                    instance.peta_shock_cancel_pending = True
+                    instance.peta_next_cancel_pending = True
+                    instance.peta_unsolved_cancel_pending = True
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, error)
+                    if action == 'auto_enqueue':
+                        instance._abort_auto_enqueue.assert_called_once()
+                    else:
+                        self.assertIsNone(instance.busy_action)
+                        self.assertFalse(instance.peta_shock_cancel_pending)
+                        self.assertFalse(instance.peta_next_cancel_pending)
+                        self.assertFalse(instance.peta_unsolved_cancel_pending)
+                        instance._update_buttons.assert_called_once()
 
     def test_mining_status_is_one_line(self):
         instance = Mock()
