@@ -2706,16 +2706,9 @@ std::string peta_rejoin(
 
 bool unsolved_normal_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flipped,
     const std::string& sfen_with_ply, std::optional<int> eval_limit,
-    const bookminer::BookStore& peta_book, const bookminer::BookStore* normal_book)
+    const bookminer::BookStore* normal_book)
 {
-    if (!peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, true))
-        return false;
-    const auto best = best_moveinfo_in_sfen_orientation(position, flipped);
-    if (!best.info) return false;
-    auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
-    board.push_usi(bookminer::move16_to_usi(best.oriented_move16));
-    const auto child = find_peta_position_with_flip(peta_book, board.sfen());
-    return !child.position || child.position->moves.empty();
+    return peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, true);
 }
 
 std::optional<std::string> peta_pv_leaf_position_command(
@@ -2772,7 +2765,7 @@ std::optional<std::string> peta_pv_leaf_position_command(
         const auto& best = hit.position->moves.front();
         const bool is_leaf_move = best.depth <= 0;
         if (normal_position && unsolved_normal_cut_by_eval_limit(*hit.position, hit.flipped, next_sfen_with_ply,
-                                                                 eval_limit, peta_book, normal_book))
+                                                                 eval_limit, normal_book))
             return std::nullopt;
         if (!normal_position && is_leaf_move && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
             return std::nullopt;
@@ -2887,20 +2880,39 @@ std::string peta_unsolved(
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++missing_peta;
+                BookPositionLookup normal;
                 if (normal_book)
                 {
-                    const auto normal = find_considered_book_position_with_flip(*normal_book, prefix_sfen);
+                    normal = find_considered_book_position_with_flip(*normal_book, prefix_sfen);
                     if (has_considered(normal.position) && unsolved_normal_cut_by_eval_limit(
-                            *normal.position, normal.flipped, prefix_sfen_with_ply, eval_limit, peta_book, normal_book))
+                            *normal.position, normal.flipped, prefix_sfen_with_ply, eval_limit, normal_book))
                     {
                         ++stopped_by_eval_limit;
                         break;
                     }
                 }
-                const auto leaf = peta_pv_leaf_position_command(peta_book, prefix_command, prefix_sfen_with_ply,
-                    std::nullopt, max_book_ply, max_step, eval_limit, normal_book);
-                if (!leaf) ++skipped_no_leaf;
-                else append_unique_position_command(think_sfens, think_seen, *leaf);
+                if (!has_considered(normal.position))
+                    append_unique_position_command(think_sfens, think_seen, prefix_command);
+                else
+                {
+                    // Normal-book depths are engine search depths, not propagated peta depths.
+                    for (std::size_t i = 0; i < std::min(normal.position->moves.size(), min_depths.size()); ++i)
+                    {
+                        if (min_depths[i] <= 0) continue;
+                        ++candidates;
+                        const auto move = normal.flipped ? bookminer::flipped_move16(normal.position->moves[i].move16)
+                                                         : normal.position->moves[i].move16;
+                        const auto candidate = peta_pv_leaf_position_command(
+                            peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
+                        if (!candidate) ++skipped_no_leaf;
+                        else if (bookminer::parse_position_command(*candidate).moves.size() - prefix_index - 1
+                                 < static_cast<std::size_t>(min_depths[i]))
+                        {
+                            candidate_moves.insert(move);
+                            append_unique_position_command(think_sfens, think_seen, *candidate);
+                        }
+                    }
+                }
             }
             else
             {

@@ -3795,13 +3795,7 @@ def peta_rejoin(
 
 def unsolved_normal_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sfen,
                                       eval_limit:int|None, normal_book:Book|None)->bool:
-    if not peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, normal_position=True):
-        return False
-    board = cshogi.Board(sfen_with_ply)
-    best = max(position.moveinfos, key=lambda move: move.eval if move.eval is not None else VALUE_MIN)
-    checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
-    child, _ = find_peta_position_with_flip(peta_book, trim_sfen(board.sfen()))
-    return child is None or not child.moveinfos
+    return peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, normal_position=True)
 
 
 def peta_pv_leaf_position_cmd(
@@ -3946,12 +3940,25 @@ def peta_unsolved(
                             normal, normal_flipped, prefix_sfen_with_ply, eval_limit, normal_book):
                         stopped_by_eval_limit += 1
                         break
-                    leaf = peta_pv_leaf_position_cmd(prefix_position_cmd, prefix_sfen_with_ply, None,
-                                                     max_book_ply, max_step, eval_limit, normal_book)
-                    if leaf is None:
-                        skipped_no_leaf += 1
+                    if normal is None or not normal.moveinfos:
+                        add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
                     else:
-                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
+                        # 通常DBのdepthは探索depthであり、petaの伝播depthではない。
+                        # 必要depthが正の順位について、実際につながるPVの長さを調べる。
+                        for moveinfo, minimum in zip(normal.moveinfos, min_depths):
+                            if minimum <= 0:
+                                continue
+                            candidates += 1
+                            move = moveinfo_move_in_sfen_orientation(moveinfo, normal_flipped)
+                            leaf = peta_pv_leaf_position_cmd(
+                                prefix_position_cmd, prefix_sfen_with_ply, move,
+                                max_book_ply, max_step, eval_limit, normal_book,
+                            )
+                            if leaf is None:
+                                skipped_no_leaf += 1
+                            elif len(parse_position_string(leaf)[1]) - prefix_index - 1 < minimum:
+                                candidate_moves.add(move)
+                                add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
                 else:
                     best = position.moveinfos[0]
                     if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
