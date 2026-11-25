@@ -342,6 +342,25 @@ class PetaUnsolvedTests(unittest.TestCase):
         self.assertEqual(manager.start_thinking(miner.Book(), engine, task), miner.TASK_RESULT_DONE)
         engine.go.assert_called_once()
 
+    def test_extension_continues_through_distinct_flipped_book_position(self):
+        root = '4k4/9/9/9/9/9/9/9/4K4 w - 1'
+        board = miner.cshogi.Board(root)
+        book = miner.Book()
+        for move in ('5a5b', '5i4h', '5b5a', '4h5h', '5a4a', '5h4h'):
+            last_sfen = miner.trim_sfen(board.sfen())
+            book.body[last_sfen] = miner.PositionInfo([miner.MoveInfo(move, 0, 1)], 20)
+            board.push_usi(move)
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings()
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        manager.put_branch_task = Mock()
+        engine = Mock()
+        engine.thread_settings = SimpleNamespace(thread_id=0)
+        task = miner.Task(miner.trim_sfen(root), 1, 400, max_book_ply=200, book_extend_ply=6)
+        self.assertEqual(manager.start_thinking(book, engine, task), miner.TASK_RESULT_DONE)
+        self.assertEqual(book.body[last_sfen].ply, 6)
+        engine.go.assert_not_called()
+
     def test_progress_reports_lines_and_prefixes(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
              patch.object(miner, 'BOOK_DIR', directory), patch.object(miner, 'print') as log, \

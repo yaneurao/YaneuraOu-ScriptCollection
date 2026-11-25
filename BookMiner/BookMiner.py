@@ -1574,7 +1574,7 @@ class EngineManager:
             return None, current_sfen, last_thinking_ply, TASK_RESULT_DONE, False
 
         with book.lock:
-            if current_sfen in visited or current_sfen_f in visited:
+            if current_sfen in visited:
                 known = book.body.get(current_sfen) or book.body.get(current_sfen_f)
                 if known is not None and ply < known.ply:
                     known.ply = ply
@@ -1585,6 +1585,7 @@ class EngineManager:
                 # 他のスレッドが探索中なので、このtaskはqueue末尾へ戻して後で再試行する。
                 return None, current_sfen, last_thinking_ply, TASK_RESULT_DEFERRED, False
 
+            visited.add(current_sfen)
             position_info, flipped = find_considered_book_position_with_flip(book, current_sfen)
             if flipped:
                 current_sfen = current_sfen_f
@@ -1594,7 +1595,6 @@ class EngineManager:
                 book.mark_modified()
 
             book.searching_sfens.add(current_sfen)
-            visited.add(current_sfen)
 
         try:
             searched = False
@@ -1792,7 +1792,6 @@ class EngineManager:
             except Exception:
                 if engine.connection_broken or not engine.is_process_alive():
                     visited.discard(current_sfen)
-                    visited.discard(flipped_sfen(current_sfen))
                     task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
                                              last_thinking_ply, engine.thread_settings.thread_id, visited, path_visited, branch_extension)
                 raise
@@ -1803,6 +1802,7 @@ class EngineManager:
             if position_info is None:
                 return TASK_RESULT_DONE
             if current_sfen != original_sfen:
+                visited = {flipped_sfen(sfen) for sfen in visited}
                 path_visited = {flipped_sfen(sfen) for sfen in path_visited}
             # 次の局面を辿る。
             # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
@@ -1912,7 +1912,6 @@ class EngineManager:
                 except Exception:
                     if engine.connection_broken or not engine.is_process_alive():
                         visited.discard(current_sfen)
-                        visited.discard(flipped_sfen(current_sfen))
                         path_visited.discard(current_sfen)
                         remaining = f"sfen {board.sfen()} moves {' '.join(moves[move_index:])}"
                         task.resume = TaskResume(False, remaining, 0, branch_depth, last_thinking_ply,

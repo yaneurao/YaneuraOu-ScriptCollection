@@ -439,7 +439,7 @@ ThinkOnceResult think_sfen_once(
 
     const auto sfen_key = bookminer::PackedSfen::from_sfen(sfen);
     const auto sfen_f_key = sfen_key.flipped();
-    if (visited.find(sfen_key) != visited.end() || visited.find(sfen_f_key) != visited.end())
+    if (visited.find(sfen_key) != visited.end())
     {
         const auto current_ply = static_cast<std::uint16_t>(std::clamp(ply, 0, 65535));
         if (!book.update_position_ply(sfen_key, current_ply))
@@ -453,7 +453,6 @@ ThinkOnceResult think_sfen_once(
         return ThinkOnceResult{ThinkOnceStatus::Deferred, {}, sfen};
 
     visited.insert(sfen_key);
-    visited.insert(sfen_f_key);
 
     struct LeaseGuard {
         bookminer::BookStore& book;
@@ -524,7 +523,6 @@ void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer:
 {
     const auto key = bookminer::PackedSfen::from_sfen(sfen);
     visited.erase(key);
-    visited.erase(key.flipped());
 }
 
 bool peta_cut_by_eval_limit(const bookminer::PositionInfo&, bool, const std::string&,
@@ -671,6 +669,9 @@ TaskResult start_thinking_best_line(
         current_sfen = thought.sfen;
         if (current_sfen != original_sfen)
         {
+            std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> flipped_visited;
+            for (const auto& key : visited) flipped_visited.insert(key.flipped());
+            visited = std::move(flipped_visited);
             std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> flipped_path;
             for (const auto& key : path_visited) flipped_path.insert(key.flipped());
             path_visited = std::move(flipped_path);

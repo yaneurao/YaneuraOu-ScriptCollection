@@ -36,6 +36,44 @@ int main(int argc, char** argv)
             book, "sfen " + root, root, 200, 20, 0, rng);
         if (!opponent_leaf || opponent_leaf->find("5a5b 5i4h 5b5a 4h5h 5a4a") == std::string::npos)
             throw std::runtime_error("opponent mistook a flipped position with its own entry for repetition");
+
+        bookminer::BookStore normal;
+        board = bookminer::SfenPosition::from_sfen(root);
+        std::string last_sfen;
+        for (const auto* move : {"5a5b", "5i4h", "5b5a", "4h5h", "5a4a", "5h4h"})
+        {
+            last_sfen = board.sfen();
+            normal.merge_position(board.sfen_with_ply(), 20,
+                                  {{bookminer::move16_from_usi(move), 0, 1}});
+            board.push_usi(move);
+        }
+        bookminer::UsiEngine unused_engine(0, bookminer::EngineConfig{}, ".");
+        std::optional<TaskResume> resume;
+        if (normal.find_position_copy(last_sfen)->ply != 20)
+            throw std::runtime_error("mining fixture did not retain its initial ply");
+        (void)start_thinking_best_line(normal, unused_engine, root.substr(0, root.rfind(' ')), 1,
+                                      400, 200, 6, 0, 0, 0, [](BranchTaskSpec) {}, resume);
+        const auto last = normal.find_position_copy(last_sfen);
+        if (!last || last->ply != 6)
+            throw std::runtime_error("mining stopped at a flipped position instead of extending the PV");
+
+        bookminer::BookStore mirrored;
+        auto start = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        std::string last_mirrored;
+        for (const auto* move : {"7g7f", "3c3d", "2g2f", "8c8d"})
+        {
+            last_mirrored = bookminer::flipped_sfen(start.sfen());
+            mirrored.merge_position(last_mirrored, 20,
+                {{bookminer::flipped_move16(bookminer::move16_from_usi(move)), 0, 1}});
+            start.push_usi(move);
+        }
+        resume.reset();
+        (void)start_thinking_best_line(mirrored, unused_engine,
+            bookminer::trim_sfen_ply(bookminer::StartSfenPly1).first, 1,
+            400, 200, 4, 0, 0, 0, [](BranchTaskSpec) {}, resume);
+        const auto last_mirrored_position = mirrored.find_position_copy(last_mirrored);
+        if (!last_mirrored_position || last_mirrored_position->ply != 4)
+            throw std::runtime_error("mining did not preserve its path after flipping book orientation");
     }
     {
         bookminer::PositionInfo position;
