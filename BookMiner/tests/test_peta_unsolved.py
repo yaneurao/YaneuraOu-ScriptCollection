@@ -14,6 +14,14 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_max_book_ply_does_not_parse_later_invalid_game_moves(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos moves 7g7f 7g7f\n')
+            miner.peta_unsolved((10, 8, 6, 4), max_book_ply=2, eval_limit=400)
+            self.assertEqual((root / 'think_sfens.txt').read_text().split(',', 1)[0], 'startpos')
+
     def test_stale_peta_leaf_is_extended_through_normal_book(self):
         peta, normal = miner.Book(), miner.Book()
         board = miner.cshogi.Board()

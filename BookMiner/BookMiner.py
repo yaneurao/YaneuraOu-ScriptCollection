@@ -3935,7 +3935,7 @@ def peta_unsolved(
                 prefix_sfen, prefix_ply = trim_sfen_ply(prefix_sfen_with_ply)
                 if prefix_ply >= max_book_ply:
                     skipped_by_ply += 1
-                    continue
+                    break
 
                 position, flipped = find_peta_position_with_flip(peta_book, prefix_sfen)
                 candidate_moves : set[str] = set()

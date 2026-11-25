@@ -2879,7 +2879,7 @@ std::string peta_unsolved(
             if (prefix_ply >= max_book_ply)
             {
                 ++skipped_by_ply;
-                continue;
+                break;
             }
 
             const auto hit = find_peta_position_with_flip(peta_book, prefix_sfen);

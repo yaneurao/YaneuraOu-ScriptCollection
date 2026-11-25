@@ -244,6 +244,13 @@ int main(int argc, char** argv)
         if (!cutoff_text.empty())
             throw std::runtime_error("unsolved did not stop before invalid moves after eval cutoff");
         cutoff_result.close();
+        bookminer::BookStore empty;
+        (void)peta_unsolved(empty, {10, 8, 6, 4}, 2, 9999, 1, 400);
+        std::ifstream ply_result("book/think_sfens.txt");
+        const std::string ply_text((std::istreambuf_iterator<char>(ply_result)), {});
+        if (ply_text.rfind("startpos,", 0) != 0)
+            throw std::runtime_error("unsolved did not stop before invalid moves after max book ply");
+        ply_result.close();
         bookminer::BookStore pv;
         auto pv_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         pv.merge_position(pv_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 2}});
@@ -294,6 +301,15 @@ int main(int argc, char** argv)
             bookminer::move16_from_usi("7g7f"), 200, 20, 400, &scored);
         if (!explored_leaf || *explored_leaf != "startpos moves 7g7f 3c3d 2g2f")
             throw std::runtime_error("normal fallback failed to follow explored high-evaluation child");
+        bookminer::BookStore flipped_normal;
+        auto flipped_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        flipped_board.push_usi("7g7f");
+        flipped_normal.merge_position(bookminer::flipped_sfen(flipped_board.sfen()), 2,
+            {{bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 100}});
+        const auto flipped_leaf = peta_pv_leaf_position_command(empty_peta, "startpos", bookminer::StartSfenPly1,
+            bookminer::move16_from_usi("7g7f"), 200, 20, 400, &flipped_normal);
+        if (!flipped_leaf || *flipped_leaf != "startpos moves 7g7f 3c3d")
+            throw std::runtime_error("normal fallback did not orient a flipped best move");
         std::filesystem::remove("book/think_unsolved_sfens.txt");
         std::filesystem::create_directory("book/think_unsolved_sfens.txt");
         { std::ofstream out("book/think_sfens.txt"); out << "previous\n"; }
