@@ -1915,11 +1915,19 @@ void append_unique_position_command(std::vector<std::string>& out, std::unordere
 }
 
 bool append_unique_peta_leaf(std::vector<std::string>& out,
-                             std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>& seen,
-                             const std::string& position_command, const std::string& sfen)
+                             std::unordered_map<bookminer::PackedSfen, std::pair<std::size_t, int>, bookminer::PackedSfenHash>& seen,
+                             const std::string& position_command, const std::string& sfen, int ply)
 {
-    if (!seen.insert(bookminer::PackedSfen::from_sfen(sfen)).second)
+    const auto [it, inserted] = seen.emplace(bookminer::PackedSfen::from_sfen(sfen), std::make_pair(out.size(), ply));
+    if (!inserted)
+    {
+        if (ply < it->second.second)
+        {
+            out[it->second.first] = position_command;
+            it->second.second = ply;
+        }
         return false;
+    }
     out.push_back(position_command);
     return true;
 }
@@ -2163,12 +2171,12 @@ std::vector<std::string> peta_next_for_turn(
     std::optional<int> eval_limit = std::nullopt)
 {
     std::vector<std::string> think_sfens;
-    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
+    std::unordered_map<bookminer::PackedSfen, std::pair<std::size_t, int>, bookminer::PackedSfenHash> think_seen;
     std::size_t skipped_ply = 0, skipped_visited = 0, rejected_own = 0, rejected_opponent = 0;
     std::size_t missing_roots = 0, duplicate_leaves = 0, limited_frontier = 0, fallback_hits = 0;
     std::size_t fallback_nonbest_moves = 0;
-    auto record_leaf = [&](const std::string& command, const std::string& sfen) {
-        if (!append_unique_peta_leaf(think_sfens, think_seen, command, sfen))
+    auto record_leaf = [&](const std::string& command, const std::string& sfen, int ply) {
+        if (!append_unique_peta_leaf(think_sfens, think_seen, command, sfen, ply))
             ++duplicate_leaves;
     };
 
@@ -2197,7 +2205,7 @@ std::vector<std::string> peta_next_for_turn(
         {
             ++missing_roots;
             if (!filter_refutation)
-                record_leaf(position_command, sfen);
+                record_leaf(position_command, sfen, ply);
             continue;
         }
 
@@ -2205,7 +2213,7 @@ std::vector<std::string> peta_next_for_turn(
         if (!root_best.has_value())
         {
             if (!filter_refutation)
-                record_leaf(position_command, sfen);
+                record_leaf(position_command, sfen, ply);
             continue;
         }
 
@@ -2249,7 +2257,7 @@ std::vector<std::string> peta_next_for_turn(
             if (position == nullptr || position->moves.empty())
             {
                 if (!filter_refutation)
-                    record_leaf(position_command, sfen);
+                    record_leaf(position_command, sfen, ply);
                 continue;
             }
 
@@ -2312,7 +2320,7 @@ std::vector<std::string> peta_next_for_turn(
                                 static_cast<int>(moveinfo.eval),
                                 *eval_refutation_margin))
                         {
-                            record_leaf(next_position_command, next_sfen_ply.first);
+                            record_leaf(next_position_command, next_sfen_ply.first, next_sfen_ply.second);
                         }
                         continue;
                     }
@@ -2558,7 +2566,7 @@ std::vector<std::string> peta_rejoin_for_turn(
     std::optional<int> eval_limit = std::nullopt)
 {
     std::vector<std::string> think_sfens;
-    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> think_seen;
+    std::unordered_map<bookminer::PackedSfen, std::pair<std::size_t, int>, bookminer::PackedSfenHash> think_seen;
 
     const std::string turn_str = turn == 1 ? "black" : "white";
     log_line("--- peta_rejoin " + turn_str + " ---");
@@ -2580,7 +2588,7 @@ std::vector<std::string> peta_rejoin_for_turn(
             ++stats.leaf_nodes;
             if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
-                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen, ply))
                     ++stats.rejoin_nodes;
             }
             continue;
@@ -2592,7 +2600,7 @@ std::vector<std::string> peta_rejoin_for_turn(
             ++stats.leaf_nodes;
             if (peta_leaf_rejoins_peta_book(peta_book, sfen_with_ply, std::nullopt, eval_drop))
             {
-                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen, ply))
                     ++stats.rejoin_nodes;
             }
             continue;
@@ -2634,7 +2642,7 @@ std::vector<std::string> peta_rejoin_for_turn(
                 ++stats.leaf_nodes;
                 if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply, node.leaf_eval, eval_drop))
                 {
-                    if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen))
+                    if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen, ply))
                         ++stats.rejoin_nodes;
                 }
                 continue;

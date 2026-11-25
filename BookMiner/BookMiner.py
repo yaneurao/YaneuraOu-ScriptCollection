@@ -3295,12 +3295,17 @@ def peta_is_own_turn(sfen:Sfen, turn:int)->bool:
     return (parts[1] == 'b') == (turn == 1)
 
 
-def add_unique_peta_leaf(entries:dict[PositionStr, PositionCommandEntry], seen:set[Sfen],
-                         position_cmd:PositionStr, sfen:Sfen, book_extend_ply:int|None,
+def add_unique_peta_leaf(entries:dict[PositionStr, PositionCommandEntry], seen:dict[Sfen, tuple[int, PositionStr]],
+                         position_cmd:PositionStr, sfen:Sfen, ply:int, book_extend_ply:int|None,
                          eval_limit:int|None, max_book_ply:int)->bool:
-    if sfen in seen:
+    previous = seen.get(sfen)
+    if previous is not None:
+        if ply < previous[0]:
+            entries.pop(previous[1], None)
+            seen[sfen] = (ply, position_cmd)
+            add_position_command_entry(entries, position_cmd, book_extend_ply, eval_limit, max_book_ply)
         return False
-    seen.add(sfen)
+    seen[sfen] = (ply, position_cmd)
     add_position_command_entry(entries, position_cmd, book_extend_ply, eval_limit, max_book_ply)
     return True
 
@@ -3357,7 +3362,7 @@ def peta_next(
     for turn in [1, 0]:
 
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
-        leaf_sfens : set[Sfen] = set()
+        leaf_sfens : dict[Sfen, tuple[int, PositionStr]] = {}
 
         # 手番文字列
         turn_str = ['white','black'][turn]
@@ -3384,14 +3389,14 @@ def peta_next(
             position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen)
             if position_info is None:
                 if refutation_book is None:
-                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
+                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             # root_bestは手番側から見たスコアなのでflip hitでも気にしなくて良い。
             root_best, _ = get_best(position_info)
             if root_best is None:
                 if refutation_book is None:
-                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
+                    add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
                 continue
 
             effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
@@ -3433,7 +3438,7 @@ def peta_next(
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
-                        add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply)
+                        add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -3496,7 +3501,7 @@ def peta_next(
                                         eval_refutation_margin,
                                     )
                                 ):
-                                    add_unique_peta_leaf(think_sfens, leaf_sfens, next_position_cmd, next_sfen_trimmed,
+                                    add_unique_peta_leaf(think_sfens, leaf_sfens, next_position_cmd, next_sfen_trimmed, next_ply,
                                                          book_extend_ply, eval_limit, max_book_ply)
                                 continue
 
@@ -3691,7 +3696,7 @@ def peta_rejoin(
     root_positions = load_peta_root_positions(start_sfens_path)
     for turn in [1, 0]:
         think_sfens : dict[PositionStr, PositionCommandEntry] = {}
-        leaf_sfens : set[Sfen] = set()
+        leaf_sfens : dict[Sfen, tuple[int, PositionStr]] = {}
         turn_str = ['white','black'][turn]
         print(f"--- peta_rejoin {turn_str} ---")
 
@@ -3708,7 +3713,7 @@ def peta_rejoin(
             if position_info is None or not position_info.moveinfos:
                 total_leaf_nodes += 1
                 if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop) and add_unique_peta_leaf(
-                        think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
+                        think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply):
                     total_rejoin_nodes += 1
                 continue
 
@@ -3716,7 +3721,7 @@ def peta_rejoin(
             if root_best is None:
                 total_leaf_nodes += 1
                 if peta_leaf_rejoins_peta_book(sfen_with_ply, None, eval_drop) and add_unique_peta_leaf(
-                        think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
+                        think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply):
                     total_rejoin_nodes += 1
                 continue
 
@@ -3751,7 +3756,7 @@ def peta_rejoin(
                 if position_info is None or not position_info.moveinfos:
                     total_leaf_nodes += 1
                     if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop) and add_unique_peta_leaf(
-                            think_sfens, leaf_sfens, position_cmd, sfen, book_extend_ply, eval_limit, max_book_ply):
+                            think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply):
                         total_rejoin_nodes += 1
                     continue
 

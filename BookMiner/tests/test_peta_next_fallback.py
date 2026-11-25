@@ -15,6 +15,22 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_same_leaf_prefers_shorter_game_ply(self):
+        base = miner.SFEN_START
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'sfen {base} 199\nsfen {base} 5\n')
+            miner.peta_next(0, 10, 200, str(roots))
+            lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(lines[0].split(',', 1)[0], f'sfen {base} 5')
+            with patch.object(miner, 'peta_leaf_rejoins_peta_book', return_value=True):
+                miner.peta_rejoin(0, 10, 200, str(roots))
+            lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(lines[0].split(',', 1)[0], f'sfen {base} 5')
+
     def test_empty_peta_child_is_a_leaf_without_fallback(self):
         peta = miner.Book()
         peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 0)], 1)
