@@ -15,6 +15,46 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_empty_peta_child_is_a_leaf_without_fallback(self):
+        peta = miner.Book()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 0)], 1)
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        peta.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([], 2)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos\n')
+            miner.peta_next(0, 10, 100, str(roots))
+            self.assertIn('startpos moves 7g7f', (Path(directory) / 'think_sfens.txt').read_text())
+
+    def test_rejoin_ignores_empty_peta_child(self):
+        peta = miner.Book()
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        peta.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([], 2)
+        with patch.object(miner, 'peta_book', peta):
+            self.assertFalse(miner.peta_leaf_rejoins_peta_book(miner.SFEN_START_PLY1))
+            peta.body[miner.flipped_sfen(miner.trim_sfen(board.sfen()))] = miner.PositionInfo([
+                miner.MoveInfo(miner.flipped_move('3c3d'), 0, 0)], 2)
+            self.assertTrue(miner.peta_leaf_rejoins_peta_book(miner.SFEN_START_PLY1))
+
+    def test_refutation_treats_empty_peta_child_as_leaf(self):
+        peta, old = miner.Book(), miner.Book()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('7g7f', 100, 0), miner.MoveInfo('2g2f', 0, 0)], 1)
+        old.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('2g2f', 10, 1), miner.MoveInfo('7g7f', 0, 1)], 1)
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        peta.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([], 2)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos\n')
+            miner.peta_next(0, 10, 100, str(roots), refutation_book=old, eval_refutation_margin=10)
+            self.assertIn('startpos moves 7g7f', (Path(directory) / 'think_sfens.txt').read_text())
+
     def test_opponent_ybb_probe_uses_latest_duplicate_move_once(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'opponent.ybb'

@@ -318,8 +318,31 @@ int main(int argc, char** argv)
         }
         bookminer::BookStore normal;
         normal.load_yaneuraou_book(input, false, nullptr, nullptr);
+        if (peta_leaf_rejoins_peta_book(normal, bookminer::StartSfenPly1))
+            throw std::runtime_error("peta rejoin treated an empty child as explored");
+        bookminer::BookStore empty_child;
+        empty_child.load_yaneuraou_book(input, false, nullptr, nullptr);
+        empty_child.merge_position(bookminer::StartSfenPly1, 1,
+                                  {{bookminer::move16_from_usi("7g7f"), 0, 0}});
+        const auto empty_leaves = peta_next_for_turn(nullptr, empty_child, 1, 0, 10, 200,
+                                                      roots_path, std::nullopt);
+        if (std::find(empty_leaves.begin(), empty_leaves.end(), "startpos moves 7g7f") == empty_leaves.end())
+            throw std::runtime_error("peta next did not enqueue an empty child without fallback");
+        empty_child.merge_position(bookminer::StartSfenPly1, 1,
+                                  {{bookminer::move16_from_usi("7g7f"), 100, 0},
+                                   {bookminer::move16_from_usi("2g2f"), 0, 0}});
+        bookminer::BookStore old_book;
+        old_book.merge_position(bookminer::StartSfenPly1, 1,
+                                {{bookminer::move16_from_usi("2g2f"), 10, 1},
+                                 {bookminer::move16_from_usi("7g7f"), 0, 1}});
+        const auto refutations = peta_next_for_turn(&old_book, empty_child, 1, 0, 10, 200,
+                                                    roots_path, 10);
+        if (std::find(refutations.begin(), refutations.end(), "startpos moves 7g7f") == refutations.end())
+            throw std::runtime_error("peta refutation ignored an empty child");
         const auto flipped = bookminer::flipped_sfen(board.sfen());
         normal.merge_position(flipped, 2, {{bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 0}});
+        if (!peta_leaf_rejoins_peta_book(normal, bookminer::StartSfenPly1))
+            throw std::runtime_error("peta rejoin missed an explored flipped child behind an empty entry");
         const auto hit = find_considered_book_position_with_flip(normal, board.sfen());
         if (!hit.flipped || !has_considered(hit.position))
             throw std::runtime_error("empty direct entry hid explored flipped position");

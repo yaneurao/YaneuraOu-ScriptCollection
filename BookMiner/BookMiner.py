@@ -3429,7 +3429,7 @@ def peta_next(
                 flipped_bookhit : bool
                 
                 position_info, flipped_bookhit = find_peta_next_position(peta_book, fallback_book, sfen)
-                if position_info is None or (fallback_book is not None and not position_info.moveinfos):
+                if position_info is None or not position_info.moveinfos:
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
@@ -3480,7 +3480,7 @@ def peta_next(
 
                         if refutation_book is not None:
                             next_position_info, _ = find_peta_position_with_flip(peta_book, next_sfen_trimmed)
-                            if next_position_info is None:
+                            if next_position_info is None or not next_position_info.moveinfos:
                                 if (
                                     move_index == 0
                                     and moveinfo.depth == 0
@@ -3640,7 +3640,7 @@ def peta_leaf_rejoins_peta_book(
         next_board.push(move32)
         next_sfen, _ = trim_sfen_ply(next_board.sfen())
         position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, next_sfen)
-        if position_info is None:
+        if position_info is None or not position_info.moveinfos:
             continue
 
         if not filter_by_eval_drop:

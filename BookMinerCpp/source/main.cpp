@@ -2246,7 +2246,7 @@ std::vector<std::string> peta_next_for_turn(
 
             const auto hit = find_peta_next_position(peta_book, fallback_book, sfen);
             const auto* position = hit.position();
-            if (position == nullptr || (fallback_book != nullptr && position->moves.empty()))
+            if (position == nullptr || position->moves.empty())
             {
                 if (!filter_refutation)
                     record_leaf(position_command, sfen);
@@ -2299,7 +2299,7 @@ std::vector<std::string> peta_next_for_turn(
                 if (filter_refutation)
                 {
                     const auto next_hit = find_peta_position_with_flip(peta_book, next_sfen_ply.first);
-                    if (next_hit.position == nullptr)
+                    if (next_hit.position == nullptr || next_hit.position->moves.empty())
                     {
                         if (move_index == 0
                             && moveinfo.depth == 0
@@ -2520,7 +2520,7 @@ bool peta_leaf_rejoins_peta_book(
         next_board.push_usi(move);
         const auto [next_sfen, _next_ply] = bookminer::trim_sfen_ply(next_board.sfen_with_ply());
         const auto hit = find_peta_position_with_flip(peta_book, next_sfen);
-        if (hit.position == nullptr)
+        if (hit.position == nullptr || hit.position->moves.empty())
             continue;
 
         if (!filter_by_eval_drop)
