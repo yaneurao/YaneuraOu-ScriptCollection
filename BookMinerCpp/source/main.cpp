@@ -526,7 +526,7 @@ void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer:
 }
 
 bool peta_cut_by_eval_limit(const bookminer::PositionInfo&, bool, const std::string&,
-                            std::optional<int>, const bookminer::BookStore*, bool);
+                            std::optional<int>, const bookminer::BookStore*, bool, const std::atomic<bool>*);
 
 std::vector<std::string> thinking_candidate_moves(
     const bookminer::PositionInfo& position,
@@ -538,7 +538,7 @@ std::vector<std::string> thinking_candidate_moves(
     const auto best = get_best(position);
     if (!best.has_value())
         return {};
-    if (peta_cut_by_eval_limit(position, false, sfen_with_ply, eval_limit, &book, true))
+    if (peta_cut_by_eval_limit(position, false, sfen_with_ply, eval_limit, &book, true, nullptr))
         return {};
 
     const std::size_t limit = move_limit.has_value()
@@ -915,7 +915,7 @@ TaskResult process_position_command(
         if (!has_considered(next_lookup.position) && current_lookup.position.has_value())
         {
             if (peta_cut_by_eval_limit(*current_lookup.position, current_lookup.flipped,
-                                       board.sfen_with_ply(), eval_limit, &book, true))
+                                       board.sfen_with_ply(), eval_limit, &book, true, nullptr))
                 return TaskResult::Done;
         }
 
@@ -2136,16 +2136,33 @@ struct PetaNextLookup {
     const bookminer::PositionInfo* position() const { return normal ? &*normal : peta; }
 };
 
+BookPositionLookup find_considered_book_position_cancellable(
+    const bookminer::BookStore& book, const std::string& sfen, const std::atomic<bool>* cancelled)
+{
+    if (!cancelled)
+        return find_considered_book_position_with_flip(book, sfen);
+    const auto key = bookminer::PackedSfen::from_sfen(sfen);
+    std::optional<bookminer::PositionInfo> position;
+    bool flipped = false;
+    while (!book.try_find_considered_position(key, position, &flipped))
+    {
+        check_peta_next_cancel(cancelled);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    check_peta_next_cancel(cancelled);
+    return {std::move(position), flipped};
+}
+
 PetaNextLookup find_peta_next_position(const bookminer::BookStore& peta_book,
                                        const bookminer::BookStore* fallback_book,
-                                       const std::string& sfen)
+                                       const std::string& sfen, const std::atomic<bool>* cancelled = nullptr)
 {
     const auto hit = find_peta_position_with_flip(peta_book, sfen);
     if (hit.position != nullptr && !hit.position->moves.empty())
         return {hit.position, std::nullopt, hit.flipped};
     if (fallback_book != nullptr)
     {
-        auto normal = find_considered_book_position_with_flip(*fallback_book, sfen);
+        auto normal = find_considered_book_position_cancellable(*fallback_book, sfen, cancelled);
         if (has_considered(normal.position))
             return {nullptr, std::move(normal.position), normal.flipped};
     }
@@ -2157,7 +2174,7 @@ PetaNextLookup find_peta_next_position(const bookminer::BookStore& peta_book,
 bool peta_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flipped,
                             const std::string& sfen_with_ply, std::optional<int> limit,
                             const bookminer::BookStore* normal_book = nullptr,
-                            bool normal_position = false)
+                            bool normal_position = false, const std::atomic<bool>* cancelled = nullptr)
 {
     if (!limit || position.moves.empty()) return false;
     const auto best = std::max_element(position.moves.begin(), position.moves.end(),
@@ -2172,7 +2189,7 @@ bool peta_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flippe
         {
             auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
             board.push_usi(move);
-            if (has_considered(find_considered_book_position_with_flip(*normal_book, board.sfen()).position))
+            if (has_considered(find_considered_book_position_cancellable(*normal_book, board.sfen(), cancelled).position))
                 return false;
         }
     }
@@ -2222,7 +2239,7 @@ std::vector<std::string> peta_next_for_turn(
             continue;
         }
 
-        const auto hit = find_peta_next_position(peta_book, fallback_book, sfen);
+        const auto hit = find_peta_next_position(peta_book, fallback_book, sfen, cancelled);
         const auto* position = hit.position();
         if (position == nullptr || position->moves.empty())
         {
@@ -2275,7 +2292,7 @@ std::vector<std::string> peta_next_for_turn(
                 continue;
             }
 
-            const auto hit = find_peta_next_position(peta_book, fallback_book, sfen);
+            const auto hit = find_peta_next_position(peta_book, fallback_book, sfen, cancelled);
             const auto* position = hit.position();
             if (position == nullptr || position->moves.empty())
             {
@@ -2290,7 +2307,7 @@ std::vector<std::string> peta_next_for_turn(
             if (moveinfos.empty())
                 continue;
 
-            if (peta_cut_by_eval_limit(*position, hit.flipped, node.sfen_with_ply, eval_limit, fallback_book, hit.normal.has_value()))
+            if (peta_cut_by_eval_limit(*position, hit.flipped, node.sfen_with_ply, eval_limit, fallback_book, hit.normal.has_value(), cancelled))
                 continue;
 
             const int best_eval = hit.normal ? get_best(*position)->first : static_cast<int>(moveinfos.front().eval);

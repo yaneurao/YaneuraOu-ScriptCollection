@@ -3231,16 +3231,23 @@ def is_refuted_move_by_peta_impact(
     move:MoveStr,
     peta_move_eval:int,
     eval_refutation_margin:int,
+    cancel:Event|None = None,
 )->bool:
-    old_position, old_flipped = find_considered_book_position_with_flip(source_book, sfen)
-    if old_position is None or not old_position.moveinfos:
-        return False
-
-    old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
-    old_candidate = find_moveinfo_by_sfen_move(old_position, move, old_flipped)
+    while not source_book.lock.acquire(timeout=0.01):
+        check_peta_next_cancel(cancel)
+    try:
+        check_peta_next_cancel(cancel)
+        old_position, old_flipped = find_considered_book_position_with_flip(source_book, sfen)
+        if old_position is None or not old_position.moveinfos:
+            return False
+        old_best, old_best_move = best_moveinfo_in_sfen_orientation(old_position, old_flipped)
+        if old_best is None or find_moveinfo_by_sfen_move(old_position, move, old_flipped) is None:
+            return False
+    finally:
+        source_book.lock.release()
     peta_old_best = find_moveinfo_by_sfen_move(peta_position, old_best_move, peta_flipped)
 
-    if old_best is None or old_candidate is None or peta_old_best is None:
+    if peta_old_best is None:
         return False
     if old_best_move == move:
         return False
@@ -3250,24 +3257,30 @@ def is_refuted_move_by_peta_impact(
     return peta_move_eval - peta_old_best.eval >= eval_refutation_margin
 
 
-def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen)->tuple[PositionInfo|None, bool]:
+def find_peta_next_position(peta:Book, fallback:Book|None, sfen:Sfen,
+                            cancel:Event|None = None)->tuple[PositionInfo|None, bool]:
     position, flipped = find_peta_position_with_flip(peta, sfen)
     if position is not None and position.moveinfos:
         return position, flipped
     if fallback is not None:
         # 掘削スレッドが更新する通常DBは、ロック中に局面単位でコピーする。
-        with fallback.lock:
+        while not fallback.lock.acquire(timeout=0.01):
+            check_peta_next_cancel(cancel)
+        try:
+            check_peta_next_cancel(cancel)
             normal, normal_flipped = find_considered_book_position_with_flip(fallback, sfen)
             if normal is not None and has_considered(normal):
                 moves = [MoveInfo(m.move, m.eval, m.depth) for m in normal.moveinfos]
                 moves.sort(key=lambda m: m.eval if isinstance(m.eval, int) else -float('inf'), reverse=True)
                 return PositionInfo(moves, normal.ply), normal_flipped
+        finally:
+            fallback.lock.release()
     return position, flipped
 
 
 def peta_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sfen,
                            eval_limit:int|None, normal_book:Book|None = None,
-                           normal_position:bool = False)->bool:
+                           normal_position:bool = False, cancel:Event|None = None)->bool:
     if eval_limit is None:
         return False
     scored = [move for move in position.moveinfos if isinstance(move.eval, int)]
@@ -3281,10 +3294,15 @@ def peta_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sf
     if normal_book is not None:
         board = cshogi.Board(sfen_with_ply)
         checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
-        with normal_book.lock:
+        while not normal_book.lock.acquire(timeout=0.01):
+            check_peta_next_cancel(cancel)
+        try:
+            check_peta_next_cancel(cancel)
             child, _ = find_considered_book_position_with_flip(normal_book, trim_sfen(board.sfen()))
             if child is not None and has_considered(child):
                 return False
+        finally:
+            normal_book.lock.release()
     return True
 
 
@@ -3396,7 +3414,7 @@ def peta_next(
             if ply >= max_book_ply:
                 continue
 
-            position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen)
+            position_info, _ = find_peta_next_position(peta_book, fallback_book, sfen, cancel)
             if position_info is None:
                 if refutation_book is None:
                     add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
@@ -3443,7 +3461,7 @@ def peta_next(
                 # 定跡DB上のsfenは、flipしたものがhitしているのか？
                 flipped_bookhit : bool
                 
-                position_info, flipped_bookhit = find_peta_next_position(peta_book, fallback_book, sfen)
+                position_info, flipped_bookhit = find_peta_next_position(peta_book, fallback_book, sfen, cancel)
                 if position_info is None or not position_info.moveinfos:
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
@@ -3459,7 +3477,7 @@ def peta_next(
                 peta_position, _ = find_peta_position_with_flip(peta_book, sfen)
                 normal_position = peta_position is None or not peta_position.moveinfos
                 if peta_cut_by_eval_limit(position_info, flipped_bookhit, sfen_with_ply, eval_limit,
-                                          fallback_book, normal_position):
+                                          fallback_book, normal_position, cancel):
                     continue
 
                 # scoreの降順のはずなので..
@@ -3513,6 +3531,7 @@ def peta_next(
                                         move,
                                         moveinfo.eval,
                                         eval_refutation_margin,
+                                        cancel,
                                     )
                                 ):
                                     add_unique_peta_leaf(think_sfens, leaf_sfens, next_output or next_position_cmd, next_sfen_trimmed, next_ply,

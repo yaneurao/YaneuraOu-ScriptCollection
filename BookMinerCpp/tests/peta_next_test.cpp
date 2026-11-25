@@ -620,14 +620,38 @@ int main(int argc, char** argv)
             lookup_done = true;
         });
         const bool observed_wait = wait_flag(lookup_waiting);
+        std::atomic<bool> fallback_started{false}, fallback_done{false}, fallback_cancelled{false};
+        std::atomic<bool> limit_started{false}, limit_done{false}, limit_cancelled{false};
+        bookminer::BookStore empty_peta;
+        std::thread fallback_lookup([&] {
+            fallback_started = true;
+            try { (void)find_peta_next_position(empty_peta, &busy_normal, bookminer::StartSfen, &normal_cancel); }
+            catch (const PetaNextCancelled&) { fallback_cancelled = true; }
+            fallback_done = true;
+        });
+        std::thread limit_lookup([&] {
+            limit_started = true;
+            bookminer::PositionInfo position;
+            position.moves = {{bookminer::move16_from_usi("7g7f"), 500, 0}};
+            try { (void)peta_cut_by_eval_limit(position, false, bookminer::StartSfenPly1, 400,
+                                               &busy_normal, true, &normal_cancel); }
+            catch (const PetaNextCancelled&) { limit_cancelled = true; }
+            limit_done = true;
+        });
+        const bool lookups_started = wait_flag(fallback_started) && wait_flag(limit_started);
         normal_cancel = true;
         const bool cancelled_before_unlock = wait_flag(lookup_done);
+        const bool next_cancelled_before_unlock = wait_flag(fallback_done) && wait_flag(limit_done);
         lock_state.release = true;
         lookup.join();
+        fallback_lookup.join();
+        limit_lookup.join();
         saver.join();
         std::filesystem::remove(lock_file);
         if (!save_locked || save_failed || !observed_wait || !cancelled_before_unlock || !lookup_cancelled)
             throw std::runtime_error("unsolved could not cancel while normal book was locked");
+        if (!lookups_started || !next_cancelled_before_unlock || !fallback_cancelled || !limit_cancelled)
+            throw std::runtime_error("peta next could not cancel while normal book was locked");
 
         bookminer::BookStore tied;
         auto tied_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
@@ -936,6 +960,11 @@ int main(int argc, char** argv)
         const auto flipped_leaves = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200, roots_path, std::nullopt, &flipped_normal);
         if (flipped_leaves != extended)
             throw std::runtime_error("flipped normal book hit was not restored");
+        std::atomic<bool> not_cancelled{false};
+        const auto cancellable_flipped = peta_next_for_turn(nullptr, peta, 1, 100, 100, 200,
+            roots_path, std::nullopt, &flipped_normal, nullptr, &not_cancelled);
+        if (cancellable_flipped != extended)
+            throw std::runtime_error("cancellable flipped normal book lookup lost move orientation");
 
         // A root missing from peta may be supplied by the current normal book.
         bookminer::BookStore empty;

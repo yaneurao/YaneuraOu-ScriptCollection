@@ -4,7 +4,7 @@ import random
 from pathlib import Path
 import sys
 import tempfile
-from threading import Event
+from threading import Event, Thread
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +16,71 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_refutation_waits_for_normal_book_update(self):
+        source = miner.Book()
+        source.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('2g2f', 10, 1), miner.MoveInfo('7g7f', 0, 1)], 1)
+        peta = miner.PositionInfo([miner.MoveInfo('7g7f', 100, 0), miner.MoveInfo('2g2f', 0, 1)], 1)
+        done = Event()
+        values = []
+        def run():
+            values.append(miner.is_refuted_move_by_peta_impact(source, peta, False, miner.SFEN_START, '7g7f', 100, 10))
+            done.set()
+        with source.lock:
+            worker = Thread(target=run)
+            worker.start()
+            completed_while_locked = done.wait(0.1)
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(completed_while_locked)
+        self.assertEqual(values, [True])
+
+    def test_refutation_can_cancel_while_normal_book_is_locked(self):
+        source = miner.Book()
+        cancel, done = Event(), Event()
+        cancelled = []
+        def run():
+            try:
+                miner.is_refuted_move_by_peta_impact(source, miner.PositionInfo([], 1), False,
+                    miner.SFEN_START, '7g7f', 100, 10, cancel)
+            except miner.PetaNextCancelled:
+                cancelled.append(True)
+            finally:
+                done.set()
+        with source.lock:
+            worker = Thread(target=run)
+            worker.start()
+            cancel.set()
+            completed_while_locked = done.wait(1)
+        worker.join(timeout=2)
+        self.assertTrue(completed_while_locked)
+        self.assertEqual(cancelled, [True])
+
+    def test_peta_next_normal_book_lookups_can_cancel_while_locked(self):
+        for kind in ('fallback', 'eval_limit'):
+            with self.subTest(kind=kind):
+                source, cancel, done = miner.Book(), Event(), Event()
+                cancelled = []
+                def run():
+                    try:
+                        if kind == 'fallback':
+                            miner.find_peta_next_position(miner.Book(), source, miner.SFEN_START, cancel)
+                        else:
+                            position = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+                            miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, source, True, cancel)
+                    except miner.PetaNextCancelled:
+                        cancelled.append(True)
+                    finally:
+                        done.set()
+                with source.lock:
+                    worker = Thread(target=run)
+                    worker.start()
+                    cancel.set()
+                    completed_while_locked = done.wait(1)
+                worker.join(timeout=2)
+                self.assertTrue(completed_while_locked)
+                self.assertEqual(cancelled, [True])
+
     def test_refutation_finds_flipped_normal_book_behind_empty_entry(self):
         board = miner.cshogi.Board()
         board.push_usi('7g7f')
@@ -269,6 +334,7 @@ class PetaNextFallbackTest(unittest.TestCase):
         normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', None)], 2)
         self.assertFalse(miner.peta_cut_by_eval_limit(position, False, miner.SFEN_START_PLY1, 400, normal, True))
         self.assertTrue(miner.find_peta_next_position(peta, normal, child)[1])
+        self.assertTrue(miner.find_peta_next_position(peta, normal, child, Event())[1])
         manager = object.__new__(miner.EngineManager)
         manager.book_miner_settings = miner.BookMinerSettings()
         engine = unittest.mock.Mock()

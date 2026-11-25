@@ -88,7 +88,7 @@ public:
     std::optional<PositionInfo> find_position_copy(const std::string& sfen) const;
     std::optional<PositionInfo> find_position_copy(const PackedSfen& key) const;
     // false: the store is busy; true: result contains the considered direct/flipped position, if any.
-    bool try_find_considered_position(const PackedSfen& key, std::optional<PositionInfo>& result) const;
+    bool try_find_considered_position(const PackedSfen& key, std::optional<PositionInfo>& result, bool* flipped = nullptr) const;
     bool is_searching(const std::string& sfen, const std::string& flipped_sfen) const;
     SearchLease try_begin_search(const std::string& sfen, const std::string& flipped_sfen);
     void end_search(const SearchLease& lease);
