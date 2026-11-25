@@ -4,6 +4,7 @@ import threading
 import os
 from pathlib import Path
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
@@ -18,6 +19,34 @@ except ImportError:
 @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY') and os.name != 'nt',
                      'Set BOOKMINER_TEST_BINARY to a built POSIX BookMinerCpp executable')
 class ShutdownTest(unittest.TestCase):
+    def test_engine_ignoring_quit_does_not_hang_shutdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            engine = root / 'stubborn-engine'
+            engine.write_text('#!/usr/bin/env python3\nimport signal,sys,time\n'
+                              'signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
+                              'for line in sys.stdin:\n'
+                              ' if line.strip()=="usi": print("usiok",flush=True)\n'
+                              ' elif line.strip()=="isready": print("readyok",flush=True)\n'
+                              ' elif line.strip()=="quit": break\n'
+                              'while True: time.sleep(1)\n')
+            engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+            process = subprocess.Popen([os.environ['BOOKMINER_TEST_BINARY'], '--from_gui', '--work-dir', str(root)], cwd=root,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, start_new_session=True)
+            try:
+                output, _ = process.communicate('!\n', timeout=8)
+                self.assertEqual(process.returncode, 0, output)
+                self.assertIn('[EngineReadyProgress] 1/1', output)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.communicate(timeout=5)
+
     def test_idle_engine_exit_is_reported_before_any_enqueue(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

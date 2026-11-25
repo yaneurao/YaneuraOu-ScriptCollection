@@ -557,7 +557,11 @@ void UsiEngine::close_process()
         CloseHandle(child_stdout_read_);
     if (process_)
     {
-        WaitForSingleObject(process_, 3000);
+        if (WaitForSingleObject(process_, 3000) == WAIT_TIMEOUT)
+        {
+            TerminateProcess(process_, 1);
+            WaitForSingleObject(process_, 1000);
+        }
         CloseHandle(process_);
     }
     if (thread_)
@@ -575,7 +579,29 @@ void UsiEngine::close_process()
     if (pid_ > 0)
     {
         int status = 0;
-        waitpid(pid_, &status, 0);
+        const auto wait_for_exit = [&](std::chrono::milliseconds timeout) {
+            const auto deadline = std::chrono::steady_clock::now() + timeout;
+            while (true)
+            {
+                const pid_t result = waitpid(pid_, &status, WNOHANG);
+                if (result == pid_ || (result < 0 && errno == ECHILD))
+                    return true;
+                if (result < 0 && errno != EINTR)
+                    return true;
+                if (std::chrono::steady_clock::now() >= deadline)
+                    return false;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+        };
+        if (!wait_for_exit(std::chrono::seconds(3)))
+        {
+            kill(pid_, SIGTERM);
+            if (!wait_for_exit(std::chrono::seconds(1)))
+            {
+                kill(pid_, SIGKILL);
+                while (waitpid(pid_, &status, 0) < 0 && errno == EINTR) {}
+            }
+        }
     }
 
     child_stdin_write_ = -1;
