@@ -19,6 +19,38 @@ except ImportError:
 @unittest.skipUnless(os.environ.get('BOOKMINER_TEST_BINARY') and os.name != 'nt',
                      'Set BOOKMINER_TEST_BINARY to a built POSIX BookMinerCpp executable')
 class ShutdownTest(unittest.TestCase):
+    def test_refutation_commands_reject_negative_limits_without_replacing_think_file(self):
+        for command, expected in (
+                ('pnf -1', 'peta_eval_diff must be non-negative'),
+                ('pnf 10 200 100 -1', 'eval_refutation_margin must be non-negative'),
+                ('pf -1', 'eval_refutation_margin must be non-negative'),
+                ('pf 100 -1', 'eval_limit must be non-negative')):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'settings').mkdir()
+                (root / 'book').mkdir()
+                (root / 'settings/engine_settings.json5').write_text('[]')
+                think = root / 'book/think_sfens.txt'
+                think.write_text('keep previous work\n')
+                log = root / 'output.log'
+                with log.open('w') as output:
+                    process = subprocess.Popen([os.environ['BOOKMINER_TEST_BINARY'], '--from_gui', '--work-dir', str(root)],
+                        stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                    try:
+                        process.stdin.write(command + '\n')
+                        process.stdin.flush()
+                        deadline = time.monotonic() + 5
+                        while expected not in log.read_text() and time.monotonic() < deadline and process.poll() is None:
+                            time.sleep(.02)
+                        self.assertIn(expected, log.read_text())
+                        self.assertEqual(think.read_text(), 'keep previous work\n')
+                    finally:
+                        if process.poll() is None:
+                            process.stdin.write('!\n')
+                            process.stdin.flush()
+                        process.wait(timeout=10)
+                        process.stdin.close()
+
     def test_engine_ignoring_quit_does_not_hang_shutdown(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

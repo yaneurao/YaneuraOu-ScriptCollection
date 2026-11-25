@@ -5451,6 +5451,16 @@ int main(int argc, char* argv[])
                     const int command_max_book_ply = parse_int_argument(tokens, 2, max_book_ply);
                     const int max_step = parse_int_argument(tokens, 3, PetaDefaultMaxStep);
                     const int eval_refutation_margin = parse_int_argument(tokens, 4, DefaultEvalRefutationMargin);
+                    if (peta_eval_diff < 0)
+                    {
+                        log_line("Error : peta_eval_diff must be non-negative integer.");
+                        continue;
+                    }
+                    if (eval_refutation_margin < 0)
+                    {
+                        log_line("Error : eval_refutation_margin must be non-negative integer.");
+                        continue;
+                    }
                     if (command_max_book_ply <= 0)
                     {
                         log_line("Error : max_book_ply must be positive integer.");
@@ -5563,6 +5573,16 @@ int main(int argc, char* argv[])
                 const int eval_refutation_margin = parse_int_argument(tokens, 1, DefaultEvalRefutationMargin);
                 std::optional<int> refutation_eval_limit = parse_optional_int_argument(tokens, 2);
                 const int command_max_book_ply = parse_int_argument(tokens, 3, max_book_ply);
+                if (eval_refutation_margin < 0)
+                {
+                    log_line("Error : eval_refutation_margin must be non-negative integer.");
+                    continue;
+                }
+                if (refutation_eval_limit && *refutation_eval_limit < 0)
+                {
+                    log_line("Error : eval_limit must be non-negative integer or None.");
+                    continue;
+                }
                 if (command_max_book_ply <= 0)
                 {
                     log_line("Error : max_book_ply must be positive integer.");
