@@ -612,6 +612,7 @@ TaskResult start_thinking_best_line(
     bool branch_extension = false;
     int last_thinking_ply = PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> path_visited;
     if (resume && resume->best_line)
     {
         const auto parsed = bookminer::parse_position_command(resume->position_command);
@@ -625,6 +626,7 @@ TaskResult start_thinking_best_line(
         if (branch_extension)
             branch_task = false;
         visited = std::move(resume->visited);
+        path_visited = std::move(resume->path_visited);
         resume.reset();
     }
 
@@ -639,6 +641,10 @@ TaskResult start_thinking_best_line(
         if (!branch_task && rest_ply <= 0)
             break;
 
+        // 棋譜中の同一局面に再到達したら、2回目で千日手扱いとする。
+        if (path_visited.contains(bookminer::PackedSfen::from_sfen(current_sfen)))
+            return TaskResult::Done;
+        const auto original_sfen = current_sfen;
         ThinkOnceResult thought;
         try
         {
@@ -650,19 +656,25 @@ TaskResult start_thinking_best_line(
             {
                 forget_failed_position(visited, current_sfen);
                 resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
-                                    rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, {}};
+                                    rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, std::move(path_visited)};
             }
             throw;
         }
         if (thought.status == ThinkOnceStatus::Deferred)
         {
             resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
-                                rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, {}};
+                                rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, std::move(path_visited)};
             return TaskResult::Deferred;
         }
         if (thought.status != ThinkOnceStatus::Position)
             return TaskResult::Done;
         current_sfen = thought.sfen;
+        if (current_sfen != original_sfen)
+        {
+            std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> flipped_path;
+            for (const auto& key : path_visited) flipped_path.insert(key.flipped());
+            path_visited = std::move(flipped_path);
+        }
         const auto candidate_moves = thinking_candidate_moves(
             thought.position,
             eval_limit,
@@ -918,6 +930,8 @@ TaskResult process_position_command(
     if (!book.update_position_ply(leaf_key, leaf_ply))
         (void)book.update_position_ply(leaf_key.flipped(), leaf_ply);
 
+    resume = TaskResume{true, "sfen " + board.sfen_with_ply(), think_command_ply,
+                        rest_branch_depth, PlyMin, engine.thread_id(), {}, false, std::move(path_visited)};
     return start_thinking_best_line(
         book,
         engine,

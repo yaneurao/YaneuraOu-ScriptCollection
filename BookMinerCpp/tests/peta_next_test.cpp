@@ -565,6 +565,47 @@ int main(int argc, char** argv)
         if (resumed_book.find_position_copy(after_repeat.sfen()))
             throw std::runtime_error("resumed path lost its repetition history");
 
+        // The best-line extension must remember the exact positions in the game path,
+        // including when its first peta leaf is stored in the opposite orientation.
+        bookminer::BookStore history_book;
+        auto history_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto& item : std::vector<std::pair<std::string, std::string>>{
+                 {"5i5h", "2g2f"}, {"5a5b", "5a5b"}, {"5h5i", "5h5i"}})
+        {
+            history_book.merge_position(history_board.sfen_with_ply(), static_cast<std::uint16_t>(history_board.ply()),
+                                        {{bookminer::move16_from_usi(item.second), 0, 0}});
+            history_board.push_usi(item.first);
+        }
+        history_book.merge_position(bookminer::flipped_sfen(history_board.sfen()), 4,
+            {{bookminer::flipped_move16(bookminer::move16_from_usi("5b5a")), 0, 0}});
+        const auto nodes_path = std::filesystem::path(engine_path.string() + ".nodes");
+        const auto before_history = std::filesystem::file_size(nodes_path);
+        std::optional<TaskResume> history_resume;
+        (void)process_position_command(history_book, engine, "startpos moves 5i5h 5a5b 5h5i",
+                                       1000, 200, 3, 0, 0, 1, [](BranchTaskSpec) {}, history_resume);
+        if (std::filesystem::file_size(nodes_path) != before_history)
+            throw std::runtime_error("best-line extension continued after returning to a game position");
+
+        auto history_parent = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> history_keys;
+        for (const auto* move : {"5i5h", "5a5b", "5h5i"})
+        {
+            history_keys.insert(bookminer::PackedSfen::from_sfen(history_parent.sfen()));
+            history_parent.push_usi(move);
+        }
+        history_resume = TaskResume{true, "sfen " + history_board.sfen_with_ply(), 3, 0,
+                                    PlyMin, engine.thread_id(), {}, false, std::move(history_keys)};
+        auto history_lease = history_book.try_begin_search(history_board.sfen(), bookminer::flipped_sfen(history_board.sfen()));
+        auto run_history = [&] {
+            return process_position_command(history_book, engine, "startpos moves 5i5h 5a5b 5h5i",
+                                            1000, 200, 3, 0, 0, 1, [](BranchTaskSpec) {}, history_resume);
+        };
+        if (run_history() != TaskResult::Deferred || !history_resume || history_resume->path_visited.empty())
+            throw std::runtime_error("best-line deferral lost the game path history");
+        history_book.end_search(history_lease);
+        if (run_history() != TaskResult::Done || std::filesystem::file_size(nodes_path) != before_history)
+            throw std::runtime_error("resumed best-line extension lost the game path history");
+
         bookminer::BookStore path_book;
         std::optional<TaskResume> path_resume;
         bookminer::SearchLease path_lease;

@@ -284,3 +284,54 @@ class PetaUnsolvedTests(unittest.TestCase):
             task = miner.Task(miner.SFEN_START, 1, 400, matching[0], max_book_ply=200, book_extend_ply=1)
             self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
             self.assertIn(target_sfen, normal.body)
+
+    def test_extension_stops_when_it_revisits_game_path(self):
+        normal = miner.Book()
+        board = miner.cshogi.Board()
+        for move, best in (('5i5h', '2g2f'), ('5a5b', '5a5b'), ('5h5i', '5h5i')):
+            key, ply = miner.trim_sfen_ply(board.sfen())
+            normal.body[key] = miner.PositionInfo([miner.MoveInfo(best, 0, 0)], ply)
+            board.push_usi(move)
+        key, ply = miner.trim_sfen_ply(board.sfen())
+        normal.body[miner.flipped_sfen(key)] = miner.PositionInfo(
+            [miner.MoveInfo(miner.flipped_move('5b5a'), 0, 0)], ply)
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings()
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        manager.put_branch_task = Mock()
+        engine = Mock()
+        engine.thread_settings = SimpleNamespace(thread_id=0)
+        engine.last_go_searched_nodes = 100
+        engine.go.return_value = [miner.MoveInfo('3c3d', 0)]
+        task = miner.Task(miner.SFEN_START, 1, 400, 'startpos moves 5i5h 5a5b 5h5i',
+                          max_book_ply=200, book_extend_ply=3)
+        original_think = manager.think_sfen_once
+        def deferred_once(book, active_engine, current_sfen, ply, last_ply, visited, max_ply):
+            manager.think_sfen_once = original_think
+            return None, current_sfen, last_ply, miner.TASK_RESULT_DEFERRED, False
+        manager.think_sfen_once = deferred_once
+        self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DEFERRED)
+        self.assertIsNotNone(task.resume)
+        self.assertIn(miner.SFEN_START, task.resume.path_visited)
+        self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
+        engine.go.assert_not_called()
+
+    def test_extension_does_not_treat_flipped_position_as_repetition(self):
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        original = miner.trim_sfen(board.sfen())
+        flipped = miner.flipped_sfen(original)
+        self.assertNotEqual(original, flipped)
+        manager = object.__new__(miner.EngineManager)
+        manager.book_miner_settings = miner.BookMinerSettings()
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        manager.put_branch_task = Mock()
+        engine = Mock()
+        engine.thread_settings = SimpleNamespace(thread_id=0)
+        engine.last_go_searched_nodes = 100
+        flipped_board = miner.cshogi.Board(flipped + ' 2')
+        engine.go.return_value = [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(flipped_board.legal_moves))), 0)]
+        task = miner.Task(flipped, 2, 400, max_book_ply=200, book_extend_ply=1)
+        task.resume = miner.TaskResume(True, f'sfen {flipped} 2', 1, 0, miner.PLY_MIN, 0, set(), {original})
+        self.assertEqual(manager.start_thinking(miner.Book(), engine, task), miner.TASK_RESULT_DONE)
+        engine.go.assert_called_once()

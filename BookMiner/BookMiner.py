@@ -1752,6 +1752,7 @@ class EngineManager:
 
         # 千日手を防ぐために自分が訪問した局面だけ持っておく。
         visited : set[Sfen] = set()
+        path_visited : set[Sfen] = set()
 
         if task.resume is not None and task.resume.best_line:
             resume = task.resume
@@ -1764,6 +1765,7 @@ class EngineManager:
             if branch_extension:
                 branch_task = False
             visited = resume.visited
+            path_visited = resume.path_visited
             task.resume = None
 
         while True:
@@ -1776,6 +1778,11 @@ class EngineManager:
             if not branch_task and rest_ply == 0:
                 break
 
+            # 棋譜で通った局面への再到達も千日手として打ち切る。
+            if current_sfen in path_visited:
+                return TASK_RESULT_DONE
+            original_sfen = current_sfen
+
             # 現局面を必要なら思考する。
             try:
                 position_info, current_sfen, last_thinking_ply, status, searched = self.think_sfen_once(book, engine, current_sfen, ply, last_thinking_ply, visited, max_book_ply)
@@ -1784,14 +1791,16 @@ class EngineManager:
                     visited.discard(current_sfen)
                     visited.discard(flipped_sfen(current_sfen))
                     task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
-                                             last_thinking_ply, engine.thread_settings.thread_id, visited, set(), branch_extension)
+                                             last_thinking_ply, engine.thread_settings.thread_id, visited, path_visited, branch_extension)
                 raise
             if status == TASK_RESULT_DEFERRED:
                 task.resume = TaskResume(True, f"sfen {current_sfen} {ply}", rest_ply, branch_depth,
-                                         last_thinking_ply, engine.thread_settings.thread_id, visited, set(), branch_extension)
+                                         last_thinking_ply, engine.thread_settings.thread_id, visited, path_visited, branch_extension)
                 return TASK_RESULT_DEFERRED
             if position_info is None:
                 return TASK_RESULT_DONE
+            if current_sfen != original_sfen:
+                path_visited = {flipped_sfen(sfen) for sfen in path_visited}
             # 次の局面を辿る。
             # ここから先は棋譜で指定された経路ではなく、BookMinerがbest lineを伸ばす。
             # そのため、bestがeval_limitを超えていたら、ここで延長を止める。
@@ -1971,7 +1980,7 @@ class EngineManager:
                 branch_depth=branch_depth,
             )
         leaf_task.resume = TaskResume(True, f"sfen {leaf_sfen} {leaf_ply}", task.book_extend_ply,
-                                      branch_depth, PLY_MIN, engine.thread_settings.thread_id, set(), set())
+                                      branch_depth, PLY_MIN, engine.thread_settings.thread_id, set(), path_visited)
         try:
             return self.start_thinking(book, engine, leaf_task)
         finally:
