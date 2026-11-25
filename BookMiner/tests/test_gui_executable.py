@@ -299,8 +299,22 @@ class GuiExecutableTests(unittest.TestCase):
                 self.assertIsNone(instance.busy_action)
                 self.assertFalse(instance.peta_makebook_active)
                 self.assertFalse(instance.peta_shock_cancel_pending)
-                self.assertEqual(instance.auto_peta_pending, action != 'auto_peta_shock')
+                self.assertTrue(instance.auto_peta_pending)
                 instance._update_buttons.assert_called_once()
+
+    def test_auto_shock_cancel_keeps_new_reservation_made_during_shock(self):
+        instance = Mock()
+        instance.busy_action = 'auto_peta_shock'
+        instance.auto_backup_count = 2
+        instance.auto_peta_pending = False
+        instance.ignore_current_backup = False
+        instance.settings_apply_pending = False
+        instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupDone]')
+        self.assertTrue(instance.auto_peta_pending)
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaShockCancelled]')
+        self.assertTrue(instance.auto_peta_pending)
+        self.assertIsNone(instance.busy_action)
 
     def test_manual_peta_success_resets_automatic_schedule(self):
         for action in ('manual_peta_shock', 'manual_peta_shock_latest'):

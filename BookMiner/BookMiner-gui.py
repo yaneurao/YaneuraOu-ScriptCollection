@@ -2162,8 +2162,6 @@ class BookMinerGui(ttk.Frame):
         if '[PetaShockCancelled]' in line:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
-            if self.busy_action == 'auto_peta_shock':
-                self.auto_peta_pending = False
             if self.busy_action in {'manual_peta_shock', 'manual_peta_shock_latest', 'auto_peta_shock'}:
                 self.busy_action = None
             self._append_log('peta', '[GUI] peta shock を中止しました。\n')
