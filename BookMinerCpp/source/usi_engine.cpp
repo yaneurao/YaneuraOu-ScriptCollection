@@ -44,7 +44,7 @@ bool is_engine_error_line(const std::string& line)
         || starts_with(line, "info string Start loading the model file, path = ")
         || starts_with(line, "info string The model file has been loaded, path = "))
         return false;
-    return line.find("Error") != std::string::npos;
+    return line.find("Error") != std::string::npos || starts_with(line, "info string CRITICAL ERROR:");
 }
 
 std::vector<std::string> split_ws(const std::string& line)

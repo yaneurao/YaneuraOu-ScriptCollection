@@ -1111,7 +1111,7 @@ def is_engine_error_line(line:str)->bool:
                         'info string Start loading the model file, path = ',
                         'info string The model file has been loaded, path = ')):
         return False
-    return 'Error' in line
+    return 'Error' in line or line.startswith('info string CRITICAL ERROR:')
 
 
 @dataclass

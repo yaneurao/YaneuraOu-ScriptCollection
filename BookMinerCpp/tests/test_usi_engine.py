@@ -119,6 +119,14 @@ class EngineProtocolTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Engine Error!', result.stderr)
 
+    def test_critical_engine_error_preserves_reason(self):
+        result = self.run_engine([["info string CRITICAL ERROR: Command `go` failed. Reason: missing eval"]])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing eval', result.stderr)
+        result = self.run_engine([], ['info string CRITICAL ERROR: Command `isready` failed. Reason: missing eval'])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing eval', result.stderr)
+
     def test_missing_exact_score_is_not_silently_accepted(self):
         result = self.run_engine([["info depth 1 nodes 10", "bestmove 7g7f"]])
         self.assertNotEqual(result.returncode, 0)

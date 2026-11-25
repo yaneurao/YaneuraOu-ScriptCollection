@@ -507,9 +507,19 @@ class EngineProtocolTests(unittest.TestCase):
 
     def test_engine_reported_error_is_still_detected(self):
         for line in ('info string Error! : read file error', 'info string Error : invalid option declaration',
-                     'Error: no engine entry point'):
+                     'Error: no engine entry point',
+                     'info string CRITICAL ERROR: Command `isready` failed. Reason: missing eval'):
             with self.subTest(line=line):
                 self.assertTrue(miner.is_engine_error_line(line))
+
+    def test_critical_engine_error_preserves_reason(self):
+        engine = self.engine(['info string CRITICAL ERROR: Command `go` failed. Reason: missing eval'])
+        with self.assertRaisesRegex(Exception, 'missing eval'):
+            engine.go(miner.SFEN_START, 1.0)
+        engine = self.engine(['info string CRITICAL ERROR: Command `isready` failed. Reason: missing eval'])
+        engine.search_sfen = ''
+        with self.assertRaisesRegex(Exception, 'missing eval'):
+            engine.wait_usi('readyok')
 
     def test_usi_position_ply_multipv_and_bounded_scores(self):
         engine = self.engine([
