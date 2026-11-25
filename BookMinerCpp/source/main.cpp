@@ -3615,6 +3615,31 @@ std::string scheduled_time_text(std::chrono::system_clock::time_point time)
     return buffer;
 }
 
+void sort_timestamped_backup_paths(std::vector<fs::path>& paths, const std::string& prefix)
+{
+    using SortKey = std::tuple<std::string, fs::file_time_type, std::string>;
+    std::vector<std::pair<SortKey, fs::path>> ordered;
+    ordered.reserve(paths.size());
+    for (const auto& path : paths)
+    {
+        const std::string filename = path.filename().string();
+        const auto prefix_length = prefix.size() + 1;
+        const auto timestamp_end = prefix_length + 14;
+        const bool has_timestamp = filename.size() > timestamp_end
+            && (filename[timestamp_end] == '_' || filename[timestamp_end] == '.')
+            && std::all_of(filename.begin() + static_cast<std::ptrdiff_t>(prefix_length),
+                           filename.begin() + static_cast<std::ptrdiff_t>(timestamp_end),
+                           [](unsigned char ch) { return ch >= '0' && ch <= '9'; });
+        std::error_code error;
+        const auto modified = has_timestamp ? fs::last_write_time(path, error) : fs::file_time_type::min();
+        ordered.emplace_back(SortKey{has_timestamp ? filename.substr(0, timestamp_end) : filename,
+                                     error ? fs::file_time_type::min() : modified, filename}, path);
+    }
+    std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    for (std::size_t i = 0; i < ordered.size(); ++i)
+        paths[i] = std::move(ordered[i].second);
+}
+
 std::vector<fs::path> collect_book_backup_paths()
 {
     std::vector<fs::path> paths;
@@ -3636,27 +3661,7 @@ std::vector<fs::path> collect_book_backup_paths()
             continue;
         paths.push_back(entry.path());
     }
-
-    using SortKey = std::tuple<std::string, fs::file_time_type, std::string>;
-    std::vector<std::pair<SortKey, fs::path>> ordered;
-    ordered.reserve(paths.size());
-    for (const auto& path : paths)
-    {
-        const std::string filename = path.filename().string();
-        const auto prefix_length = std::string(BookDbName).size() + 1;
-        const auto timestamp_end = prefix_length + 14;
-        const bool has_timestamp = filename.size() > timestamp_end && filename[timestamp_end] == '_'
-            && std::all_of(filename.begin() + static_cast<std::ptrdiff_t>(prefix_length),
-                           filename.begin() + static_cast<std::ptrdiff_t>(timestamp_end),
-                           [](unsigned char ch) { return ch >= '0' && ch <= '9'; });
-        std::error_code error;
-        const auto modified = has_timestamp ? fs::last_write_time(path, error) : fs::file_time_type::min();
-        ordered.emplace_back(SortKey{has_timestamp ? filename.substr(0, timestamp_end) : filename,
-                                     error ? fs::file_time_type::min() : modified, filename}, path);
-    }
-    std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-    for (std::size_t i = 0; i < ordered.size(); ++i)
-        paths[i] = std::move(ordered[i].second);
+    sort_timestamped_backup_paths(paths, BookDbName);
     return paths;
 }
 
@@ -3693,9 +3698,7 @@ std::vector<fs::path> collect_peta_book_paths()
         paths.push_back(entry.path());
     }
 
-    std::sort(paths.begin(), paths.end(), [](const fs::path& lhs, const fs::path& rhs) {
-        return lhs.filename().string() < rhs.filename().string();
-    });
+    sort_timestamped_backup_paths(paths, PetaBookDbName);
     return paths;
 }
 

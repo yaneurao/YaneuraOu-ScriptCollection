@@ -16,6 +16,17 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_latest_peta_book_uses_mtime_for_same_source_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            older = Path(directory) / 'peta_book-20261126010101_9.db'
+            newer = Path(directory) / 'peta_book-20261126010101_10.ybb'
+            older.touch()
+            newer.touch()
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+            with patch.object(bookminer, 'BOOK_BACKUP_DIR', directory):
+                self.assertEqual(bookminer.get_latest_peta_book(), str(newer))
+
     def test_latest_backup_uses_mtime_for_same_timestamp(self):
         with tempfile.TemporaryDirectory() as directory:
             older = Path(directory) / 'book_miner-20261126010101_9.db'

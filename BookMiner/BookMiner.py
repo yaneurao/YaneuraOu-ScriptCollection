@@ -2819,6 +2819,23 @@ def read_regular_book_fast(book:Book, path:str, label:str, cancel:Event|None = N
 peta_book = Book()
 
 
+def sort_timestamped_backup_paths(paths:list[str], prefix:str):
+    def backup_order(path:str):
+        filename = os.path.basename(path)
+        prefix_length = len(prefix) + 1
+        timestamp = filename[prefix_length:prefix_length + 14]
+        if (len(timestamp) == 14 and timestamp.isascii() and timestamp.isdigit()
+                and filename[prefix_length + 14:prefix_length + 15] in ('_', '.')):
+            try:
+                modified = os.stat(path).st_mtime_ns
+            except OSError:
+                modified = 0
+            return filename[:prefix_length + 14], modified, filename
+        return filename, 0, filename
+
+    paths.sort(key=backup_order)
+
+
 def collect_book_backup_paths()->list[str]:
     paths : list[str] = []
     if not os.path.isdir(BOOK_BACKUP_DIR):
@@ -2835,19 +2852,7 @@ def collect_book_backup_paths()->list[str]:
         if os.path.isfile(path):
             paths.append(path)
 
-    def backup_order(path:str):
-        filename = os.path.basename(path)
-        prefix_length = len(BOOK_DB_NAME) + 1
-        timestamp = filename[prefix_length:prefix_length + 14]
-        if len(timestamp) == 14 and timestamp.isascii() and timestamp.isdigit() and filename[prefix_length + 14:prefix_length + 15] == '_':
-            try:
-                modified = os.stat(path).st_mtime_ns
-            except OSError:
-                modified = 0
-            return filename[:prefix_length + 14], modified, filename
-        return filename, 0, filename
-
-    paths.sort(key=backup_order)
+    sort_timestamped_backup_paths(paths, BOOK_DB_NAME)
     return paths
 
 
@@ -2893,7 +2898,7 @@ def collect_peta_book_paths()->list[str]:
         if os.path.isfile(path):
             paths.append(path)
 
-    paths.sort(key=lambda path: os.path.basename(path))
+    sort_timestamped_backup_paths(paths, PETA_BOOK_DB_NAME)
     return paths
 
 

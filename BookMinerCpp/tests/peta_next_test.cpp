@@ -292,6 +292,14 @@ int main(int argc, char** argv)
         fs::last_write_time(newer, now - std::chrono::seconds(1));
         if (get_latest_book_backup_or_none() != newer)
             throw std::runtime_error("same-second backup was selected by position count rather than save time");
+        const auto older_peta = fs::path(BookBackupDir) / "peta_book-20261126010101_9.db";
+        const auto newer_peta = fs::path(BookBackupDir) / "peta_book-20261126010101_10.ybb";
+        std::ofstream(older_peta) << "old";
+        std::ofstream(newer_peta) << "new";
+        fs::last_write_time(older_peta, now - std::chrono::seconds(2));
+        fs::last_write_time(newer_peta, now - std::chrono::seconds(1));
+        if (get_latest_peta_book() != newer_peta)
+            throw std::runtime_error("same-second peta book was selected by position count rather than save time");
         const auto stamp = make_time_stamp();
         std::ofstream(fs::path(BookBackupDir) / ("book_miner-" + stamp + "_9.ybb")) << "previous";
         bookminer::BookStore empty_book;
