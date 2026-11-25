@@ -4527,6 +4527,7 @@ def merge_flipped_positions(book:Book):
         with book.lock:
 
             c = 0
+            skipped_searching = 0
             keys : list[Sfen] = list(book.body.keys())
 
             for sfen in keys:
@@ -4537,6 +4538,10 @@ def merge_flipped_positions(book:Book):
 
                 sfen_f = flipped_sfen(sfen)
                 if sfen_f in book.body:
+                    if sfen in book.searching_sfens or sfen_f in book.searching_sfens:
+                        if sfen < sfen_f:
+                            skipped_searching += 1
+                        continue
 
                     # 反転させた局面が定跡本体に存在する。このレコードをmergeする必要がある。
                     position   = book.body[sfen]
@@ -4569,6 +4574,8 @@ def merge_flipped_positions(book:Book):
                     c += 1
 
         print(f"merge flipped positions done, merged {c} positions")
+        if skipped_searching:
+            print(f"merge flipped positions skipped {skipped_searching} positions being searched; run m again after they finish.")
 
     except Exception as e:
         print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")

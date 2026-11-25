@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-from threading import Barrier
+from threading import Barrier, Event, Thread
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +17,41 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_merge_flipped_positions_preserves_in_flight_search(self):
+        book = bookminer.Book()
+        direct = bookminer.SFEN_START
+        flipped = bookminer.flipped_sfen(direct)
+        book.body[direct] = bookminer.PositionInfo([], 1)
+        book.body[flipped] = bookminer.PositionInfo([bookminer.MoveInfo('5a5b', None, 0)], 1)
+        started, release = Event(), Event()
+        class Engine:
+            thread_settings = SimpleNamespace(thread_id=0)
+            last_go_searched_nodes = 1
+            def go(self, sfen, ratio, ply):
+                started.set()
+                if not release.wait(3):
+                    raise RuntimeError('test engine timed out')
+                return [bookminer.MoveInfo('5a5b', 42, 0)]
+        manager = object.__new__(bookminer.EngineManager)
+        manager.book_miner_settings = bookminer.BookMinerSettings()
+        manager.global_settings = SimpleNamespace(from_gui=False)
+        result = []
+        worker = Thread(target=lambda: result.append(manager.think_sfen_once(book, Engine(), flipped, 1, 0, set())))
+        worker.start()
+        try:
+            self.assertTrue(started.wait(2))
+            bookminer.merge_flipped_positions(book)
+            retained_during_search = flipped in book.body
+        finally:
+            release.set()
+            worker.join(timeout=3)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(retained_during_search)
+        self.assertEqual(book.body[flipped].moveinfos[0].eval, 42)
+        bookminer.merge_flipped_positions(book)
+        self.assertNotIn(flipped, book.body)
+        self.assertEqual(book.body[direct].moveinfos[0].eval, 42)
+
     def test_merge_flipped_positions_preserves_ply_depth_and_best_order(self):
         book = bookminer.Book()
         direct = bookminer.SFEN_START
