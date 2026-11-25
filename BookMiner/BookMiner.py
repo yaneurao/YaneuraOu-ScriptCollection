@@ -3232,7 +3232,7 @@ def is_refuted_move_by_peta_impact(
     peta_move_eval:int,
     eval_refutation_margin:int,
 )->bool:
-    old_position, old_flipped = find_book_position_with_flip(source_book, sfen)
+    old_position, old_flipped = find_considered_book_position_with_flip(source_book, sfen)
     if old_position is None or not old_position.moveinfos:
         return False
 

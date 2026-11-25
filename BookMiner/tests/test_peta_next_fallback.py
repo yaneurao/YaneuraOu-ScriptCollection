@@ -16,6 +16,26 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_refutation_finds_flipped_normal_book_behind_empty_entry(self):
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        sfen = miner.trim_sfen(board.sfen())
+        source = miner.Book()
+        source.body[sfen] = miner.PositionInfo([], 2)
+        source.body[miner.flipped_sfen(sfen)] = miner.PositionInfo([
+            miner.MoveInfo(miner.flipped_move('8c8d'), 10, 1),
+            miner.MoveInfo(miner.flipped_move('3c3d'), 0, 1)], 2)
+        peta = miner.PositionInfo([miner.MoveInfo('3c3d', 100, 0), miner.MoveInfo('8c8d', 0, 1)], 2)
+        self.assertTrue(miner.is_refuted_move_by_peta_impact(source, peta, False, sfen, '3c3d', 100, 10))
+        peta_book = miner.Book()
+        peta_book.body[sfen] = peta
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta_book), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(f'sfen {sfen} 2\n')
+            miner.peta_next(0, 10, 200, str(roots), refutation_book=source, eval_refutation_margin=10)
+            self.assertIn('moves 3c3d', (Path(directory) / 'think_sfens.txt').read_text())
+
     def test_opponent_pv_returning_to_game_history_is_rebased(self):
         own = miner.Book()
         board = miner.cshogi.Board()

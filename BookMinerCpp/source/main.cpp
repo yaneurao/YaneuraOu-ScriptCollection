@@ -377,7 +377,7 @@ bool is_refuted_move_by_peta_impact(
     int peta_move_eval,
     int eval_refutation_margin)
 {
-    const auto old_hit = find_book_position_with_flip(source_book, sfen);
+    const auto old_hit = find_considered_book_position_with_flip(source_book, sfen);
     if (!old_hit.position.has_value() || old_hit.position->moves.empty())
         return false;
 
@@ -3152,7 +3152,7 @@ std::string peta_refutation(
             continue;
 
         const std::string sfen = bookminer::trim_sfen(bookminer::unpack_sfen_bytes(entry.key.bytes));
-        const auto old_hit = find_book_position_with_flip(book, sfen);
+        const auto old_hit = find_considered_book_position_with_flip(book, sfen);
         if (!old_hit.position.has_value() || old_hit.position->moves.empty())
             continue;
 

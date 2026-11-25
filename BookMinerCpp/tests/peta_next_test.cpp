@@ -371,6 +371,33 @@ int main(int argc, char** argv)
         const auto opponent_moves = candidate_best_moves_for_probe(probe, board.sfen(), 0);
         if (opponent_moves.size() != 1 || opponent_moves.front().move != "3c3d")
             throw std::runtime_error("opponent probe ignored explored flipped entry behind an empty one");
+        normal.merge_position(flipped, 2, {
+            {bookminer::flipped_move16(bookminer::move16_from_usi("8c8d")), 10, 1},
+            {bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 1}});
+        bookminer::PositionInfo refuted;
+        refuted.moves = {{bookminer::move16_from_usi("3c3d"), 100, 0},
+                         {bookminer::move16_from_usi("8c8d"), 0, 1}};
+        if (!is_refuted_move_by_peta_impact(normal, refuted, false, board.sfen(),
+                                            bookminer::move16_from_usi("3c3d"), 100, 10))
+            throw std::runtime_error("refutation ignored explored flipped normal entry behind an empty one");
+        bookminer::BookStore peta_refuted;
+        peta_refuted.merge_position(board.sfen_with_ply(), 2, refuted.moves);
+        { std::ofstream out(roots_path); out << "sfen " << board.sfen_with_ply() << '\n'; }
+        const auto next_refutations = peta_next_for_turn(&normal, peta_refuted, 0, 0, 10, 200, roots_path, 10);
+        std::filesystem::remove(roots_path);
+        if (next_refutations.size() != 1 || next_refutations.front().find("moves 3c3d") == std::string::npos)
+            throw std::runtime_error("peta next refutation ignored explored flipped normal entry");
+        const auto old_cwd = std::filesystem::current_path();
+        const auto directory = roots_path.parent_path() / "refutation-empty-fixture";
+        std::filesystem::create_directories(directory / "book");
+        std::filesystem::current_path(directory);
+        (void)peta_refutation(normal, peta_refuted, 10, std::nullopt, 200);
+        std::ifstream refutation_result("book/think_sfens.txt");
+        const std::string refutation_text((std::istreambuf_iterator<char>(refutation_result)), {});
+        refutation_result.close();
+        std::filesystem::current_path(old_cwd);
+        if (refutation_text.find("moves 3c3d") == std::string::npos)
+            throw std::runtime_error("pf ignored explored flipped normal entry behind an empty one");
         if (!peta_leaf_rejoins_peta_book(normal, bookminer::StartSfenPly1))
             throw std::runtime_error("peta rejoin missed an explored flipped child behind an empty entry");
         const auto hit = find_considered_book_position_with_flip(normal, board.sfen());
