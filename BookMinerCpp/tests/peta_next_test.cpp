@@ -269,6 +269,40 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        const auto old_cwd = std::filesystem::current_path();
+        const auto directory = roots_path.parent_path() / "opponent-flipped-fixture";
+        std::filesystem::create_directories(directory / "book/book_opponent");
+        std::filesystem::current_path(directory);
+        bookminer::BookStore book;
+        auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b4b", "5i5h", "4b5a", "5h4h"})
+        {
+            book.merge_position(board.sfen_with_ply(), static_cast<std::uint16_t>(board.ply()),
+                                {{bookminer::move16_from_usi(move), 0, 1}});
+            board.push_usi(move);
+        }
+        book.save_yaneuraou_book("book/book_opponent/opponent.db", std::nullopt, nullptr, nullptr);
+        (void)peta_opponent(book, 0, 200, 100, 1, std::nullopt);
+        std::ifstream result("book/think_sfens.txt");
+        const std::string text((std::istreambuf_iterator<char>(result)), {});
+        if (text.find("5i5h 5a5b 5h5i 5b4b 5i5h 4b5a 5h4h") == std::string::npos)
+            throw std::runtime_error("opponent game mistook a flipped position for repetition");
+        result.close();
+        bookminer::BookStore cycle;
+        board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"})
+        {
+            cycle.merge_position(board.sfen_with_ply(), static_cast<std::uint16_t>(board.ply()),
+                                 {{bookminer::move16_from_usi(move), 0, 1}});
+            board.push_usi(move);
+        }
+        cycle.save_yaneuraou_book("book/book_opponent/opponent.db", std::nullopt, nullptr, nullptr);
+        const auto cycle_result = peta_opponent(cycle, 0, 200, 100, 1, std::nullopt);
+        std::filesystem::current_path(old_cwd);
+        if (cycle_result.find("retired_repetition=2") == std::string::npos)
+            throw std::runtime_error("opponent game did not stop on actual repetition");
+    }
+    {
         auto board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         board.push_usi("7g7f");
         const auto key = bookminer::PackedSfen::from_sfen(board.sfen());

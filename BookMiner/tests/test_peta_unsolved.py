@@ -16,6 +16,19 @@ spec.loader.exec_module(miner)
 
 class PetaUnsolvedTests(unittest.TestCase):
 
+    def test_pv_continues_through_distinct_flipped_position(self):
+        root = '4k4/9/9/9/9/9/9/9/4K4 w - 1'
+        board = miner.cshogi.Board(root)
+        book = miner.Book()
+        moves = ('5a5b', '5i4h', '5b5a', '4h5h', '5a4a')
+        for move in moves:
+            book.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo(move, 0, 1)], 1)
+            board.push_usi(move)
+        with patch.object(miner, 'peta_book', book):
+            leaf = miner.peta_pv_leaf_position_cmd('sfen ' + root, root, moves[0], 200, 20)
+        self.assertIsNotNone(leaf)
+        self.assertTrue(leaf.endswith(' '.join(moves)))
+
     def test_enqueue_uses_normal_book_eval_even_when_peta_score_is_lower(self):
         peta, normal = miner.Book(), miner.Book()
         peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 0)], 1)

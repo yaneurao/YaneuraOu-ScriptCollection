@@ -3384,8 +3384,7 @@ std::string peta_opponent(
                 }
 
                 const std::string visited_key = std::to_string(current_side) + ":" + sfen;
-                const std::string visited_key_flipped = std::to_string(current_side) + ":" + bookminer::flipped_sfen(sfen);
-                if (visited.find(visited_key) != visited.end() || visited.find(visited_key_flipped) != visited.end())
+                if (visited.find(visited_key) != visited.end())
                 {
                     ++retired_repetition;
                     break;

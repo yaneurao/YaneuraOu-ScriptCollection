@@ -3891,8 +3891,7 @@ def peta_pv_leaf_position_cmd(
         if current_ply >= max_book_ply:
             return None
 
-        current_sfen_f = flipped_sfen(current_sfen)
-        if current_sfen in visited or current_sfen_f in visited:
+        if current_sfen in visited:
             if on_cycle is not None:
                 on_cycle()
             return None
