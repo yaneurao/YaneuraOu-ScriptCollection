@@ -231,9 +231,25 @@ int main(int argc, char** argv)
         (void)peta_unsolved(seventh, {10, 8, 6, 4}, 200, 9999, 20, 400);
         std::ifstream registered_result("book/think_sfens.txt");
         const std::string registered_text((std::istreambuf_iterator<char>(registered_result)), {});
-        if (registered_text.find("startpos moves 9g9f,") == std::string::npos)
+        if (registered_text.find("startpos moves 9g9f 9c9d,") == std::string::npos)
             throw std::runtime_error("unsolved skipped the seventh game move with a registered child");
         registered_result.close();
+        bookminer::BookStore pv;
+        auto pv_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        pv.merge_position(pv_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 2}});
+        pv_board.push_usi("7g7f");
+        pv.merge_position(pv_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 20, 1}});
+        pv_board.push_usi("3c3d");
+        pv.merge_position(pv_board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("2g2f"), 20, 0}});
+        pv_board.push_usi("2g2f");
+        pv.merge_position(pv_board.sfen_with_ply(), 4, {{bookminer::move16_from_usi("8c8d"), 20, 0}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos\n"; }
+        (void)peta_unsolved(pv, {10, 8, 6, 4}, 200, 9999, 1, 400);
+        std::ifstream pv_result("book/think_sfens.txt");
+        const std::string pv_text((std::istreambuf_iterator<char>(pv_result)), {});
+        if (pv_text.find("startpos moves 7g7f 3c3d 2g2f 8c8d,") == std::string::npos)
+            throw std::runtime_error("unsolved did not follow depth-zero best moves to the missing position");
+        pv_result.close();
         std::filesystem::current_path(old_cwd);
     }
     {

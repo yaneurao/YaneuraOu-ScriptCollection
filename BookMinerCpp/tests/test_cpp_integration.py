@@ -16,6 +16,77 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
+    def test_unsolved_enqueues_and_searches_end_of_peta_pv(self):
+        import json
+        try:
+            import cshogi
+        except ImportError:
+            self.skipTest('cshogi is required to construct fixture positions')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
+            (root / 'settings').mkdir()
+            board = cshogi.Board()
+            pv = ['7g7f', '3c3d', '2g2f', '8c8d']
+            records = []
+            for index, move in enumerate(pv):
+                records.append(f'sfen {board.sfen()}\n{move} none 20 {max(0, 2 - index)}\n')
+                board.push_usi(move)
+            target = ' '.join(board.sfen().split()[:3])
+            reply = cshogi.move_to_usi(next(iter(board.legal_moves)))
+            content = '#YANEURAOU-DB2016 1.00\n' + ''.join(records)
+            (backup / 'book_miner-20200101000000_4.db').write_text(content)
+            (backup / 'peta_book-20200101000000_4.db').write_text(content)
+            (root / 'book' / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            engine = root / 'engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                f'target={target!r}\nreply={reply!r}\n'
+                'for line in sys.stdin:\n'
+                ' if line.strip()=="usi": print("usiok",flush=True)\n'
+                ' elif line.strip()=="isready": print("readyok",flush=True)\n'
+                ' elif line.startswith("position "): open("searches.txt","a").write(line.strip()+"\\n")\n'
+                ' elif line.startswith("go "):\n'
+                '  print("info multipv 1 score cp 0 pv "+reply,flush=True)\n'
+                '  print("bestmove "+reply,flush=True)\n'
+                ' elif line.strip()=="quit": break\n')
+            engine.chmod(0o755)
+            (root / 'settings' / 'engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                    stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                def wait_for(needle):
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        data = log.read_text()
+                        if needle in data: return
+                        if process.poll() is not None: break
+                        time.sleep(.02)
+                    self.fail('missing ' + needle + ': ' + log.read_text())
+                def send(command):
+                    process.stdin.write(command + '\n')
+                    process.stdin.flush()
+                try:
+                    wait_for('[CommandReady]')
+                    send('r')
+                    wait_for('[PetaReadDone]')
+                    send('pu 10,8,6,4 9999 200 1 400')
+                    wait_for('[PetaUnsolvedDone]')
+                    self.assertIn('startpos moves 7g7f 3c3d 2g2f 8c8d,',
+                                  (root / 'book' / 'think_sfens.txt').read_text())
+                    send('e')
+                    wait_for('[TaskQueueJobDone]')
+                    searches = (root / 'searches.txt').read_text().splitlines()
+                    self.assertEqual(len(searches), 1, log.read_text())
+                    self.assertIn(target, searches[0])
+                finally:
+                    if process.poll() is None:
+                        send('!')
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
     def test_eof_waits_for_manual_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(

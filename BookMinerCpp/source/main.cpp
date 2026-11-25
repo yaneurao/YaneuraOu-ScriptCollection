@@ -2763,12 +2763,9 @@ std::optional<std::string> peta_pv_leaf_position_command(
             return leaf_position_command;
 
         const auto& best = hit.position->moves.front();
-        if (best.depth <= 0)
-        {
-            if (eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
-                return std::nullopt;
-            return leaf_position_command;
-        }
+        const bool is_leaf_move = best.depth <= 0;
+        if (is_leaf_move && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
+            return std::nullopt;
         if (step >= max_step)
             return std::nullopt;
 

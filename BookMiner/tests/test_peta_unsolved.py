@@ -2,8 +2,9 @@ import importlib.util
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bookminer_unsolved_test', ROOT / 'BookMiner.py')
@@ -44,13 +45,61 @@ class PetaUnsolvedTests(unittest.TestCase):
             (Path(directory) / 'think_unsolved_sfens.txt').write_text('startpos moves 9g9f\n')
             miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
             lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
-            self.assertTrue(any(line.startswith('startpos moves 9g9f,') for line in lines), lines)
+            self.assertTrue(any(line.startswith('startpos moves 9g9f 9c9d,') for line in lines), lines)
             book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 401
             miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
             self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
             book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 400
             miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
-            self.assertIn('startpos moves 9g9f,', (Path(directory) / 'think_sfens.txt').read_text())
+            self.assertIn('startpos moves 9g9f 9c9d,', (Path(directory) / 'think_sfens.txt').read_text())
+
+    def test_shallow_best_pv_enqueues_first_unsearched_position(self):
+        peta = miner.Book()
+        normal = miner.Book()
+        board = miner.cshogi.Board()
+        pv_moves = ['7g7f', '3c3d', '2g2f', '8c8d']
+        for index, move in enumerate(pv_moves):
+            sfen, ply = miner.trim_sfen_ply(board.sfen())
+            peta.body[sfen] = miner.PositionInfo([miner.MoveInfo(move, 20, max(0, 2 - index))], ply)
+            normal.body[sfen] = miner.PositionInfo([miner.MoveInfo(move, 20, 20)], ply)
+            board.push_usi(move)
+        target_sfen = miner.trim_sfen(board.sfen())
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=1, eval_limit=400)
+            line = (root / 'think_sfens.txt').read_text().strip()
+            self.assertTrue(line.startswith('startpos moves 7g7f 3c3d 2g2f 8c8d,'), line)
+            manager = object.__new__(miner.EngineManager)
+            manager.book_miner_settings = miner.BookMinerSettings()
+            manager.global_settings = SimpleNamespace(from_gui=False)
+            manager.put_branch_task = Mock()
+            engine = Mock()
+            engine.thread_settings = SimpleNamespace(thread_id=0)
+            engine.last_go_searched_nodes = 100
+            legal = miner.cshogi.move_to_usi(next(iter(board.legal_moves)))
+            engine.go.return_value = [miner.MoveInfo(legal, 0)]
+            task = miner.Task(miner.SFEN_START, 1, 400, line.split(',', 1)[0],
+                              max_book_ply=200, book_extend_ply=1)
+            self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
+            self.assertEqual(engine.go.call_count, 1)
+            self.assertIn(target_sfen, normal.body)
+
+    def test_depth_zero_pv_continues_through_flipped_positions_and_respects_limits(self):
+        book = miner.Book()
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        child = miner.trim_sfen(board.sfen())
+        book.body[miner.flipped_sfen(child)] = miner.PositionInfo([
+            miner.MoveInfo(miner.flipped_move('3c3d'), 400, 0)], 2)
+        with patch.object(miner, 'peta_book', book):
+            args = ('startpos', miner.SFEN_START_PLY1, '7g7f', 200)
+            self.assertEqual(miner.peta_pv_leaf_position_cmd(*args, 2, 400),
+                             'startpos moves 7g7f 3c3d')
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 1, 400))
+            book.body[miner.flipped_sfen(child)].moveinfos[0].eval = 401
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 2, 400))
 
     def test_duplicate_move_does_not_occupy_multiple_ranks(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):

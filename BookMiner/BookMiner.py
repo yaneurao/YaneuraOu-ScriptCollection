@@ -3802,8 +3802,8 @@ def peta_pv_leaf_position_cmd(
     eval_limit:int|None = None,
 )->PositionStr|None:
     """
-    first_moveを指した後、peta_book上のbest PVをdepth 0またはDB外まで辿り、
-    そのleaf局面のpositionコマンドを返す。
+    first_moveを指した後、peta_book上のbest PVをDB外のleafまで辿る。
+    depth 0でも、指し手の先に局面がある場合はそこで止めない。
     """
 
     global peta_book
@@ -3837,10 +3837,9 @@ def peta_pv_leaf_position_cmd(
             return leaf_position_cmd
 
         best = position_info.moveinfos[0]
-        if best.depth <= 0:
-            if eval_limit is not None and abs(best.eval) > eval_limit:
-                return None
-            return leaf_position_cmd
+        is_leaf_move = best.depth <= 0
+        if is_leaf_move and eval_limit is not None and abs(best.eval) > eval_limit:
+            return None
         if step >= max_step:
             return None
 
