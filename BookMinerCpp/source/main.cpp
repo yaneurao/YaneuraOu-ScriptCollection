@@ -4457,10 +4457,18 @@ fs::path make_peta_book(
     return run_peta_shock_makebook(app_dir, source, settings, cancelled);
 }
 
+using PetaThreadLauncher = std::function<std::thread(std::function<void()>)>;
+
+std::thread launch_peta_thread(std::function<void()> work)
+{
+    return std::thread(std::move(work));
+}
+
 class PetaBookReadJob {
 public:
-    explicit PetaBookReadJob(bookminer::BookStore& peta_book)
-        : peta_book_(peta_book)
+    explicit PetaBookReadJob(bookminer::BookStore& peta_book, PetaThreadLauncher launcher = launch_peta_thread,
+                             std::function<void(const std::string&)> completion_logger = log_line)
+        : peta_book_(peta_book), launcher_(std::move(launcher)), completion_logger_(std::move(completion_logger))
     {
     }
 
@@ -4486,31 +4494,39 @@ public:
 
         shock_ = false;
         running_ = true;
-        thread_ = std::thread([
-            this,
-            peta_book_path = std::move(peta_book_path),
-            done_message = std::move(done_message),
-            done_tag = std::move(done_tag)
-        ] {
-            bool succeeded = false;
-            try
-            {
-                read_peta_book(peta_book_, peta_book_path);
-                if (!done_message.empty())
-                    log_line(done_message);
-                succeeded = true;
-            }
-            catch (const std::exception& ex)
-            {
-                log_line(std::string("Exception : peta read failed: ") + ex.what());
-            }
+        try
+        {
+            thread_ = launcher_([
+                this,
+                peta_book_path = std::move(peta_book_path),
+                done_message = std::move(done_message),
+                done_tag = std::move(done_tag)
+            ] {
+                bool succeeded = false;
+                std::optional<std::string> failure;
+                try
+                {
+                    read_peta_book(peta_book_, peta_book_path);
+                    if (!done_message.empty())
+                        log_line(done_message);
+                    succeeded = true;
+                }
+                catch (const std::exception& ex)
+                {
+                    failure = ex.what();
+                }
+                running_ = false;
+                if (failure)
+                    completion_logger_("Exception : peta read failed: " + *failure);
+                else if (succeeded && !done_tag.empty())
+                    completion_logger_(done_tag);
+            });
+        }
+        catch (...)
+        {
             running_ = false;
-            if (succeeded)
-            {
-                if (!done_tag.empty())
-                    log_line(done_tag);
-            }
-        });
+            throw;
+        }
         return true;
     }
 
@@ -4523,28 +4539,37 @@ public:
         cancelled_ = false;
         shock_ = true;
         running_ = true;
-        thread_ = std::thread([this, prepare = std::move(prepare), done_message = std::move(done_message)] {
-            bool succeeded = false, was_cancelled = false;
-            std::optional<std::string> failure;
-            try
-            {
-                const auto path = prepare(&cancelled_);
-                check_peta_shock_cancel(&cancelled_);
-                read_peta_book(peta_book_, std::optional<std::string>{path.string()}, &cancelled_);
-                log_line(done_message);
-                succeeded = true;
-            }
-            catch (const PetaShockCancelled&) { was_cancelled = true; }
-            catch (const std::exception& ex) { failure = ex.what(); }
+        try
+        {
+            thread_ = launcher_([this, prepare = std::move(prepare), done_message = std::move(done_message)] {
+                bool succeeded = false, was_cancelled = false;
+                std::optional<std::string> failure;
+                try
+                {
+                    const auto path = prepare(&cancelled_);
+                    check_peta_shock_cancel(&cancelled_);
+                    read_peta_book(peta_book_, std::optional<std::string>{path.string()}, &cancelled_);
+                    log_line(done_message);
+                    succeeded = true;
+                }
+                catch (const PetaShockCancelled&) { was_cancelled = true; }
+                catch (const std::exception& ex) { failure = ex.what(); }
+                shock_ = false;
+                running_ = false;
+                if (was_cancelled)
+                    completion_logger_("[PetaShockCancelled]");
+                else if (failure)
+                    completion_logger_("Exception : peta shock failed: " + *failure);
+                else if (succeeded)
+                    completion_logger_("[PetaCommandDone]");
+            });
+        }
+        catch (...)
+        {
             shock_ = false;
             running_ = false;
-            if (was_cancelled)
-                log_line("[PetaShockCancelled]");
-            else if (failure)
-                log_line("Exception : peta shock failed: " + *failure);
-            else if (succeeded)
-                log_line("[PetaCommandDone]");
-        });
+            throw;
+        }
         return true;
     }
 
@@ -4578,6 +4603,8 @@ public:
 
 private:
     bookminer::BookStore& peta_book_;
+    PetaThreadLauncher launcher_;
+    std::function<void(const std::string&)> completion_logger_;
     std::atomic<bool> running_{false};
     std::atomic<bool> shock_{false};
     std::atomic<bool> cancelled_{false};
@@ -4588,8 +4615,9 @@ private:
 
 class PetaCommandJob {
 public:
-    explicit PetaCommandJob(std::function<void(const std::string&)> completion_logger = log_line)
-        : completion_logger_(std::move(completion_logger))
+    explicit PetaCommandJob(std::function<void(const std::string&)> completion_logger = log_line,
+                            PetaThreadLauncher launcher = launch_peta_thread)
+        : completion_logger_(std::move(completion_logger)), launcher_(std::move(launcher))
     {
     }
 
@@ -4614,25 +4642,35 @@ public:
         cancellable_next_ = cancellable_next;
         cancellable_unsolved_ = cancellable_unsolved;
         running_ = true;
-        thread_ = std::thread([this, command = std::move(command), cancellable_unsolved] {
-            std::string completion;
-            try
-            {
-                completion = command();
-            }
-            catch (const PetaNextCancelled&)
-            {
-                completion = cancellable_unsolved ? "[PetaUnsolvedCancelled]" : "[PetaNextCancelled]";
-            }
-            catch (const std::exception& ex)
-            {
-                completion = std::string("Exception : peta command failed: ") + ex.what();
-            }
+        try
+        {
+            thread_ = launcher_([this, command = std::move(command), cancellable_unsolved] {
+                std::string completion;
+                try
+                {
+                    completion = command();
+                }
+                catch (const PetaNextCancelled&)
+                {
+                    completion = cancellable_unsolved ? "[PetaUnsolvedCancelled]" : "[PetaNextCancelled]";
+                }
+                catch (const std::exception& ex)
+                {
+                    completion = std::string("Exception : peta command failed: ") + ex.what();
+                }
+                cancellable_next_ = false;
+                cancellable_unsolved_ = false;
+                running_ = false;
+                completion_logger_(completion);
+            });
+        }
+        catch (...)
+        {
             cancellable_next_ = false;
             cancellable_unsolved_ = false;
             running_ = false;
-            completion_logger_(completion);
-        });
+            throw;
+        }
         return true;
     }
 
@@ -4663,6 +4701,7 @@ public:
 
 private:
     std::function<void(const std::string&)> completion_logger_;
+    PetaThreadLauncher launcher_;
     std::atomic<bool> running_{false};
     std::atomic<bool> cancellable_next_{false};
     std::atomic<bool> cancellable_unsolved_{false};

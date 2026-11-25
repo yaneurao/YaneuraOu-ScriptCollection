@@ -579,3 +579,59 @@ class PetaUnsolvedTests(unittest.TestCase):
             self.assertNotIn('startpos moves 7g7f', output)
             self.assertTrue(any('input_games=2 processed_prefixes=4' in str(call.args[0])
                                 for call in log.call_args_list if call.args))
+
+    def test_sfen_game_uses_flipped_books_and_eval_limit_boundary(self):
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        start = board.sfen()
+        actual = miner.trim_sfen(start)
+        flipped = miner.flipped_sfen(actual)
+        move = miner.flipped_move('3c3d')
+        peta, normal = miner.Book(), miner.Book()
+        peta.body[flipped] = miner.PositionInfo([miner.MoveInfo(move, 0, 0)], 2)
+        normal.body[flipped] = miner.PositionInfo([miner.MoveInfo(move, -400, 20)], 2)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text(f'sfen {start} moves 8c8d\n')
+            miner.peta_unsolved((1,), eval_limit=400, normal_book=normal)
+            output = (root / 'think_sfens.txt').read_text()
+            self.assertIn(f'sfen {start} moves 3c3d,', output)
+            self.assertIn(f'sfen {start} moves 8c8d,', output)
+            normal.body[flipped].moveinfos[0].eval = -401
+            miner.peta_unsolved((1,), eval_limit=400, normal_book=normal)
+            self.assertEqual((root / 'think_sfens.txt').read_text(), '')
+
+    def test_normal_eval_boundary_is_independent_of_game_peta_depth(self):
+        for depth in (0, 11):
+            for value, limit, expected in ((-401, 400, True), (-400, 400, False),
+                                           (400, 400, False), (401, 400, True),
+                                           (-1, 0, True), (0, 0, False), (1, 0, True)):
+                with self.subTest(depth=depth, value=value, limit=limit):
+                    peta = miner.PositionInfo([miner.MoveInfo('7g7f', 0, depth)], 1)
+                    normal = miner.Book()
+                    normal.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', value, 20)], 1)
+                    self.assertEqual(miner.unsolved_normal_eval_exceeds(miner.SFEN_START, limit, normal), expected)
+                    self.assertEqual(miner.unsolved_normal_cut_by_eval_limit(
+                        miner.SFEN_START, peta, limit, normal), expected and depth == 0)
+
+    def test_unevaluated_direct_normal_entry_does_not_hide_flipped_evaluation(self):
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        actual = miner.trim_sfen(board.sfen())
+        normal = miner.Book()
+        normal.body[actual] = miner.PositionInfo([miner.MoveInfo('3c3d', None, 0)], 2)
+        normal.body[miner.flipped_sfen(actual)] = miner.PositionInfo(
+            [miner.MoveInfo(miner.flipped_move('3c3d'), 401, 0)], 2)
+        self.assertTrue(miner.unsolved_normal_eval_exceeds(actual, 400, normal))
+
+    def test_invalid_later_game_preserves_previous_output(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\nstartpos moves 7g7f 7g7f\n')
+            output = root / 'think_sfens.txt'
+            output.write_text('previous\n')
+            with self.assertRaises(ValueError):
+                miner.peta_unsolved((10,), eval_limit=400)
+            self.assertEqual(output.read_text(), 'previous\n')

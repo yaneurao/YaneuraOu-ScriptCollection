@@ -58,6 +58,95 @@ int main(int argc, char** argv)
             throw std::runtime_error("unsolved cancellation did not report completion");
     }
     {
+        int failed_starts = 0;
+        auto fail_once = [&](std::function<void()> work) -> std::thread {
+            if (failed_starts++ == 0)
+                throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+            return std::thread(std::move(work));
+        };
+        std::string completion;
+        PetaCommandJob job([&](const std::string& message) { completion = message; }, fail_once);
+        bool threw = false;
+        try { (void)job.start([] { return std::string("unexpected"); }, false, true); }
+        catch (const std::system_error&) { threw = true; }
+        if (!threw || job.running() || job.cancel_unsolved() || job.cancel_next())
+            throw std::runtime_error("failed peta thread launch left a command active");
+        if (!job.start([] { return std::string("restarted"); }, false, true))
+            throw std::runtime_error("peta command could not restart after a failed thread launch");
+        job.join();
+        if (job.running() || completion != "restarted")
+            throw std::runtime_error("peta command did not complete after a failed thread launch");
+    }
+    {
+        int failed_starts = 0;
+        auto fail_twice = [&](std::function<void()> work) -> std::thread {
+            if (failed_starts++ < 2)
+                throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+            return std::thread(std::move(work));
+        };
+        bookminer::BookStore peta;
+        PetaBookReadJob job(peta, fail_twice);
+        bool read_threw = false, shock_threw = false;
+        try { (void)job.start(std::nullopt, "", ""); }
+        catch (const std::system_error&) { read_threw = true; }
+        if (!read_threw || job.running() || job.shock_running())
+            throw std::runtime_error("failed peta read thread launch left the book busy");
+        try { (void)job.start_shock([](const std::atomic<bool>*) { return fs::path{}; }, ""); }
+        catch (const std::system_error&) { shock_threw = true; }
+        if (!shock_threw || job.running() || job.shock_running() || job.cancel_shock())
+            throw std::runtime_error("failed peta shock thread launch left the book busy");
+        if (!job.start_shock([](const std::atomic<bool>*) -> fs::path {
+                throw std::runtime_error("expected test failure");
+            }, ""))
+            throw std::runtime_error("peta book job could not restart after failed thread launches");
+        job.join();
+        if (job.running() || job.shock_running())
+            throw std::runtime_error("peta book job remained busy after restart");
+    }
+    {
+        bookminer::BookStore peta;
+        PetaBookReadJob* job_ptr = nullptr;
+        bool busy_when_notified = true;
+        std::string completion;
+        PetaBookReadJob job(peta, launch_peta_thread, [&](const std::string& message) {
+            busy_when_notified = job_ptr->running();
+            completion = message;
+        });
+        job_ptr = &job;
+        peta.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 37, 0}});
+        const auto missing = std::filesystem::path(argv[1]).parent_path() / "missing-peta-read.db";
+        std::filesystem::remove(missing);
+        if (!job.start(missing.string(), "", "[PetaReadDone]"))
+            throw std::runtime_error("could not start failed peta read test");
+        job.join();
+        const auto retained = peta.find_position_copy(bookminer::StartSfenPly1);
+        if (busy_when_notified || job.running() || completion.find("Exception : peta read failed:") != 0
+            || !retained || retained->moves.empty() || retained->moves.front().eval != 37)
+            throw std::runtime_error("peta read failure lost the previous book or left it busy");
+        const auto malformed = std::filesystem::path(argv[1]).parent_path() / "peta-read-malformed.db";
+        { std::ofstream out(malformed); out << "#YANEURAOU-DB2016 1.00\nsfen " << bookminer::StartSfenPly1
+                                           << "\n2g2f none 1 0\nsfen " << bookminer::StartSfenPly1
+                                           << "\ninvalid\n"; }
+        if (!job.start(malformed.string(), "", "[PetaReadDone]"))
+            throw std::runtime_error("could not start malformed peta read test");
+        job.join();
+        std::filesystem::remove(malformed);
+        const auto retained_after_parse_error = peta.find_position_copy(bookminer::StartSfenPly1);
+        if (busy_when_notified || completion.find("Exception : peta read failed:") != 0
+            || !retained_after_parse_error || retained_after_parse_error->moves.empty()
+            || retained_after_parse_error->moves.front().eval != 37)
+            throw std::runtime_error("partially parsed peta book replaced the previous book on error");
+        const auto valid = std::filesystem::path(argv[1]).parent_path() / "peta-read-restart.db";
+        { std::ofstream out(valid); out << "#YANEURAOU-DB2016 1.00\nsfen " << bookminer::StartSfenPly1
+                                       << "\n7g7f none 0 0\n"; }
+        if (!job.start(valid.string(), "", "[PetaReadDone]"))
+            throw std::runtime_error("peta read could not restart after failure");
+        job.join();
+        std::filesystem::remove(valid);
+        if (busy_when_notified || job.running() || completion != "[PetaReadDone]" || peta.size() != 1)
+            throw std::runtime_error("peta read did not restart cleanly after failure");
+    }
+    {
         TaskQueue queue;
         Task first, other;
         first.job_id = 1;
@@ -433,6 +522,30 @@ int main(int argc, char** argv)
             throw std::runtime_error("unsolved did not stop the current game at eval limit");
         game_cutoff_result.close();
 
+        bookminer::BookStore flipped_peta, flipped_normal;
+        auto flipped_root = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        flipped_root.push_usi("7g7f");
+        const auto flipped_key = bookminer::flipped_sfen(flipped_root.sfen());
+        const auto flipped_move = bookminer::flipped_move16(bookminer::move16_from_usi("3c3d"));
+        flipped_peta.merge_position(flipped_key, 2, {{flipped_move, 0, 0}});
+        flipped_normal.merge_position(flipped_key, 2, {{flipped_move, -400, 20}});
+        { std::ofstream out("book/think_unsolved_sfens.txt");
+          out << "sfen " << flipped_root.sfen_with_ply() << " moves 8c8d\n"; }
+        (void)peta_unsolved(flipped_peta, {1}, 200, 99999, 1, 400, &flipped_normal);
+        std::ifstream flipped_result("book/think_sfens.txt");
+        const std::string flipped_text((std::istreambuf_iterator<char>(flipped_result)), {});
+        if (flipped_text.find("sfen " + flipped_root.sfen_with_ply() + " moves 3c3d,") == std::string::npos
+            || flipped_text.find("sfen " + flipped_root.sfen_with_ply() + " moves 8c8d,") == std::string::npos)
+            throw std::runtime_error("unsolved mishandled an sfen game with flipped book positions");
+        flipped_result.close();
+        flipped_normal.merge_position(flipped_key, 2, {{flipped_move, -401, 20}});
+        (void)peta_unsolved(flipped_peta, {1}, 200, 99999, 1, 400, &flipped_normal);
+        std::ifstream flipped_cut_result("book/think_sfens.txt");
+        const std::string flipped_cut_text((std::istreambuf_iterator<char>(flipped_cut_result)), {});
+        if (!flipped_cut_text.empty())
+            throw std::runtime_error("unsolved failed to stop at the flipped normal book eval limit");
+        flipped_cut_result.close();
+
         bookminer::BookStore early_cutoff;
         early_cutoff.merge_position(bookminer::StartSfenPly1, 1, {
             {bookminer::move16_from_usi("7g7f"), 500, 0}});
@@ -493,6 +606,18 @@ int main(int argc, char** argv)
         if (!unsolved_interrupted || interrupted_text != "previous\n")
             throw std::runtime_error("unsolved cancellation damaged existing output");
         interrupted_result.close();
+        { std::ofstream out("book/think_unsolved_sfens.txt");
+          out << "startpos\nstartpos moves 7g7f 7g7f\n"; }
+        { std::ofstream out("book/think_sfens.txt"); out << "previous\n"; }
+        bool invalid_game_rejected = false;
+        try { (void)peta_unsolved(empty, {10}, 200, 9999, 1, 400); }
+        catch (const std::exception&) { invalid_game_rejected = true; }
+        std::ifstream invalid_game_result("book/think_sfens.txt");
+        const std::string invalid_game_text((std::istreambuf_iterator<char>(invalid_game_result)), {});
+        if (!invalid_game_rejected || invalid_game_text != "previous\n")
+            throw std::runtime_error("invalid later game replaced unsolved output");
+        invalid_game_result.close();
+
         bookminer::BookStore pv;
         auto pv_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         pv.merge_position(pv_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 2}});
