@@ -2699,7 +2699,7 @@ class BookMinerGui(ttk.Frame):
         try:
             self.process.stdin.write(command + "\n")
             self.process.stdin.flush()
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             if origin == "GUI":
                 messagebox.showerror("送信失敗", str(exc))
             else:

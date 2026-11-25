@@ -13,6 +13,20 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_closed_stdin_reports_send_failure(self):
+        for origin in ('GUI', 'AUTO'):
+            with self.subTest(origin=origin), patch.object(gui.messagebox, 'showerror') as showerror:
+                instance = Mock()
+                instance.is_running.return_value = True
+                instance.command_ready = True
+                instance.process.stdin.write.side_effect = ValueError('I/O operation on closed file')
+                self.assertFalse(gui.BookMinerGui.send_command(instance, 'cancel-peta-unsolved', origin))
+                if origin == 'GUI':
+                    showerror.assert_called_once()
+                else:
+                    showerror.assert_not_called()
+                    self.assertIn('send failed', instance._append_log.call_args.args[1])
+
     def test_manual_backup_button_cancels_once_while_peta_runs(self):
         instance = Mock()
         instance.busy_action = 'manual_peta_shock'
