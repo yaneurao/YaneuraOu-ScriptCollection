@@ -4520,6 +4520,10 @@ def merge_flipped_positions(book:Book):
     後手の局面が削除される。
     """
 
+    if not BOOK_SAVE_LOCK.acquire(blocking=False):
+        print("merge flipped positions skipped: book save is in progress; run m again after it finishes.")
+        return
+
     try:
 
         print("merge_flipped_positions start.")
@@ -4579,6 +4583,8 @@ def merge_flipped_positions(book:Book):
 
     except Exception as e:
         print(f"Exception :{type(e).__name__}{e}\n{traceback.format_exc()}")
+    finally:
+        BOOK_SAVE_LOCK.release()
 
 
 def dump_sfen(book:Book, sfen:Sfen, move : MoveStr|None):

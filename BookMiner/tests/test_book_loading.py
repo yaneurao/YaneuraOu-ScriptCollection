@@ -17,6 +17,66 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_backup_can_cancel_while_flipped_merge_is_running(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10, 0)], 1)
+        started, release, cancel = Event(), Event(), Event()
+        original_flip = bookminer.flipped_sfen
+        def slow_flip(sfen):
+            started.set()
+            if not release.wait(3):
+                raise RuntimeError('test merge timed out')
+            return original_flip(sfen)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(bookminer, 'flipped_sfen', side_effect=slow_flip):
+            worker = Thread(target=bookminer.merge_flipped_positions, args=(book,))
+            worker.start()
+            try:
+                self.assertTrue(started.wait(2))
+                cancel.set()
+                with self.assertRaises(bookminer.PetaShockCancelled):
+                    bookminer.save_book_backup(book, directory, cancel=cancel)
+            finally:
+                release.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+
+    def test_merge_flipped_positions_does_not_disrupt_active_backup(self):
+        book = bookminer.Book()
+        direct, flipped = bookminer.SFEN_START, bookminer.flipped_sfen(bookminer.SFEN_START)
+        book.body[direct] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10, 0)], 1)
+        book.body[flipped] = bookminer.PositionInfo([bookminer.MoveInfo('5a5b', 20, 0)], 1)
+        started, release = Event(), Event()
+        saved, failures = [], []
+        original_snapshot = bookminer.snapshot_book_position_for_write
+        def snapshot(*args):
+            started.set()
+            if not release.wait(3):
+                raise RuntimeError('test backup timed out')
+            return original_snapshot(*args)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(bookminer, 'snapshot_book_position_for_write', side_effect=snapshot):
+            def save():
+                try:
+                    saved.append(bookminer.save_book_backup(book, directory))
+                except Exception as exc:
+                    failures.append(exc)
+            worker = Thread(target=save)
+            worker.start()
+            try:
+                self.assertTrue(started.wait(2))
+                bookminer.merge_flipped_positions(book)
+                retained_during_save = direct in book.body and flipped in book.body
+            finally:
+                release.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(retained_during_save)
+            self.assertEqual(failures, [])
+            self.assertTrue(Path(saved[0]).is_file())
+            bookminer.merge_flipped_positions(book)
+            self.assertNotIn(flipped, book.body)
+
     def test_merge_flipped_positions_preserves_in_flight_search(self):
         book = bookminer.Book()
         direct = bookminer.SFEN_START
