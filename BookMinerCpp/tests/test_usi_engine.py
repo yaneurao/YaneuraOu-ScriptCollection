@@ -22,16 +22,19 @@ class EngineProtocolTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_engine(self, searches):
+    def run_engine(self, searches, ready_lines=()):
         engine = Path(self.tmp.name) / 'mock-engine'
         engine.write_text('#!/usr/bin/env python3\n'
                           'import sys\n'
                           f'searches = iter({searches!r})\n'
+                          f'ready_lines = {list(ready_lines)!r}\n'
                           'configured = False\n'
                           'for line in sys.stdin:\n'
                           ' line = line.strip()\n'
                           ' if line == "usi": print("usiok", flush=True)\n'
-                          ' elif line == "isready": print("readyok", flush=True)\n'
+                          ' elif line == "isready":\n'
+                          '  for reply in ready_lines: print(reply, flush=True)\n'
+                          '  print("readyok", flush=True)\n'
                           ' elif line.startswith("setoption name MultiPV value "): configured = True\n'
                           ' elif line.startswith("go "):\n'
                           '  assert configured\n'
@@ -102,6 +105,19 @@ class EngineProtocolTest(unittest.TestCase):
                                    "info string score cp 777 pv 3g3f", "bestmove 7g7f"]])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f 999', '2g2f 20'])
+
+    def test_successful_load_path_containing_error_word(self):
+        result = self.run_engine([["info string Start loading the model file, path = C:/Error/model.onnx",
+                                   "info string The model file has been loaded, path = C:/Error/model.onnx",
+                                   "info score cp 42 pv 7g7f", "bestmove 7g7f"]],
+                                 ['info string read engine options, path = C:/Error/eval_options.txt'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['7g7f 42'])
+
+    def test_explicit_engine_error_is_still_detected(self):
+        result = self.run_engine([["info string Error! : read file error"]])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Engine Error!', result.stderr)
 
     def test_missing_exact_score_is_not_silently_accepted(self):
         result = self.run_engine([["info depth 1 nodes 10", "bestmove 7g7f"]])

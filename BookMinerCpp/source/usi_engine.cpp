@@ -37,6 +37,16 @@ bool starts_with(const std::string& text, const std::string& prefix)
     return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
 }
 
+bool is_engine_error_line(const std::string& line)
+{
+    // These YaneuraOu messages report successful loading and include user paths.
+    if (starts_with(line, "info string read engine options, path = ")
+        || starts_with(line, "info string Start loading the model file, path = ")
+        || starts_with(line, "info string The model file has been loaded, path = "))
+        return false;
+    return line.find("Error") != std::string::npos;
+}
+
 std::vector<std::string> split_ws(const std::string& line)
 {
     std::istringstream iss(line);
@@ -329,7 +339,7 @@ EngineGoResult UsiEngine::go(const std::string& position_command, double node_ra
         if (!line.has_value())
             throw std::runtime_error("engine output closed during go, thread_id=" + std::to_string(thread_id_));
 
-        if (line->find("Error") != std::string::npos)
+        if (is_engine_error_line(*line))
         {
             connection_broken_ = true;
             throw std::runtime_error("Engine Error! : " + *line);
@@ -523,7 +533,7 @@ void UsiEngine::wait_usi(const std::string& wait_text, const LogCallback&)
         auto line = read_line();
         if (!line.has_value())
             throw std::runtime_error("engine output closed while waiting " + wait_text + ", thread_id=" + std::to_string(thread_id_));
-        if (line->find("Error") != std::string::npos)
+        if (is_engine_error_line(*line))
         {
             connection_broken_ = true;
             throw std::runtime_error("Engine Error! : " + *line);

@@ -1105,6 +1105,15 @@ def evalstr_to_int(s1:str,s2:str)->Eval:
     raise Exception(f"Error! : parse error {s1},{s2}")
 
 
+def is_engine_error_line(line:str)->bool:
+    # These YaneuraOu messages report successful loading and include user paths.
+    if line.startswith(('info string read engine options, path = ',
+                        'info string Start loading the model file, path = ',
+                        'info string The model file has been loaded, path = ')):
+        return False
+    return 'Error' in line
+
+
 @dataclass
 class GlobalSettings:
     '''探索関係の共通設定を集めた構造体'''
@@ -1266,9 +1275,8 @@ class Engine:
         ''' 指定したコマンドが来るまで待つ '''
         while True:
             mes = self.receive_usi()
-            # エンジンから送られてきたメッセージにErrorの文字列があるなら、
-            # これは致命的なエラーなので例外を出して終了。
-            if 'Error' in mes:
+            # エンジンがエラーを報告した場合は例外を出して終了。
+            if is_engine_error_line(mes):
                 self.connection_broken = True
                 self.raise_exception(f"Engine Error! : {mes}")
             if mes==wait_text:
@@ -1301,7 +1309,7 @@ class Engine:
 
         while True:
             line = self.receive_usi()
-            if 'Error' in line:
+            if is_engine_error_line(line):
                 self.connection_broken = True
                 self.raise_exception(f"Engine Error! : {line}")
             tokens = line.split()

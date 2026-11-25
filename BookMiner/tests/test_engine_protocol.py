@@ -497,6 +497,20 @@ class EngineProtocolTests(unittest.TestCase):
         engine.receive_usi = Mock(side_effect=lines)
         return engine
 
+    def test_engine_path_with_error_word_is_not_a_failure(self):
+        engine = self.engine(['info string read engine options, path = C:/Error/eval_options.txt', 'readyok'])
+        engine.wait_usi('readyok')
+        engine = self.engine(['info string Start loading the model file, path = C:/Error/model.onnx',
+                              'info string The model file has been loaded, path = C:/Error/model.onnx',
+                              'info score cp 42 pv 7g7f', 'bestmove 7g7f'])
+        self.assertEqual(engine.go(miner.SFEN_START, 1.0)[0].eval, 42)
+
+    def test_engine_reported_error_is_still_detected(self):
+        for line in ('info string Error! : read file error', 'info string Error : invalid option declaration',
+                     'Error: no engine entry point'):
+            with self.subTest(line=line):
+                self.assertTrue(miner.is_engine_error_line(line))
+
     def test_usi_position_ply_multipv_and_bounded_scores(self):
         engine = self.engine([
             'info string bestmove is not a bestmove response',
