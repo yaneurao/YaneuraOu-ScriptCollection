@@ -110,7 +110,9 @@ class EngineProtocolTest(unittest.TestCase):
         result = self.run_engine([["info string Start loading the model file, path = C:/Error/model.onnx",
                                    "info string The model file has been loaded, path = C:/Error/model.onnx",
                                    "info score cp 42 pv 7g7f", "bestmove 7g7f"]],
-                                 ['info string read engine options, path = C:/Error/eval_options.txt'])
+                                 ['info string read engine options, path = C:/Error/eval_options.txt',
+                                  'info string loading eval file : C:/Error/nn.bin',
+                                  'info string loading progress file : C:/Error/progress.bin'])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f 42'])
 
@@ -118,6 +120,10 @@ class EngineProtocolTest(unittest.TestCase):
         result = self.run_engine([["info string Error! : read file error"]])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Engine Error!', result.stderr)
+        result = self.run_engine([], ['info string loading progress file : C:/Error/progress.bin',
+                                      'Error! : failed to read C:/Error/progress.bin : FileNotFound'])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('FileNotFound', result.stderr)
 
     def test_critical_engine_error_preserves_reason(self):
         result = self.run_engine([["info string CRITICAL ERROR: Command `go` failed. Reason: missing eval"]])

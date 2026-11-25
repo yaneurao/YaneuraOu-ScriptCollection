@@ -39,8 +39,10 @@ bool starts_with(const std::string& text, const std::string& prefix)
 
 bool is_engine_error_line(const std::string& line)
 {
-    // These YaneuraOu messages report successful loading and include user paths.
+    // These YaneuraOu messages describe loading and include user paths.
     if (starts_with(line, "info string read engine options, path = ")
+        || starts_with(line, "info string loading eval file : ")
+        || starts_with(line, "info string loading progress file : ")
         || starts_with(line, "info string Start loading the model file, path = ")
         || starts_with(line, "info string The model file has been loaded, path = "))
         return false;

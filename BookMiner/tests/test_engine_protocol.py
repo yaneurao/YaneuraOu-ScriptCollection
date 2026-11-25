@@ -498,7 +498,9 @@ class EngineProtocolTests(unittest.TestCase):
         return engine
 
     def test_engine_path_with_error_word_is_not_a_failure(self):
-        engine = self.engine(['info string read engine options, path = C:/Error/eval_options.txt', 'readyok'])
+        engine = self.engine(['info string read engine options, path = C:/Error/eval_options.txt',
+                              'info string loading eval file : C:/Error/nn.bin',
+                              'info string loading progress file : C:/Error/progress.bin', 'readyok'])
         engine.wait_usi('readyok')
         engine = self.engine(['info string Start loading the model file, path = C:/Error/model.onnx',
                               'info string The model file has been loaded, path = C:/Error/model.onnx',
@@ -508,9 +510,15 @@ class EngineProtocolTests(unittest.TestCase):
     def test_engine_reported_error_is_still_detected(self):
         for line in ('info string Error! : read file error', 'info string Error : invalid option declaration',
                      'Error: no engine entry point',
+                     'Error! : failed to read C:/Error/progress.bin : FileNotFound',
                      'info string CRITICAL ERROR: Command `isready` failed. Reason: missing eval'):
             with self.subTest(line=line):
                 self.assertTrue(miner.is_engine_error_line(line))
+        engine = self.engine(['info string loading progress file : C:/Error/progress.bin',
+                              'Error! : failed to read C:/Error/progress.bin : FileNotFound'])
+        engine.search_sfen = ''
+        with self.assertRaisesRegex(Exception, 'FileNotFound'):
+            engine.wait_usi('readyok')
 
     def test_critical_engine_error_preserves_reason(self):
         engine = self.engine(['info string CRITICAL ERROR: Command `go` failed. Reason: missing eval'])

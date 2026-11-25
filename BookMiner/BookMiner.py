@@ -1106,8 +1106,10 @@ def evalstr_to_int(s1:str,s2:str)->Eval:
 
 
 def is_engine_error_line(line:str)->bool:
-    # These YaneuraOu messages report successful loading and include user paths.
+    # These YaneuraOu messages describe loading and include user paths.
     if line.startswith(('info string read engine options, path = ',
+                        'info string loading eval file : ',
+                        'info string loading progress file : ',
                         'info string Start loading the model file, path = ',
                         'info string The model file has been loaded, path = ')):
         return False
