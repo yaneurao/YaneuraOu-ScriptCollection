@@ -2229,7 +2229,7 @@ class BookMinerGui(ttk.Frame):
                     self.auto_peta_pending = True
                     self._append_log("task", "[GUI] 自動保存が指定回数に達しました。peta shock を予約します。\n")
             self.ignore_current_backup = False
-        elif "auto save failed" in lower:
+        elif "[BackupSkipped]" in line or "auto save failed" in lower:
             self.backup_in_progress = False
             self.ignore_current_backup = False
         if "[taskworkererror]" in lower or "exception : task failed, job=" in lower:

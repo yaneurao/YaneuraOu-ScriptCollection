@@ -3824,6 +3824,7 @@ struct PetaProcessResult {
 };
 
 struct PetaShockCancelled {};
+struct AutoBackupSuperseded {};
 
 void check_peta_shock_cancel(const std::atomic<bool>* cancelled)
 {
@@ -4320,7 +4321,9 @@ void shock_write_progress(bookminer::BookProgressKind kind, std::size_t current,
 }
 
 fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> ply_limit,
-                          const std::atomic<bool>* cancelled = nullptr)
+                          const std::atomic<bool>* cancelled = nullptr,
+                          const std::function<bool()>& should_skip = {},
+                          const std::function<void()>& on_saved = {})
 {
     std::unique_lock save_lock(g_save_mutex, std::defer_lock);
     if (cancelled)
@@ -4333,6 +4336,8 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
     }
     else
         save_lock.lock();
+    if (should_skip && should_skip())
+        throw AutoBackupSuperseded{};
     auto timestamp = make_time_stamp();
     const auto saving_path = bookminer::temp_book_path(make_backup_saving_path(timestamp, ply_limit));
     struct RemoveSavingFile {
@@ -4359,6 +4364,8 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
     bookminer::replace_book_file(saving_path, path);
     remove_saving_file.owned = false;
     log_line("..save_book_backup has done, " + std::to_string(written_count) + " positions.");
+    if (on_saved)
+        on_saved();
     return path;
 }
 
@@ -4456,10 +4463,17 @@ private:
             {
                 log_line("[BackupStart]");
                 const auto revision = book_.revision();
-                const auto path = save_book_backup(book_, std::nullopt);
+                const auto path = save_book_backup(book_, std::nullopt, nullptr, [this, next] {
+                    std::scoped_lock lock(mutex_);
+                    return next_backup_time_ != next;
+                });
                 if (on_saved_ && book_.revision() == revision)
                     on_saved_(path, revision);
                 log_line("[BackupDone]");
+            }
+            catch (const AutoBackupSuperseded&)
+            {
+                log_line("[BackupSkipped] reason=timer-reset");
             }
             catch (const std::exception& ex)
             {
@@ -5088,9 +5102,10 @@ int main(int argc, char* argv[])
                 }
                 concurrent_manual_backup.start([&, ply_limit](const std::atomic<bool>* cancelled) {
                         const auto revision = book.revision();
-                        const auto path = save_book_backup(book, ply_limit, cancelled);
-                        if (!ply_limit && auto_save_service)
-                            auto_save_service->reset_timer();
+                        const auto path = save_book_backup(book, ply_limit, cancelled, {}, [&] {
+                            if (!ply_limit && auto_save_service)
+                                auto_save_service->reset_timer();
+                        });
                         if (!ply_limit && book.revision() == revision)
                             peta_book_read_job.remember_saved_source(path, revision);
                         return path;
@@ -5227,9 +5242,10 @@ int main(int argc, char* argv[])
                 if (!peta_book_read_job.start_shock(
                     [&, reused_source, settings](const std::atomic<bool>* cancelled) {
                         const auto revision = book.revision();
-                        const auto source = reused_source ? *reused_source : save_book_backup(book, std::nullopt, cancelled);
-                        if (!reused_source && auto_save_service)
-                            auto_save_service->reset_timer();
+                        const auto source = reused_source ? *reused_source : save_book_backup(book, std::nullopt, cancelled, {}, [&] {
+                            if (auto_save_service)
+                                auto_save_service->reset_timer();
+                        });
                         if (!reused_source && book.revision() == revision)
                             peta_book_read_job.remember_saved_source(source, revision);
                         check_peta_shock_cancel(cancelled);

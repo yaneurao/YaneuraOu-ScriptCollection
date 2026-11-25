@@ -47,11 +47,11 @@ class ManualBackupCancellationTests(unittest.TestCase):
                     'm=importlib.util.module_from_spec(s);sys.modules[s.name]=m;s.loader.exec_module(m)\n'
                     f'm.__file__={str(root / "BookMiner.py")!r}\n'
                     'original=m.write_to_yaneuraou_book\n'
-                    'def slow(book,directory,ply_limit=None,cancel=None):\n'
+                    'def slow(book,directory,ply_limit=None,cancel=None,*,on_saved=None):\n'
                     ' print("[ManualTestStarted]",flush=True)\n'
                     f' while not pathlib.Path({str(manual_release)!r}).exists():\n'
                     '  m.check_peta_shock_cancel(cancel);time.sleep(.01)\n'
-                    ' return original(book,directory,ply_limit,cancel)\n'
+                    ' return original(book,directory,ply_limit,cancel,on_saved=on_saved)\n'
                     'm.write_to_yaneuraou_book=slow\n'
                     'm.user_input(from_gui=True)\n')
             process = subprocess.Popen([sys.executable, '-u', '-c', code], cwd=root, stdin=subprocess.PIPE,

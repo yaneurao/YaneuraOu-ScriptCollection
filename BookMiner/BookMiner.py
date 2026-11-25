@@ -619,11 +619,17 @@ def save_book(book:Book, filepath:str):
     return count
 
 
-def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None)->str:
+def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None,
+                     *, should_skip:Callable[[], bool]|None = None,
+                     on_saved:Callable[[], None]|None = None)->str:
     while not BOOK_SAVE_LOCK.acquire(timeout=0.1):
         check_peta_shock_cancel(cancel)
+        if should_skip is not None and should_skip():
+            raise AutoBackupSuperseded()
     try:
         check_peta_shock_cancel(cancel)
+        if should_skip is not None and should_skip():
+            raise AutoBackupSuperseded()
         with book.lock:
             saved_revision = book.revision
         sfens = collect_yaneuraou_book_sfens(book, ply_limit, cancel)
@@ -645,6 +651,8 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:
             with book.lock:
                 if book.revision == saved_revision:
                     book.mark_clean(path, saved_revision)
+        if on_saved is not None:
+            on_saved()
         return path
     finally:
         BOOK_SAVE_LOCK.release()
@@ -1023,6 +1031,9 @@ class PetaNextCancelled(Exception):
     pass
 
 class PetaShockCancelled(Exception):
+    pass
+
+class AutoBackupSuperseded(Exception):
     pass
 
 def check_peta_shock_cancel(cancel:Event|None):
@@ -2422,7 +2433,8 @@ def has_considered(infos:PositionInfo)->bool:
     """
     return get_best(infos)[0] is not None
 
-def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None)->str:
+def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None, cancel:Event|None = None,
+                            *, on_saved:Callable[[], None]|None = None)->str:
     """
     やねうら王 定跡形式で書き出す。
     """
@@ -2437,7 +2449,8 @@ def write_to_yaneuraou_book(book:Book, save_dir:str, ply_limit:int|None = None, 
 	#					// # NOE:258
     # のようにレコード数を書き出す。
 
-    path = save_book_backup(book, save_dir, ply_limit, cancel)
+    path = (save_book_backup(book, save_dir, ply_limit, cancel) if on_saved is None
+            else save_book_backup(book, save_dir, ply_limit, cancel, on_saved=on_saved))
     print(f"write path = {path}")
     print(f"..w command write has done. path = {path}")
     return path
@@ -3213,10 +3226,8 @@ def write_and_read_peta_book(book:Book, reset_auto_backup_timer:Callable[[], Non
         source_book_path = clean_source_path
         print(f"p command source book reused = {source_book_path}")
     else:
-        source_book_path = (write_to_yaneuraou_book(book, BOOK_BACKUP_DIR) if cancel is None
-                            else write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, cancel=cancel))
-        if reset_auto_backup_timer is not None:
-            reset_auto_backup_timer()
+        source_book_path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, cancel=cancel,
+                                                   on_saved=reset_auto_backup_timer)
     print(f"p command source book = {source_book_path}")
     if cancel is None:
         make_and_read_peta_book(source_book_path, settings)
@@ -4503,10 +4514,16 @@ def enqueue_position_commands_async(book:Book, path:str, engine_manager:EngineMa
                  branch_width, branch_depth), daemon=True).start()
 
 
-def perform_auto_backup(book:Book, save_dir:str)->bool:
+def perform_auto_backup(book:Book, save_dir:str, should_skip:Callable[[], bool]|None = None)->bool:
     print('[BackupStart]')
     try:
-        save_book_backup(book, save_dir)
+        if should_skip is None:
+            save_book_backup(book, save_dir)
+        else:
+            save_book_backup(book, save_dir, should_skip=should_skip)
+    except AutoBackupSuperseded:
+        print('[BackupSkipped] reason=timer-reset')
+        return False
     except Exception as exc:
         print(f'Exception : auto save failed: {exc}')
         return False
@@ -4703,7 +4720,10 @@ def user_input(from_gui:bool = False):
                 if next_backup_timestamp != next_backup_snapshot:
                     continue
 
-            perform_auto_backup(book, BOOK_BACKUP_DIR)
+            def superseded():
+                with backup_condition:
+                    return next_backup_timestamp != next_backup_snapshot
+            perform_auto_backup(book, BOOK_BACKUP_DIR, superseded)
             with backup_condition:
                 if next_backup_timestamp == next_backup_snapshot:
                     next_backup_timestamp = time.time() + book_miner_settings.auto_save_interval_seconds
@@ -4856,9 +4876,8 @@ def user_input(from_gui:bool = False):
                 concurrent_manual_backup_active.set()
                 def run_concurrent_backup(limit=ply_limit):
                     try:
-                        path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, limit, manual_backup_cancel)
-                        if limit is None:
-                            reset_auto_backup_timer()
+                        path = write_to_yaneuraou_book(book, BOOK_BACKUP_DIR, limit, manual_backup_cancel,
+                                                      on_saved=reset_auto_backup_timer if limit is None else None)
                         result = f'[ManualBackupDone] path={path}'
                     except PetaShockCancelled:
                         result = '[ManualBackupCancelled]'

@@ -21,6 +21,53 @@ spec.loader.exec_module(miner)
 
 
 class EngineProtocolTests(unittest.TestCase):
+    def test_auto_backup_waiting_on_manual_save_is_superseded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            (root / 'settings/engine_settings.json5').write_text('[]')
+            settings = root / 'settings/book_miner_settings.json5'
+            settings.write_text('{auto_save_interval_seconds: 3600}')
+            release = root / 'release'
+            code = (f'import importlib.util,sys,time,pathlib\ns=importlib.util.spec_from_file_location("miner_overlap", {str(MODULE_PATH)!r})\n'
+                    'm=importlib.util.module_from_spec(s);sys.modules[s.name]=m;s.loader.exec_module(m)\n'
+                    'original=m.write_yaneuraou_book_records\n'
+                    'def held(*args,**kwargs):\n'
+                    ' print("[ManualWriteHeld]",flush=True)\n'
+                    f' while not pathlib.Path({str(release)!r}).exists(): time.sleep(.01)\n'
+                    ' return original(*args,**kwargs)\n'
+                    'm.write_yaneuraou_book_records=held\nm.user_input(from_gui=True)\n')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([sys.executable, '-u', '-c', code], cwd=root,
+                                           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                try:
+                    def wait_for(text):
+                        deadline = time.monotonic() + 15
+                        while text not in log.read_text():
+                            if process.poll() is not None or time.monotonic() > deadline:
+                                self.fail('missing ' + text + ': ' + log.read_text())
+                            time.sleep(0.02)
+                    wait_for('[CommandReady]')
+                    process.stdin.write('w\n')
+                    process.stdin.flush()
+                    wait_for('[ManualWriteHeld]')
+                    settings.write_text('{auto_save_interval_seconds: 1}')
+                    process.stdin.write('reload-settings\n')
+                    process.stdin.flush()
+                    wait_for('[BackupStart]')
+                    release.touch()
+                    wait_for('[ManualBackupDone]')
+                    time.sleep(0.3)
+                    self.assertNotIn('[BackupDone]', log.read_text())
+                finally:
+                    release.touch()
+                    if process.poll() is None:
+                        process.stdin.write('!\n')
+                        process.stdin.flush()
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
     def test_reload_unrelated_settings_preserves_auto_save_deadline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -23,7 +23,11 @@ class PetaSettingsTests(unittest.TestCase):
             with self.assertRaises(bookminer.PetaShockCancelled):
                 bookminer.write_and_read_peta_book(book, reset, cancel=Event())
         reset.assert_not_called()
-        with patch.object(bookminer, 'write_to_yaneuraou_book', return_value='saved.db'), \
+        def successful_save(*args, on_saved=None, **kwargs):
+            if on_saved is not None:
+                on_saved()
+            return 'saved.db'
+        with patch.object(bookminer, 'write_to_yaneuraou_book', side_effect=successful_save), \
              patch.object(bookminer, 'make_and_read_peta_book', side_effect=bookminer.PetaShockCancelled):
             with self.assertRaises(bookminer.PetaShockCancelled):
                 bookminer.write_and_read_peta_book(book, reset, cancel=Event())

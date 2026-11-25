@@ -278,6 +278,90 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        bookminer::BookStore book;
+        std::atomic<bool> started{false}, superseded{false}, skipped{false};
+        std::unique_lock held(g_save_mutex);
+        std::thread waiter([&] {
+            started = true;
+            try { (void)save_book_backup(book, std::nullopt, nullptr, [&] { return superseded.load(); }); }
+            catch (const AutoBackupSuperseded&) { skipped = true; }
+        });
+        while (!started.load()) std::this_thread::yield();
+        superseded = true;
+        held.unlock();
+        waiter.join();
+        if (!skipped)
+            throw std::runtime_error("superseded automatic backup was not skipped after waiting for a save");
+    }
+    {
+        struct ObservedLog : std::streambuf {
+            std::mutex mutex;
+            std::string text;
+            std::streamsize xsputn(const char* data, std::streamsize size) override {
+                std::scoped_lock lock(mutex);
+                text.append(data, static_cast<std::size_t>(size));
+                return size;
+            }
+            int overflow(int ch) override {
+                if (ch != traits_type::eof()) {
+                    std::scoped_lock lock(mutex);
+                    text.push_back(static_cast<char>(ch));
+                }
+                return traits_type::not_eof(ch);
+            }
+            bool contains(const std::string& value) {
+                std::scoped_lock lock(mutex);
+                return text.find(value) != std::string::npos;
+            }
+        } output;
+        const auto old_cwd = std::filesystem::current_path();
+        const auto directory = roots_path.parent_path() / "auto-superseded-fixture";
+        std::filesystem::create_directories(directory / "book/backup");
+        std::filesystem::current_path(directory);
+        auto* old_output = std::cout.rdbuf(&output);
+        bookminer::BookStore book;
+        std::atomic<int> saved{0};
+        std::unique_lock held(g_save_mutex);
+        AutoSaveService service(book, 1, [&](const fs::path&, std::uint64_t) { ++saved; });
+        service.start();
+        const auto wait_for = [&](const std::string& value) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!output.contains(value) && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            return output.contains(value);
+        };
+        const bool started = wait_for("[BackupStart]");
+        service.set_interval(3600);
+        held.unlock();
+        const bool finished = wait_for("[BackupSkipped]");
+        service.stop();
+        std::cout.rdbuf(old_output);
+        std::filesystem::current_path(old_cwd);
+        if (!started || !finished || saved.load() != 0 || output.contains("[BackupDone]"))
+            throw std::runtime_error("automatic backup was not skipped after its timer changed while waiting");
+    }
+    {
+        const auto old_cwd = std::filesystem::current_path();
+        const auto directory = roots_path.parent_path() / "backup-callback-fixture";
+        std::filesystem::create_directories(directory / "book/backup");
+        std::filesystem::current_path(directory);
+        bookminer::BookStore book;
+        std::atomic<bool> callback_started{false}, observed{false}, acquired{false};
+        std::thread observer([&] {
+            while (!callback_started.load()) std::this_thread::yield();
+            if (g_save_mutex.try_lock()) { acquired = true; g_save_mutex.unlock(); }
+            observed = true;
+        });
+        (void)save_book_backup(book, std::nullopt, nullptr, {}, [&] {
+            callback_started = true;
+            while (!observed.load()) std::this_thread::yield();
+        });
+        observer.join();
+        std::filesystem::current_path(old_cwd);
+        if (acquired)
+            throw std::runtime_error("manual backup timer was reset after releasing the save lock");
+    }
+    {
         const auto old_cwd = std::filesystem::current_path();
         const auto directory = roots_path.parent_path() / "opponent-flipped-fixture";
         std::filesystem::create_directories(directory / "book/book_opponent");

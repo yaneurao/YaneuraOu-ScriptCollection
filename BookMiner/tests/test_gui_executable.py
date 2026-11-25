@@ -13,6 +13,22 @@ spec.loader.exec_module(gui)
 
 
 class GuiExecutableTests(unittest.TestCase):
+    def test_skipped_auto_backup_does_not_count_as_a_save(self):
+        instance = Mock()
+        instance.settings_apply_pending = False
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        instance.busy_action = None
+        instance.backup_in_progress = True
+        instance.auto_backup_count = 1
+        instance.auto_peta_pending = False
+        instance.ignore_current_backup = True
+        instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupSkipped] reason=timer-reset')
+        self.assertFalse(instance.backup_in_progress)
+        self.assertFalse(instance.ignore_current_backup)
+        self.assertEqual(instance.auto_backup_count, 1)
+        self.assertFalse(instance.auto_peta_pending)
+
     def test_closed_stdin_reports_send_failure(self):
         for origin in ('GUI', 'AUTO'):
             with self.subTest(origin=origin), patch.object(gui.messagebox, 'showerror') as showerror:
