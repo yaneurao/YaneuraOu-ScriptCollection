@@ -2458,21 +2458,23 @@ def bfs_for_ply(book:Book):
 
     while next_queue:
         # 訪問済みの局面を除外して重複を除去しておく。
-        next_queue = list(set([sfen for sfen in next_queue if sfen not in visited and flipped_sfen(sfen) not in visited]))
+        next_queue = list({sfen for sfen in next_queue if sfen not in visited})
 
         print(f"bfs ply = {ply} , num = {len(next_queue)}")
-        c += len(next_queue)
 
         sfen_queue = next_queue
         next_queue = []
 
         for sfen in sfen_queue:
-            # この局面はbookに存在するはずで…。(初期局面のことは知らんが…)
+            with book.lock:
+                position_info = book.body.get(sfen)
+                if position_info is None:
+                    continue
+                if position_info.ply != ply:
+                    position_info.ply = ply
+                    book.mark_modified()
             visited.add(sfen)
-
-            position_info = book.body[sfen]
-            # 手数を記録する。
-            position_info.ply = ply
+            c += 1
 
             # 指し手を辿る。
             board = cshogi.Board(sfen)
@@ -2485,12 +2487,14 @@ def bfs_for_ply(book:Book):
                 # 1手進めた局面が定跡本体に存在しないなら駄目っぽ。
                 next_sfen = trim_sfen(board.sfen())
 
-                if next_sfen in book.body and next_sfen not in visited:
-                    next_queue.append(next_sfen)
-                else:
-                    next_sfen_f = flipped_sfen(next_sfen)
-                    if next_sfen_f in book.body and next_sfen_f not in visited:
-                        next_queue.append(next_sfen_f)
+                with book.lock:
+                    if next_sfen in book.body:
+                        if next_sfen not in visited:
+                            next_queue.append(next_sfen)
+                    else:
+                        next_sfen_f = flipped_sfen(next_sfen)
+                        if next_sfen_f in book.body and next_sfen_f not in visited:
+                            next_queue.append(next_sfen_f)
                 board.pop()
 
         ply += 1

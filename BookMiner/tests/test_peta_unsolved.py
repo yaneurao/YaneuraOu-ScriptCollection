@@ -16,6 +16,30 @@ spec.loader.exec_module(miner)
 
 class PetaUnsolvedTests(unittest.TestCase):
 
+    def test_bfs_ply_updates_distinct_flipped_position_and_marks_book_dirty(self):
+        root = '9/4k4/9/9/9/9/9/9/4K4 b - 1'
+        board = miner.cshogi.Board(root)
+        book = miner.Book()
+        for move in ('5i4h', '5b5a', '4h5h', '5a4a'):
+            last = miner.trim_sfen(board.sfen())
+            book.body[last] = miner.PositionInfo([miner.MoveInfo(move, 0, 1)], 99)
+            board.push_usi(move)
+        book.mark_clean('saved.db')
+        with patch.object(miner, 'SFEN_START', miner.trim_sfen(root)):
+            miner.bfs_for_ply(book)
+        self.assertEqual(book.body[last].ply, 4)
+        self.assertIsNone(book.clean_source())
+
+    def test_bfs_ply_accepts_book_without_start_position(self):
+        miner.bfs_for_ply(miner.Book())
+
+    def test_bfs_ply_keeps_clean_book_when_ply_does_not_change(self):
+        book = miner.Book()
+        book.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 1)], 1)
+        book.mark_clean('saved.db')
+        miner.bfs_for_ply(book)
+        self.assertEqual(book.clean_source(), 'saved.db')
+
     def test_pv_continues_through_distinct_flipped_position(self):
         root = '4k4/9/9/9/9/9/9/9/4K4 w - 1'
         board = miner.cshogi.Board(root)
