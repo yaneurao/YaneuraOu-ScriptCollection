@@ -1903,9 +1903,8 @@ PetaPositionHit find_peta_position_with_flip(const bookminer::BookStore& peta_bo
 bool visited_peta_position(const std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>& visited, const std::string& sfen)
 {
     const auto key = bookminer::PackedSfen::from_sfen(sfen);
-    if (visited.find(key) != visited.end())
-        return true;
-    return visited.find(key.flipped()) != visited.end();
+    // 反転局面は定跡検索に利用するが、実際の同一局面ではない。
+    return visited.find(key) != visited.end();
 }
 
 void append_unique_position_command(std::vector<std::string>& out, std::unordered_set<std::string>& seen, const std::string& position_command)

@@ -16,6 +16,28 @@ int main(int argc, char** argv)
             throw std::runtime_error("uppercase backup extension lost source metadata");
     }
     {
+        // A position and its color-swapped rotation can both have their own
+        // book entries. Reaching the latter is not repetition of the former.
+        bookminer::BookStore book;
+        const std::string root = "4k4/9/9/9/9/9/9/9/4K4 w - 1";
+        auto board = bookminer::SfenPosition::from_sfen(root);
+        for (const auto* move : {"5a5b", "5i4h", "5b5a", "4h5h", "5a4a"})
+        {
+            book.merge_position(board.sfen_with_ply(), static_cast<std::uint16_t>(board.ply()),
+                                {{bookminer::move16_from_usi(move), 0, 1}});
+            board.push_usi(move);
+        }
+        const auto leaf = peta_pv_leaf_position_command(book, "sfen " + root, root,
+            bookminer::move16_from_usi("5a5b"), 200, 20);
+        if (!leaf || leaf->find("5a5b 5i4h 5b5a 4h5h 5a4a") == std::string::npos)
+            throw std::runtime_error("unsolved mistook a flipped position with its own entry for repetition");
+        std::mt19937_64 rng(1);
+        const auto opponent_leaf = peta_pv_leaf_position_command_from_position_random(
+            book, "sfen " + root, root, 200, 20, 0, rng);
+        if (!opponent_leaf || opponent_leaf->find("5a5b 5i4h 5b5a 4h5h 5a4a") == std::string::npos)
+            throw std::runtime_error("opponent mistook a flipped position with its own entry for repetition");
+    }
+    {
         bookminer::PositionInfo position;
         position.moves = {{bookminer::move16_from_usi("7g7f"), -100, 10},
                           {bookminer::move16_from_usi("2g2f"), -200, 10}};
