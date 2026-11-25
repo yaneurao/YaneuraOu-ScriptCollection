@@ -4,6 +4,12 @@
 #include <chrono>
 #include <thread>
 #include <stdexcept>
+#include <filesystem>
+#if defined(__linux__)
+#include <fcntl.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
 
 // The protocol test does not depend on the board implementation.
 namespace bookminer {
@@ -18,6 +24,60 @@ ParsedPositionCommand parse_position_command(const std::string&) { return {}; }
 
 int main(int argc, char** argv) {
     if (argc != 2 && argc != 3) return 2;
+#if defined(__linux__)
+    if (argc == 3 && std::string(argv[2]) == "--pipe-fail-check") {
+        const rlimit limit{64, 64};
+        if (setrlimit(RLIMIT_NOFILE, &limit) != 0) return 4;
+        std::vector<int> fillers;
+        while (true) {
+            const int fd = open("/dev/null", O_RDONLY);
+            if (fd < 0) break;
+            fillers.push_back(fd);
+        }
+        if (fillers.size() < 3) return 4;
+        for (int i = 0; i < 3; ++i) { close(fillers.back()); fillers.pop_back(); }
+        const auto fd_count = [] {
+            return std::distance(std::filesystem::directory_iterator("/proc/self/fd"),
+                                 std::filesystem::directory_iterator());
+        };
+        const auto before = fd_count();
+        bookminer::EngineConfig config;
+        config.path = argv[1];
+        try {
+            bookminer::UsiEngine engine(0, config, ".");
+            engine.start([](const std::string&) {});
+            return 3;
+        } catch (const std::exception&) {}
+        const auto after = fd_count();
+        for (int fd : fillers) close(fd);
+        if (after != before) {
+            std::cerr << "failed pipe creation leaked file descriptors\n";
+            return 1;
+        }
+        return 0;
+    }
+    if (argc == 3 && std::string(argv[2]) == "--missing-fd-check") {
+        const auto fd_count = [] {
+            return std::distance(std::filesystem::directory_iterator("/proc/self/fd"),
+                                 std::filesystem::directory_iterator());
+        };
+        const auto before = fd_count();
+        bookminer::EngineConfig config;
+        config.path = argv[1];
+        for (int i = 0; i < 32; ++i) {
+            try {
+                bookminer::UsiEngine engine(0, config, ".");
+                engine.start([](const std::string&) {});
+                return 3;
+            } catch (const std::exception&) {}
+        }
+        if (fd_count() != before) {
+            std::cerr << "engine startup leaked file descriptors\n";
+            return 1;
+        }
+        return 0;
+    }
+#endif
     if (argc == 3 && std::string(argv[2]) == "--broken-pipe") {
         bookminer::EngineConfig config;
         config.path = argv[1];

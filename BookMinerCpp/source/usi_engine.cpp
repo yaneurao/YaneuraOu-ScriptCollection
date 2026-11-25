@@ -168,28 +168,34 @@ void UsiEngine::start(const LogCallback& log)
         return;
 
     const bool command_mode = starts_with(config_.path, "ssh ");
+    const auto engine_path = command_mode ? std::filesystem::path{} : resolve_local_engine_path(app_dir_, config_.path);
+    if (!command_mode && !std::filesystem::is_regular_file(engine_path))
+        throw std::runtime_error("engine not found: " + engine_path.string());
 
 #ifdef _WIN32
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
 
-    HANDLE child_stdin_read = nullptr;
-    HANDLE child_stdout_write = nullptr;
-    if (!CreatePipe(&child_stdin_read, &child_stdin_write_, &sa, 0))
+    struct HandleGuard {
+        HANDLE handle = nullptr;
+        ~HandleGuard() { if (handle) CloseHandle(handle); }
+    } child_stdin_read, child_stdin_write, child_stdout_read, child_stdout_write;
+    if (!CreatePipe(&child_stdin_read.handle, &child_stdin_write.handle, &sa, 0))
         throw std::runtime_error("CreatePipe stdin failed");
-    if (!CreatePipe(&child_stdout_read_, &child_stdout_write, &sa, 0))
+    if (!CreatePipe(&child_stdout_read.handle, &child_stdout_write.handle, &sa, 0))
         throw std::runtime_error("CreatePipe stdout failed");
 
-    SetHandleInformation(child_stdin_write_, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(child_stdout_read_, HANDLE_FLAG_INHERIT, 0);
+    if (!SetHandleInformation(child_stdin_write.handle, HANDLE_FLAG_INHERIT, 0)
+        || !SetHandleInformation(child_stdout_read.handle, HANDLE_FLAG_INHERIT, 0))
+        throw std::runtime_error("failed to configure engine pipe inheritance");
 
     STARTUPINFOA si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read;
-    si.hStdOutput = child_stdout_write;
-    si.hStdError = child_stdout_write;
+    si.hStdInput = child_stdin_read.handle;
+    si.hStdOutput = child_stdout_write.handle;
+    si.hStdError = child_stdout_write.handle;
 
     PROCESS_INFORMATION pi{};
 
@@ -201,9 +207,6 @@ void UsiEngine::start(const LogCallback& log)
     }
     else
     {
-        const auto engine_path = resolve_local_engine_path(app_dir_, config_.path);
-        if (!std::filesystem::is_regular_file(engine_path))
-            throw std::runtime_error("engine not found: " + engine_path.string());
         cwd = engine_path.parent_path();
         command_line = quote_for_windows_command_line(engine_path);
     }
@@ -212,19 +215,19 @@ void UsiEngine::start(const LogCallback& log)
     if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0, nullptr, cwd_string.c_str(), &si, &pi))
         throw std::runtime_error("CreateProcess failed: " + command_line);
 
-    CloseHandle(child_stdin_read);
-    CloseHandle(child_stdout_write);
+    child_stdin_write_ = std::exchange(child_stdin_write.handle, nullptr);
+    child_stdout_read_ = std::exchange(child_stdout_read.handle, nullptr);
+    CloseHandle(std::exchange(child_stdin_read.handle, nullptr));
+    CloseHandle(std::exchange(child_stdout_write.handle, nullptr));
     process_ = pi.hProcess;
     thread_ = pi.hThread;
 #else
-    int stdin_pipe[2]{};
-    int stdout_pipe[2]{};
-    if (pipe(stdin_pipe) != 0 || pipe(stdout_pipe) != 0)
+    struct PipeGuard {
+        int fds[2] = {-1, -1};
+        ~PipeGuard() { for (int fd : fds) if (fd >= 0) close(fd); }
+    } stdin_pipe, stdout_pipe;
+    if (pipe(stdin_pipe.fds) != 0 || pipe(stdout_pipe.fds) != 0)
         throw std::runtime_error("pipe failed");
-
-    const auto engine_path = command_mode ? std::filesystem::path{} : resolve_local_engine_path(app_dir_, config_.path);
-    if (!command_mode && !std::filesystem::is_regular_file(engine_path))
-        throw std::runtime_error("engine not found: " + engine_path.string());
 
     const pid_t pid = fork();
     if (pid < 0)
@@ -237,14 +240,14 @@ void UsiEngine::start(const LogCallback& log)
         else
             chdir(app_dir_.c_str());
 
-        dup2(stdin_pipe[0], STDIN_FILENO);
-        dup2(stdout_pipe[1], STDOUT_FILENO);
-        dup2(stdout_pipe[1], STDERR_FILENO);
+        dup2(stdin_pipe.fds[0], STDIN_FILENO);
+        dup2(stdout_pipe.fds[1], STDOUT_FILENO);
+        dup2(stdout_pipe.fds[1], STDERR_FILENO);
 
-        close(stdin_pipe[0]);
-        close(stdin_pipe[1]);
-        close(stdout_pipe[0]);
-        close(stdout_pipe[1]);
+        close(stdin_pipe.fds[0]);
+        close(stdin_pipe.fds[1]);
+        close(stdout_pipe.fds[0]);
+        close(stdout_pipe.fds[1]);
 
         if (command_mode)
         {
@@ -257,11 +260,11 @@ void UsiEngine::start(const LogCallback& log)
         _exit(127);
     }
 
-    close(stdin_pipe[0]);
-    close(stdout_pipe[1]);
     pid_ = pid;
-    child_stdin_write_ = stdin_pipe[1];
-    child_stdout_read_ = stdout_pipe[0];
+    child_stdin_write_ = std::exchange(stdin_pipe.fds[1], -1);
+    child_stdout_read_ = std::exchange(stdout_pipe.fds[0], -1);
+    close(std::exchange(stdin_pipe.fds[0], -1));
+    close(std::exchange(stdout_pipe.fds[1], -1));
 #endif
 
     started_ = true;

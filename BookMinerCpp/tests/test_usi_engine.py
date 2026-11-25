@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +52,19 @@ class EngineProtocolTest(unittest.TestCase):
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('engine not found', result.stderr)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'uses /proc/self/fd')
+    def test_missing_engine_start_does_not_leak_pipes(self):
+        missing = Path(self.tmp.name) / 'missing-engine'
+        result = subprocess.run([str(self.exe), str(missing), '--missing-fd-check'],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'uses /proc/self/fd')
+    def test_second_pipe_creation_failure_closes_first_pipe(self):
+        result = subprocess.run([str(self.exe), '/bin/true', '--pipe-fail-check'],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_engine_exit_does_not_kill_parent_with_sigpipe(self):
         engine = Path(self.tmp.name) / 'exit-engine'
