@@ -242,6 +242,8 @@ class GuiExecutableTests(unittest.TestCase):
                 instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
                 instance.peta_shock_cancel_pending = True
                 instance.settings_apply_pending = False
+                instance.manual_shock_auto_saves = 0
+                instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
                 gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaCommandDone]')
                 self.assertFalse(instance.peta_shock_cancel_pending)
                 self.assertIsNone(instance.busy_action)
@@ -307,6 +309,8 @@ class GuiExecutableTests(unittest.TestCase):
                 instance.busy_action = action
                 instance.auto_backup_count = 2
                 instance.auto_peta_pending = True
+                instance.manual_shock_auto_saves = 0
+                instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
                 instance.settings_apply_pending = False
                 gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaCommandDone]')
                 self.assertEqual(instance.auto_backup_count, 0)
@@ -317,6 +321,24 @@ class GuiExecutableTests(unittest.TestCase):
                 gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupDone]')
                 self.assertEqual(instance.auto_backup_count, 1)
                 self.assertFalse(instance.auto_peta_pending)
+
+    def test_manual_peta_keeps_automatic_saves_completed_during_shock(self):
+        for action in ('manual_peta_shock', 'manual_peta_shock_latest'):
+            for saves in (1, 3, 4):
+                with self.subTest(action=action, saves=saves):
+                    instance = Mock()
+                    instance.busy_action = action
+                    instance.auto_backup_count = 2
+                    instance.auto_peta_pending = True
+                    instance.manual_shock_auto_saves = 0
+                    instance.ignore_current_backup = False
+                    instance.settings_apply_pending = False
+                    instance.mining_settings = {'auto_peta_shock_every_n_saves': 3}
+                    for _ in range(saves):
+                        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[BackupDone]')
+                    gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaCommandDone]')
+                    self.assertEqual(instance.auto_backup_count, saves % 3)
+                    self.assertEqual(instance.auto_peta_pending, saves >= 3)
 
     def test_manual_peta_failure_and_cancel_preserve_automatic_schedule(self):
         for event in ('[PetaShockCancelled]', 'Exception : peta shock failed: error'):

@@ -515,6 +515,7 @@ class BookMinerGui(ttk.Frame):
         self.setting_node_ratio = tk.StringVar(value=str(mining_settings["consecutive_node_ratio"]))
         self.setting_status = tk.StringVar(value="")
         self.auto_backup_count = 0
+        self.manual_shock_auto_saves = 0
         self.auto_peta_pending = False
         self.backup_in_progress = False
         self.next_backup_at: datetime | None = None
@@ -895,6 +896,7 @@ class BookMinerGui(ttk.Frame):
         self.game_ply_limit.set(str(max_ply))
         if cadence_changed:
             self.auto_backup_count = 0
+            self.manual_shock_auto_saves = 0
             self.auto_peta_pending = False
             self.ignore_current_backup = self.backup_in_progress
         if interval_changed:
@@ -1279,6 +1281,7 @@ class BookMinerGui(ttk.Frame):
         self._refresh_task_job_views()
         self.auto_enqueue_state = AUTO_ENQUEUE_IDLE
         self.auto_backup_count = 0
+        self.manual_shock_auto_saves = 0
         self.auto_peta_pending = False
         self.backup_in_progress = False
         self.ignore_current_backup = False
@@ -2223,6 +2226,8 @@ class BookMinerGui(ttk.Frame):
             self.backup_in_progress = False
             every = self.mining_settings["auto_peta_shock_every_n_saves"]
             if not self.ignore_current_backup and isinstance(every, int) and every > 0:
+                if self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest"}:
+                    self.manual_shock_auto_saves += 1
                 self.auto_backup_count += 1
                 if self.auto_backup_count >= every:
                     self.auto_backup_count = 0
@@ -2317,9 +2322,12 @@ class BookMinerGui(ttk.Frame):
                 self._maybe_start_auto_enqueue()
                 return
             if self.busy_action in {"manual_peta_shock", "manual_peta_shock_latest"}:
-                self.auto_backup_count = 0
-                self.auto_peta_pending = False
-                self._append_log("task", "[GUI] 手動 peta shock が完了したため、自動 peta shock の保存回数をリセットしました。\n")
+                every = self.mining_settings["auto_peta_shock_every_n_saves"]
+                saves = self.manual_shock_auto_saves
+                self.auto_backup_count = saves % every if every > 0 else 0
+                self.auto_peta_pending = every > 0 and saves >= every
+                self.manual_shock_auto_saves = 0
+                self._append_log("task", "[GUI] 手動 peta shock が完了しました。処理中の自動保存は次回分に数えます。\n")
                 self.peta_shock_cancel_pending = False
                 self.busy_action = None
                 self._update_buttons()
@@ -2787,6 +2795,7 @@ class BookMinerGui(ttk.Frame):
     def send_peta_shock(self) -> bool:
         if not self._begin_manual_action("manual_peta_shock"):
             return False
+        self.manual_shock_auto_saves = 0
         if self.send_command("p"):
             return True
         self.busy_action = None
@@ -2796,6 +2805,7 @@ class BookMinerGui(ttk.Frame):
     def send_peta_shock_latest(self) -> bool:
         if not self._begin_manual_action("manual_peta_shock_latest"):
             return False
+        self.manual_shock_auto_saves = 0
         if self.send_command("pl"):
             return True
         self.busy_action = None
