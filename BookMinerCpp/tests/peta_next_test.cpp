@@ -234,6 +234,17 @@ int main(int argc, char** argv)
         if (registered_text.find("startpos moves 9g9f 9c9d,") == std::string::npos)
             throw std::runtime_error("unsolved skipped the seventh game move with a registered child");
         registered_result.close();
+        bookminer::BookStore repeated_peta;
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 5i5h 5a5b 5h5i 5b5a 2g2f\n"; }
+        (void)peta_unsolved(repeated_peta, {10}, 200, 9999, 1, 400);
+        std::ifstream repeated_result("book/think_sfens.txt");
+        const std::string repeated_text((std::istreambuf_iterator<char>(repeated_result)), {});
+        auto repeated_root = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"}) repeated_root.push_usi(move);
+        const std::string reachable = "sfen " + repeated_root.sfen_with_ply() + " moves 2g2f,";
+        if (repeated_text.find(reachable) == std::string::npos)
+            throw std::runtime_error("unsolved emitted an unreachable path after repetition");
+        repeated_result.close();
         bookminer::BookStore early_cutoff;
         early_cutoff.merge_position(bookminer::StartSfenPly1, 1, {
             {bookminer::move16_from_usi("7g7f"), 500, 0}});

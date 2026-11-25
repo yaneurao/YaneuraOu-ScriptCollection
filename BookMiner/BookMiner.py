@@ -3873,6 +3873,26 @@ def peta_pv_leaf_position_cmd(
         step += 1
 
 
+def unsolved_rebase_repeated_path(position_cmd:PositionStr)->PositionStr:
+    """重複局面より後の候補は、その局面を開始点にして到達可能にする。"""
+    sfen, moves = parse_position_string(position_cmd)
+    board = cshogi.Board(sfen)
+    seen = {trim_sfen(board.sfen())}
+    rebased : PositionStr | None = None
+    for move in moves:
+        # この手順は棋譜・PVを生成する際に合法性を検証済み。
+        board.push_usi(move)
+        key = trim_sfen(board.sfen())
+        if key in seen:
+            rebased = f"sfen {board.sfen()}"
+            seen = {key}
+        else:
+            seen.add(key)
+            if rebased is not None:
+                rebased = append_position_move(rebased, move)
+    return rebased if rebased is not None else position_cmd
+
+
 def peta_unsolved(
     min_depths:tuple[int, ...] = (10, 8, 6, 4),
     max_book_ply:int = MAX_BOOK_PLY,
@@ -3942,7 +3962,7 @@ def peta_unsolved(
                     break
                 if position is None or not position.moveinfos:
                     missing_peta += 1
-                    add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                    add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(prefix_position_cmd), book_extend_ply, eval_limit, max_book_ply)
                 else:
                     for moveinfo, minimum in zip(position.moveinfos, min_depths):
                         if moveinfo.depth >= minimum:
@@ -3957,7 +3977,7 @@ def peta_unsolved(
                         if leaf is None:
                             skipped_no_leaf += 1
                         else:
-                            add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
+                            add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf), book_extend_ply, eval_limit, max_book_ply)
                 if prefix_index < len(game_moves):
                     move = game_moves[prefix_index]
                     if move in candidate_moves:
@@ -3970,7 +3990,7 @@ def peta_unsolved(
                     if leaf is None:
                         skipped_no_leaf += 1
                     else:
-                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
+                        add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf), book_extend_ply, eval_limit, max_book_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")

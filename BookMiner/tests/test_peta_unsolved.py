@@ -247,3 +247,40 @@ class PetaUnsolvedTests(unittest.TestCase):
         book.searching_sfens.add(miner.trim_sfen(after.sfen()))
         self.assertTrue(manager.position_command_hits_searching_sfen(book, command, 200))
         self.assertFalse(manager.position_command_hits_searching_sfen(book, command, 200, {root_sfen}))
+
+    def test_unsolved_candidates_remain_reachable_after_game_repetition(self):
+        peta = miner.Book()
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text(
+                'startpos moves 5i5h 5a5b 5h5i 5b5a 2g2f\n')
+            miner.peta_unsolved((10,), book_extend_ply=1, eval_limit=400, normal_book=miner.Book())
+            outputs = (root / 'think_sfens.txt').read_text().splitlines()
+            target = miner.cshogi.Board()
+            target.push_usi('2g2f')
+            target_sfen = miner.trim_sfen(target.sfen())
+            matching = [miner.parse_position_command_entry(line).position_cmd for line in outputs
+                        if miner.trim_sfen(miner.decode_position_string(line.split(',', 1)[0])) == target_sfen]
+            self.assertTrue(matching, outputs)
+            for command in matching:
+                seen = set()
+                for _, sfen in miner.iter_position_prefixes(command):
+                    key = miner.trim_sfen(sfen)
+                    self.assertNotIn(key, seen, command)
+                    seen.add(key)
+            normal = miner.Book()
+            manager = object.__new__(miner.EngineManager)
+            manager.book_miner_settings = miner.BookMinerSettings()
+            manager.global_settings = SimpleNamespace(from_gui=False)
+            manager.put_branch_task = Mock()
+            engine = Mock()
+            engine.thread_settings = SimpleNamespace(thread_id=0)
+            engine.last_go_searched_nodes = 100
+            def search(sfen, ratio, ply):
+                search_board = miner.cshogi.Board(sfen + ' ' + str(ply))
+                return [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(search_board.legal_moves))), 0)]
+            engine.go.side_effect = search
+            task = miner.Task(miner.SFEN_START, 1, 400, matching[0], max_book_ply=200, book_extend_ply=1)
+            self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
+            self.assertIn(target_sfen, normal.body)

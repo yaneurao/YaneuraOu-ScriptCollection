@@ -2794,6 +2794,29 @@ std::optional<std::string> peta_pv_leaf_position_command(
     }
 }
 
+std::string unsolved_rebase_repeated_path(const std::string& position_command)
+{
+    const auto parsed = bookminer::parse_position_command(position_command);
+    auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> seen;
+    seen.insert(bookminer::PackedSfen::from_sfen(board.sfen()));
+    std::optional<std::string> rebased;
+    for (const auto& move : parsed.moves)
+    {
+        board.push_usi(move);
+        const auto key = bookminer::PackedSfen::from_sfen(board.sfen());
+        if (!seen.insert(key).second)
+        {
+            rebased = "sfen " + board.sfen_with_ply();
+            seen.clear();
+            seen.insert(key);
+        }
+        else if (rebased)
+            *rebased = append_position_move(std::move(*rebased), move);
+    }
+    return rebased ? *rebased : position_command;
+}
+
 std::string peta_unsolved(
     const bookminer::BookStore& peta_book,
     const std::vector<int>& min_depths,
@@ -2891,7 +2914,7 @@ std::string peta_unsolved(
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++missing_peta;
-                append_unique_position_command(think_sfens, think_seen, prefix_command);
+                append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(prefix_command));
             }
             else
             {
@@ -2908,7 +2931,7 @@ std::string peta_unsolved(
                     if (!leaf)
                         ++skipped_no_leaf;
                     else
-                        append_unique_position_command(think_sfens, think_seen, *leaf);
+                        append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(*leaf));
                 }
             }
             if (prefix_index < game_moves.size())
@@ -2922,7 +2945,7 @@ std::string peta_unsolved(
                 if (!leaf)
                     ++skipped_no_leaf;
                 else
-                    append_unique_position_command(think_sfens, think_seen, *leaf);
+                    append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(*leaf));
             }
         }
     }
