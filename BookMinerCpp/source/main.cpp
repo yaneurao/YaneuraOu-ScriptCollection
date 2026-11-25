@@ -528,6 +528,8 @@ void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer:
 
 bool peta_cut_by_eval_limit(const bookminer::PositionInfo&, bool, const std::string&,
                             std::optional<int>, const bookminer::BookStore*, bool);
+bool unsolved_normal_cut_by_eval_limit(const bookminer::PositionInfo&, bool, const std::string&,
+    std::optional<int>, const bookminer::BookStore&, const bookminer::BookStore*);
 
 std::vector<std::string> thinking_candidate_moves(
     const bookminer::PositionInfo& position,
@@ -767,7 +769,9 @@ TaskResult process_position_command(
     int branch_depth,
     int job_id,
     const EnqueueBranchTask& enqueue_branch_task,
-    std::optional<TaskResume>& resume)
+    std::optional<TaskResume>& resume,
+    bool skip_path_eval_limit = false,
+    const bookminer::BookStore* peta_book = nullptr)
 {
     if (resume && resume->best_line)
     {
@@ -798,6 +802,7 @@ TaskResult process_position_command(
         const auto& move = parsed.moves[move_index];
         const auto current_sfen = board.sfen();
         const int ply = board.ply();
+        bool searched = false;
 
         auto current_lookup = find_book_position_with_flip(book, current_sfen);
         if (has_considered(current_lookup.position))
@@ -845,6 +850,7 @@ TaskResult process_position_command(
                 return TaskResult::Done;
             current_lookup.position = thought.position;
             current_lookup.flipped = thought.sfen != current_sfen;
+            searched = thought.searched;
 
             if (branch_task && thought.searched && rest_branch_depth > 0)
             {
@@ -894,7 +900,20 @@ TaskResult process_position_command(
         {
             if (peta_cut_by_eval_limit(*current_lookup.position, current_lookup.flipped,
                                        board.sfen_with_ply(), eval_limit, &book, true))
-                return TaskResult::Done;
+            {
+                bool allowed = false;
+                if (skip_path_eval_limit && !searched && peta_book)
+                {
+                    const auto peta = find_considered_book_position_with_flip(*peta_book, current_sfen);
+                    if (has_considered(peta.position))
+                        allowed = !peta_cut_by_eval_limit(*peta.position, peta.flipped,
+                            board.sfen_with_ply(), eval_limit, nullptr, false);
+                    else
+                        allowed = !unsolved_normal_cut_by_eval_limit(*current_lookup.position,
+                            current_lookup.flipped, board.sfen_with_ply(), eval_limit, *peta_book, &book);
+                }
+                if (!allowed) return TaskResult::Done;
+            }
         }
 
         board.push_usi(move);
@@ -927,6 +946,7 @@ struct PositionCommandEntry {
     std::optional<int> book_extend_ply;
     std::optional<int> eval_limit;
     std::optional<int> max_book_ply;
+    bool skip_path_eval_limit = false;
 };
 
 int optional_int_rank(const std::optional<int>& value)
@@ -1013,6 +1033,12 @@ PositionCommandEntry parse_position_command_entry(const std::string& line)
                 entry.max_book_ply = parsed;
             }
         }
+        else if (key == "skip_path_eval_limit")
+        {
+            if (value != "0" && value != "1")
+                throw std::runtime_error("skip_path_eval_limit must be 0 or 1");
+            entry.skip_path_eval_limit = value == "1";
+        }
         else
             throw std::runtime_error("unknown metadata: " + key);
     }
@@ -1028,6 +1054,8 @@ std::string format_position_command_entry(const PositionCommandEntry& entry)
         metadata.push_back("eval_limit=" + std::to_string(*entry.eval_limit));
     if (entry.max_book_ply.has_value())
         metadata.push_back("game_ply_limit=" + std::to_string(*entry.max_book_ply));
+    if (entry.skip_path_eval_limit)
+        metadata.push_back("skip_path_eval_limit=1");
     if (metadata.empty())
         return entry.position_command;
 
@@ -1043,13 +1071,14 @@ void add_position_command_entry(
     const std::string& position_command,
     std::optional<int> book_extend_ply = std::nullopt,
     std::optional<int> eval_limit = std::nullopt,
-    std::optional<int> max_book_ply = std::nullopt)
+    std::optional<int> max_book_ply = std::nullopt,
+    bool skip_path_eval_limit = false)
 {
     auto it = indexes.find(position_command);
     if (it == indexes.end())
     {
         indexes[position_command] = out.size();
-        out.push_back(PositionCommandEntry{position_command, book_extend_ply, eval_limit, max_book_ply});
+        out.push_back(PositionCommandEntry{position_command, book_extend_ply, eval_limit, max_book_ply, skip_path_eval_limit});
         return;
     }
 
@@ -1057,6 +1086,7 @@ void add_position_command_entry(
     old.book_extend_ply = max_optional_int(old.book_extend_ply, book_extend_ply);
     old.eval_limit = max_optional_int(old.eval_limit, eval_limit);
     old.max_book_ply = max_optional_int(old.max_book_ply, max_book_ply);
+    old.skip_path_eval_limit = old.skip_path_eval_limit || skip_path_eval_limit;
 }
 
 std::vector<PositionCommandEntry> read_position_commands_file(
@@ -1099,7 +1129,8 @@ std::vector<PositionCommandEntry> read_position_commands_file(
             entry.position_command,
             entry.book_extend_ply.value_or(think_command_ply),
             entry.eval_limit.value_or(eval_limit),
-            entry.max_book_ply.value_or(max_book_ply));
+            entry.max_book_ply.value_or(max_book_ply),
+            entry.skip_path_eval_limit);
     }
     if (in.bad())
         throw std::runtime_error("failed to read think_sfens file: " + path.string());
@@ -1140,6 +1171,7 @@ struct Task {
     int branch_width = 0;
     int branch_depth = 0;
     std::optional<TaskResume> resume;
+    bool skip_path_eval_limit = false;
 };
 
 class TaskQueue {
@@ -1254,9 +1286,11 @@ class TaskWorkers {
 public:
     TaskWorkers(
         bookminer::BookStore& book,
+        bookminer::BookStore& peta_book,
         std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines,
         int)
         : book_(book)
+        , peta_book_(peta_book)
         , engines_(engines)
     {
     }
@@ -1368,6 +1402,7 @@ public:
                 branch_width,
                 branch_depth,
                 std::nullopt,
+                command.skip_path_eval_limit,
             });
         }
 
@@ -1518,7 +1553,7 @@ private:
                     task->job_id,
                     [this](BranchTaskSpec spec) {
                         enqueue_branch_task(std::move(spec));
-                    }, task->resume);
+                    }, task->resume, task->skip_path_eval_limit, &peta_book_);
             }
             catch (const std::exception& ex)
             {
@@ -1795,6 +1830,7 @@ private:
     }
 
     bookminer::BookStore& book_;
+    bookminer::BookStore& peta_book_;
     std::vector<std::unique_ptr<bookminer::UsiEngine>>& engines_;
     TaskQueue queue_;
     std::vector<std::thread> threads_;
@@ -2714,8 +2750,8 @@ bool unsolved_normal_cut_by_eval_limit(const bookminer::PositionInfo& position, 
     if (!best.info) return false;
     auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
     board.push_usi(bookminer::move16_to_usi(best.oriented_move16));
-    const auto child = find_peta_position_with_flip(peta_book, board.sfen());
-    return !child.position || child.position->moves.empty();
+    const auto child = find_considered_book_position_with_flip(peta_book, board.sfen());
+    return !has_considered(child.position);
 }
 
 std::optional<std::string> peta_pv_leaf_position_command(
@@ -2947,9 +2983,10 @@ std::string peta_unsolved(
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
-    write_position_command_entries_file(
-        output_path,
-        make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
+    auto entries = make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply);
+    for (auto& entry : entries)
+        entry.skip_path_eval_limit = true;
+    write_position_command_entries_file(output_path, entries);
 
     log_line("peta_unsolved done.");
     return "[PetaUnsolvedDone] path=" + output_path.string()
@@ -4736,7 +4773,7 @@ int main(int argc, char* argv[])
         log_line("[StartupStage] stage=engine_init_done message=エンジン起動完了");
 
         log_line("[StartupStage] stage=task_worker message=探索worker起動中");
-        task_workers = std::make_unique<TaskWorkers>(book, engines, max_book_ply);
+        task_workers = std::make_unique<TaskWorkers>(book, peta_book, engines, max_book_ply);
         task_workers->start();
         log_line("[StartupStage] stage=task_worker_done message=探索worker起動完了");
 
