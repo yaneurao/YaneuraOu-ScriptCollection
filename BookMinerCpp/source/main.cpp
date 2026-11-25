@@ -4364,9 +4364,11 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
 
 class AutoSaveService {
 public:
-    AutoSaveService(const bookminer::BookStore& book, int interval_seconds)
+    AutoSaveService(const bookminer::BookStore& book, int interval_seconds,
+                    std::function<void(const fs::path&, std::uint64_t)> on_saved = {})
         : book_(book)
         , interval_seconds_(std::max(1, interval_seconds))
+        , on_saved_(std::move(on_saved))
     {
     }
 
@@ -4453,7 +4455,10 @@ private:
             try
             {
                 log_line("[BackupStart]");
-                save_book_backup(book_, std::nullopt);
+                const auto revision = book_.revision();
+                const auto path = save_book_backup(book_, std::nullopt);
+                if (on_saved_ && book_.revision() == revision)
+                    on_saved_(path, revision);
                 log_line("[BackupDone]");
             }
             catch (const std::exception& ex)
@@ -4473,6 +4478,7 @@ private:
 
     const bookminer::BookStore& book_;
     int interval_seconds_ = 0;
+    std::function<void(const fs::path&, std::uint64_t)> on_saved_;
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
@@ -4658,7 +4664,8 @@ public:
     void remember_saved_source(const fs::path& path, std::uint64_t revision)
     {
         std::scoped_lock lock(saved_source_mutex_);
-        saved_source_ = std::make_pair(path, revision);
+        if (!saved_source_ || revision >= saved_source_->second)
+            saved_source_ = std::make_pair(path, revision);
     }
 
     std::optional<std::pair<fs::path, std::uint64_t>> take_saved_source()
@@ -4958,7 +4965,10 @@ int main(int argc, char* argv[])
         log_line("[StartupStage] stage=task_worker_done message=探索worker起動完了");
 
         log_line("[StartupStage] stage=backup_service message=自動保存サービス起動中");
-        auto_save_service = std::make_unique<AutoSaveService>(book, book_miner_settings.auto_save_interval_seconds);
+        auto_save_service = std::make_unique<AutoSaveService>(book, book_miner_settings.auto_save_interval_seconds,
+            [&peta_book_read_job](const fs::path& path, std::uint64_t revision) {
+                peta_book_read_job.remember_saved_source(path, revision);
+            });
         auto_save_service->start();
 
         log_line("[CommandReady] message=コマンド受付を開始しました。");
@@ -5197,7 +5207,8 @@ int main(int argc, char* argv[])
                 if (reject_if_peta_busy())
                     continue;
 
-                if (const auto saved = peta_book_read_job.take_saved_source())
+                if (const auto saved = peta_book_read_job.take_saved_source();
+                    saved && (!clean_source_path || saved->second >= clean_source_revision))
                 {
                     clean_source_path = saved->first;
                     clean_source_revision = saved->second;

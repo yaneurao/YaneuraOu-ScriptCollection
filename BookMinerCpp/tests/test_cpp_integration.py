@@ -601,6 +601,89 @@ class CppIntegrationTest(unittest.TestCase):
                     process.wait(timeout=20)
                     process.stdin.close()
 
+    def test_manual_peta_reuses_unchanged_auto_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            settings = root / 'settings' / 'book_miner_settings.json5'
+            settings.write_text('{auto_save_interval_seconds: 1}')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                try:
+                    def wait_for(text):
+                        deadline = time.monotonic() + 20
+                        while text not in log.read_text():
+                            if process.poll() is not None or time.monotonic() > deadline:
+                                self.fail('missing ' + text + ': ' + log.read_text())
+                            time.sleep(0.02)
+                    wait_for('[BackupDone]')
+                    settings.write_text('{auto_save_interval_seconds: 3600}')
+                    process.stdin.write('reload-settings\n')
+                    process.stdin.flush()
+                    wait_for('[SettingsApplied]')
+                    process.stdin.write('p\n')
+                    process.stdin.flush()
+                    wait_for('peta shock failed')
+                    self.assertIn('p command source book reused = ', log.read_text())
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('!\n')
+                        process.stdin.flush()
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
+    def test_manual_peta_does_not_reuse_auto_backup_after_mining(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            (root / 'book').mkdir()
+            (root / 'book/think_sfens.txt').write_text('startpos\n')
+            settings = root / 'settings/book_miner_settings.json5'
+            settings.write_text('{auto_save_interval_seconds: 1}')
+            engine = root / 'engine'
+            engine.write_text('#!/usr/bin/env python3\nimport sys\n'
+                'for line in sys.stdin:\n'
+                ' if line.strip()=="usi": print("usiok",flush=True)\n'
+                ' elif line.strip()=="isready": print("readyok",flush=True)\n'
+                ' elif line.startswith("go "):\n'
+                '  print("info score cp 0 pv 7g7f",flush=True)\n'
+                '  print("bestmove 7g7f",flush=True)\n'
+                ' elif line.strip()=="quit": break\n')
+            engine.chmod(0o755)
+            (root / 'settings/engine_settings.json5').write_text(json.dumps([
+                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                try:
+                    def wait_for(text):
+                        deadline = time.monotonic() + 20
+                        while text not in log.read_text():
+                            if process.poll() is not None or time.monotonic() > deadline:
+                                self.fail('missing ' + text + ': ' + log.read_text())
+                            time.sleep(0.02)
+                    wait_for('[BackupDone]')
+                    settings.write_text('{auto_save_interval_seconds: 3600}')
+                    process.stdin.write('reload-settings\nsd 30 99999 200 1 400\ne\n')
+                    process.stdin.flush()
+                    wait_for('[TaskQueueJobDone]')
+                    process.stdin.write('p\n')
+                    process.stdin.flush()
+                    wait_for('peta shock failed')
+                    contents = log.read_text()
+                    self.assertNotIn('p command source book reused = ', contents)
+                    self.assertIn('p command source book = ', contents)
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('!\n')
+                        process.stdin.flush()
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
                        check=True, capture_output=True, text=True, timeout=30)

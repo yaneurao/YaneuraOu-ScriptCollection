@@ -7,6 +7,15 @@ int main(int argc, char** argv)
     if (argc != 2)
         return 2;
     {
+        bookminer::BookStore book;
+        PetaBookReadJob job(book);
+        job.remember_saved_source("newer.ybb", 5);
+        job.remember_saved_source("older.ybb", 4);
+        const auto saved = job.take_saved_source();
+        if (!saved || saved->first != "newer.ybb" || saved->second != 5)
+            throw std::runtime_error("an older completed save replaced a newer saved source");
+    }
+    {
         if (!is_supported_opponent_book_path("opponent.DB") || !is_supported_opponent_book_path("opponent.YBB")
             || !is_supported_peta_book_path("book.Db") || !is_supported_peta_book_path("book.YbB")
             || is_supported_opponent_book_path("opponent-INDEX.YBB"))
