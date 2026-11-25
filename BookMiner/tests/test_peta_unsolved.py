@@ -14,64 +14,22 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
-    def test_validated_path_rechecks_current_peta_book(self):
-        for peta_value in (None, 500):
-            with self.subTest(peta_value=peta_value):
-                normal, peta = miner.Book(), miner.Book()
-                normal.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 20)], 1)
-                if peta_value is not None:
-                    peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', peta_value, 0)], 1)
-                manager = object.__new__(miner.EngineManager)
-                manager.book_miner_settings = miner.BookMinerSettings()
-                manager.global_settings = SimpleNamespace(from_gui=False)
-                manager.put_branch_task = Mock()
-                engine = Mock()
-                engine.thread_settings = SimpleNamespace(thread_id=0)
-                engine.last_go_searched_nodes = 100
-                task = miner.Task(miner.SFEN_START, 1, 400, 'startpos moves 7g7f',
-                                  max_book_ply=200, book_extend_ply=1, skip_path_eval_limit=True)
-                with patch.object(miner, 'peta_book', peta):
-                    self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
-                engine.go.assert_not_called()
-
-    def test_validated_path_still_checks_newly_searched_positions(self):
-        normal = miner.Book()
-        board = miner.cshogi.Board()
-        board.push_usi('7g7f')
-        target = miner.trim_sfen(board.sfen())
-        manager = object.__new__(miner.EngineManager)
-        manager.book_miner_settings = miner.BookMinerSettings()
-        manager.global_settings = SimpleNamespace(from_gui=False)
-        manager.put_branch_task = Mock()
-        engine = Mock()
-        engine.thread_settings = SimpleNamespace(thread_id=0)
-        engine.last_go_searched_nodes = 100
-        engine.go.return_value = [miner.MoveInfo('7g7f', 500)]
-        task = miner.Task(miner.SFEN_START, 1, 400, 'startpos moves 7g7f',
-                          max_book_ply=200, book_extend_ply=1, skip_path_eval_limit=True)
-        self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
-        self.assertEqual(engine.go.call_count, 1)
-        self.assertNotIn(target, normal.body)
-
-    def test_validated_peta_path_is_not_cut_by_stale_normal_evaluation(self):
+    def test_enqueue_uses_normal_book_eval_even_when_peta_score_is_lower(self):
         peta, normal = miner.Book(), miner.Book()
         peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 0)], 1)
         normal.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 20)], 1)
-        board = miner.cshogi.Board()
-        board.push_usi('7g7f')
-        target = miner.trim_sfen(board.sfen())
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
              patch.object(miner, 'BOOK_DIR', directory):
             root = Path(directory)
             (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
-            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=2, eval_limit=400, normal_book=normal)
+            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=1, eval_limit=400, normal_book=normal)
             line = (root / 'think_sfens.txt').read_text().strip()
-            self.assertIn('skip_path_eval_limit=1', line)
+            self.assertTrue(line.startswith('startpos moves 7g7f,'), line)
+            self.assertNotIn('skip_path_eval_limit', line)
             collector = Mock()
             collector.engine_alive_count.return_value = 1
-            miner.put_position_commands(normal, str(root / 'think_sfens.txt'), collector, 400, 200, 2)
+            miner.put_position_commands(normal, str(root / 'think_sfens.txt'), collector, 400, 200, 1)
             task = collector.put_task.call_args.args[0]
-            self.assertTrue(task.skip_path_eval_limit)
             manager = object.__new__(miner.EngineManager)
             manager.book_miner_settings = miner.BookMinerSettings()
             manager.global_settings = SimpleNamespace(from_gui=False)
@@ -79,10 +37,8 @@ class PetaUnsolvedTests(unittest.TestCase):
             engine = Mock()
             engine.thread_settings = SimpleNamespace(thread_id=0)
             engine.last_go_searched_nodes = 100
-            engine.go.return_value = [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(board.legal_moves))), 500)]
             self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
-            self.assertEqual(engine.go.call_count, 1)
-            self.assertIn(target, normal.body)
+            engine.go.assert_not_called()
 
     def test_max_book_ply_does_not_parse_later_invalid_game_moves(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \

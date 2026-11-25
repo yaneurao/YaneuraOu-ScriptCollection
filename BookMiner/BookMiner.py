@@ -236,7 +236,6 @@ class Task:
 
     # 他workerによる再開時に利用する探索途中の状態。
     resume : TaskResume | None = None
-    skip_path_eval_limit : bool = False
 
 
 @dataclass
@@ -281,7 +280,6 @@ class PositionCommandEntry:
     book_extend_ply : int | None = None
     eval_limit : int | None = None
     max_book_ply : int | None = None
-    skip_path_eval_limit : bool = False
 
 
 @dataclass
@@ -929,7 +927,6 @@ def parse_position_command_entry(line:PositionStr)->PositionCommandEntry:
     book_extend_ply : int | None = None
     eval_limit : int | None = None
     max_book_ply : int | None = None
-    skip_path_eval_limit = False
 
     for raw_meta in parts[1:]:
         meta = raw_meta.strip()
@@ -959,14 +956,10 @@ def parse_position_command_entry(line:PositionStr)->PositionCommandEntry:
                 max_book_ply = int(value)
                 if max_book_ply <= 0:
                     raise ValueError("game_ply_limit must be positive integer or None")
-        elif key == "skip_path_eval_limit":
-            if value not in ('0', '1'):
-                raise ValueError("skip_path_eval_limit must be 0 or 1")
-            skip_path_eval_limit = value == '1'
         else:
             raise ValueError(f"unknown metadata: {key}")
 
-    return PositionCommandEntry(position_cmd, book_extend_ply, eval_limit, max_book_ply, skip_path_eval_limit)
+    return PositionCommandEntry(position_cmd, book_extend_ply, eval_limit, max_book_ply)
 
 
 def format_position_command_entry(entry:PositionCommandEntry)->str:
@@ -977,8 +970,6 @@ def format_position_command_entry(entry:PositionCommandEntry)->str:
         metadata.append(f"eval_limit={entry.eval_limit}")
     if entry.max_book_ply is not None:
         metadata.append(f"game_ply_limit={entry.max_book_ply}")
-    if entry.skip_path_eval_limit:
-        metadata.append("skip_path_eval_limit=1")
     if not metadata:
         return entry.position_cmd
     return f"{entry.position_cmd}, " + ", ".join(metadata)
@@ -1000,7 +991,6 @@ def merge_position_command_entries(old:PositionCommandEntry|None, new:PositionCo
         max(old.book_extend_ply, new.book_extend_ply, key=optional_int_rank),
         max(old.eval_limit, new.eval_limit, key=optional_int_rank),
         max(old.max_book_ply, new.max_book_ply, key=optional_int_rank),
-        old.skip_path_eval_limit or new.skip_path_eval_limit,
     )
 
 
@@ -1010,9 +1000,8 @@ def add_position_command_entry(
     book_extend_ply:int|None = None,
     eval_limit:int|None = None,
     max_book_ply:int|None = None,
-    skip_path_eval_limit:bool = False,
 ):
-    new_entry = PositionCommandEntry(position_cmd, book_extend_ply, eval_limit, max_book_ply, skip_path_eval_limit)
+    new_entry = PositionCommandEntry(position_cmd, book_extend_ply, eval_limit, max_book_ply)
     entries[position_cmd] = merge_position_command_entries(entries.get(position_cmd), new_entry)
 
 
@@ -1961,17 +1950,7 @@ class EngineManager:
                 current_position, current_flipped = self.get_book_position_info(book, current_sfen)
                 if current_position is not None and peta_cut_by_eval_limit(
                         current_position, current_flipped, board.sfen(), eval_limit, book, True):
-                    allowed = False
-                    if task.skip_path_eval_limit and not searched:
-                        peta_position, peta_flipped = find_peta_position_snapshot(peta_book, current_sfen)
-                        if peta_position is not None and peta_position.moveinfos:
-                            allowed = not peta_cut_by_eval_limit(
-                                peta_position, peta_flipped, board.sfen(), eval_limit)
-                        else:
-                            allowed = not unsolved_normal_cut_by_eval_limit(
-                                current_position, current_flipped, board.sfen(), eval_limit, book)
-                    if not allowed:
-                        return TASK_RESULT_DONE
+                    return TASK_RESULT_DONE
 
             checked_push_usi(board, move, context=task.position_cmd)
 
@@ -3558,15 +3537,6 @@ def find_peta_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None,
     return (direct, False) if direct is not None else (flipped, flipped is not None)
 
 
-def find_peta_position_snapshot(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
-    """peta DBの読込中にもworkerが安全に参照できる局面単位のコピー。"""
-    with book.lock:
-        position, flipped = find_peta_position_with_flip(book, sfen)
-        if position is None:
-            return None, flipped
-        return PositionInfo([MoveInfo(m.move, m.eval, m.depth) for m in position.moveinfos], position.ply), flipped
-
-
 def find_considered_book_position_with_flip(book:Book, sfen:Sfen)->tuple[PositionInfo|None, bool]:
     """探索済みの直向き・反転局面を優先する。呼び出し側で必要に応じてlockする。"""
     direct = book.body.get(sfen)
@@ -3830,7 +3800,7 @@ def unsolved_normal_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_
     board = cshogi.Board(sfen_with_ply)
     best = max(position.moveinfos, key=lambda move: move.eval if move.eval is not None else VALUE_MIN)
     checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
-    child, _ = find_peta_position_snapshot(peta_book, trim_sfen(board.sfen()))
+    child, _ = find_peta_position_with_flip(peta_book, trim_sfen(board.sfen()))
     return child is None or not child.moveinfos
 
 
@@ -3981,7 +3951,7 @@ def peta_unsolved(
                     if leaf is None:
                         skipped_no_leaf += 1
                     else:
-                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply, True)
+                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
                 else:
                     best = position.moveinfos[0]
                     if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
@@ -4000,7 +3970,7 @@ def peta_unsolved(
                         if leaf is None:
                             skipped_no_leaf += 1
                         else:
-                            add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply, True)
+                            add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
                 if prefix_index < len(game_moves):
                     move = game_moves[prefix_index]
                     if move in candidate_moves:
@@ -4013,7 +3983,7 @@ def peta_unsolved(
                     if leaf is None:
                         skipped_no_leaf += 1
                     else:
-                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply, True)
+                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
 
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
@@ -4338,7 +4308,6 @@ def put_position_commands(
                 book_extend_ply if entry.book_extend_ply is None else entry.book_extend_ply,
                 eval_limit if entry.eval_limit is None else entry.eval_limit,
                 max_book_ply if entry.max_book_ply is None else entry.max_book_ply,
-                entry.skip_path_eval_limit,
             )
 
     total = len(entries)
@@ -4396,7 +4365,6 @@ def put_position_commands(
                 book_extend_ply=task_book_extend_ply,
                 branch_width=branch_width,
                 branch_depth=branch_depth,
-                skip_path_eval_limit=entry.skip_path_eval_limit,
             )
         )
 

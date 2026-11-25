@@ -302,7 +302,6 @@ class ThinkSfenMetadata:
     book_extend_ply: int | None = None
     eval_limit: int | None = None
     game_ply_limit: int | None = None
-    skip_path_eval_limit: bool = False
 
 
 def normalize_log_view_mode(value: str | None) -> str:
@@ -379,7 +378,6 @@ def split_think_sfen_metadata(line: str) -> tuple[str, ThinkSfenMetadata]:
     book_extend_ply: int | None = None
     eval_limit: int | None = None
     game_ply_limit: int | None = None
-    skip_path_eval_limit = False
     for raw_meta in parts[1:]:
         meta = raw_meta.strip()
         if not meta or "=" not in meta:
@@ -406,9 +404,7 @@ def split_think_sfen_metadata(line: str) -> tuple[str, ThinkSfenMetadata]:
                 continue
             if parsed > 0:
                 game_ply_limit = parsed
-        elif key == "skip_path_eval_limit" and value == "1":
-            skip_path_eval_limit = True
-    return position_cmd, ThinkSfenMetadata(book_extend_ply, eval_limit, game_ply_limit, skip_path_eval_limit)
+    return position_cmd, ThinkSfenMetadata(book_extend_ply, eval_limit, game_ply_limit)
 
 
 def merge_think_sfen_metadata(position: str, old: ThinkSfenMetadata, new: ThinkSfenMetadata) -> str:
@@ -421,8 +417,6 @@ def merge_think_sfen_metadata(position: str, old: ThinkSfenMetadata, new: ThinkS
         values = [value for value in (first, second) if value is not None]
         if values:
             fields.append(f"{name}={max(values)}")
-    if old.skip_path_eval_limit or new.skip_path_eval_limit:
-        fields.append("skip_path_eval_limit=1")
     return position + (", " + ", ".join(fields) if fields else "")
 
 

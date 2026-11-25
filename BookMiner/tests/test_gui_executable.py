@@ -556,18 +556,6 @@ class GuiExecutableTests(unittest.TestCase):
                 self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'second'))
             self.assertEqual(target.read_text().splitlines(), ['startpos', 'startpos, eval_limit=100'])
 
-    def test_auto_enqueue_preserves_validated_unsolved_path_when_merging(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source, target = Path(directory) / 'source', Path(directory) / 'target'
-            instance = Mock()
-            instance.auto_tmp_seen = {}
-            with patch.object(gui, 'THINK_SFENS_PATH', source), patch.object(gui, 'AUTO_THINK_SFENS_PATH', target):
-                source.write_text('startpos, eval_limit=400, skip_path_eval_limit=1\n')
-                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'unsolved'))
-                source.write_text('startpos, eval_limit=500\n')
-                self.assertTrue(gui.BookMinerGui._append_auto_think_sfens_tmp(instance, 'next'))
-            self.assertEqual(target.read_text(), 'startpos, eval_limit=500, skip_path_eval_limit=1\n')
-
     def test_auto_enqueue_stops_when_no_positions_are_extracted(self):
         instance = Mock()
         instance.auto_enqueue_enabled.get.return_value = True

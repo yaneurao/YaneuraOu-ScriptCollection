@@ -16,22 +16,30 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
-    def test_validated_path_still_cuts_after_newly_searched_high_evaluation(self):
+    def test_unsolved_enqueue_obeys_normal_book_eval_limit(self):
         import json
+        try:
+            import cshogi
+        except ImportError:
+            self.skipTest('cshogi is required to construct fixture positions')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'book').mkdir()
+            backup = root / 'book' / 'backup'
+            backup.mkdir(parents=True)
             (root / 'settings').mkdir()
-            (root / 'book' / 'think_sfens.txt').write_text(
-                'startpos moves 7g7f, eval_limit=400, book_extend_ply=1, skip_path_eval_limit=1\n')
+            start = cshogi.Board().sfen()
+            (backup / 'book_miner-20200101000000_1.db').write_text(
+                f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 500 20\n')
+            (backup / 'peta_book-20200101000000_1.db').write_text(
+                f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 0 0\n')
+            (root / 'book' / 'think_unsolved_sfens.txt').write_text('startpos\n')
             engine = root / 'engine'
             engine.write_text('#!/usr/bin/env python3\nimport sys\n'
                 'for line in sys.stdin:\n'
                 ' if line.strip()=="usi": print("usiok",flush=True)\n'
                 ' elif line.strip()=="isready": print("readyok",flush=True)\n'
-                ' elif line.startswith("position "): open("searches.txt","a").write(line.strip()+"\\n")\n'
                 ' elif line.startswith("go "):\n'
-                '  print("info multipv 1 score cp 500 pv 7g7f",flush=True)\n'
+                '  open("unexpected-search.txt","w").write(line)\n'
                 '  print("bestmove 7g7f",flush=True)\n'
                 ' elif line.strip()=="quit": break\n')
             engine.chmod(0o755)
@@ -49,68 +57,6 @@ class CppIntegrationTest(unittest.TestCase):
                         if process.poll() is not None: break
                         time.sleep(.02)
                     self.fail('missing ' + needle + ': ' + log.read_text())
-                try:
-                    wait_for('[CommandReady]')
-                    process.stdin.write('e\n')
-                    process.stdin.flush()
-                    wait_for('[TaskQueueJobDone]')
-                    searches = (root / 'searches.txt').read_text().splitlines()
-                    self.assertEqual(len(searches), 1, log.read_text())
-                    self.assertIn('lnsgkgsnl/1r5b1/', searches[0])
-                finally:
-                    if process.poll() is None:
-                        process.stdin.write('!\n')
-                        process.stdin.flush()
-                    process.wait(timeout=20)
-                    process.stdin.close()
-
-    def test_unsolved_path_uses_peta_evaluation_when_normal_is_stale(self):
-        import json
-        try:
-            import cshogi
-        except ImportError:
-            self.skipTest('cshogi is required to construct fixture positions')
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            backup = root / 'book' / 'backup'
-            backup.mkdir(parents=True)
-            (root / 'settings').mkdir()
-            board = cshogi.Board()
-            start = board.sfen()
-            board.push_usi('7g7f')
-            target = ' '.join(board.sfen().split()[:3])
-            reply = cshogi.move_to_usi(next(iter(board.legal_moves)))
-            (backup / 'book_miner-20200101000000_1.db').write_text(
-                f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 500 20\n')
-            peta_path = backup / 'peta_book-20200101000000_1.db'
-            peta_path.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 0 0\n')
-            (root / 'book' / 'think_unsolved_sfens.txt').write_text('startpos\n')
-            engine = root / 'engine'
-            engine.write_text('#!/usr/bin/env python3\nimport sys\n'
-                f'reply={reply!r}\n'
-                'for line in sys.stdin:\n'
-                ' if line.strip()=="usi": print("usiok",flush=True)\n'
-                ' elif line.strip()=="isready": print("readyok",flush=True)\n'
-                ' elif line.startswith("position "): open("searches.txt","a").write(line.strip()+"\\n")\n'
-                ' elif line.startswith("go "):\n'
-                '  print("info multipv 1 score cp 500 pv "+reply,flush=True)\n'
-                '  print("bestmove "+reply,flush=True)\n'
-                ' elif line.strip()=="quit": break\n')
-            engine.chmod(0o755)
-            (root / 'settings' / 'engine_settings.json5').write_text(json.dumps([
-                {'path': str(engine), 'nodes': 100, 'multipv': 1}]))
-            log = root / 'output.log'
-            with log.open('w') as output:
-                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
-                    stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
-                def wait_for(needle, count=1):
-                    deadline = time.monotonic() + 20
-                    while time.monotonic() < deadline:
-                        data = log.read_text()
-                        if data.count(needle) >= count: return
-                        if process.poll() is not None: break
-                        time.sleep(.02)
-                    self.fail('missing ' + needle + ': ' + log.read_text())
                 def send(command):
                     process.stdin.write(command + '\n')
                     process.stdin.flush()
@@ -118,23 +64,14 @@ class CppIntegrationTest(unittest.TestCase):
                     wait_for('[CommandReady]')
                     send('r')
                     wait_for('[PetaReadDone]')
-                    send('pu 10,8,6,4 9999 200 2 400')
+                    send('pu 10,8,6,4 9999 200 1 400')
                     wait_for('[PetaUnsolvedDone]')
-                    self.assertIn('skip_path_eval_limit=1', (root / 'book' / 'think_sfens.txt').read_text())
-                    peta_path.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 500 0\n')
-                    send('r')
-                    wait_for('[PetaReadDone]', 2)
+                    line = (root / 'book' / 'think_sfens.txt').read_text()
+                    self.assertIn('startpos moves 7g7f,', line)
+                    self.assertNotIn('skip_path_eval_limit', line)
                     send('e')
                     wait_for('[TaskQueueJobDone]')
-                    self.assertFalse((root / 'searches.txt').exists(), log.read_text())
-                    peta_path.write_text(f'#YANEURAOU-DB2016 1.00\nsfen {start}\n7g7f none 0 0\n')
-                    send('r')
-                    wait_for('[PetaReadDone]', 3)
-                    send('e')
-                    wait_for('[TaskQueueJobDone]', 2)
-                    searches = (root / 'searches.txt').read_text().splitlines()
-                    self.assertEqual(len(searches), 1, log.read_text())
-                    self.assertIn(target, searches[0])
+                    self.assertFalse((root / 'unexpected-search.txt').exists(), log.read_text())
                 finally:
                     if process.poll() is None:
                         send('!')
