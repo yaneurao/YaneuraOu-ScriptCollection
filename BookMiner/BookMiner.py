@@ -3621,6 +3621,7 @@ def load_peta_root_positions(start_sfens_path:str, cancel:Event|None = None)->li
                         raise ValueError(f"{start_sfens_path}:{line_number}: eval_diff must be a non-negative integer")
                     root_eval_diff = int(raw_diff)
                 sfen_with_ply = decode_position_string(position_cmd)
+                position_cmd = unsolved_rebase_repeated_path(position_cmd, cancel)
                 print(f"start sfen = {sfen_with_ply}" + (f" , eval_diff = {root_eval_diff}" if root_eval_diff is not None else ''))
                 root_positions.append((position_cmd, sfen_with_ply, root_eval_diff))
     else:

@@ -15,6 +15,18 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_repeated_starting_path_is_rebased_for_mining(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text('startpos moves 5i5h 5a5b 5h5i 5b5a 7g7f,50\n')
+            miner.peta_next(0, 10, 200, str(roots))
+            line = (Path(directory) / 'think_sfens.txt').read_text().split(',', 1)[0]
+            self.assertTrue(line.startswith('sfen '))
+            self.assertTrue(line.endswith('moves 7g7f'))
+            self.assertEqual(miner.decode_position_string(line),
+                             miner.decode_position_string('startpos moves 5i5h 5a5b 5h5i 5b5a 7g7f'))
+
     def test_same_leaf_prefers_shorter_game_ply(self):
         base = miner.SFEN_START
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
@@ -205,12 +217,14 @@ class PetaNextFallbackTest(unittest.TestCase):
             roots.write_text(f'// 無効な局面,xyz\nstartpos moves {moves},100 // 電竜戦\n'
                              'startpos moves 7g7f // 共通値\n# 従来のコメント\n', encoding='utf-8-sig')
             loaded = miner.load_peta_root_positions(str(roots))
-            self.assertEqual([(p, d) for p, _s, d in loaded],
-                             [(f'startpos moves {moves}', 100), ('startpos moves 7g7f', None)])
+            self.assertEqual([d for _p, _s, d in loaded], [100, None])
+            self.assertEqual(miner.decode_position_string(loaded[0][0]),
+                             miner.decode_position_string(f'startpos moves {moves}'))
+            self.assertEqual(loaded[1][0], 'startpos moves 7g7f')
             miner.peta_next(5, 10, 200, str(roots))
             output = (Path(directory) / 'think_sfens.txt').read_text()
             self.assertNotIn('//', output)
-            self.assertIn(f'startpos moves {moves},', output)
+            self.assertIn(f'{loaded[0][0]},', output)
             roots.write_text('startpos, invalid // コメント\n')
             with self.assertRaisesRegex(ValueError, 'roots.txt:1'):
                 miner.load_peta_root_positions(str(roots))

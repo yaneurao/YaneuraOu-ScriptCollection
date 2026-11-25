@@ -796,7 +796,8 @@ int main(int argc, char** argv)
           out << "\xef\xbb\xbf// comment,xyz\nstartpos moves " << moves << ",100 // comment\n"
                  "startpos moves 7g7f // default\n# comment\n"; }
         const auto roots = load_peta_next_root_positions(roots_path);
-        if (roots.size() != 2 || roots[0].position_command != "startpos moves " + moves
+        if (roots.size() != 2 || decode_position_string_to_sfen_with_ply(roots[0].position_command)
+                != decode_position_string_to_sfen_with_ply("startpos moves " + moves)
             || roots[0].eval_diff != 100 || roots[1].position_command != "startpos moves 7g7f"
             || roots[1].eval_diff.has_value())
             throw std::runtime_error("start position comments were parsed incorrectly");
@@ -898,6 +899,15 @@ int main(int argc, char** argv)
         if (leaves.size() != 1 || logs.str().find("roots=2 missing_roots=2") == std::string::npos
             || logs.str().find("duplicate_leaves=1") == std::string::npos)
             throw std::runtime_error("peta next duplicate-root statistics are incorrect");
+    }
+    {
+        { std::ofstream out(roots_path); out << "startpos moves 5i5h 5a5b 5h5i 5b5a 7g7f,50\n"; }
+        bookminer::BookStore empty;
+        const auto leaves = peta_next_for_turn(nullptr, empty, 1, 0, 10, 200, roots_path, std::nullopt);
+        if (leaves.size() != 1 || leaves.front().rfind("sfen ", 0) != 0
+            || leaves.front().find("moves 7g7f") == std::string::npos)
+            throw std::runtime_error("peta next kept a repeated starting path that mining cannot traverse");
+        std::filesystem::remove(roots_path);
     }
     {
         const std::string base = bookminer::trim_sfen_ply(bookminer::StartSfenPly1).first;

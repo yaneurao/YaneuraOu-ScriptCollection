@@ -2037,6 +2037,10 @@ void check_peta_next_cancel(const std::atomic<bool>* cancelled)
         throw PetaNextCancelled{};
 }
 
+std::string unsolved_rebase_repeated_path(const std::string& position_command,
+                                          const std::atomic<bool>* cancelled,
+                                          const std::function<void(int)>& progress);
+
 std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesystem::path& start_sfens_path, const std::atomic<bool>* cancelled = nullptr)
 {
     std::vector<PetaRootPosition> roots;
@@ -2093,6 +2097,7 @@ std::vector<PetaRootPosition> load_peta_next_root_positions(const std::filesyste
                 }
             }
             const std::string sfen_with_ply = decode_position_string_to_sfen_with_ply(position_command);
+            position_command = unsolved_rebase_repeated_path(position_command, cancelled, {});
             log_line("start sfen = " + sfen_with_ply + (eval_diff ? " , eval_diff = " + std::to_string(*eval_diff) : ""));
             roots.push_back({position_command, sfen_with_ply, eval_diff});
         }
