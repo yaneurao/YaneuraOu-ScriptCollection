@@ -516,6 +516,7 @@ struct TaskResume {
     int engine_id = -1;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
     bool branch_extension = false;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> path_visited;
 };
 
 void forget_failed_position(std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>& visited,
@@ -649,14 +650,14 @@ TaskResult start_thinking_best_line(
             {
                 forget_failed_position(visited, current_sfen);
                 resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
-                                    rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension};
+                                    rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, {}};
             }
             throw;
         }
         if (thought.status == ThinkOnceStatus::Deferred)
         {
             resume = TaskResume{true, "sfen " + current_sfen + " " + std::to_string(current_ply),
-                                rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension};
+                                rest_ply, rest_branch_depth, last_thinking_ply, engine.thread_id(), std::move(visited), branch_extension, {}};
             return TaskResult::Deferred;
         }
         if (thought.status != ThinkOnceStatus::Position)
@@ -709,10 +710,11 @@ TaskResult start_thinking_best_line(
 bool position_command_hits_searching_position(
     const bookminer::BookStore& book,
     const bookminer::ParsedPositionCommand& parsed,
-    int max_book_ply)
+    int max_book_ply,
+    const std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>* previous_path = nullptr)
 {
     auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
-    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> path_visited;
+    auto path_visited = previous_path ? *previous_path : std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>{};
     bool stopped = false;
 
     for (const auto& move : parsed.moves)
@@ -720,14 +722,12 @@ bool position_command_hits_searching_position(
         const auto current_sfen = board.sfen();
         const int ply = board.ply();
         const auto key = bookminer::PackedSfen::from_sfen(current_sfen);
-        const auto flipped_key = key.flipped();
-        if (path_visited.find(key) != path_visited.end() || path_visited.find(flipped_key) != path_visited.end())
+        if (path_visited.find(key) != path_visited.end())
         {
             stopped = true;
             break;
         }
         path_visited.insert(key);
-        path_visited.insert(flipped_key);
         if (ply >= max_book_ply)
         {
             stopped = true;
@@ -743,9 +743,7 @@ bool position_command_hits_searching_position(
         const auto leaf_sfen = board.sfen();
         const int leaf_ply = board.ply();
         const auto key = bookminer::PackedSfen::from_sfen(leaf_sfen);
-        const auto flipped_key = key.flipped();
         if (path_visited.find(key) == path_visited.end()
-            && path_visited.find(flipped_key) == path_visited.end()
             && leaf_ply < max_book_ply
             && book.is_searching(leaf_sfen, bookminer::flipped_sfen(leaf_sfen)))
         {
@@ -776,7 +774,8 @@ TaskResult process_position_command(
             think_command_ply, branch_width, branch_depth, job_id, enqueue_branch_task, resume);
     }
     const auto parsed = bookminer::parse_position_command(resume ? resume->position_command : position_command);
-    if (position_command_hits_searching_position(book, parsed, max_book_ply))
+    if (position_command_hits_searching_position(book, parsed, max_book_ply,
+                                                  resume ? &resume->path_visited : nullptr))
         return TaskResult::Deferred;
 
     auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
@@ -789,8 +788,12 @@ TaskResult process_position_command(
     const bool branch_task = branch_width > 0;
     int last_thinking_ply = resume && resume->engine_id == engine.thread_id() ? resume->last_thinking_ply : PlyMin;
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
+    std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> path_visited;
     if (resume)
+    {
         visited = std::move(resume->visited);
+        path_visited = std::move(resume->path_visited);
+    }
     resume.reset();
 
     for (std::size_t move_index = 0; move_index < parsed.moves.size(); ++move_index)
@@ -798,6 +801,10 @@ TaskResult process_position_command(
         const auto& move = parsed.moves[move_index];
         const auto current_sfen = board.sfen();
         const int ply = board.ply();
+        const auto current_key = bookminer::PackedSfen::from_sfen(current_sfen);
+        // 同じ局面が2回現れた時点で千日手扱いとする。
+        if (ply >= max_book_ply || !path_visited.insert(current_key).second)
+            return TaskResult::Done;
 
         auto current_lookup = find_book_position_with_flip(book, current_sfen);
         if (has_considered(current_lookup.position))
@@ -827,8 +834,9 @@ TaskResult process_position_command(
                     std::string remaining = "sfen " + board.sfen_with_ply() + " moves";
                     for (std::size_t i = move_index; i < parsed.moves.size(); ++i)
                         remaining += " " + parsed.moves[i];
+                    path_visited.erase(current_key);
                     resume = TaskResume{false, std::move(remaining), 0, rest_branch_depth,
-                                        last_thinking_ply, engine.thread_id(), std::move(visited)};
+                                        last_thinking_ply, engine.thread_id(), std::move(visited), false, std::move(path_visited)};
                 }
                 throw;
             }
@@ -837,8 +845,9 @@ TaskResult process_position_command(
                 std::string remaining = "sfen " + board.sfen_with_ply() + " moves";
                 for (std::size_t i = move_index; i < parsed.moves.size(); ++i)
                     remaining += " " + parsed.moves[i];
+                path_visited.erase(current_key);
                 resume = TaskResume{false, std::move(remaining), 0, rest_branch_depth,
-                                    last_thinking_ply, engine.thread_id(), std::move(visited)};
+                                    last_thinking_ply, engine.thread_id(), std::move(visited), false, std::move(path_visited)};
                 return TaskResult::Deferred;
             }
             if (thought.status != ThinkOnceStatus::Position)
@@ -903,6 +912,8 @@ TaskResult process_position_command(
     // Even when book_extend_ply is zero, an already stored leaf may have
     // been reached here by a shorter path than its recorded ply.
     const auto leaf_key = bookminer::PackedSfen::from_sfen(board.sfen());
+    if (path_visited.contains(leaf_key))
+        return TaskResult::Done;
     const auto leaf_ply = static_cast<std::uint16_t>(std::clamp(board.ply(), 0, 65535));
     if (!book.update_position_ply(leaf_key, leaf_ply))
         (void)book.update_position_ply(leaf_key.flipped(), leaf_ply);

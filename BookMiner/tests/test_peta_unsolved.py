@@ -234,3 +234,16 @@ class PetaUnsolvedTests(unittest.TestCase):
             normal.body[miner.SFEN_START].moveinfos[0].eval = 401
             miner.peta_unsolved((1,), eval_limit=400, normal_book=normal)
             self.assertEqual((root / 'think_sfens.txt').read_text(), '')
+
+    def test_resume_precheck_ignores_search_beyond_previous_repetition(self):
+        manager = object.__new__(miner.EngineManager)
+        book = miner.Book()
+        board = miner.cshogi.Board()
+        root_sfen = miner.trim_sfen(board.sfen())
+        board.push_usi('5i5h')
+        command = f'sfen {board.sfen()} moves 5a5b 5h5i 5b5a 2g2f'
+        after = miner.cshogi.Board()
+        after.push_usi('2g2f')
+        book.searching_sfens.add(miner.trim_sfen(after.sfen()))
+        self.assertTrue(manager.position_command_hits_searching_sfen(book, command, 200))
+        self.assertFalse(manager.position_command_hits_searching_sfen(book, command, 200, {root_sfen}))

@@ -1690,7 +1690,8 @@ class EngineManager:
 
         return None
 
-    def position_command_hits_searching_sfen(self, book:Book, position_cmd:PositionStr, max_book_ply:int)->bool:
+    def position_command_hits_searching_sfen(self, book:Book, position_cmd:PositionStr, max_book_ply:int,
+                                            previous_path:set[Sfen]|None = None)->bool:
         """
         `startpos moves ...` の明示手順上に、他workerが探索中の局面があるかを先読みする。
         ここで検出できてもraceは残るので、到達時の探索中判定も残す。
@@ -1698,7 +1699,7 @@ class EngineManager:
         sfen, moves = parse_position_string(position_cmd)
         board = cshogi.Board(sfen) # type:ignore
         sfens : list[Sfen] = []
-        path_visited : set[Sfen] = set()
+        path_visited : set[Sfen] = set(previous_path or ())
 
         for move in moves:
             current_sfen, ply = trim_sfen_ply(board.sfen())
@@ -1858,7 +1859,8 @@ class EngineManager:
         branch_depth = task.branch_depth
         branch_task = branch_width > 0
         position_cmd = task.resume.position_cmd if task.resume is not None else task.position_cmd
-        if self.position_command_hits_searching_sfen(book, position_cmd, max_book_ply):
+        if self.position_command_hits_searching_sfen(
+                book, position_cmd, max_book_ply, task.resume.path_visited if task.resume is not None else None):
             return TASK_RESULT_DEFERRED
 
         sfen, moves = parse_position_string(position_cmd)

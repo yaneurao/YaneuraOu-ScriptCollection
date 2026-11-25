@@ -497,6 +497,63 @@ int main(int argc, char** argv)
         }
         g_consecutive_node_ratio.store(0.8);
 
+        // Explicit game paths must stop at the ply limit even if the DB already has later positions.
+        bookminer::BookStore limited_book;
+        limited_book.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 0, 1}});
+        limited_book.merge_position(child.sfen_with_ply(), 100, {{bookminer::move16_from_usi("3c3d"), 0, 1}});
+        std::optional<TaskResume> limited_resume;
+        (void)process_position_command(limited_book, engine, "startpos moves 7g7f 3c3d",
+                                       1000, 2, 1, 0, 0, 1, [](BranchTaskSpec) {}, limited_resume);
+        if (limited_book.find_position_copy(child.sfen())->ply != 100)
+            throw std::runtime_error("explicit game path updated a position beyond max book ply");
+
+        bookminer::BookStore repeated_book;
+        auto repeated_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"})
+        {
+            repeated_book.merge_position(repeated_board.sfen_with_ply(), static_cast<std::uint16_t>(repeated_board.ply()),
+                                         {{bookminer::move16_from_usi(move), 0, 1}});
+            repeated_board.push_usi(move);
+        }
+        std::optional<TaskResume> repeated_resume;
+        (void)process_position_command(repeated_book, engine, "startpos moves 5i5h 5a5b 5h5i 5b5a 2g2f",
+                                       1000, 200, 1, 0, 0, 1, [](BranchTaskSpec) {}, repeated_resume);
+        repeated_board.push_usi("2g2f");
+        if (repeated_book.find_position_copy(repeated_board.sfen()))
+            throw std::runtime_error("explicit game path continued beyond a repeated position");
+
+        // A deferred path must retain earlier positions for the repetition check.
+        bookminer::BookStore resumed_book;
+        auto resumed_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        resumed_board.push_usi("5i5h");
+        const auto resumed_child = resumed_board.sfen();
+        resumed_board.push_usi("5a5b");
+        resumed_book.merge_position(resumed_board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("5h5i"), 0, 1}});
+        resumed_board.push_usi("5h5i");
+        resumed_book.merge_position(resumed_board.sfen_with_ply(), 4, {{bookminer::move16_from_usi("5b5a"), 0, 1}});
+        bookminer::SearchLease resumed_lease;
+        std::optional<TaskResume> repeated_path_resume;
+        int resumed_branches = 0;
+        auto resume_enqueue = [&](BranchTaskSpec) {
+            if (++resumed_branches == 1)
+                resumed_lease = resumed_book.try_begin_search(resumed_child, bookminer::flipped_sfen(resumed_child));
+        };
+        auto run_repeated_path = [&] {
+            return process_position_command(resumed_book, engine, "startpos moves 5i5h 5a5b 5h5i 5b5a 2g2f",
+                                            1000, 200, 1, 2, 2, 1, resume_enqueue, repeated_path_resume);
+        };
+        if (run_repeated_path() != TaskResult::Deferred || !repeated_path_resume)
+            throw std::runtime_error("repeated path did not suspend at the occupied child");
+        resumed_book.end_search(resumed_lease);
+        auto after_repeat = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        after_repeat.push_usi("2g2f");
+        auto beyond_repeat_lease = resumed_book.try_begin_search(after_repeat.sfen(), bookminer::flipped_sfen(after_repeat.sfen()));
+        if (run_repeated_path() != TaskResult::Done || repeated_path_resume)
+            throw std::runtime_error("repeated path waited for a search beyond the repetition");
+        resumed_book.end_search(beyond_repeat_lease);
+        if (resumed_book.find_position_copy(after_repeat.sfen()))
+            throw std::runtime_error("resumed path lost its repetition history");
+
         bookminer::BookStore path_book;
         std::optional<TaskResume> path_resume;
         bookminer::SearchLease path_lease;
