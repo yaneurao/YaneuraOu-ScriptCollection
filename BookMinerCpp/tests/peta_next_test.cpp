@@ -278,6 +278,30 @@ int main(int argc, char** argv)
     const std::filesystem::path roots_path(argv[1]);
     std::filesystem::remove(roots_path);
     {
+        const auto old_cwd = fs::current_path();
+        const auto directory = roots_path.parent_path() / "latest-backup-order-fixture";
+        fs::remove_all(directory);
+        fs::create_directories(directory / BookBackupDir);
+        fs::current_path(directory);
+        const auto older = fs::path(BookBackupDir) / "book_miner-20261126010101_9.db";
+        const auto newer = fs::path(BookBackupDir) / "book_miner-20261126010101_10.ybb";
+        std::ofstream(older) << "old";
+        std::ofstream(newer) << "new";
+        const auto now = fs::file_time_type::clock::now();
+        fs::last_write_time(older, now - std::chrono::seconds(2));
+        fs::last_write_time(newer, now - std::chrono::seconds(1));
+        if (get_latest_book_backup_or_none() != newer)
+            throw std::runtime_error("same-second backup was selected by position count rather than save time");
+        const auto stamp = make_time_stamp();
+        std::ofstream(fs::path(BookBackupDir) / ("book_miner-" + stamp + "_9.ybb")) << "previous";
+        bookminer::BookStore empty_book;
+        const auto saved = save_book_backup(empty_book, std::nullopt);
+        if (saved.filename().string().rfind("book_miner-" + stamp + "_", 0) == 0)
+            throw std::runtime_error("same-second full backup reused an ambiguous timestamp");
+        fs::current_path(old_cwd);
+        fs::remove_all(directory);
+    }
+    {
         bookminer::BookStore book;
         std::atomic<bool> started{false}, superseded{false}, skipped{false};
         std::unique_lock held(g_save_mutex);

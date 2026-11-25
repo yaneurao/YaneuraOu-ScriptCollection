@@ -636,11 +636,16 @@ def save_book_backup(book:Book, save_dir:str, ply_limit:int|None = None, cancel:
         check_peta_shock_cancel(cancel)
         ply_suffix = "" if ply_limit is None else f"_ply{ply_limit}"
         while True:
+            timestamp = make_time_stamp()
             path = os.path.join(
                 save_dir,
-                f"{BOOK_DB_NAME}-{make_time_stamp()}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
+                f"{BOOK_DB_NAME}-{timestamp}_{len(sfens)}{ply_suffix}{BOOK_BACKUP_EXTENSION}"
             )
-            if not os.path.exists(path):
+            same_second_full = (ply_limit is None and os.path.isdir(save_dir) and any(
+                name.startswith(f"{BOOK_DB_NAME}-{timestamp}_") and '_ply' not in name
+                and is_supported_peta_book_path(name) and os.path.isfile(os.path.join(save_dir, name))
+                for name in os.listdir(save_dir)))
+            if not os.path.exists(path) and not same_second_full:
                 break
             check_peta_shock_cancel(cancel)
             time.sleep(0.1)
@@ -2830,7 +2835,19 @@ def collect_book_backup_paths()->list[str]:
         if os.path.isfile(path):
             paths.append(path)
 
-    paths.sort(key=lambda path: os.path.basename(path))
+    def backup_order(path:str):
+        filename = os.path.basename(path)
+        prefix_length = len(BOOK_DB_NAME) + 1
+        timestamp = filename[prefix_length:prefix_length + 14]
+        if len(timestamp) == 14 and timestamp.isascii() and timestamp.isdigit() and filename[prefix_length + 14:prefix_length + 15] == '_':
+            try:
+                modified = os.stat(path).st_mtime_ns
+            except OSError:
+                modified = 0
+            return filename[:prefix_length + 14], modified, filename
+        return filename, 0, filename
+
+    paths.sort(key=backup_order)
     return paths
 
 

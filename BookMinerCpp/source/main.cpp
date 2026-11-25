@@ -3637,9 +3637,26 @@ std::vector<fs::path> collect_book_backup_paths()
         paths.push_back(entry.path());
     }
 
-    std::sort(paths.begin(), paths.end(), [](const fs::path& lhs, const fs::path& rhs) {
-        return lhs.filename().string() < rhs.filename().string();
-    });
+    using SortKey = std::tuple<std::string, fs::file_time_type, std::string>;
+    std::vector<std::pair<SortKey, fs::path>> ordered;
+    ordered.reserve(paths.size());
+    for (const auto& path : paths)
+    {
+        const std::string filename = path.filename().string();
+        const auto prefix_length = std::string(BookDbName).size() + 1;
+        const auto timestamp_end = prefix_length + 14;
+        const bool has_timestamp = filename.size() > timestamp_end && filename[timestamp_end] == '_'
+            && std::all_of(filename.begin() + static_cast<std::ptrdiff_t>(prefix_length),
+                           filename.begin() + static_cast<std::ptrdiff_t>(timestamp_end),
+                           [](unsigned char ch) { return ch >= '0' && ch <= '9'; });
+        std::error_code error;
+        const auto modified = has_timestamp ? fs::last_write_time(path, error) : fs::file_time_type::min();
+        ordered.emplace_back(SortKey{has_timestamp ? filename.substr(0, timestamp_end) : filename,
+                                     error ? fs::file_time_type::min() : modified, filename}, path);
+    }
+    std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    for (std::size_t i = 0; i < ordered.size(); ++i)
+        paths[i] = std::move(ordered[i].second);
     return paths;
 }
 
@@ -4354,7 +4371,16 @@ fs::path save_book_backup(const bookminer::BookStore& book, std::optional<int> p
         throw PetaShockCancelled{};
     }
     auto path = make_backup_path_with_timestamp(timestamp, written_count, ply_limit);
-    while (fs::exists(path))
+    auto full_backup_same_second = [&] {
+        if (ply_limit)
+            return false;
+        const auto prefix = std::string(BookDbName) + "-" + timestamp + "_";
+        const auto paths = collect_book_backup_paths();
+        return std::any_of(paths.begin(), paths.end(), [&](const fs::path& existing) {
+            return existing.filename().string().rfind(prefix, 0) == 0;
+        });
+    };
+    while (fs::exists(path) || full_backup_same_second())
     {
         check_peta_shock_cancel(cancelled);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

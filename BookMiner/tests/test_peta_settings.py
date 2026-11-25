@@ -16,6 +16,18 @@ spec.loader.exec_module(bookminer)
 
 
 class PetaSettingsTests(unittest.TestCase):
+    def test_latest_backup_uses_mtime_for_same_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            older = Path(directory) / 'book_miner-20261126010101_9.db'
+            newer = Path(directory) / 'book_miner-20261126010101_10.ybb'
+            excluded = Path(directory) / 'book_miner-20261126010102_99_ply20.db'
+            for path in (older, newer, excluded):
+                path.touch()
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+            with patch.object(bookminer, 'BOOK_BACKUP_DIR', directory):
+                self.assertEqual(bookminer.get_latest_book_backup_or_none(), str(newer))
+
     def test_peta_backup_resets_timer_only_after_successful_save(self):
         reset = Mock()
         book = bookminer.Book()
@@ -45,6 +57,17 @@ class PetaSettingsTests(unittest.TestCase):
             self.assertEqual(previous.read_text(), 'previous')
             self.assertEqual(saved.name, 'book_miner-20261029000001_1.db')
             self.assertIn('7g7f', saved.read_text())
+
+    def test_backup_uses_new_second_even_if_position_count_differs(self):
+        book = bookminer.Book()
+        book.body[bookminer.SFEN_START] = bookminer.PositionInfo([bookminer.MoveInfo('7g7f', 10)], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path(directory) / 'book_miner-20261029000000_9.db'
+            previous.write_text('previous')
+            with patch.object(bookminer, 'make_time_stamp', side_effect=['20261029000000', '20261029000001']), \
+                 patch.object(bookminer.time, 'sleep'):
+                saved = bookminer.save_book_backup(book, directory)
+            self.assertIn('20261029000001_1.db', saved)
 
     def test_cancel_during_manual_save_preserves_existing_file(self):
         book = bookminer.Book()
