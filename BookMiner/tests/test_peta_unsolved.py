@@ -14,6 +14,65 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_stale_peta_leaf_is_extended_through_normal_book(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        moves = ['7g7f', '3c3d', '2g2f', '8c8d']
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo(moves[0], 20, 0)], 1)
+        for move in moves:
+            sfen, ply = miner.trim_sfen_ply(board.sfen())
+            normal.body[sfen] = miner.PositionInfo([miner.MoveInfo(move, 20, 0)], ply)
+            board.push_usi(move)
+        target_sfen = miner.trim_sfen(board.sfen())
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=1, eval_limit=400, normal_book=normal)
+            line = (root / 'think_sfens.txt').read_text().strip()
+            self.assertTrue(line.startswith('startpos moves 7g7f 3c3d 2g2f 8c8d,'), line)
+            manager = object.__new__(miner.EngineManager)
+            manager.book_miner_settings = miner.BookMinerSettings()
+            manager.global_settings = SimpleNamespace(from_gui=False)
+            manager.put_branch_task = Mock()
+            engine = Mock()
+            engine.thread_settings = SimpleNamespace(thread_id=0)
+            engine.last_go_searched_nodes = 100
+            engine.go.return_value = [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(board.legal_moves))), 0)]
+            task = miner.Task(miner.SFEN_START, 1, 400, line.split(',', 1)[0], max_book_ply=200, book_extend_ply=1)
+            self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
+            self.assertEqual(engine.go.call_count, 1)
+            self.assertIn(target_sfen, normal.body)
+
+    def test_normal_fallback_uses_child_existence_instead_of_search_depth(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        child = miner.trim_sfen(board.sfen())
+        normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', 500, 100)], 2)
+        with patch.object(miner, 'peta_book', peta):
+            args = ('startpos', miner.SFEN_START_PLY1, '7g7f', 200, 20, 400, normal)
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args))
+            board.push_usi('3c3d')
+            normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('2g2f', 0, 0)], 3)
+            self.assertEqual(miner.peta_pv_leaf_position_cmd(*args), 'startpos moves 7g7f 3c3d 2g2f')
+
+    def test_normal_fallback_respects_peta_child_and_prefers_peta_move(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 500, 0)], 2)
+        board.push_usi('3c3d')
+        sfen = miner.trim_sfen(board.sfen())
+        peta.body[sfen] = miner.PositionInfo([miner.MoveInfo('2g2f', 0, 0)], 3)
+        with patch.object(miner, 'peta_book', peta):
+            for also_in_normal in (False, True):
+                if also_in_normal:
+                    normal.body[sfen] = miner.PositionInfo([miner.MoveInfo('6g6f', 0, 0)], 3)
+                self.assertEqual(miner.peta_pv_leaf_position_cmd(
+                    'startpos', miner.SFEN_START_PLY1, '7g7f', 200, 20, 400, normal),
+                    'startpos moves 7g7f 3c3d 2g2f')
+
     def test_eval_cutoff_does_not_parse_later_invalid_game_moves(self):
         peta = miner.Book()
         peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)

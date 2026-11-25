@@ -3793,17 +3793,29 @@ def peta_rejoin(
     )
 
 
+def unsolved_normal_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sfen,
+                                      eval_limit:int|None, normal_book:Book|None)->bool:
+    if not peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, normal_position=True):
+        return False
+    board = cshogi.Board(sfen_with_ply)
+    best = max(position.moveinfos, key=lambda move: move.eval if move.eval is not None else VALUE_MIN)
+    checked_push_usi(board, moveinfo_move_in_sfen_orientation(best, flipped), context=sfen_with_ply)
+    child, _ = find_peta_position_with_flip(peta_book, trim_sfen(board.sfen()))
+    return child is None or not child.moveinfos
+
+
 def peta_pv_leaf_position_cmd(
     position_cmd:PositionStr,
     sfen_with_ply:Sfen,
-    first_move:MoveStr,
+    first_move:MoveStr|None,
     max_book_ply:int,
     max_step:int = PETA_DEFAULT_MAX_STEP,
     eval_limit:int|None = None,
+    normal_book:Book|None = None,
 )->PositionStr|None:
     """
-    first_moveを指した後、peta_book上のbest PVをDB外のleafまで辿る。
-    depth 0でも、指し手の先に局面がある場合はそこで止めない。
+    peta_bookを優先し、なければ通常DBのbest PVを両DBの外まで辿る。
+    first_moveがNoneなら指定局面から、そうでなければその手を指した先から開始する。
     """
 
     global peta_book
@@ -3812,15 +3824,16 @@ def peta_pv_leaf_position_cmd(
         return None
 
     board = cshogi.Board(sfen_with_ply)
-    checked_push_usi(board, first_move, context=position_cmd)
+    if first_move is not None:
+        checked_push_usi(board, first_move, context=position_cmd)
     next_sfen_with_ply = board.sfen()
     _, next_ply = trim_sfen_ply(next_sfen_with_ply)
     if next_ply >= max_book_ply:
         return None
 
-    leaf_position_cmd = append_position_move(position_cmd, first_move)
+    leaf_position_cmd = append_position_move(position_cmd, first_move) if first_move is not None else position_cmd
     visited : set[Sfen] = set()
-    step = 1
+    step = 1 if first_move is not None else 0
 
     while True:
         current_sfen, current_ply = trim_sfen_ply(next_sfen_with_ply)
@@ -3833,12 +3846,19 @@ def peta_pv_leaf_position_cmd(
         visited.add(current_sfen)
 
         position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, current_sfen)
+        normal_position = False
         if position_info is None or not position_info.moveinfos:
-            return leaf_position_cmd
+            position_info, flipped_bookhit = find_peta_next_position(peta_book, normal_book, current_sfen)
+            if position_info is None or not position_info.moveinfos:
+                return leaf_position_cmd
+            normal_position = True
 
         best = position_info.moveinfos[0]
         is_leaf_move = best.depth <= 0
-        if is_leaf_move and eval_limit is not None and abs(best.eval) > eval_limit:
+        if normal_position and unsolved_normal_cut_by_eval_limit(position_info, flipped_bookhit,
+                                                                 next_sfen_with_ply, eval_limit, normal_book):
+            return None
+        if not normal_position and is_leaf_move and eval_limit is not None and abs(best.eval) > eval_limit:
             return None
         if step >= max_step:
             return None
@@ -3862,6 +3882,7 @@ def peta_unsolved(
     book_extend_ply:int|None = None,
     unsolved_sfens_path:str|None = None,
     eval_limit:int|None = None,
+    normal_book:Book|None = None,
 ):
     """棋譜の各局面で最低depthに満たない指し手のPV leafを列挙する。"""
     if not min_depths or any(depth < 0 for depth in min_depths):
@@ -3875,6 +3896,7 @@ def peta_unsolved(
         f"max_book_ply = {max_book_ply}, max_step = {max_step}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
+        f"normal_book_fallback = {'on' if normal_book is not None else 'off'}, "
         f"unsolved_sfens_path = {unsolved_sfens_path}"
     )
 
@@ -3919,7 +3941,17 @@ def peta_unsolved(
                 candidate_moves : set[str] = set()
                 if position is None or not position.moveinfos:
                     missing_peta += 1
-                    add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                    normal, normal_flipped = find_peta_next_position(peta_book, normal_book, prefix_sfen)
+                    if normal is not None and normal.moveinfos and unsolved_normal_cut_by_eval_limit(
+                            normal, normal_flipped, prefix_sfen_with_ply, eval_limit, normal_book):
+                        stopped_by_eval_limit += 1
+                        break
+                    leaf = peta_pv_leaf_position_cmd(prefix_position_cmd, prefix_sfen_with_ply, None,
+                                                     max_book_ply, max_step, eval_limit, normal_book)
+                    if leaf is None:
+                        skipped_no_leaf += 1
+                    else:
+                        add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
                 else:
                     best = position.moveinfos[0]
                     if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
@@ -3933,7 +3965,7 @@ def peta_unsolved(
                         candidate_moves.add(move)
                         leaf = peta_pv_leaf_position_cmd(
                             prefix_position_cmd, prefix_sfen_with_ply, move,
-                            max_book_ply, max_step, eval_limit,
+                            max_book_ply, max_step, eval_limit, normal_book,
                         )
                         if leaf is None:
                             skipped_no_leaf += 1
@@ -3946,7 +3978,7 @@ def peta_unsolved(
                     game_candidates += 1
                     leaf = peta_pv_leaf_position_cmd(
                         prefix_position_cmd, prefix_sfen_with_ply, move,
-                        max_book_ply, max_step, eval_limit,
+                        max_book_ply, max_step, eval_limit, normal_book,
                     )
                     if leaf is None:
                         skipped_no_leaf += 1
@@ -4983,6 +5015,7 @@ def user_input(from_gui:bool = False):
                         max_step,
                         book_extend_ply,
                         eval_limit=eval_limit,
+                        normal_book=book,
                     )
 
             elif i == 'po':

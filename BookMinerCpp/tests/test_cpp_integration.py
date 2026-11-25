@@ -37,7 +37,7 @@ class CppIntegrationTest(unittest.TestCase):
             reply = cshogi.move_to_usi(next(iter(board.legal_moves)))
             content = '#YANEURAOU-DB2016 1.00\n' + ''.join(records)
             (backup / 'book_miner-20200101000000_4.db').write_text(content)
-            (backup / 'peta_book-20200101000000_4.db').write_text(content)
+            (backup / 'peta_book-20200101000000_1.db').write_text('#YANEURAOU-DB2016 1.00\n' + records[0])
             (root / 'book' / 'think_unsolved_sfens.txt').write_text('startpos\n')
             engine = root / 'engine'
             engine.write_text('#!/usr/bin/env python3\nimport sys\n'

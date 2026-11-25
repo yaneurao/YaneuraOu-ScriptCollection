@@ -2704,32 +2704,49 @@ std::string peta_rejoin(
         + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes);
 }
 
+bool unsolved_normal_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flipped,
+    const std::string& sfen_with_ply, std::optional<int> eval_limit,
+    const bookminer::BookStore& peta_book, const bookminer::BookStore* normal_book)
+{
+    if (!peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, true))
+        return false;
+    const auto best = best_moveinfo_in_sfen_orientation(position, flipped);
+    if (!best.info) return false;
+    auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
+    board.push_usi(bookminer::move16_to_usi(best.oriented_move16));
+    const auto child = find_peta_position_with_flip(peta_book, board.sfen());
+    return !child.position || child.position->moves.empty();
+}
+
 std::optional<std::string> peta_pv_leaf_position_command(
     const bookminer::BookStore& peta_book,
     std::string position_command,
     const std::string& sfen_with_ply,
-    std::uint16_t first_move16,
+    std::optional<std::uint16_t> first_move16,
     int max_book_ply,
     int max_step = PetaDefaultMaxStep,
-    std::optional<int> eval_limit = std::nullopt)
+    std::optional<int> eval_limit = std::nullopt,
+    const bookminer::BookStore* normal_book = nullptr)
 {
     if (max_step <= 0)
         return std::nullopt;
 
-    const std::string first_move = bookminer::move16_to_usi(first_move16);
-    if (first_move.empty())
-        return std::nullopt;
-
     auto board = bookminer::SfenPosition::from_sfen(sfen_with_ply);
-    board.push_usi(first_move);
+    if (first_move16)
+    {
+        const std::string first_move = bookminer::move16_to_usi(*first_move16);
+        if (first_move.empty()) return std::nullopt;
+        board.push_usi(first_move);
+        position_command = append_position_move(std::move(position_command), first_move);
+    }
 
     std::string next_sfen_with_ply = board.sfen_with_ply();
     if (bookminer::trim_sfen_ply(next_sfen_with_ply).second >= max_book_ply)
         return std::nullopt;
 
-    std::string leaf_position_command = append_position_move(std::move(position_command), first_move);
+    std::string leaf_position_command = std::move(position_command);
     std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash> visited;
-    int step = 1;
+    int step = first_move16 ? 1 : 0;
 
     while (true)
     {
@@ -2740,13 +2757,24 @@ std::optional<std::string> peta_pv_leaf_position_command(
             return std::nullopt;
         visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
 
-        const auto hit = find_peta_position_with_flip(peta_book, current_sfen);
+        auto hit = find_peta_position_with_flip(peta_book, current_sfen);
+        BookPositionLookup normal;
+        bool normal_position = false;
         if (hit.position == nullptr || hit.position->moves.empty())
-            return leaf_position_command;
+        {
+            if (!normal_book) return leaf_position_command;
+            normal = find_considered_book_position_with_flip(*normal_book, current_sfen);
+            if (!has_considered(normal.position)) return leaf_position_command;
+            hit = {&*normal.position, normal.flipped};
+            normal_position = true;
+        }
 
         const auto& best = hit.position->moves.front();
         const bool is_leaf_move = best.depth <= 0;
-        if (is_leaf_move && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
+        if (normal_position && unsolved_normal_cut_by_eval_limit(*hit.position, hit.flipped, next_sfen_with_ply,
+                                                                 eval_limit, peta_book, normal_book))
+            return std::nullopt;
+        if (!normal_position && is_leaf_move && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
             return std::nullopt;
         if (step >= max_step)
             return std::nullopt;
@@ -2773,7 +2801,8 @@ std::string peta_unsolved(
     int max_book_ply,
     int max_step,
     std::optional<int> book_extend_ply,
-    std::optional<int> eval_limit)
+    std::optional<int> eval_limit,
+    const bookminer::BookStore* normal_book = nullptr)
 {
     const fs::path input_path = fs::path(BookDir) / ThinkUnsolvedSfensName;
     std::string depths_text;
@@ -2788,6 +2817,7 @@ std::string peta_unsolved(
         + ", max_step = " + std::to_string(max_step)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
+        + ", normal_book_fallback = " + std::string(normal_book ? "on" : "off")
         + ", unsolved_sfens_path = " + input_path.string());
 
     std::ifstream input(input_path);
@@ -2857,7 +2887,20 @@ std::string peta_unsolved(
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++missing_peta;
-                append_unique_position_command(think_sfens, think_seen, prefix_command);
+                if (normal_book)
+                {
+                    const auto normal = find_considered_book_position_with_flip(*normal_book, prefix_sfen);
+                    if (has_considered(normal.position) && unsolved_normal_cut_by_eval_limit(
+                            *normal.position, normal.flipped, prefix_sfen_with_ply, eval_limit, peta_book, normal_book))
+                    {
+                        ++stopped_by_eval_limit;
+                        break;
+                    }
+                }
+                const auto leaf = peta_pv_leaf_position_command(peta_book, prefix_command, prefix_sfen_with_ply,
+                    std::nullopt, max_book_ply, max_step, eval_limit, normal_book);
+                if (!leaf) ++skipped_no_leaf;
+                else append_unique_position_command(think_sfens, think_seen, *leaf);
             }
             else
             {
@@ -2876,7 +2919,7 @@ std::string peta_unsolved(
                     const auto move = hit.flipped ? bookminer::flipped_move16(moves[i].move16) : moves[i].move16;
                     candidate_moves.insert(move);
                     const auto leaf = peta_pv_leaf_position_command(
-                        peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit);
+                        peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
                     if (!leaf)
                         ++skipped_no_leaf;
                     else
@@ -2890,7 +2933,7 @@ std::string peta_unsolved(
                     continue;
                 ++game_candidates;
                 const auto leaf = peta_pv_leaf_position_command(
-                    peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit);
+                    peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
                 if (!leaf)
                     ++skipped_no_leaf;
                 else
@@ -5314,6 +5357,7 @@ int main(int argc, char* argv[])
                 }
                 if (!peta_command_job.start([
                         &peta_book,
+                        &book,
                         min_depths,
                         command_max_book_ply,
                         max_step,
@@ -5326,7 +5370,8 @@ int main(int argc, char* argv[])
                             command_max_book_ply,
                             max_step,
                             book_extend_ply,
-                            eval_limit);
+                            eval_limit,
+                            &book);
                     }))
                 {
                     log_line("Error : peta command is running. wait for peta command completion.");
