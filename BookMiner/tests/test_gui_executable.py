@@ -696,6 +696,61 @@ class GuiExecutableTests(unittest.TestCase):
             instance.game_ply_limit.set.assert_called_once_with('250')
             self.assertTrue(instance.settings_apply_pending)
 
+    def test_applying_unrelated_settings_preserves_pending_auto_peta(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = Mock()
+            instance.use_cpp = True
+            instance.mining_settings = dict(gui.MINING_SETTING_DEFAULTS)
+            instance.auto_backup_count = 2
+            instance.auto_peta_pending = True
+            instance.ignore_current_backup = False
+            instance.backup_in_progress = True
+            instance.next_backup_at = object()
+            old_next = instance.next_backup_at
+            instance.next_backup_interval = 10800
+            instance.setting_minutes.get.return_value = '180'
+            instance.setting_shock_every.get.return_value = str(instance.mining_settings['auto_peta_shock_every_n_saves'])
+            instance.setting_start_path.get.return_value = 'book/peta_start_sfens.txt'
+            instance.setting_max_ply.get.return_value = '200'
+            instance.setting_threads.get.return_value = '4'
+            instance.setting_node_ratio.get.return_value = '0.5'
+            instance.is_running.return_value = True
+            instance.send_command.return_value = True
+            instance.settings_apply_outstanding = 0
+            with patch.object(gui, 'BOOK_MINER_SETTINGS_PATH', Path(directory) / 'settings.json5'):
+                gui.BookMinerGui.apply_mining_settings(instance)
+            self.assertEqual(instance.auto_backup_count, 2)
+            self.assertTrue(instance.auto_peta_pending)
+            self.assertFalse(instance.ignore_current_backup)
+            self.assertIs(instance.next_backup_at, old_next)
+            self.assertEqual(instance.next_backup_interval, 10800)
+
+    def test_changing_save_interval_keeps_peta_save_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = Mock()
+            instance.use_cpp = False
+            instance.mining_settings = dict(gui.MINING_SETTING_DEFAULTS)
+            instance.auto_backup_count = 2
+            instance.auto_peta_pending = True
+            instance.ignore_current_backup = False
+            instance.backup_in_progress = True
+            instance.next_backup_at = object()
+            instance.next_backup_interval = 10800
+            instance.setting_minutes.get.return_value = '60'
+            instance.setting_shock_every.get.return_value = str(instance.mining_settings['auto_peta_shock_every_n_saves'])
+            instance.setting_start_path.get.return_value = 'book/peta_start_sfens.txt'
+            instance.setting_max_ply.get.return_value = '200'
+            instance.setting_threads.get.return_value = '4'
+            instance.setting_node_ratio.get.return_value = '0.8'
+            instance.is_running.return_value = False
+            with patch.object(gui, 'BOOK_MINER_SETTINGS_PATH', Path(directory) / 'settings.json5'):
+                gui.BookMinerGui.apply_mining_settings(instance)
+            self.assertEqual(instance.auto_backup_count, 2)
+            self.assertTrue(instance.auto_peta_pending)
+            self.assertFalse(instance.ignore_current_backup)
+            self.assertIsNone(instance.next_backup_at)
+            self.assertIsNone(instance.next_backup_interval)
+
     def test_settings_update_preserves_comments_and_other_values(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'settings.json5'

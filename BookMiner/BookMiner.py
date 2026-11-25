@@ -4879,9 +4879,11 @@ def user_input(from_gui:bool = False):
                 except Exception as exc:
                     print(f"Exception : command failed, command=reload-settings : {exc}")
                     continue
+                interval_changed = book_miner_settings.auto_save_interval_seconds != updated.auto_save_interval_seconds
                 book_miner_settings.__dict__.update(updated.__dict__)
                 command_defaults.game_ply_limit = updated.max_book_ply
-                reset_auto_backup_timer()
+                if interval_changed:
+                    reset_auto_backup_timer()
                 print('[SettingsApplied]')
 
             elif i == 'sd' or i == 'set-default':

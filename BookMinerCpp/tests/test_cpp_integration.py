@@ -559,6 +559,48 @@ class CppIntegrationTest(unittest.TestCase):
                     process.wait(timeout=30)
                     process.stdin.close()
 
+    def test_reload_unrelated_settings_preserves_auto_save_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'settings').mkdir()
+            settings = root / 'settings' / 'book_miner_settings.json5'
+            settings.write_text('{auto_save_interval_seconds: 3600, max_book_ply: 200}')
+            log = root / 'output.log'
+            with log.open('w') as output:
+                process = subprocess.Popen([str(self.binary), '--from_gui', '--work-dir', str(root)],
+                                           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, text=True)
+                try:
+                    deadline = time.monotonic() + 20
+                    while '[CommandReady]' not in log.read_text() or '[BackupNext]' not in log.read_text():
+                        if process.poll() is not None or time.monotonic() > deadline:
+                            self.fail('startup failed: ' + log.read_text())
+                        time.sleep(0.02)
+                    time.sleep(1.2)
+                    settings.write_text('{auto_save_interval_seconds: 3600, max_book_ply: 199}')
+                    process.stdin.write('reload-settings\n')
+                    process.stdin.flush()
+                    deadline = time.monotonic() + 10
+                    while '[SettingsApplied]' not in log.read_text() and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    time.sleep(0.2)
+                    contents = log.read_text()
+                    self.assertIn('[SettingsApplied]', contents)
+                    self.assertEqual(contents.count('[BackupNext]'), 1, contents)
+                    settings.write_text('{auto_save_interval_seconds: 3599, max_book_ply: 199}')
+                    process.stdin.write('reload-settings\n')
+                    process.stdin.flush()
+                    deadline = time.monotonic() + 10
+                    while log.read_text().count('[BackupNext]') < 2 and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    contents = log.read_text()
+                    self.assertIn('interval=3599', contents)
+                finally:
+                    if process.poll() is None:
+                        process.stdin.write('!\n')
+                        process.stdin.flush()
+                    process.wait(timeout=20)
+                    process.stdin.close()
+
     def test_peta_shock_uses_configured_engine_and_threads(self):
         subprocess.run([str(self.executables['peta_settings']), str(self.root / 'peta')],
                        check=True, capture_output=True, text=True, timeout=30)

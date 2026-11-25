@@ -889,13 +889,17 @@ class BookMinerGui(ttk.Frame):
         except (OSError, ValueError, InvalidOperation, OverflowError) as exc:
             messagebox.showerror("設定エラー", f"設定を適用できません: {exc}")
             return
+        interval_changed = self.mining_settings.get('auto_save_interval_seconds') != seconds
+        cadence_changed = self.mining_settings.get('auto_peta_shock_every_n_saves') != every
         self.mining_settings = updates
         self.game_ply_limit.set(str(max_ply))
-        self.auto_backup_count = 0
-        self.auto_peta_pending = False
-        self.ignore_current_backup = self.backup_in_progress
-        self.next_backup_at = None
-        self.next_backup_interval = None
+        if cadence_changed:
+            self.auto_backup_count = 0
+            self.auto_peta_pending = False
+            self.ignore_current_backup = self.backup_in_progress
+        if interval_changed:
+            self.next_backup_at = None
+            self.next_backup_interval = None
         self._update_auto_peta_status()
         if self.is_running():
             if self.send_command("reload-settings"):

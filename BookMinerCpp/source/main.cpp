@@ -4419,7 +4419,10 @@ public:
     {
         {
             std::scoped_lock lock(mutex_);
-            interval_seconds_ = std::max(1, seconds);
+            const int new_interval = std::max(1, seconds);
+            if (interval_seconds_ == new_interval)
+                return;
+            interval_seconds_ = new_interval;
             if (started_ && !stopping_)
                 next_backup_time_ = std::chrono::system_clock::now() + std::chrono::seconds(interval_seconds_);
         }
