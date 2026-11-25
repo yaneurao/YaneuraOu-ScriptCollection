@@ -1932,11 +1932,29 @@ bool append_unique_peta_leaf(std::vector<std::string>& out,
     return true;
 }
 
+using PetaRootAncestors = std::unordered_set<bookminer::PackedSfen, bookminer::PackedSfenHash>;
+
+std::shared_ptr<const PetaRootAncestors> peta_root_ancestors(const std::string& command)
+{
+    const auto parsed = bookminer::parse_position_command(command);
+    if (parsed.moves.empty()) return {};
+    auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
+    auto ancestors = std::make_shared<PetaRootAncestors>();
+    for (const auto& move : parsed.moves)
+    {
+        ancestors->insert(bookminer::PackedSfen::from_sfen(board.sfen()));
+        board.push_usi(move);
+    }
+    return ancestors;
+}
+
 struct PetaNextNode {
     std::string sfen_with_ply;
     int root_best_eval = 0;
     int eval_diff = 0;
     std::optional<int> leaf_eval;
+    std::shared_ptr<const PetaRootAncestors> root_ancestors;
+    std::shared_ptr<const std::string> output_command;
 };
 
 struct PetaVisitKey {
@@ -2223,7 +2241,7 @@ std::vector<std::string> peta_next_for_turn(
         }
 
         const int effective_diff = root_eval_diff.value_or(peta_eval_diff);
-        current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt});
+        current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt, peta_root_ancestors(position_command)});
         log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first)
                  + " , eval_diff = " + std::to_string(effective_diff));
     }
@@ -2262,7 +2280,7 @@ std::vector<std::string> peta_next_for_turn(
             if (position == nullptr || position->moves.empty())
             {
                 if (!filter_refutation)
-                    record_leaf(position_command, sfen, ply);
+                    record_leaf(node.output_command ? *node.output_command : position_command, sfen, ply);
                 continue;
             }
 
@@ -2305,7 +2323,16 @@ std::vector<std::string> peta_next_for_turn(
                     continue;
                 }
 
+                auto ancestors = node.root_ancestors;
                 const std::string next_position_command = append_position_move(position_command, move);
+                std::shared_ptr<const std::string> next_output;
+                if (ancestors && ancestors->contains(bookminer::PackedSfen::from_sfen(next_sfen_ply.first)))
+                {
+                    next_output = std::make_shared<const std::string>("sfen " + next_sfen_with_ply);
+                    ancestors.reset();
+                }
+                else if (node.output_command)
+                    next_output = std::make_shared<const std::string>(append_position_move(*node.output_command, move));
                 if (hit.normal && static_cast<int>(moveinfo.eval) < best_eval)
                     ++fallback_nonbest_moves;
 
@@ -2325,13 +2352,13 @@ std::vector<std::string> peta_next_for_turn(
                                 static_cast<int>(moveinfo.eval),
                                 *eval_refutation_margin))
                         {
-                            record_leaf(next_position_command, next_sfen_ply.first, next_sfen_ply.second);
+                            record_leaf(next_output ? *next_output : next_position_command, next_sfen_ply.first, next_sfen_ply.second);
                         }
                         continue;
                     }
                 }
 
-                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, std::nullopt});
+                next_positions.set(next_position_command, PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, std::nullopt, std::move(ancestors), std::move(next_output)});
             }
         }
 
@@ -2612,7 +2639,7 @@ std::vector<std::string> peta_rejoin_for_turn(
         }
 
         const int effective_diff = root_eval_diff.value_or(peta_eval_diff);
-        current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt});
+        current_positions.set_root(position_command, PetaNextNode{sfen_with_ply, root_best->first, effective_diff, std::nullopt, peta_root_ancestors(position_command)});
         log_line("root sfen : " + sfen_with_ply + " , root_best = " + std::to_string(root_best->first)
                  + " , eval_diff = " + std::to_string(effective_diff));
     }
@@ -2647,7 +2674,7 @@ std::vector<std::string> peta_rejoin_for_turn(
                 ++stats.leaf_nodes;
                 if (peta_leaf_rejoins_peta_book(peta_book, node.sfen_with_ply, node.leaf_eval, eval_drop))
                 {
-                    if (append_unique_peta_leaf(think_sfens, think_seen, position_command, sfen, ply))
+                    if (append_unique_peta_leaf(think_sfens, think_seen, node.output_command ? *node.output_command : position_command, sfen, ply))
                         ++stats.rejoin_nodes;
                 }
                 continue;
@@ -2678,10 +2705,19 @@ std::vector<std::string> peta_rejoin_for_turn(
                 if (next_sfen_ply.second >= max_book_ply)
                     continue;
 
+                auto ancestors = node.root_ancestors;
                 const std::string next_position_command = append_position_move(position_command, move);
+                std::shared_ptr<const std::string> next_output;
+                if (ancestors && ancestors->contains(bookminer::PackedSfen::from_sfen(next_sfen_ply.first)))
+                {
+                    next_output = std::make_shared<const std::string>("sfen " + next_sfen_with_ply);
+                    ancestors.reset();
+                }
+                else if (node.output_command)
+                    next_output = std::make_shared<const std::string>(append_position_move(*node.output_command, move));
                 next_positions.set(
                     next_position_command,
-                    PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, static_cast<int>(moveinfo.eval)});
+                    PetaNextNode{next_sfen_with_ply, -node.root_best_eval, node.eval_diff, static_cast<int>(moveinfo.eval), std::move(ancestors), std::move(next_output)});
             }
         }
 

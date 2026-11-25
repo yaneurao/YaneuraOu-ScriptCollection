@@ -15,6 +15,42 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_rebased_paths_keep_distinct_eval_widths(self):
+        first = 'startpos moves 5i5h 5a5b 5h5i'
+        second = 'startpos moves 5i4h 5a5b 4h5i'
+        board = miner.cshogi.Board(miner.decode_position_string(first))
+        book = miner.Book()
+        book.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('5b5a', 0, 1)], 4)
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo('7g7f', 0, 1), miner.MoveInfo('2g2f', -50, 1)], 5)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(first + ',100\n' + second + ',0\n')
+            miner.peta_next(0, 10, 200, str(roots))
+            lines = (Path(directory) / 'think_sfens-white.txt').read_text()
+            self.assertIn('moves 7g7f', lines)
+            self.assertIn('moves 2g2f', lines)
+
+    def test_peta_next_rebases_return_to_starting_path(self):
+        root = 'startpos moves 5i5h 5a5b 5h5i'
+        board = miner.cshogi.Board(miner.decode_position_string(root))
+        book = miner.Book()
+        book.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('5b5a', 0, 0)], 4)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            roots = Path(directory) / 'roots.txt'
+            roots.write_text(root + '\n')
+            miner.peta_next(0, 10, 200, str(roots))
+            line = (Path(directory) / 'think_sfens.txt').read_text().split(',', 1)[0]
+            self.assertTrue(line.startswith('sfen '))
+            self.assertEqual(miner.decode_position_string(line), miner.decode_position_string(root + ' 5b5a'))
+            with patch.object(miner, 'peta_leaf_rejoins_peta_book', return_value=True):
+                miner.peta_rejoin(0, 10, 200, str(roots))
+            line = (Path(directory) / 'think_sfens.txt').read_text().split(',', 1)[0]
+            self.assertTrue(line.startswith('sfen '))
+            self.assertEqual(miner.decode_position_string(line), miner.decode_position_string(root + ' 5b5a'))
+
     def test_repeated_starting_path_is_rebased_for_mining(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
              patch.object(miner, 'BOOK_DIR', directory):

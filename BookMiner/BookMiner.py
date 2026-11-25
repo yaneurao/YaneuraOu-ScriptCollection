@@ -3295,6 +3295,16 @@ def peta_is_own_turn(sfen:Sfen, turn:int)->bool:
     return (parts[1] == 'b') == (turn == 1)
 
 
+def peta_root_ancestors(position_cmd:PositionStr)->frozenset[Sfen]:
+    sfen, moves = parse_position_string(position_cmd)
+    board = cshogi.Board(sfen)
+    ancestors = set()
+    for move in moves:
+        ancestors.add(trim_sfen(board.sfen()))
+        board.push_usi(move)
+    return frozenset(ancestors)
+
+
 def add_unique_peta_leaf(entries:dict[PositionStr, PositionCommandEntry], seen:dict[Sfen, tuple[int, PositionStr]],
                          position_cmd:PositionStr, sfen:Sfen, ply:int, book_extend_ply:int|None,
                          eval_limit:int|None, max_book_ply:int)->bool:
@@ -3376,7 +3386,7 @@ def peta_next(
 
         # 今回辿る局面集合。(position文字列, plyつきsfen)
         # PositionStr -> Sfen with ply,RootBest,EvalDiffが並んでいる。
-        current_positions : dict[PositionStr, tuple[Sfen,int,int]] = {}
+        current_positions : dict[PositionStr, tuple[Sfen,int,int,frozenset[Sfen],PositionStr|None]] = {}
 
         # root_positionsのroot_bestを調べてcurrent_positionsに突っ込む。
         for position_cmd, sfen_with_ply, root_eval_diff in root_positions:
@@ -3402,7 +3412,7 @@ def peta_next(
             effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
             if position_cmd in current_positions:
                 effective_diff = max(effective_diff, current_positions[position_cmd][2])
-            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff)
+            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff, peta_root_ancestors(position_cmd), None)
             print(f"root sfen : {sfen_with_ply} , root_best = {root_best} , eval_diff = {effective_diff}")
 
         # 何回目のwhileループか。
@@ -3415,9 +3425,9 @@ def peta_next(
 
             # 次回のwhileで辿る局面集合
             # PositionStr -> Sfen,RootBest,EvalDiffが並んでいる。
-            next_positions : dict[PositionStr, tuple[Sfen, int, int]] = {}
+            next_positions : dict[PositionStr, tuple[Sfen, int, int, frozenset[Sfen], PositionStr|None]] = {}
 
-            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0) in current_positions.items():
+            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0, ancestors, output_cmd) in current_positions.items():
                 check_peta_next_cancel(cancel)
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
 
@@ -3438,7 +3448,7 @@ def peta_next(
                     # 元の定跡ツリーに存在しない局面なので定跡ツリーが出たということで
                     # ここを思考対象局面に追加してやる。
                     if refutation_book is None:
-                        add_unique_peta_leaf(think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
+                        add_unique_peta_leaf(think_sfens, leaf_sfens, output_cmd or position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply)
                     continue
 
                 moveinfos = position_info.moveinfos
@@ -3482,6 +3492,10 @@ def peta_next(
                             continue
 
                         next_position_cmd = append_position_move(position_cmd, move)
+                        next_ancestors = ancestors
+                        next_output = append_position_move(output_cmd, move) if output_cmd is not None else None
+                        if next_sfen_trimmed in ancestors:
+                            next_output, next_ancestors = f'sfen {next_sfen}', frozenset()
 
                         if refutation_book is not None:
                             next_position_info, _ = find_peta_position_with_flip(peta_book, next_sfen_trimmed)
@@ -3501,12 +3515,12 @@ def peta_next(
                                         eval_refutation_margin,
                                     )
                                 ):
-                                    add_unique_peta_leaf(think_sfens, leaf_sfens, next_position_cmd, next_sfen_trimmed, next_ply,
+                                    add_unique_peta_leaf(think_sfens, leaf_sfens, next_output or next_position_cmd, next_sfen_trimmed, next_ply,
                                                          book_extend_ply, eval_limit, max_book_ply)
                                 continue
 
                         # 次の局面では、root_best_evalは反転する。(手番側から見たevalで管理しているため)
-                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0)
+                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0, next_ancestors, next_output)
 
             print(f"step = {step} , len(next_positions) = {len(next_positions)}, think_sfens = {len(think_sfens)}")
 
@@ -3702,7 +3716,7 @@ def peta_rejoin(
         print(f"--- peta_rejoin {turn_str} ---")
 
         visited : dict[tuple[Sfen, int, int|None, int], int] = {}
-        current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None]] = {}
+        current_positions : dict[PositionStr, tuple[Sfen,int,int,int|None,frozenset[Sfen],PositionStr|None]] = {}
 
         for position_cmd, sfen_with_ply, root_eval_diff in root_positions:
             sfen, ply = trim_sfen_ply(sfen_with_ply)
@@ -3729,7 +3743,7 @@ def peta_rejoin(
             effective_diff = peta_eval_diff if root_eval_diff is None else root_eval_diff
             if position_cmd in current_positions:
                 effective_diff = max(effective_diff, current_positions[position_cmd][2])
-            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff, None)
+            current_positions[position_cmd] = (sfen_with_ply, root_best, effective_diff, None, peta_root_ancestors(position_cmd), None)
             print(f"root sfen : {sfen_with_ply} , root_best = {root_best} , eval_diff = {effective_diff}")
 
         step = 1
@@ -3737,9 +3751,9 @@ def peta_rejoin(
             if step > max_step:
                 break
 
-            next_positions : dict[PositionStr, tuple[Sfen, int, int, int|None]] = {}
+            next_positions : dict[PositionStr, tuple[Sfen, int, int, int|None, frozenset[Sfen], PositionStr|None]] = {}
 
-            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0, leaf_eval) in current_positions.items():
+            for position_cmd, (sfen_with_ply, root_best_eval, peta_eval_diff0, leaf_eval, ancestors, output_cmd) in current_positions.items():
                 total_processed_nodes += 1
 
                 sfen, ply = trim_sfen_ply(sfen_with_ply)
@@ -3757,7 +3771,7 @@ def peta_rejoin(
                 if position_info is None or not position_info.moveinfos:
                     total_leaf_nodes += 1
                     if peta_leaf_rejoins_peta_book(sfen_with_ply, leaf_eval, eval_drop) and add_unique_peta_leaf(
-                            think_sfens, leaf_sfens, position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply):
+                            think_sfens, leaf_sfens, output_cmd or position_cmd, sfen, ply, book_extend_ply, eval_limit, max_book_ply):
                         total_rejoin_nodes += 1
                     continue
 
@@ -3780,12 +3794,16 @@ def peta_rejoin(
                         move = flipped_move(moveinfo.move) if flipped_bookhit else moveinfo.move
                         checked_push_usi(board, move, context=position_cmd)
                         next_sfen = board.sfen()
-                        _, next_ply = trim_sfen_ply(next_sfen)
+                        next_sfen_trimmed, next_ply = trim_sfen_ply(next_sfen)
                         if next_ply >= max_book_ply:
                             continue
 
                         next_position_cmd = append_position_move(position_cmd, move)
-                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0, moveinfo.eval)
+                        next_ancestors = ancestors
+                        next_output = append_position_move(output_cmd, move) if output_cmd is not None else None
+                        if next_sfen_trimmed in ancestors:
+                            next_output, next_ancestors = f'sfen {next_sfen}', frozenset()
+                        next_positions[next_position_cmd] = (next_sfen, - root_best_eval, peta_eval_diff0, moveinfo.eval, next_ancestors, next_output)
 
             print(
                 f"step = {step} , len(next_positions) = {len(next_positions)}, "

@@ -901,6 +901,43 @@ int main(int argc, char** argv)
             throw std::runtime_error("peta next duplicate-root statistics are incorrect");
     }
     {
+        const std::string first = "startpos moves 5i5h 5a5b 5h5i";
+        const std::string second = "startpos moves 5i4h 5a5b 4h5i";
+        auto board = bookminer::SfenPosition::from_sfen(decode_position_string_to_sfen_with_ply(first));
+        bookminer::BookStore book;
+        book.merge_position(board.sfen_with_ply(), 4, {{bookminer::move16_from_usi("5b5a"), 0, 1}});
+        book.merge_position(bookminer::StartSfenPly1, 5,
+                            {{bookminer::move16_from_usi("7g7f"), 0, 1},
+                             {bookminer::move16_from_usi("2g2f"), -50, 1}});
+        { std::ofstream out(roots_path); out << first << ",100\n" << second << ",0\n"; }
+        const auto leaves = peta_next_for_turn(nullptr, book, 0, 0, 10, 200, roots_path, std::nullopt);
+        if (leaves.size() != 2)
+            throw std::runtime_error("rebased paths lost a root's eval width");
+        std::filesystem::remove(roots_path);
+    }
+    {
+        const std::string root = "startpos moves 5i5h 5a5b 5h5i";
+        auto board = bookminer::SfenPosition::from_sfen(decode_position_string_to_sfen_with_ply(root));
+        bookminer::BookStore book;
+        book.merge_position(board.sfen_with_ply(), 4, {{bookminer::move16_from_usi("5b5a"), 0, 0}});
+        { std::ofstream out(roots_path); out << root << '\n'; }
+        const auto leaves = peta_next_for_turn(nullptr, book, 1, 0, 10, 200, roots_path, std::nullopt);
+        if (leaves.size() != 1 || leaves.front().rfind("sfen ", 0) != 0
+            || decode_position_string_to_sfen_with_ply(leaves.front())
+                != decode_position_string_to_sfen_with_ply(root + " 5b5a"))
+            throw std::runtime_error("peta next did not rebase a return to the starting path");
+        board.push_usi("5b5a");
+        board.push_usi("7g7f");
+        book.merge_position(board.sfen_with_ply(), 6, {{bookminer::move16_from_usi("3c3d"), 0, 1}});
+        PetaRejoinStats stats;
+        const auto rejoins = peta_rejoin_for_turn(book, 1, 0, 10, 200, roots_path, std::nullopt, stats);
+        if (rejoins.size() != 1 || rejoins.front().rfind("sfen ", 0) != 0
+            || decode_position_string_to_sfen_with_ply(rejoins.front())
+                != decode_position_string_to_sfen_with_ply(root + " 5b5a"))
+            throw std::runtime_error("peta rejoin did not rebase a return to the starting path");
+        std::filesystem::remove(roots_path);
+    }
+    {
         { std::ofstream out(roots_path); out << "startpos moves 5i5h 5a5b 5h5i 5b5a 7g7f,50\n"; }
         bookminer::BookStore empty;
         const auto leaves = peta_next_for_turn(nullptr, empty, 1, 0, 10, 200, roots_path, std::nullopt);
