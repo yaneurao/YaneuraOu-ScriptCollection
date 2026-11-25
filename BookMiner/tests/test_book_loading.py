@@ -16,6 +16,25 @@ spec.loader.exec_module(bookminer)
 
 
 class BookLoadingTests(unittest.TestCase):
+    def test_merge_flipped_positions_preserves_ply_depth_and_best_order(self):
+        book = bookminer.Book()
+        direct = bookminer.SFEN_START
+        flipped = bookminer.flipped_sfen(direct)
+        book.body[direct] = bookminer.PositionInfo([
+            bookminer.MoveInfo('7g7f', None, 0), bookminer.MoveInfo('1g1f', 50, 2)], 20)
+        book.body[flipped] = bookminer.PositionInfo([
+            bookminer.MoveInfo(bookminer.flipped_move('7g7f'), 100, 6),
+            bookminer.MoveInfo(bookminer.flipped_move('2g2f'), 200, 8),
+            bookminer.MoveInfo(bookminer.flipped_move('1g1f'), 900, 7)], 5)
+        book.mark_clean('saved.db')
+        bookminer.merge_flipped_positions(book)
+        self.assertNotIn(flipped, book.body)
+        result = book.body[direct]
+        self.assertEqual(result.ply, 5)
+        self.assertEqual([(m.move, m.eval, m.depth) for m in result.moveinfos],
+                         [('2g2f', 200, 8), ('7g7f', 100, 6), ('1g1f', 50, 2)])
+        self.assertIsNone(book.clean_source())
+
     def test_db_comments_and_indented_lines_load_and_probe(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'comments.db'

@@ -4545,6 +4545,8 @@ def merge_flipped_positions(book:Book):
 
                     # このタイミングでpop()することでflipさせたsfenのほうは定跡から削除しておく。
                     position_f = book.body.pop(sfen_f)
+                    book.mark_modified()
+                    position.ply = min(position.ply, position_f.ply)
 
                     for moveinfo_f in position_f.moveinfos:
                         move = flipped_move(moveinfo_f.move)
@@ -4553,18 +4555,18 @@ def merge_flipped_positions(book:Book):
                         for moveinfo in position.moveinfos:
                             if moveinfo.move == move:
                                 # 見つかった
-                                if moveinfo.eval is None:
+                                if moveinfo.eval is None and eval is not None:
                                     # evalは、Noneのときだけ上書き
                                     moveinfo.eval = eval
+                                    moveinfo.depth = moveinfo_f.depth
                                 break
                         else:
                             # 見つからなかったのでレコード丸ごと追加。
-                            position.moveinfos.append(MoveInfo(move, eval))
+                            position.moveinfos.append(MoveInfo(move, eval, moveinfo_f.depth))
+
+                    position.moveinfos.sort(key=lambda item: item.eval if item.eval is not None else float('-inf'), reverse=True)
 
                     c += 1
-
-            if c:
-                book.mark_modified()
 
         print(f"merge flipped positions done, merged {c} positions")
 
