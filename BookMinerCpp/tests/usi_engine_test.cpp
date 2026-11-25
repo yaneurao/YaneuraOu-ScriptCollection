@@ -23,6 +23,18 @@ ParsedPositionCommand parse_position_command(const std::string&) { return {}; }
 }
 
 int main(int argc, char** argv) {
+    if (argc == 4 && std::string(argv[3]) == "--inherit-check") {
+        bookminer::EngineConfig first, second;
+        first.path = argv[1];
+        second.path = argv[2];
+        auto engine1 = std::make_unique<bookminer::UsiEngine>(0, first, ".");
+        auto engine2 = std::make_unique<bookminer::UsiEngine>(1, second, ".");
+        engine1->start([](const std::string&) {});
+        engine2->start([](const std::string&) {});
+        engine1.reset();
+        engine2.reset();
+        return 0;
+    }
     if (argc != 2 && argc != 3) return 2;
 #if defined(__linux__)
     if (argc == 3 && std::string(argv[2]) == "--pipe-fail-check") {

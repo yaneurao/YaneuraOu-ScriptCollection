@@ -66,6 +66,25 @@ class EngineProtocolTest(unittest.TestCase):
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_other_engine_does_not_hold_stdin_pipe_open(self):
+        first = Path(self.tmp.name) / 'eof-engine'
+        second = Path(self.tmp.name) / 'other-engine'
+        marker = Path(self.tmp.name) / 'eof-received'
+        first.write_text('#!/usr/bin/env python3\nimport pathlib,sys\n'
+                         'for line in sys.stdin:\n'
+                         ' if line.strip()=="usi": print("usiok",flush=True)\n'
+                         f'pathlib.Path({str(marker)!r}).touch()\n')
+        second.write_text('#!/usr/bin/env python3\nimport sys\n'
+                          'for line in sys.stdin:\n'
+                          ' if line.strip()=="usi": print("usiok",flush=True)\n'
+                          ' elif line.strip()=="quit": break\n')
+        first.chmod(0o755)
+        second.chmod(0o755)
+        result = subprocess.run([str(self.exe), str(first), str(second), '--inherit-check'],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.exists(), 'first engine did not receive EOF after its owner closed the pipe')
+
     def test_engine_exit_does_not_kill_parent_with_sigpipe(self):
         engine = Path(self.tmp.name) / 'exit-engine'
         engine.write_text('#!/usr/bin/env python3\nimport sys\n'

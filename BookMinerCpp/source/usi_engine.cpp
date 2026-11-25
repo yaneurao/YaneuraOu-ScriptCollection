@@ -21,6 +21,7 @@
 #ifdef _WIN32
 #include <io.h>
 #else
+#include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -228,6 +229,14 @@ void UsiEngine::start(const LogCallback& log)
     } stdin_pipe, stdout_pipe;
     if (pipe(stdin_pipe.fds) != 0 || pipe(stdout_pipe.fds) != 0)
         throw std::runtime_error("pipe failed");
+    // Only the dup2-created standard streams belong in the child process.
+    // In particular, later engines must not retain earlier engines' pipes.
+    for (int fd : {stdin_pipe.fds[0], stdin_pipe.fds[1], stdout_pipe.fds[0], stdout_pipe.fds[1]})
+    {
+        const int flags = fcntl(fd, F_GETFD);
+        if (flags < 0 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
+            throw std::runtime_error("failed to configure engine pipe inheritance");
+    }
 
     const pid_t pid = fork();
     if (pid < 0)
