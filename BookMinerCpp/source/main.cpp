@@ -1854,24 +1854,6 @@ std::string decode_position_string_to_sfen_with_ply(const std::string& position_
     return board.sfen_with_ply();
 }
 
-std::vector<std::pair<std::string, std::string>> position_prefixes(const std::string& position_command)
-{
-    std::vector<std::pair<std::string, std::string>> prefixes;
-    const auto parsed = bookminer::parse_position_command(position_command);
-    auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
-
-    std::string current_command = base_position_command(position_command);
-    prefixes.emplace_back(current_command, board.sfen_with_ply());
-    for (const auto& move : parsed.moves)
-    {
-        board.push_usi(move);
-        current_command = append_position_move(current_command, move);
-        prefixes.emplace_back(current_command, board.sfen_with_ply());
-    }
-
-    return prefixes;
-}
-
 struct PetaPositionHit {
     const bookminer::PositionInfo* position = nullptr;
     bool flipped = false;
@@ -2794,7 +2776,14 @@ std::string peta_unsolved(
     std::optional<int> eval_limit)
 {
     const fs::path input_path = fs::path(BookDir) / ThinkUnsolvedSfensName;
+    std::string depths_text;
+    for (const int depth : min_depths)
+    {
+        if (!depths_text.empty()) depths_text += ',';
+        depths_text += std::to_string(depth);
+    }
     log_line("peta_unsolved, min_depth_count = " + std::to_string(min_depths.size())
+        + ", min_depths = " + depths_text
         + ", max_book_ply = " + std::to_string(max_book_ply)
         + ", max_step = " + std::to_string(max_step)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
@@ -2833,14 +2822,19 @@ std::string peta_unsolved(
             continue;
 
         ++input_games;
-        const auto game_moves = bookminer::parse_position_command(position_line).moves;
-        const auto prefixes = position_prefixes(position_line);
-        if (prefixes.empty())
-            continue;
-
-        for (std::size_t prefix_index = 0; prefix_index < prefixes.size(); ++prefix_index)
+        const auto game = bookminer::parse_position_command(position_line);
+        const auto& game_moves = game.moves;
+        auto board = bookminer::SfenPosition::from_sfen(game.start_sfen_with_ply);
+        std::string prefix_command = base_position_command(position_line);
+        for (std::size_t prefix_index = 0; prefix_index <= game_moves.size(); ++prefix_index)
         {
-            const auto& [prefix_command, prefix_sfen_with_ply] = prefixes[prefix_index];
+            if (prefix_index > 0)
+            {
+                const auto& previous_move = game_moves[prefix_index - 1];
+                board.push_usi(previous_move);
+                prefix_command = append_position_move(std::move(prefix_command), previous_move);
+            }
+            const auto prefix_sfen_with_ply = board.sfen_with_ply();
             ++processed_prefixes;
             if (processed_prefixes % PetaUnsolvedProgressInterval == 0)
             {
@@ -2904,6 +2898,9 @@ std::string peta_unsolved(
             }
         }
     }
+
+    if (input.bad())
+        throw std::runtime_error("failed to read think_unsolved_sfens file: " + input_path.string());
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");

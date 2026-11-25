@@ -14,6 +14,16 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_eval_cutoff_does_not_parse_later_invalid_game_moves(self):
+        peta = miner.Book()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos moves 7g7f 7g7f\n')
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            self.assertEqual((root / 'think_sfens.txt').read_text(), '')
+
     def test_game_move_below_rank_threshold_enqueues_missing_game_positions(self):
         book = miner.Book()
         moves = ['7g7f', '2g2f', '6g6f', '1g1f', '3g3f', '4g4f', '9g9f']

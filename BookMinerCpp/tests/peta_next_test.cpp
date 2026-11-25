@@ -234,6 +234,16 @@ int main(int argc, char** argv)
         if (registered_text.find("startpos moves 9g9f 9c9d,") == std::string::npos)
             throw std::runtime_error("unsolved skipped the seventh game move with a registered child");
         registered_result.close();
+        bookminer::BookStore early_cutoff;
+        early_cutoff.merge_position(bookminer::StartSfenPly1, 1, {
+            {bookminer::move16_from_usi("7g7f"), 500, 0}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f 7g7f\n"; }
+        (void)peta_unsolved(early_cutoff, {10, 8, 6, 4}, 200, 9999, 1, 400);
+        std::ifstream cutoff_result("book/think_sfens.txt");
+        const std::string cutoff_text((std::istreambuf_iterator<char>(cutoff_result)), {});
+        if (!cutoff_text.empty())
+            throw std::runtime_error("unsolved did not stop before invalid moves after eval cutoff");
+        cutoff_result.close();
         bookminer::BookStore pv;
         auto pv_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         pv.merge_position(pv_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 2}});
@@ -250,6 +260,18 @@ int main(int argc, char** argv)
         if (pv_text.find("startpos moves 7g7f 3c3d 2g2f 8c8d,") == std::string::npos)
             throw std::runtime_error("unsolved did not follow depth-zero best moves to the missing position");
         pv_result.close();
+        std::filesystem::remove("book/think_unsolved_sfens.txt");
+        std::filesystem::create_directory("book/think_unsolved_sfens.txt");
+        { std::ofstream out("book/think_sfens.txt"); out << "previous\n"; }
+        bool read_failed = false;
+        try { (void)peta_unsolved(pv, {10, 8, 6, 4}, 200, 9999, 1, 400); }
+        catch (const std::exception&) { read_failed = true; }
+        std::ifstream preserved_result("book/think_sfens.txt");
+        const std::string preserved_text((std::istreambuf_iterator<char>(preserved_result)), {});
+        if (!read_failed || preserved_text != "previous\n")
+            throw std::runtime_error("unsolved replaced output after an input read error");
+        preserved_result.close();
+        std::filesystem::remove("book/think_unsolved_sfens.txt");
         std::filesystem::current_path(old_cwd);
     }
     {
