@@ -1110,6 +1110,10 @@ def is_engine_error_line(line:str)->bool:
     if line.startswith(('info string read engine options, path = ',
                         'info string loading eval file : ',
                         'info string loading progress file : ',
+                        'info string read book file : ',
+                        'info string book file fallback : ',
+                        'info string priority book file exists twice. use : ',
+                        'info string serialized filename = ',
                         'info string Start loading the model file, path = ',
                         'info string The model file has been loaded, path = ')):
         return False

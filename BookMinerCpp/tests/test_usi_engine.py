@@ -112,7 +112,11 @@ class EngineProtocolTest(unittest.TestCase):
                                    "info score cp 42 pv 7g7f", "bestmove 7g7f"]],
                                  ['info string read engine options, path = C:/Error/eval_options.txt',
                                   'info string loading eval file : C:/Error/nn.bin',
-                                  'info string loading progress file : C:/Error/progress.bin'])
+                                  'info string loading progress file : C:/Error/progress.bin',
+                                  'info string read book file : C:/Error/book.ybb',
+                                  'info string book file fallback : C:/Error/book.db -> C:/Error/book.ybb',
+                                  'info string priority book file exists twice. use : C:/Error/book.ybb',
+                                  'info string serialized filename = C:/Error/model.bin'])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['7g7f 42'])
 
