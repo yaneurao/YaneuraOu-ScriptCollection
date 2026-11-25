@@ -180,7 +180,7 @@ int main(int argc, char** argv)
         board.push_usi("7g7f");
         peta.merge_position(board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 401, 0}});
         { std::ofstream out("book/think_unsolved_sfens.txt", std::ios::binary); out << "\xef\xbb\xbf# comment\r\nstartpos moves 7g7f 3c3d\r\n"; }
-        (void)peta_unsolved(peta, {10, 8, 6, 4}, 200, 9999, std::nullopt, 400);
+        (void)peta_unsolved(peta, {10, 8, 6, 4}, 200, 9999, std::nullopt, 400, &peta);
         std::ifstream result("book/think_sfens.txt");
         std::string text((std::istreambuf_iterator<char>(result)), {});
         if (text.find("startpos moves 6g6f") == std::string::npos
@@ -197,7 +197,7 @@ int main(int argc, char** argv)
         });
         root_board.push_usi("7g7f");
         second.merge_position(root_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), -401, 0}});
-        (void)peta_unsolved(second, {2, 1}, 200, 9999, std::nullopt, 400);
+        (void)peta_unsolved(second, {2, 1}, 200, 9999, std::nullopt, 400, &second);
         std::ifstream second_result("book/think_sfens.txt");
         const std::string second_text((std::istreambuf_iterator<char>(second_result)), {});
         if (second_text.find("startpos moves 2g2f") == std::string::npos
@@ -238,7 +238,7 @@ int main(int argc, char** argv)
         early_cutoff.merge_position(bookminer::StartSfenPly1, 1, {
             {bookminer::move16_from_usi("7g7f"), 500, 0}});
         { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f 7g7f\n"; }
-        (void)peta_unsolved(early_cutoff, {10, 8, 6, 4}, 200, 9999, 1, 400);
+        (void)peta_unsolved(early_cutoff, {10, 8, 6, 4}, 200, 9999, 1, 400, &early_cutoff);
         std::ifstream cutoff_result("book/think_sfens.txt");
         const std::string cutoff_text((std::istreambuf_iterator<char>(cutoff_result)), {});
         if (!cutoff_text.empty())
@@ -269,80 +269,27 @@ int main(int argc, char** argv)
         pv_result.close();
         bookminer::BookStore stale, normal;
         auto normal_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
-        stale.merge_position(normal_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 0}});
-        for (const auto* move : {"7g7f", "3c3d", "2g2f", "8c8d"})
+        stale.merge_position(normal_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 500, 0}});
+        for (const auto* move : {"7g7f", "3c3d", "2g2f"})
         {
             normal.merge_position(normal_board.sfen_with_ply(), static_cast<std::uint16_t>(normal_board.ply()),
-                                  {{bookminer::move16_from_usi(move), 20, 0}});
+                                  {{bookminer::move16_from_usi(move), 0, 99}});
             normal_board.push_usi(move);
         }
-        (void)peta_unsolved(stale, {10, 8, 6, 4}, 200, 9999, 1, 400, &normal);
+        (void)peta_unsolved(stale, {1}, 200, 9999, 1, 400, &normal);
         std::ifstream fallback_result("book/think_sfens.txt");
         const std::string fallback_text((std::istreambuf_iterator<char>(fallback_result)), {});
-        if (fallback_text.find("startpos moves 7g7f 3c3d 2g2f 8c8d,") == std::string::npos)
-            throw std::runtime_error("unsolved did not follow the normal book beyond a stale peta leaf");
+        if (fallback_text.rfind("startpos moves 7g7f,", 0) != 0)
+            throw std::runtime_error("unsolved followed normal book instead of stopping at peta leaf");
         fallback_result.close();
-        bookminer::BookStore normal_ranked, no_peta;
-        normal_ranked.merge_position(bookminer::StartSfenPly1, 1, {
-            {bookminer::move16_from_usi("7g7f"), 100, 100},
-            {bookminer::move16_from_usi("2g2f"), 99, 100},
-            {bookminer::move16_from_usi("6g6f"), 98, 100},
-            {bookminer::move16_from_usi("1g1f"), 97, 100},
-            {bookminer::move16_from_usi("3g3f"), 96, 100},
-        });
-        (void)peta_unsolved(no_peta, {10, 8, 6, 4}, 200, 9999, 1, 400, &normal_ranked);
-        std::ifstream ranked_result("book/think_sfens.txt");
-        const std::string ranked_text((std::istreambuf_iterator<char>(ranked_result)), {});
-        for (const auto* move : {"7g7f", "2g2f", "6g6f", "1g1f"})
-            if (ranked_text.find(std::string("startpos moves ") + move + ",") == std::string::npos)
-                throw std::runtime_error("unsolved skipped a ranked move in normal-only position");
-        if (ranked_text.find("startpos moves 3g3f,") != std::string::npos)
-            throw std::runtime_error("unsolved added an unrequested fifth move");
-        ranked_result.close();
-        bookminer::BookStore normal_depth;
-        auto depth_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
-        normal_depth.merge_position(depth_board.sfen_with_ply(), 1, {
-            {bookminer::move16_from_usi("7g7f"), 100, 0},
-            {bookminer::move16_from_usi("2g2f"), 90, 100}});
-        depth_board.push_usi("7g7f");
-        normal_depth.merge_position(depth_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 0, 0}});
-        depth_board.push_usi("3c3d");
-        normal_depth.merge_position(depth_board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("2g2f"), 0, 0}});
-        (void)peta_unsolved(no_peta, {2, 1}, 200, 9999, 1, 400, &normal_depth);
-        std::ifstream depth_result("book/think_sfens.txt");
-        const std::string depth_text((std::istreambuf_iterator<char>(depth_result)), {});
-        if (depth_text.find("startpos moves 2g2f,") == std::string::npos
-            || depth_text.find("startpos moves 7g7f") != std::string::npos)
-            throw std::runtime_error("normal-only ranked move depth did not use its explored PV length");
-        depth_result.close();
-        bookminer::BookStore empty_peta, scored;
-        auto scored_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
-        scored_board.push_usi("7g7f");
-        scored.merge_position(scored_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 500, 100}});
-        if (peta_pv_leaf_position_command(empty_peta, "startpos", bookminer::StartSfenPly1,
-                                          bookminer::move16_from_usi("7g7f"), 200, 20, 400, &scored))
-            throw std::runtime_error("normal fallback incorrectly used stored search depth");
-        scored_board.push_usi("3c3d");
-        bookminer::BookStore peta_child;
-        peta_child.merge_position(scored_board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("2g2f"), 0, 0}});
-        const auto peta_leaf = peta_pv_leaf_position_command(peta_child, "startpos", bookminer::StartSfenPly1,
-            bookminer::move16_from_usi("7g7f"), 200, 20, 400, &scored);
-        if (peta_leaf)
-            throw std::runtime_error("normal fallback used a peta child for eval cutoff");
-        scored.merge_position(scored_board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("2g2f"), 0, 0}});
-        const auto explored_leaf = peta_pv_leaf_position_command(empty_peta, "startpos", bookminer::StartSfenPly1,
-            bookminer::move16_from_usi("7g7f"), 200, 20, 400, &scored);
-        if (!explored_leaf || *explored_leaf != "startpos moves 7g7f 3c3d 2g2f")
-            throw std::runtime_error("normal fallback failed to follow explored high-evaluation child");
-        bookminer::BookStore flipped_normal;
-        auto flipped_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
-        flipped_board.push_usi("7g7f");
-        flipped_normal.merge_position(bookminer::flipped_sfen(flipped_board.sfen()), 2,
-            {{bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 100}});
-        const auto flipped_leaf = peta_pv_leaf_position_command(empty_peta, "startpos", bookminer::StartSfenPly1,
-            bookminer::move16_from_usi("7g7f"), 200, 20, 400, &flipped_normal);
-        if (!flipped_leaf || *flipped_leaf != "startpos moves 7g7f 3c3d")
-            throw std::runtime_error("normal fallback did not orient a flipped best move");
+        bookminer::BookStore high_normal;
+        high_normal.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 401, 0}});
+        (void)peta_unsolved(stale, {1}, 200, 9999, 1, 400, &high_normal);
+        std::ifstream high_result("book/think_sfens.txt");
+        const std::string high_text((std::istreambuf_iterator<char>(high_result)), {});
+        if (!high_text.empty())
+            throw std::runtime_error("unsolved did not use normal book evaluation for cutoff");
+        high_result.close();
         std::filesystem::remove("book/think_unsolved_sfens.txt");
         std::filesystem::create_directory("book/think_unsolved_sfens.txt");
         { std::ofstream out("book/think_sfens.txt"); out << "previous\n"; }

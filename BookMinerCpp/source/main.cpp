@@ -2704,11 +2704,18 @@ std::string peta_rejoin(
         + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes);
 }
 
-bool unsolved_normal_cut_by_eval_limit(const bookminer::PositionInfo& position, bool flipped,
-    const std::string& sfen_with_ply, std::optional<int> eval_limit,
+bool unsolved_normal_cut_by_eval_limit(const std::string& sfen, const bookminer::PositionInfo* peta_position,
+    std::optional<int> eval_limit,
     const bookminer::BookStore* normal_book)
 {
-    return peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, true);
+    // peta unsolvedのPV・depthはpeta DBのみ。通常DBはeval_limit判定だけに使う。
+    if (!eval_limit || !normal_book) return false;
+    if (peta_position && !peta_position->moves.empty() && peta_position->moves.front().depth != 0)
+        return false;
+    const auto normal = find_considered_book_position_with_flip(*normal_book, sfen);
+    if (!has_considered(normal.position)) return false;
+    const auto best = get_best(*normal.position);
+    return best && std::abs(best->first) > *eval_limit;
 }
 
 std::optional<std::string> peta_pv_leaf_position_command(
@@ -2750,25 +2757,13 @@ std::optional<std::string> peta_pv_leaf_position_command(
             return std::nullopt;
         visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
 
-        auto hit = find_peta_position_with_flip(peta_book, current_sfen);
-        BookPositionLookup normal;
-        bool normal_position = false;
+        const auto hit = find_peta_position_with_flip(peta_book, current_sfen);
+        if (unsolved_normal_cut_by_eval_limit(current_sfen, hit.position, eval_limit, normal_book))
+            return std::nullopt;
         if (hit.position == nullptr || hit.position->moves.empty())
-        {
-            if (!normal_book) return leaf_position_command;
-            normal = find_considered_book_position_with_flip(*normal_book, current_sfen);
-            if (!has_considered(normal.position)) return leaf_position_command;
-            hit = {&*normal.position, normal.flipped};
-            normal_position = true;
-        }
+            return leaf_position_command;
 
         const auto& best = hit.position->moves.front();
-        const bool is_leaf_move = best.depth <= 0;
-        if (normal_position && unsolved_normal_cut_by_eval_limit(*hit.position, hit.flipped, next_sfen_with_ply,
-                                                                 eval_limit, normal_book))
-            return std::nullopt;
-        if (!normal_position && is_leaf_move && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
-            return std::nullopt;
         if (step >= max_step)
             return std::nullopt;
 
@@ -2810,7 +2805,7 @@ std::string peta_unsolved(
         + ", max_step = " + std::to_string(max_step)
         + ", book_extend_ply = " + (book_extend_ply.has_value() ? std::to_string(*book_extend_ply) : std::string("None"))
         + ", eval_limit = " + (eval_limit.has_value() ? std::to_string(*eval_limit) : std::string("None"))
-        + ", normal_book_fallback = " + std::string(normal_book ? "on" : "off")
+        + ", normal_book_eval_limit = " + std::string(normal_book ? "on" : "off")
         + ", unsolved_sfens_path = " + input_path.string());
 
     std::ifstream input(input_path);
@@ -2877,52 +2872,19 @@ std::string peta_unsolved(
 
             const auto hit = find_peta_position_with_flip(peta_book, prefix_sfen);
             std::unordered_set<std::uint16_t> candidate_moves;
+            if (unsolved_normal_cut_by_eval_limit(prefix_sfen, hit.position, eval_limit, normal_book))
+            {
+                ++stopped_by_eval_limit;
+                break;
+            }
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++missing_peta;
-                BookPositionLookup normal;
-                if (normal_book)
-                {
-                    normal = find_considered_book_position_with_flip(*normal_book, prefix_sfen);
-                    if (has_considered(normal.position) && unsolved_normal_cut_by_eval_limit(
-                            *normal.position, normal.flipped, prefix_sfen_with_ply, eval_limit, normal_book))
-                    {
-                        ++stopped_by_eval_limit;
-                        break;
-                    }
-                }
-                if (!has_considered(normal.position))
-                    append_unique_position_command(think_sfens, think_seen, prefix_command);
-                else
-                {
-                    // Normal-book depths are engine search depths, not propagated peta depths.
-                    for (std::size_t i = 0; i < std::min(normal.position->moves.size(), min_depths.size()); ++i)
-                    {
-                        if (min_depths[i] <= 0) continue;
-                        ++candidates;
-                        const auto move = normal.flipped ? bookminer::flipped_move16(normal.position->moves[i].move16)
-                                                         : normal.position->moves[i].move16;
-                        const auto candidate = peta_pv_leaf_position_command(
-                            peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
-                        if (!candidate) ++skipped_no_leaf;
-                        else if (bookminer::parse_position_command(*candidate).moves.size() - prefix_index - 1
-                                 < static_cast<std::size_t>(min_depths[i]))
-                        {
-                            candidate_moves.insert(move);
-                            append_unique_position_command(think_sfens, think_seen, *candidate);
-                        }
-                    }
-                }
+                append_unique_position_command(think_sfens, think_seen, prefix_command);
             }
             else
             {
                 const auto& moves = hit.position->moves;
-                const auto& best = moves.front();
-                if (best.depth == 0 && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
-                {
-                    ++stopped_by_eval_limit;
-                    break;
-                }
                 for (std::size_t i = 0; i < std::min(moves.size(), min_depths.size()); ++i)
                 {
                     if (static_cast<int>(moves[i].depth) >= min_depths[i])

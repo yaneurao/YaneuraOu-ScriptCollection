@@ -16,7 +16,7 @@ YANE_SOURCE = ROOT.parents[1] / 'YaneuraOu' / 'source'
                      and (YANE_SOURCE / 'position.cpp').is_file(),
                      'requires POSIX, make, g++ and sibling YaneuraOu source')
 class CppIntegrationTest(unittest.TestCase):
-    def test_unsolved_enqueue_obeys_normal_book_eval_limit(self):
+    def test_unsolved_generation_obeys_normal_book_eval_limit(self):
         import json
         try:
             import cshogi
@@ -67,10 +67,7 @@ class CppIntegrationTest(unittest.TestCase):
                     send('pu 10,8,6,4 9999 200 1 400')
                     wait_for('[PetaUnsolvedDone]')
                     line = (root / 'book' / 'think_sfens.txt').read_text()
-                    self.assertIn('startpos moves 7g7f,', line)
-                    self.assertNotIn('skip_path_eval_limit', line)
-                    send('e')
-                    wait_for('[TaskQueueJobDone]')
+                    self.assertEqual(line, '')
                     self.assertFalse((root / 'unexpected-search.txt').exists(), log.read_text())
                 finally:
                     if process.poll() is None:
@@ -99,7 +96,7 @@ class CppIntegrationTest(unittest.TestCase):
             reply = cshogi.move_to_usi(next(iter(board.legal_moves)))
             content = '#YANEURAOU-DB2016 1.00\n' + ''.join(records)
             (backup / 'book_miner-20200101000000_4.db').write_text(content)
-            (backup / 'peta_book-20200101000000_1.db').write_text('#YANEURAOU-DB2016 1.00\n' + records[0])
+            (backup / 'peta_book-20200101000000_4.db').write_text(content)
             (root / 'book' / 'think_unsolved_sfens.txt').write_text('startpos\n')
             engine = root / 'engine'
             engine.write_text('#!/usr/bin/env python3\nimport sys\n'

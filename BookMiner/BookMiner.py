@@ -3793,9 +3793,19 @@ def peta_rejoin(
     )
 
 
-def unsolved_normal_cut_by_eval_limit(position:PositionInfo, flipped:bool, sfen_with_ply:Sfen,
+def unsolved_normal_cut_by_eval_limit(sfen:Sfen, peta_position:PositionInfo|None,
                                       eval_limit:int|None, normal_book:Book|None)->bool:
-    return peta_cut_by_eval_limit(position, flipped, sfen_with_ply, eval_limit, normal_book, normal_position=True)
+    # peta unsolvedはPV・depthをpeta DBだけで決める。通常DBはeval_limit判定だけに使う。
+    if eval_limit is None or normal_book is None:
+        return False
+    if peta_position is not None and peta_position.moveinfos and peta_position.moveinfos[0].depth != 0:
+        return False
+    with normal_book.lock:
+        position, _ = find_considered_book_position_with_flip(normal_book, sfen)
+        if position is None:
+            return False
+        values = [move.eval for move in position.moveinfos if isinstance(move.eval, int)]
+        return bool(values) and abs(max(values)) > eval_limit
 
 
 def peta_pv_leaf_position_cmd(
@@ -3808,7 +3818,7 @@ def peta_pv_leaf_position_cmd(
     normal_book:Book|None = None,
 )->PositionStr|None:
     """
-    peta_bookを優先し、なければ通常DBのbest PVを両DBの外まで辿る。
+    peta DBだけでbest PVを辿る。通常DBはeval_limit判定にだけ使う。
     first_moveがNoneなら指定局面から、そうでなければその手を指した先から開始する。
     """
 
@@ -3840,20 +3850,12 @@ def peta_pv_leaf_position_cmd(
         visited.add(current_sfen)
 
         position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, current_sfen)
-        normal_position = False
+        if unsolved_normal_cut_by_eval_limit(current_sfen, position_info, eval_limit, normal_book):
+            return None
         if position_info is None or not position_info.moveinfos:
-            position_info, flipped_bookhit = find_peta_next_position(peta_book, normal_book, current_sfen)
-            if position_info is None or not position_info.moveinfos:
-                return leaf_position_cmd
-            normal_position = True
+            return leaf_position_cmd
 
         best = position_info.moveinfos[0]
-        is_leaf_move = best.depth <= 0
-        if normal_position and unsolved_normal_cut_by_eval_limit(position_info, flipped_bookhit,
-                                                                 next_sfen_with_ply, eval_limit, normal_book):
-            return None
-        if not normal_position and is_leaf_move and eval_limit is not None and abs(best.eval) > eval_limit:
-            return None
         if step >= max_step:
             return None
 
@@ -3890,7 +3892,7 @@ def peta_unsolved(
         f"max_book_ply = {max_book_ply}, max_step = {max_step}, "
         f"book_extend_ply = {'None' if book_extend_ply is None else book_extend_ply}, "
         f"eval_limit = {'None' if eval_limit is None else eval_limit}, "
-        f"normal_book_fallback = {'on' if normal_book is not None else 'off'}, "
+        f"normal_book_eval_limit = {'on' if normal_book is not None else 'off'}, "
         f"unsolved_sfens_path = {unsolved_sfens_path}"
     )
 
@@ -3933,37 +3935,13 @@ def peta_unsolved(
 
                 position, flipped = find_peta_position_with_flip(peta_book, prefix_sfen)
                 candidate_moves : set[str] = set()
+                if unsolved_normal_cut_by_eval_limit(prefix_sfen, position, eval_limit, normal_book):
+                    stopped_by_eval_limit += 1
+                    break
                 if position is None or not position.moveinfos:
                     missing_peta += 1
-                    normal, normal_flipped = find_peta_next_position(peta_book, normal_book, prefix_sfen)
-                    if normal is not None and normal.moveinfos and unsolved_normal_cut_by_eval_limit(
-                            normal, normal_flipped, prefix_sfen_with_ply, eval_limit, normal_book):
-                        stopped_by_eval_limit += 1
-                        break
-                    if normal is None or not normal.moveinfos:
-                        add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
-                    else:
-                        # 通常DBのdepthは探索depthであり、petaの伝播depthではない。
-                        # 必要depthが正の順位について、実際につながるPVの長さを調べる。
-                        for moveinfo, minimum in zip(normal.moveinfos, min_depths):
-                            if minimum <= 0:
-                                continue
-                            candidates += 1
-                            move = moveinfo_move_in_sfen_orientation(moveinfo, normal_flipped)
-                            leaf = peta_pv_leaf_position_cmd(
-                                prefix_position_cmd, prefix_sfen_with_ply, move,
-                                max_book_ply, max_step, eval_limit, normal_book,
-                            )
-                            if leaf is None:
-                                skipped_no_leaf += 1
-                            elif len(parse_position_string(leaf)[1]) - prefix_index - 1 < minimum:
-                                candidate_moves.add(move)
-                                add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
+                    add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
                 else:
-                    best = position.moveinfos[0]
-                    if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
-                        stopped_by_eval_limit += 1
-                        break
                     for moveinfo, minimum in zip(position.moveinfos, min_depths):
                         if moveinfo.depth >= minimum:
                             continue

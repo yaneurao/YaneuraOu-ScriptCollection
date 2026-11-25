@@ -14,65 +14,6 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
-    def test_game_position_only_in_normal_book_checks_ranked_moves(self):
-        moves = ['7g7f', '2g2f', '6g6f', '1g1f', '3g3f']
-        for flipped in (False, True):
-            with self.subTest(flipped=flipped), tempfile.TemporaryDirectory() as directory, \
-                 patch.object(miner, 'peta_book', miner.Book()), patch.object(miner, 'BOOK_DIR', directory):
-                normal = miner.Book()
-                key = miner.flipped_sfen(miner.SFEN_START) if flipped else miner.SFEN_START
-                normal.body[key] = miner.PositionInfo([
-                    miner.MoveInfo(miner.flipped_move(move) if flipped else move, 100 - index, 100)
-                    for index, move in enumerate(moves)], 1)
-                root = Path(directory)
-                (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
-                miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=normal)
-                lines = (root / 'think_sfens.txt').read_text().splitlines()
-                self.assertEqual({line.split(',', 1)[0] for line in lines},
-                                 {f'startpos moves {move}' for move in moves[:4]})
-                manager = object.__new__(miner.EngineManager)
-                manager.book_miner_settings = miner.BookMinerSettings()
-                manager.global_settings = SimpleNamespace(from_gui=False)
-                manager.put_branch_task = Mock()
-                engine = Mock()
-                engine.thread_settings = SimpleNamespace(thread_id=0)
-                engine.last_go_searched_nodes = 100
-                def search(sfen, _ratio, ply):
-                    board = miner.cshogi.Board(f'{sfen} {ply}')
-                    return [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(board.legal_moves))), 0)]
-                engine.go.side_effect = search
-                for line in lines:
-                    task = miner.Task(miner.SFEN_START, 1, 400, line.split(',', 1)[0],
-                                      max_book_ply=200, book_extend_ply=1)
-                    self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
-                self.assertEqual(engine.go.call_count, 4)
-                miner.peta_unsolved((0, 0, 0, 0), eval_limit=400, normal_book=normal)
-                lines = (root / 'think_sfens.txt').read_text().splitlines()
-                self.assertEqual(lines, [])
-
-    def test_normal_only_rank_uses_existing_pv_length_not_engine_depth(self):
-        normal = miner.Book()
-        normal.body[miner.SFEN_START] = miner.PositionInfo([
-            miner.MoveInfo('7g7f', 100, 0), miner.MoveInfo('2g2f', 90, 100)], 1)
-        board = miner.cshogi.Board()
-        board.push_usi('7g7f')
-        normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 0, 0)], 2)
-        board.push_usi('3c3d')
-        normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('2g2f', 0, 0)], 3)
-        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', miner.Book()), \
-             patch.object(miner, 'BOOK_DIR', directory):
-            root = Path(directory)
-            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
-            miner.peta_unsolved((2, 1), eval_limit=400, normal_book=normal)
-            lines = (root / 'think_sfens.txt').read_text().splitlines()
-            self.assertEqual([line.split(',', 1)[0] for line in lines], ['startpos moves 2g2f'])
-            miner.peta_unsolved((3, 1), eval_limit=400, normal_book=normal)
-            lines = (root / 'think_sfens.txt').read_text().splitlines()
-            self.assertEqual({line.split(',', 1)[0] for line in lines},
-                             {'startpos moves 7g7f 3c3d 2g2f', 'startpos moves 2g2f'})
-            (root / 'think_unsolved_sfens.txt').write_text('startpos moves 7g7f\n')
-            miner.peta_unsolved((2, 1), eval_limit=400, normal_book=normal)
-            self.assertIn('startpos moves 7g7f 3c3d 2g2f', (root / 'think_sfens.txt').read_text())
 
     def test_enqueue_uses_normal_book_eval_even_when_peta_score_is_lower(self):
         peta, normal = miner.Book(), miner.Book()
@@ -84,12 +25,8 @@ class PetaUnsolvedTests(unittest.TestCase):
             (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
             miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=1, eval_limit=400, normal_book=normal)
             line = (root / 'think_sfens.txt').read_text().strip()
-            self.assertTrue(line.startswith('startpos moves 7g7f,'), line)
-            self.assertNotIn('skip_path_eval_limit', line)
-            collector = Mock()
-            collector.engine_alive_count.return_value = 1
-            miner.put_position_commands(normal, str(root / 'think_sfens.txt'), collector, 400, 200, 1)
-            task = collector.put_task.call_args.args[0]
+            self.assertEqual(line, '')
+            task = miner.Task(miner.SFEN_START, 1, 400, 'startpos moves 7g7f', max_book_ply=200, book_extend_ply=1)
             manager = object.__new__(miner.EngineManager)
             manager.book_miner_settings = miner.BookMinerSettings()
             manager.global_settings = SimpleNamespace(from_gui=False)
@@ -108,64 +45,6 @@ class PetaUnsolvedTests(unittest.TestCase):
             miner.peta_unsolved((10, 8, 6, 4), max_book_ply=2, eval_limit=400)
             self.assertEqual((root / 'think_sfens.txt').read_text().split(',', 1)[0], 'startpos')
 
-    def test_stale_peta_leaf_is_extended_through_normal_book(self):
-        peta, normal = miner.Book(), miner.Book()
-        board = miner.cshogi.Board()
-        moves = ['7g7f', '3c3d', '2g2f', '8c8d']
-        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo(moves[0], 20, 0)], 1)
-        for move in moves:
-            sfen, ply = miner.trim_sfen_ply(board.sfen())
-            normal.body[sfen] = miner.PositionInfo([miner.MoveInfo(move, 20, 0)], ply)
-            board.push_usi(move)
-        target_sfen = miner.trim_sfen(board.sfen())
-        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
-             patch.object(miner, 'BOOK_DIR', directory):
-            root = Path(directory)
-            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
-            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=1, eval_limit=400, normal_book=normal)
-            line = (root / 'think_sfens.txt').read_text().strip()
-            self.assertTrue(line.startswith('startpos moves 7g7f 3c3d 2g2f 8c8d,'), line)
-            manager = object.__new__(miner.EngineManager)
-            manager.book_miner_settings = miner.BookMinerSettings()
-            manager.global_settings = SimpleNamespace(from_gui=False)
-            manager.put_branch_task = Mock()
-            engine = Mock()
-            engine.thread_settings = SimpleNamespace(thread_id=0)
-            engine.last_go_searched_nodes = 100
-            engine.go.return_value = [miner.MoveInfo(miner.cshogi.move_to_usi(next(iter(board.legal_moves))), 0)]
-            task = miner.Task(miner.SFEN_START, 1, 400, line.split(',', 1)[0], max_book_ply=200, book_extend_ply=1)
-            self.assertEqual(manager.start_thinking_position(normal, engine, task), miner.TASK_RESULT_DONE)
-            self.assertEqual(engine.go.call_count, 1)
-            self.assertIn(target_sfen, normal.body)
-
-    def test_normal_fallback_uses_child_existence_instead_of_search_depth(self):
-        peta, normal = miner.Book(), miner.Book()
-        board = miner.cshogi.Board()
-        board.push_usi('7g7f')
-        child = miner.trim_sfen(board.sfen())
-        normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', 500, 100)], 2)
-        with patch.object(miner, 'peta_book', peta):
-            args = ('startpos', miner.SFEN_START_PLY1, '7g7f', 200, 20, 400, normal)
-            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args))
-            board.push_usi('3c3d')
-            normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('2g2f', 0, 0)], 3)
-            self.assertEqual(miner.peta_pv_leaf_position_cmd(*args), 'startpos moves 7g7f 3c3d 2g2f')
-
-    def test_normal_fallback_cutoff_ignores_peta_child_and_prefers_peta_after_normal_child(self):
-        peta, normal = miner.Book(), miner.Book()
-        board = miner.cshogi.Board()
-        board.push_usi('7g7f')
-        normal.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo('3c3d', 500, 0)], 2)
-        board.push_usi('3c3d')
-        sfen = miner.trim_sfen(board.sfen())
-        peta.body[sfen] = miner.PositionInfo([miner.MoveInfo('2g2f', 0, 0)], 3)
-        with patch.object(miner, 'peta_book', peta):
-            self.assertIsNone(miner.peta_pv_leaf_position_cmd(
-                'startpos', miner.SFEN_START_PLY1, '7g7f', 200, 20, 400, normal))
-            normal.body[sfen] = miner.PositionInfo([miner.MoveInfo('6g6f', 0, 0)], 3)
-            self.assertEqual(miner.peta_pv_leaf_position_cmd(
-                'startpos', miner.SFEN_START_PLY1, '7g7f', 200, 20, 400, normal),
-                'startpos moves 7g7f 3c3d 2g2f')
 
     def test_eval_cutoff_does_not_parse_later_invalid_game_moves(self):
         peta = miner.Book()
@@ -174,7 +53,7 @@ class PetaUnsolvedTests(unittest.TestCase):
              patch.object(miner, 'BOOK_DIR', directory):
             root = Path(directory)
             (root / 'think_unsolved_sfens.txt').write_text('startpos moves 7g7f 7g7f\n')
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=peta)
             self.assertEqual((root / 'think_sfens.txt').read_text(), '')
 
     def test_game_move_below_rank_threshold_enqueues_missing_game_positions(self):
@@ -196,6 +75,7 @@ class PetaUnsolvedTests(unittest.TestCase):
 
     def test_seventh_game_move_is_used_even_when_child_is_in_peta(self):
         book = miner.Book()
+        normal = miner.Book()
         moves = ['7g7f', '2g2f', '6g6f', '1g1f', '3g3f', '4g4f', '9g9f']
         book.body[miner.SFEN_START] = miner.PositionInfo([
             miner.MoveInfo(move, 100 - index, 10 if index < 4 else 0)
@@ -203,17 +83,18 @@ class PetaUnsolvedTests(unittest.TestCase):
         board = miner.cshogi.Board()
         board.push_usi('9g9f')
         book.body[miner.trim_sfen_ply(board.sfen())[0]] = miner.PositionInfo([miner.MoveInfo('9c9d', 30, 0)], 2)
+        normal.body[miner.trim_sfen_ply(board.sfen())[0]] = miner.PositionInfo([miner.MoveInfo('9c9d', 30, 0)], 2)
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
              patch.object(miner, 'BOOK_DIR', directory):
             (Path(directory) / 'think_unsolved_sfens.txt').write_text('startpos moves 9g9f\n')
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=normal)
             lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
             self.assertTrue(any(line.startswith('startpos moves 9g9f 9c9d,') for line in lines), lines)
-            book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 401
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            normal.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 401
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=normal)
             self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
-            book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 400
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            normal.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 400
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=normal)
             self.assertIn('startpos moves 9g9f 9c9d,', (Path(directory) / 'think_sfens.txt').read_text())
 
     def test_shallow_best_pv_enqueues_first_unsearched_position(self):
@@ -251,18 +132,20 @@ class PetaUnsolvedTests(unittest.TestCase):
 
     def test_depth_zero_pv_continues_through_flipped_positions_and_respects_limits(self):
         book = miner.Book()
+        normal = miner.Book()
         board = miner.cshogi.Board()
         board.push_usi('7g7f')
         child = miner.trim_sfen(board.sfen())
         book.body[miner.flipped_sfen(child)] = miner.PositionInfo([
             miner.MoveInfo(miner.flipped_move('3c3d'), 400, 0)], 2)
+        normal.body[child] = miner.PositionInfo([miner.MoveInfo('3c3d', 400, 0)], 2)
         with patch.object(miner, 'peta_book', book):
             args = ('startpos', miner.SFEN_START_PLY1, '7g7f', 200)
-            self.assertEqual(miner.peta_pv_leaf_position_cmd(*args, 2, 400),
+            self.assertEqual(miner.peta_pv_leaf_position_cmd(*args, 2, 400, normal),
                              'startpos moves 7g7f 3c3d')
-            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 1, 400))
-            book.body[miner.flipped_sfen(child)].moveinfos[0].eval = 401
-            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 2, 400))
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 1, 400, normal))
+            normal.body[child].moveinfos[0].eval = 401
+            self.assertIsNone(miner.peta_pv_leaf_position_cmd(*args, 2, 400, normal))
 
     def test_duplicate_move_does_not_occupy_multiple_ranks(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):
@@ -305,7 +188,7 @@ class PetaUnsolvedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
              patch.object(miner, 'BOOK_DIR', directory):
             (Path(directory) / 'think_unsolved_sfens.txt').write_text('startpos moves 7g7f 3c3d\n')
-            miner.peta_unsolved((2, 1), eval_limit=400)
+            miner.peta_unsolved((2, 1), eval_limit=400, normal_book=book)
             output = (Path(directory) / 'think_sfens.txt').read_text()
             self.assertIn('startpos moves 2g2f', output)
             self.assertNotIn('startpos moves 7g7f', output)
@@ -322,14 +205,32 @@ class PetaUnsolvedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
              patch.object(miner, 'BOOK_DIR', directory):
             (Path(directory) / 'think_unsolved_sfens.txt').write_text('# 棋譜\nstartpos moves 7g7f 3c3d\n', encoding='utf-8-sig')
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=book)
             text = (Path(directory) / 'think_sfens.txt').read_text()
             self.assertIn('startpos moves 6g6f', text)
             self.assertNotIn('startpos moves 7g7f', text)
             self.assertNotIn('startpos moves 2g2f', text)
             self.assertNotIn('startpos moves 1g1f', text)
             book.body[child].moveinfos[0].eval = 400
-            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400, normal_book=book)
             text = (Path(directory) / 'think_sfens.txt').read_text()
             self.assertIn('startpos moves 7g7f', text)
             self.assertIn('startpos moves 7g7f 3c3d', text)
+
+    def test_normal_book_never_extends_peta_pv(self):
+        peta, normal = miner.Book(), miner.Book()
+        board = miner.cshogi.Board()
+        peta.body[miner.SFEN_START] = miner.PositionInfo([miner.MoveInfo('7g7f', 500, 0)], 1)
+        for move in ('7g7f', '3c3d', '2g2f'):
+            sfen, ply = miner.trim_sfen_ply(board.sfen())
+            normal.body[sfen] = miner.PositionInfo([miner.MoveInfo(move, 0, 99)], ply)
+            board.push_usi(move)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', peta), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos\n')
+            miner.peta_unsolved((1,), eval_limit=400, normal_book=normal)
+            self.assertTrue((root / 'think_sfens.txt').read_text().startswith('startpos moves 7g7f,'))
+            normal.body[miner.SFEN_START].moveinfos[0].eval = 401
+            miner.peta_unsolved((1,), eval_limit=400, normal_book=normal)
+            self.assertEqual((root / 'think_sfens.txt').read_text(), '')

@@ -281,7 +281,7 @@ pj 30 9999 200 6 400
 pu 10,8,6,4 None 200 None 400
 ```
 
-引数は `min_depths`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` の順です。例では、1〜4番目の指し手にそれぞれdepth 10、8、6、4を要求します。`min_depths` の既定値は `10,8,6,4` です。最善手がdepth 0で評価値の絶対値が `eval_limit` を超える局面からは先をたどりません。それ以外の共通引数を省略または `None` 指定した場合は `sd` の値を使います。
+引数は `min_depths`、`max_step`、`game_ply_limit`、`book_extend_ply`、`eval_limit` の順です。例では、1〜4番目の指し手にそれぞれdepth 10、8、6、4を要求します。`min_depths` の既定値は `10,8,6,4` です。PVはpeta bookだけをたどります。peta bookの最善手がdepth 0、またはpeta bookに局面がない場合、通常DBの最善手の評価値の絶対値が `eval_limit` を超える局面からは先をたどりません。それ以外の共通引数を省略または `None` 指定した場合は `sd` の値を使います。
 
 `pu` は `book/think_sfens.txt` を書き出すだけです。書き出し後の `enqueue` は手動で実行してください。
 
