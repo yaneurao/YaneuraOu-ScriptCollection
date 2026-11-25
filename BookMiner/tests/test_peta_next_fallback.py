@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import nullcontext
 import random
 from pathlib import Path
 import sys
@@ -15,6 +16,48 @@ spec.loader.exec_module(miner)
 
 
 class PetaNextFallbackTest(unittest.TestCase):
+    def test_opponent_pv_returning_to_game_history_is_rebased(self):
+        own = miner.Book()
+        board = miner.cshogi.Board()
+        opponent_sfen = miner.trim_sfen(board.sfen())
+        own.body[opponent_sfen] = miner.PositionInfo([miner.MoveInfo('7g7f', 0, 1)], 1)
+        for move, reply in (('5i5h', '5a5b'), ('5a5b', '5h5i'), ('5h5i', '5b5a')):
+            board.push_usi(move)
+            own.body[miner.trim_sfen(board.sfen())] = miner.PositionInfo([miner.MoveInfo(reply, 0, 1)], board.move_number)
+        class Probe:
+            def probe(self, key):
+                if key == opponent_sfen:
+                    return [miner.BookLib.BookMove('5i5h', 'none', 0, 1, 1)]
+                return None
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', own), \
+             patch.object(miner, 'BOOK_DIR', directory), \
+             patch.object(miner, 'collect_opponent_book_paths', return_value=['opponent.ybb']), \
+             patch.object(miner.BookLib, 'open_book_probe', return_value=nullcontext(Probe())):
+            miner.peta_opponent(0, 200, 100, 1)
+            output = (Path(directory) / 'think_sfens.txt').read_text()
+            self.assertIn('sfen ', output)
+            self.assertIn('moves 7g7f', output)
+
+    def test_opponent_uses_flipped_moves_behind_empty_direct_entry(self):
+        board = miner.cshogi.Board()
+        board.push_usi('7g7f')
+        sfen = miner.trim_sfen(board.sfen())
+        flipped = miner.flipped_sfen(sfen)
+        book = miner.Book()
+        book.body[sfen] = miner.PositionInfo([], 2)
+        book.body[flipped] = miner.PositionInfo([miner.MoveInfo(miner.flipped_move('3c3d'), 0, 1)], 2)
+        self.assertEqual(miner.candidate_best_moves_for_sfen(book, sfen, 0), [('3c3d', 0)])
+        move = miner.BookLib.BookMove(miner.flipped_move('3c3d'), 'none', 0, 1, 1)
+        class Probe:
+            def probe(self, key):
+                return [] if key == sfen else [move] if key == flipped else None
+        self.assertEqual(miner.candidate_best_moves_for_probe(Probe(), sfen, 0), [('3c3d', 0)])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'opponent.ybb'
+            miner.BookLib.write_ybb_book({sfen + ' 2': [], flipped + ' 2': [move]}, path)
+            with miner.BookLib.open_book_probe(path) as probe:
+                self.assertEqual(miner.candidate_best_moves_for_probe(probe, sfen, 0), [('3c3d', 0)])
+
     def test_rebased_paths_keep_distinct_eval_widths(self):
         first = 'startpos moves 5i5h 5a5b 5h5i'
         second = 'startpos moves 5i4h 5a5b 4h5i'

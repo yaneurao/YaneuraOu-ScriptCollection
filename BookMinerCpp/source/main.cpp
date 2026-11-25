@@ -3286,10 +3286,14 @@ struct ProbePositionHit {
 
 ProbePositionHit find_probe_position_with_flip(bookminer::BookProbe& probe, const std::string& sfen)
 {
-    if (auto position = probe.find_position_copy(sfen))
-        return {std::move(position), false};
-    if (auto position = probe.find_position_copy(bookminer::flipped_sfen(sfen)))
-        return {std::move(position), true};
+    auto direct = probe.find_position_copy(sfen);
+    if (direct && !direct->moves.empty())
+        return {std::move(direct), false};
+    auto flipped = probe.find_position_copy(bookminer::flipped_sfen(sfen));
+    if (flipped && !flipped->moves.empty())
+        return {std::move(flipped), true};
+    if (direct) return {std::move(direct), false};
+    if (flipped) return {std::move(flipped), true};
     return {};
 }
 
@@ -3464,7 +3468,7 @@ std::string peta_opponent(
                         add_position_command_entry(
                             think_sfens,
                             think_indexes,
-                            *leaf,
+                            unsolved_rebase_repeated_path(*leaf),
                             book_extend_ply,
                             eval_limit,
                             max_book_ply);

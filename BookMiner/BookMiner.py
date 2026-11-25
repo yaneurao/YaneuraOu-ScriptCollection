@@ -4138,7 +4138,7 @@ def candidate_best_moves_from_moveinfos(moveinfos:list[MoveInfo], flipped_bookhi
 
 
 def candidate_best_moves_for_sfen(book:Book, sfen:Sfen, eval_diff:int)->list[tuple[MoveStr, int]]:
-    position_info, flipped_bookhit = find_book_position_with_flip(book, sfen)
+    position_info, flipped_bookhit = find_peta_position_with_flip(book, sfen)
     if position_info is None:
         return []
     return candidate_best_moves_from_moveinfos(position_info.moveinfos, flipped_bookhit, eval_diff)
@@ -4146,14 +4146,13 @@ def candidate_best_moves_for_sfen(book:Book, sfen:Sfen, eval_diff:int)->list[tup
 
 def find_probe_moves_with_flip(probe:BookLib.BookProbe, sfen:Sfen)->tuple[list[BookLib.BookMove] | None, bool]:
     moves = probe.probe(sfen)
-    if moves is not None:
+    if moves:
         return moves, False
 
-    moves = probe.probe(flipped_sfen(sfen))
-    if moves is not None:
-        return moves, True
-
-    return None, False
+    flipped = probe.probe(flipped_sfen(sfen))
+    if flipped:
+        return flipped, True
+    return (moves, False) if moves is not None else (flipped, flipped is not None)
 
 
 def candidate_best_moves_for_probe(probe:BookLib.BookProbe, sfen:Sfen, eval_diff:int)->list[tuple[MoveStr, int]]:
@@ -4329,7 +4328,7 @@ def peta_opponent(
                             eval_limit,
                         )
                         if leaf_position_cmd is not None:
-                            add_position_command_entry(think_sfens, leaf_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                            add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf_position_cmd), book_extend_ply, eval_limit, max_book_ply)
                             leaf_nodes += 1
                         break
 

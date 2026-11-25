@@ -288,6 +288,27 @@ int main(int argc, char** argv)
         if (text.find("5i5h 5a5b 5h5i 5b4b 5i5h 4b5a 5h4h") == std::string::npos)
             throw std::runtime_error("opponent game mistook a flipped position for repetition");
         result.close();
+        bookminer::BookStore own_book, opponent_book;
+        board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        opponent_book.merge_position(board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("5i5h"), 0, 1}});
+        own_book.merge_position(board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 0, 1}});
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"})
+        {
+            board.push_usi(move);
+            if (std::string_view(move) == "5i5h")
+                own_book.merge_position(board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("5a5b"), 0, 1}});
+            else if (std::string_view(move) == "5a5b")
+                own_book.merge_position(board.sfen_with_ply(), 3, {{bookminer::move16_from_usi("5h5i"), 0, 1}});
+            else if (std::string_view(move) == "5h5i")
+                own_book.merge_position(board.sfen_with_ply(), 4, {{bookminer::move16_from_usi("5b5a"), 0, 1}});
+        }
+        opponent_book.save_yaneuraou_book("book/book_opponent/opponent.db", std::nullopt, nullptr, nullptr);
+        (void)peta_opponent(own_book, 0, 200, 100, 1, std::nullopt);
+        std::ifstream pv_result("book/think_sfens.txt");
+        const std::string pv_text((std::istreambuf_iterator<char>(pv_result)), {});
+        pv_result.close();
+        if (pv_text.find("sfen ") == std::string::npos || pv_text.find("moves 7g7f") == std::string::npos)
+            throw std::runtime_error("opponent PV returned to game history without rebasing");
         bookminer::BookStore cycle;
         board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"})
@@ -341,6 +362,15 @@ int main(int argc, char** argv)
             throw std::runtime_error("peta refutation ignored an empty child");
         const auto flipped = bookminer::flipped_sfen(board.sfen());
         normal.merge_position(flipped, 2, {{bookminer::flipped_move16(bookminer::move16_from_usi("3c3d")), 0, 0}});
+        struct MemoryProbe : bookminer::BookProbe {
+            bookminer::BookStore& book;
+            explicit MemoryProbe(bookminer::BookStore& source) : book(source) {}
+            std::optional<bookminer::PositionInfo> find_position_copy(const std::string& sfen) override
+            { return book.find_position_copy(sfen); }
+        } probe(normal);
+        const auto opponent_moves = candidate_best_moves_for_probe(probe, board.sfen(), 0);
+        if (opponent_moves.size() != 1 || opponent_moves.front().move != "3c3d")
+            throw std::runtime_error("opponent probe ignored explored flipped entry behind an empty one");
         if (!peta_leaf_rejoins_peta_book(normal, bookminer::StartSfenPly1))
             throw std::runtime_error("peta rejoin missed an explored flipped child behind an empty entry");
         const auto hit = find_considered_book_position_with_flip(normal, board.sfen());
