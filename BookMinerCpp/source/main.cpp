@@ -2813,9 +2813,10 @@ std::string peta_unsolved(
     std::size_t input_games = 0;
     std::size_t processed_prefixes = 0;
     std::size_t candidates = 0;
+    std::size_t game_candidates = 0;
     std::size_t stopped_by_eval_limit = 0;
     std::size_t skipped_by_ply = 0;
-    std::size_t skipped_no_peta = 0;
+    std::size_t missing_peta = 0;
     std::size_t skipped_no_leaf = 0;
 
     std::string raw_line;
@@ -2835,12 +2836,14 @@ std::string peta_unsolved(
             continue;
 
         ++input_games;
+        const auto game_moves = bookminer::parse_position_command(position_line).moves;
         const auto prefixes = position_prefixes(position_line);
         if (prefixes.empty())
             continue;
 
-        for (const auto& [prefix_command, prefix_sfen_with_ply] : prefixes)
+        for (std::size_t prefix_index = 0; prefix_index < prefixes.size(); ++prefix_index)
         {
+            const auto& [prefix_command, prefix_sfen_with_ply] = prefixes[prefix_index];
             ++processed_prefixes;
             if (processed_prefixes % PetaUnsolvedProgressInterval == 0)
             {
@@ -2848,7 +2851,7 @@ std::string peta_unsolved(
                     + " , think_sfens = " + std::to_string(think_sfens.size())
                     + " , stopped_by_eval_limit = " + std::to_string(stopped_by_eval_limit)
                     + " , skipped_by_ply = " + std::to_string(skipped_by_ply)
-                    + " , skipped_no_peta = " + std::to_string(skipped_no_peta));
+                    + " , missing_peta = " + std::to_string(missing_peta));
             }
 
             const auto [prefix_sfen, prefix_ply] = bookminer::trim_sfen_ply(prefix_sfen_with_ply);
@@ -2859,24 +2862,42 @@ std::string peta_unsolved(
             }
 
             const auto hit = find_peta_position_with_flip(peta_book, prefix_sfen);
+            std::unordered_set<std::uint16_t> candidate_moves;
             if (hit.position == nullptr || hit.position->moves.empty())
             {
-                ++skipped_no_peta;
-                continue;
+                ++missing_peta;
+                append_unique_position_command(think_sfens, think_seen, prefix_command);
             }
-            const auto& moves = hit.position->moves;
-            const auto& best = moves.front();
-            if (best.depth == 0 && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
+            else
             {
-                ++stopped_by_eval_limit;
-                break;
+                const auto& moves = hit.position->moves;
+                const auto& best = moves.front();
+                if (best.depth == 0 && eval_limit && std::abs(static_cast<int>(best.eval)) > *eval_limit)
+                {
+                    ++stopped_by_eval_limit;
+                    break;
+                }
+                for (std::size_t i = 0; i < std::min(moves.size(), min_depths.size()); ++i)
+                {
+                    if (static_cast<int>(moves[i].depth) >= min_depths[i])
+                        continue;
+                    ++candidates;
+                    const auto move = hit.flipped ? bookminer::flipped_move16(moves[i].move16) : moves[i].move16;
+                    candidate_moves.insert(move);
+                    const auto leaf = peta_pv_leaf_position_command(
+                        peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit);
+                    if (!leaf)
+                        ++skipped_no_leaf;
+                    else
+                        append_unique_position_command(think_sfens, think_seen, *leaf);
+                }
             }
-            for (std::size_t i = 0; i < std::min(moves.size(), min_depths.size()); ++i)
+            if (prefix_index < game_moves.size())
             {
-                if (static_cast<int>(moves[i].depth) >= min_depths[i])
+                const auto move = bookminer::move16_from_usi(game_moves[prefix_index]);
+                if (candidate_moves.contains(move))
                     continue;
-                ++candidates;
-                const auto move = hit.flipped ? bookminer::flipped_move16(moves[i].move16) : moves[i].move16;
+                ++game_candidates;
                 const auto leaf = peta_pv_leaf_position_command(
                     peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit);
                 if (!leaf)
@@ -2899,9 +2920,10 @@ std::string peta_unsolved(
         + " input_games=" + std::to_string(input_games)
         + " processed_prefixes=" + std::to_string(processed_prefixes)
         + " candidates=" + std::to_string(candidates)
+        + " game_candidates=" + std::to_string(game_candidates)
         + " stopped_by_eval_limit=" + std::to_string(stopped_by_eval_limit)
         + " skipped_by_ply=" + std::to_string(skipped_by_ply)
-        + " skipped_no_peta=" + std::to_string(skipped_no_peta)
+        + " missing_peta=" + std::to_string(missing_peta)
         + " skipped_no_leaf=" + std::to_string(skipped_no_leaf);
 }
 

@@ -203,6 +203,37 @@ int main(int argc, char** argv)
         if (second_text.find("startpos moves 2g2f") == std::string::npos
             || second_text.find("startpos moves 7g7f") != std::string::npos)
             throw std::runtime_error("unsolved eval cutoff did not respect best move depth");
+        second_result.close();
+        bookminer::BookStore seventh;
+        seventh.merge_position(bookminer::StartSfenPly1, 1, {
+            {bookminer::move16_from_usi("7g7f"), 100, 10},
+            {bookminer::move16_from_usi("2g2f"), 99, 10},
+            {bookminer::move16_from_usi("6g6f"), 98, 10},
+            {bookminer::move16_from_usi("1g1f"), 97, 10},
+            {bookminer::move16_from_usi("3g3f"), 96, 0},
+            {bookminer::move16_from_usi("4g4f"), 95, 0},
+            {bookminer::move16_from_usi("9g9f"), 94, 0},
+        });
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 9g9f 9c9d\n"; }
+        (void)peta_unsolved(seventh, {10, 8, 6, 4}, 200, 9999, 20, 400);
+        std::ifstream seventh_result("book/think_sfens.txt");
+        const std::string seventh_text((std::istreambuf_iterator<char>(seventh_result)), {});
+        if (seventh_text.find("startpos moves 9g9f,") == std::string::npos
+            || seventh_text.find("startpos moves 9g9f 9c9d,") == std::string::npos
+            || seventh_text.find("book_extend_ply=20") == std::string::npos)
+            throw std::runtime_error("unsolved skipped game positions after the seventh-ranked move");
+        seventh_result.close();
+        auto seventh_child = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        seventh_child.push_usi("9g9f");
+        seventh.merge_position(seventh_child.sfen_with_ply(), 2, {
+            {bookminer::move16_from_usi("9c9d"), 30, 0}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 9g9f\n"; }
+        (void)peta_unsolved(seventh, {10, 8, 6, 4}, 200, 9999, 20, 400);
+        std::ifstream registered_result("book/think_sfens.txt");
+        const std::string registered_text((std::istreambuf_iterator<char>(registered_result)), {});
+        if (registered_text.find("startpos moves 9g9f,") == std::string::npos)
+            throw std::runtime_error("unsolved skipped the seventh game move with a registered child");
+        registered_result.close();
         std::filesystem::current_path(old_cwd);
     }
     {

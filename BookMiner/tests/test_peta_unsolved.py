@@ -13,6 +13,45 @@ spec.loader.exec_module(miner)
 
 
 class PetaUnsolvedTests(unittest.TestCase):
+    def test_game_move_below_rank_threshold_enqueues_missing_game_positions(self):
+        book = miner.Book()
+        moves = ['7g7f', '2g2f', '6g6f', '1g1f', '3g3f', '4g4f', '9g9f']
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo(move, 100 - index, 10 if index < 4 else 0)
+            for index, move in enumerate(moves)], 1)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            root = Path(directory)
+            (root / 'think_unsolved_sfens.txt').write_text('startpos moves 9g9f 9c9d\n')
+            miner.peta_unsolved((10, 8, 6, 4), book_extend_ply=20, eval_limit=400)
+            lines = (root / 'think_sfens.txt').read_text().splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertTrue(lines[0].startswith('startpos moves 9g9f,'))
+            self.assertTrue(lines[1].startswith('startpos moves 9g9f 9c9d,'))
+            self.assertTrue(all('book_extend_ply=20' in line for line in lines))
+
+    def test_seventh_game_move_is_used_even_when_child_is_in_peta(self):
+        book = miner.Book()
+        moves = ['7g7f', '2g2f', '6g6f', '1g1f', '3g3f', '4g4f', '9g9f']
+        book.body[miner.SFEN_START] = miner.PositionInfo([
+            miner.MoveInfo(move, 100 - index, 10 if index < 4 else 0)
+            for index, move in enumerate(moves)], 1)
+        board = miner.cshogi.Board()
+        board.push_usi('9g9f')
+        book.body[miner.trim_sfen_ply(board.sfen())[0]] = miner.PositionInfo([miner.MoveInfo('9c9d', 30, 0)], 2)
+        with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'peta_book', book), \
+             patch.object(miner, 'BOOK_DIR', directory):
+            (Path(directory) / 'think_unsolved_sfens.txt').write_text('startpos moves 9g9f\n')
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            lines = (Path(directory) / 'think_sfens.txt').read_text().splitlines()
+            self.assertTrue(any(line.startswith('startpos moves 9g9f,') for line in lines), lines)
+            book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 401
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            self.assertEqual((Path(directory) / 'think_sfens.txt').read_text(), '')
+            book.body[miner.trim_sfen_ply(board.sfen())[0]].moveinfos[0].eval = 400
+            miner.peta_unsolved((10, 8, 6, 4), eval_limit=400)
+            self.assertIn('startpos moves 9g9f,', (Path(directory) / 'think_sfens.txt').read_text())
+
     def test_duplicate_move_does_not_occupy_multiple_ranks(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(miner, 'BOOK_DIR', directory):
             root = Path(directory)

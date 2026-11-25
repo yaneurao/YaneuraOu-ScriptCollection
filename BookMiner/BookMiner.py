@@ -3886,9 +3886,10 @@ def peta_unsolved(
     processed_prefixes = 0
     input_games = 0
     candidates = 0
+    game_candidates = 0
     stopped_by_eval_limit = 0
     skipped_by_ply = 0
-    skipped_no_peta = 0
+    missing_peta = 0
     skipped_no_leaf = 0
 
     with open(unsolved_sfens_path, 'r', encoding='utf-8-sig') as f:
@@ -3898,7 +3899,8 @@ def peta_unsolved(
                 continue
 
             input_games += 1
-            for prefix_position_cmd, prefix_sfen_with_ply in iter_position_prefixes(position_line):
+            _, game_moves = parse_position_string(position_line)
+            for prefix_index, (prefix_position_cmd, prefix_sfen_with_ply) in enumerate(iter_position_prefixes(position_line)):
                 processed_prefixes += 1
                 if processed_prefixes % PETA_UNSOLVED_PROGRESS_INTERVAL == 0:
                     print(
@@ -3906,7 +3908,7 @@ def peta_unsolved(
                         f"think_sfens = {len(think_sfens)} , "
                         f"stopped_by_eval_limit = {stopped_by_eval_limit} , "
                         f"skipped_by_ply = {skipped_by_ply} , "
-                        f"skipped_no_peta = {skipped_no_peta}"
+                        f"missing_peta = {missing_peta}"
                     )
 
                 prefix_sfen, prefix_ply = trim_sfen_ply(prefix_sfen_with_ply)
@@ -3915,18 +3917,34 @@ def peta_unsolved(
                     continue
 
                 position, flipped = find_peta_position_with_flip(peta_book, prefix_sfen)
+                candidate_moves : set[str] = set()
                 if position is None or not position.moveinfos:
-                    skipped_no_peta += 1
-                    continue
-                best = position.moveinfos[0]
-                if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
-                    stopped_by_eval_limit += 1
-                    break
-                for moveinfo, minimum in zip(position.moveinfos, min_depths):
-                    if moveinfo.depth >= minimum:
+                    missing_peta += 1
+                    add_position_command_entry(think_sfens, prefix_position_cmd, book_extend_ply, eval_limit, max_book_ply)
+                else:
+                    best = position.moveinfos[0]
+                    if best.depth == 0 and eval_limit is not None and abs(best.eval) > eval_limit:
+                        stopped_by_eval_limit += 1
+                        break
+                    for moveinfo, minimum in zip(position.moveinfos, min_depths):
+                        if moveinfo.depth >= minimum:
+                            continue
+                        candidates += 1
+                        move = moveinfo_move_in_sfen_orientation(moveinfo, flipped)
+                        candidate_moves.add(move)
+                        leaf = peta_pv_leaf_position_cmd(
+                            prefix_position_cmd, prefix_sfen_with_ply, move,
+                            max_book_ply, max_step, eval_limit,
+                        )
+                        if leaf is None:
+                            skipped_no_leaf += 1
+                        else:
+                            add_position_command_entry(think_sfens, leaf, book_extend_ply, eval_limit, max_book_ply)
+                if prefix_index < len(game_moves):
+                    move = game_moves[prefix_index]
+                    if move in candidate_moves:
                         continue
-                    candidates += 1
-                    move = moveinfo_move_in_sfen_orientation(moveinfo, flipped)
+                    game_candidates += 1
                     leaf = peta_pv_leaf_position_cmd(
                         prefix_position_cmd, prefix_sfen_with_ply, move,
                         max_book_ply, max_step, eval_limit,
@@ -3944,8 +3962,8 @@ def peta_unsolved(
     print(
         f"[PetaUnsolvedDone] path={path} count={len(think_sfens)} "
         f"input_games={input_games} processed_prefixes={processed_prefixes} "
-        f"candidates={candidates} stopped_by_eval_limit={stopped_by_eval_limit} "
-        f"skipped_by_ply={skipped_by_ply} skipped_no_peta={skipped_no_peta} "
+        f"candidates={candidates} game_candidates={game_candidates} stopped_by_eval_limit={stopped_by_eval_limit} "
+        f"skipped_by_ply={skipped_by_ply} missing_peta={missing_peta} "
         f"skipped_no_leaf={skipped_no_leaf}"
     )
 
