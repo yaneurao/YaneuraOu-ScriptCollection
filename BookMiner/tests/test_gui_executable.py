@@ -335,6 +335,63 @@ class GuiExecutableTests(unittest.TestCase):
         gui.BookMinerGui._update_buttons(instance)
         instance.next_button.configure.assert_any_call(state='disabled')
 
+    def test_unsolved_button_changes_to_cancel_while_running(self):
+        for auto in (False, True):
+            with self.subTest(auto=auto):
+                instance = Mock()
+                instance.is_running.return_value = True
+                instance.command_ready = True
+                instance.busy_action = 'auto_enqueue' if auto else 'manual_peta_unsolved'
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if auto else gui.AUTO_ENQUEUE_IDLE
+                instance.auto_current_step2 = gui.AUTO_STEP2_PETA_UNSOLVED
+                instance.enqueue_pending = False
+                instance.manual_backup_pending = False
+                instance.peta_makebook_active = False
+                instance.peta_unsolved_cancel_pending = False
+                gui.BookMinerGui._update_buttons(instance)
+                instance.unsolved_button.configure.assert_any_call(text='cancel')
+                instance.unsolved_button.configure.assert_any_call(state='normal')
+                instance.unsolved_button.reset_mock()
+                instance.peta_unsolved_cancel_pending = True
+                gui.BookMinerGui._update_buttons(instance)
+                instance.unsolved_button.configure.assert_any_call(state='disabled')
+
+    def test_unsolved_button_cancels_manual_and_automatic_once(self):
+        for auto in (False, True):
+            with self.subTest(auto=auto):
+                instance = Mock()
+                instance.busy_action = 'auto_enqueue' if auto else 'manual_peta_unsolved'
+                instance.auto_enqueue_state = gui.AUTO_ENQUEUE_NEXT if auto else gui.AUTO_ENQUEUE_IDLE
+                instance.auto_current_step2 = gui.AUTO_STEP2_PETA_UNSOLVED
+                instance.peta_unsolved_cancel_pending = False
+                instance.send_command.return_value = True
+                gui.BookMinerGui.on_peta_unsolved_button(instance)
+                gui.BookMinerGui.on_peta_unsolved_button(instance)
+                instance.send_command.assert_called_once_with('cancel-peta-unsolved')
+                self.assertTrue(instance.peta_unsolved_cancel_pending)
+                gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaUnsolvedCancelled]')
+                self.assertFalse(instance.peta_unsolved_cancel_pending)
+                if auto:
+                    instance._abort_auto_enqueue.assert_called_once()
+                else:
+                    self.assertIsNone(instance.busy_action)
+
+    def test_unsolved_progress_is_in_peta_log(self):
+        instance = Mock()
+        self.assertEqual(gui.BookMinerGui._classify_log_line(instance, '[PetaUnsolvedProgress] lines=20'), 'peta')
+
+    def test_unsolved_cancel_does_not_clear_manual_backup(self):
+        instance = Mock()
+        instance.busy_action = 'manual_peta_unsolved'
+        instance.auto_enqueue_state = gui.AUTO_ENQUEUE_IDLE
+        instance.manual_backup_pending = True
+        instance.manual_backup_cancel_pending = True
+        instance.peta_unsolved_cancel_pending = True
+        gui.BookMinerGui._handle_auto_enqueue_line(instance, '[PetaUnsolvedCancelled]')
+        self.assertTrue(instance.manual_backup_pending)
+        self.assertTrue(instance.manual_backup_cancel_pending)
+        self.assertIsNone(instance.busy_action)
+
     def test_cancel_peta_next_button_sends_cancel_once(self):
         instance = Mock()
         instance.busy_action = 'manual_peta_next'

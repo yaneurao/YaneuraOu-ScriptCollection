@@ -186,13 +186,15 @@ startpos moves 7g7f 3c3d 2g2f 8c8d 2f2e
 | `startpos moves 7g7f 3c3d 2g2f 8c8d` | 4手進めた局面 |
 | `startpos moves 7g7f 3c3d 2g2f 8c8d 2f2e` | 5手進めた局面 |
 
-各局面では、peta bookの指し手を評価値順に調べ、指定した最低depthに満たない指し手のPV leafを `book/think_sfens.txt` に書き出します。GUIの `min_depths` が `10,8,6,4` なら、1番目はdepth 10、2番目は8、3番目は6、4番目は4が最低値です。数値は必要な個数をカンマ区切りで指定できます。depthがちょうど最低値の場合は、この条件では対象になりません。
+各局面では、peta bookの指し手を評価値順に調べ、指定した最低depthに満たない指し手のPV leafを `book/think_sfens.txt` に書き出します。GUIの `min_depths` が `10,8,6,4` なら、1番目はdepth 10、2番目は8、3番目は6、4番目は4が最低値です。数値は必要な個数をカンマ区切りで指定できます。depthがちょうど最低値以上の手はPVをたどりません。同じ評価値の手はdepthが短い順に扱い、PVの途中で同評価のbestmoveが複数ある場合も、depthが最も短い1手だけをたどります。
 
-これとは別に、**棋譜で実際に指された手は、peta bookでの順位やdepthに関係なく**その先のPV leafを対象にします。たとえば棋譜の手が7番目でも、`10,8,6,4` の指定で除外されません。同じ手順は重複して書き出しません。
+これとは別に、**棋譜で実際に指された手は、peta bookでの順位に関係なく棋譜どおりに進めます。** たとえば棋譜の手が7番目でも、その手を指した次の局面を調べます。その局面でも上位手を同じ最低depthで判定します。棋譜手そのものから、順位とdepthを無視してPVを別途たどることはありません。同じ手順は重複して書き出しません。
 
 peta unsolvedでは、候補手の順位・depthとPVの追跡に**peta bookだけ**を使います。指し手の後はpeta bookの最善手をたどり、peta bookに局面がなければ、通常DBにその先があってもそこで採掘対象にします。棋譜上の局面自体がpeta bookにない場合も、その局面を採掘対象にします。通常DBの指し手や探索depthは、順位の選択やPVの追跡には使いません。
 
-棋譜やPVをたどる途中で、peta bookの最善手のdepthが0、またはpeta bookに局面がない場合は、通常DBの最善手の評価値を調べます。その絶対値が `eval_limit` を超えていれば、そこで打ち切ります。peta bookの最善手のdepthが0より大きい場合は、この評価値による打ち切りを行いません。通常DBに局面がない場合も、評価値による打ち切りは行いません。通常DBはこの判定にだけ使います。
+棋譜上の各局面では、peta bookのdepthに関係なく、最初に通常DBの最善手の評価値を調べます。その絶対値が `eval_limit` を超えていれば、その棋譜の残りを打ち切ります。
+
+PVをたどる途中では、peta bookの最善手のdepthが0、またはpeta bookに局面がない場合に通常DBの最善手の評価値を調べ、その絶対値が `eval_limit` を超えていればPVを打ち切ります。いずれの場合も通常DBに局面がなければ評価値による打ち切りは行いません。通常DBはこの判定にだけ使います。
 
 GUIでは `peta unsolved`、CLIでは `pu` コマンドです。
 
@@ -201,6 +203,10 @@ pu 10,8,6,4 99999 200 6 400
 ```
 
 引数は `min_depths max_step game_ply_limit book_extend_ply eval_limit` の順です。`min_depths` を省略または `None` とした場合は `10,8,6,4` を使います。ほかの引数で `None` を指定した場合は共通設定を使います。
+
+実行中は petaログに `[PetaUnsolvedProgress]` が約2秒ごとに表示され、処理段階 `phase`（`scan` / `normal_db_wait` / `write`）、読み込んだ行数 `lines`、棋譜数 `games`、処理局面数 `prefixes`、上位手の候補数 `ranked_candidates`、棋譜の手で進んだ局面数 `game_positions`、PV走査回数 `pv_walks`、検出した循環数 `cycles`、出力候補数 `output`、書き出し済み件数 `written`、現在のPVの手数 `pv_step` を確認できます。
+
+実行中は `peta unsolved` ボタンが `cancel` に変わります。キャンセルすると途中結果は反映せず、元の `think_sfens.txt` を残します。自動enqueue中なら自動enqueueも停止します。CLIでは `cancel-peta-unsolved` を送ります。
 
 `peta unsolved` は `book/think_sfens.txt` を書き出すだけで、自動的には enqueue しません。負けた棋譜の変化周辺を確認してから、手動で `enqueue` します。
 

@@ -69,7 +69,7 @@ constexpr int DefaultStep2EvalDiff = 30;
 constexpr int DefaultStep2MaxStep = 99999;
 constexpr int PetaRejoinEvalDropDisabled = -9999;
 constexpr std::size_t PetaRefutationProgressInterval = 100000;
-constexpr std::size_t PetaUnsolvedProgressInterval = 100000;
+constexpr auto PetaUnsolvedProgressInterval = std::chrono::seconds(2);
 constexpr std::size_t PetaOpponentProgressInterval = 100000;
 constexpr const char* BookOpponentDir = "book/book_opponent";
 
@@ -2729,18 +2729,44 @@ std::string peta_rejoin(
         + " rejoin_nodes=" + std::to_string(stats.rejoin_nodes);
 }
 
-bool unsolved_normal_cut_by_eval_limit(const std::string& sfen, const bookminer::PositionInfo* peta_position,
-    std::optional<int> eval_limit,
-    const bookminer::BookStore* normal_book)
+const bookminer::MoveInfo& unsolved_best_move(const bookminer::PositionInfo& position)
 {
-    // peta unsolvedのPV・depthはpeta DBのみ。通常DBはeval_limit判定だけに使う。
+    return *std::max_element(position.moves.begin(), position.moves.end(), [](const auto& lhs, const auto& rhs) {
+        if (lhs.eval != rhs.eval) return lhs.eval < rhs.eval;
+        return lhs.depth > rhs.depth;
+    });
+}
+
+bool unsolved_normal_eval_exceeds(const std::string& sfen, std::optional<int> eval_limit,
+    const bookminer::BookStore* normal_book, const std::atomic<bool>* cancelled = nullptr,
+    const std::function<void(int)>& progress = {})
+{
     if (!eval_limit || !normal_book) return false;
-    if (peta_position && !peta_position->moves.empty() && peta_position->moves.front().depth != 0)
-        return false;
-    const auto normal = find_considered_book_position_with_flip(*normal_book, sfen);
-    if (!has_considered(normal.position)) return false;
-    const auto best = get_best(*normal.position);
+    const auto key = bookminer::PackedSfen::from_sfen(sfen);
+    std::optional<bookminer::PositionInfo> normal;
+    bool waited = false;
+    while (!normal_book->try_find_considered_position(key, normal))
+    {
+        check_peta_next_cancel(cancelled);
+        waited = true;
+        if (progress) progress(-2);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    check_peta_next_cancel(cancelled);
+    if (waited && progress) progress(-3);
+    if (!normal) return false;
+    const auto best = get_best(*normal);
     return best && std::abs(best->first) > *eval_limit;
+}
+
+bool unsolved_normal_cut_by_eval_limit(const std::string& sfen, const bookminer::PositionInfo* peta_position,
+    std::optional<int> eval_limit, const bookminer::BookStore* normal_book,
+    const std::atomic<bool>* cancelled = nullptr, const std::function<void(int)>& progress = {})
+{
+    // PV上ではpetaの最善手がdepth 0のときだけ通常DBの評価値を判定する。
+    if (peta_position && !peta_position->moves.empty() && unsolved_best_move(*peta_position).depth != 0)
+        return false;
+    return unsolved_normal_eval_exceeds(sfen, eval_limit, normal_book, cancelled, progress);
 }
 
 std::optional<std::string> peta_pv_leaf_position_command(
@@ -2751,7 +2777,10 @@ std::optional<std::string> peta_pv_leaf_position_command(
     int max_book_ply,
     int max_step = PetaDefaultMaxStep,
     std::optional<int> eval_limit = std::nullopt,
-    const bookminer::BookStore* normal_book = nullptr)
+    const bookminer::BookStore* normal_book = nullptr,
+    const std::atomic<bool>* cancelled = nullptr,
+    const std::function<void(int)>& progress = {},
+    const std::function<void()>& on_cycle = {})
 {
     if (max_step <= 0)
         return std::nullopt;
@@ -2775,20 +2804,25 @@ std::optional<std::string> peta_pv_leaf_position_command(
 
     while (true)
     {
+        check_peta_next_cancel(cancelled);
+        if (progress) progress(step);
         const auto [current_sfen, current_ply] = bookminer::trim_sfen_ply(next_sfen_with_ply);
         if (current_ply >= max_book_ply)
             return std::nullopt;
         if (visited_peta_position(visited, current_sfen))
+        {
+            if (on_cycle) on_cycle();
             return std::nullopt;
+        }
         visited.insert(bookminer::PackedSfen::from_sfen(current_sfen));
 
         const auto hit = find_peta_position_with_flip(peta_book, current_sfen);
-        if (unsolved_normal_cut_by_eval_limit(current_sfen, hit.position, eval_limit, normal_book))
+        if (unsolved_normal_cut_by_eval_limit(current_sfen, hit.position, eval_limit, normal_book, cancelled, progress))
             return std::nullopt;
         if (hit.position == nullptr || hit.position->moves.empty())
             return leaf_position_command;
 
-        const auto& best = hit.position->moves.front();
+        const auto& best = unsolved_best_move(*hit.position);
         if (step >= max_step)
             return std::nullopt;
 
@@ -2808,7 +2842,9 @@ std::optional<std::string> peta_pv_leaf_position_command(
     }
 }
 
-std::string unsolved_rebase_repeated_path(const std::string& position_command)
+std::string unsolved_rebase_repeated_path(const std::string& position_command,
+                                          const std::atomic<bool>* cancelled = nullptr,
+                                          const std::function<void(int)>& progress = {})
 {
     const auto parsed = bookminer::parse_position_command(position_command);
     auto board = bookminer::SfenPosition::from_sfen(parsed.start_sfen_with_ply);
@@ -2817,6 +2853,8 @@ std::string unsolved_rebase_repeated_path(const std::string& position_command)
     std::optional<std::string> rebased;
     for (const auto& move : parsed.moves)
     {
+        check_peta_next_cancel(cancelled);
+        if (progress) progress(-1);
         board.push_usi(move);
         const auto key = bookminer::PackedSfen::from_sfen(board.sfen());
         if (!seen.insert(key).second)
@@ -2838,7 +2876,8 @@ std::string peta_unsolved(
     int max_step,
     std::optional<int> book_extend_ply,
     std::optional<int> eval_limit,
-    const bookminer::BookStore* normal_book = nullptr)
+    const bookminer::BookStore* normal_book = nullptr,
+    const std::atomic<bool>* cancelled = nullptr)
 {
     const fs::path input_path = fs::path(BookDir) / ThinkUnsolvedSfensName;
     std::string depths_text;
@@ -2865,16 +2904,48 @@ std::string peta_unsolved(
     std::size_t input_games = 0;
     std::size_t processed_prefixes = 0;
     std::size_t candidates = 0;
-    std::size_t game_candidates = 0;
+    std::size_t game_positions = 0;
+    std::size_t pv_walks = 0;
+    std::size_t cycles = 0;
     std::size_t stopped_by_eval_limit = 0;
     std::size_t skipped_by_ply = 0;
     std::size_t missing_peta = 0;
     std::size_t skipped_no_leaf = 0;
+    std::size_t input_lines = 0;
+    int current_pv_step = 0;
+    std::size_t written = 0;
+    const char* phase = "scan";
+    const auto started = std::chrono::steady_clock::now();
+    auto last_progress = started;
+    auto progress = [&](int pv_step) {
+        check_peta_next_cancel(cancelled);
+        if (pv_step >= 0) current_pv_step = pv_step;
+        else if (pv_step == -2) phase = "normal_db_wait";
+        else if (pv_step == -3) phase = "scan";
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_progress < PetaUnsolvedProgressInterval) return;
+        last_progress = now;
+        log_line("[PetaUnsolvedProgress] phase=" + std::string(phase)
+            + " lines=" + std::to_string(input_lines)
+            + " games=" + std::to_string(input_games)
+            + " prefixes=" + std::to_string(processed_prefixes)
+            + " ranked_candidates=" + std::to_string(candidates)
+            + " game_positions=" + std::to_string(game_positions)
+            + " pv_walks=" + std::to_string(pv_walks)
+            + " cycles=" + std::to_string(cycles)
+            + " output=" + std::to_string(think_sfens.size())
+            + " written=" + std::to_string(written)
+            + " pv_step=" + std::to_string(current_pv_step)
+            + " elapsed_seconds=" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now - started).count()));
+    };
+    log_line("[PetaUnsolvedProgress] phase=scan lines=0 games=0 prefixes=0 ranked_candidates=0 game_positions=0 pv_walks=0 cycles=0 output=0 written=0 pv_step=0 elapsed_seconds=0");
 
     std::string raw_line;
     bool first_line = true;
     while (std::getline(input, raw_line))
     {
+        ++input_lines;
+        progress(-1);
         if (first_line && raw_line.size() >= 3
             && static_cast<unsigned char>(raw_line[0]) == 0xef
             && static_cast<unsigned char>(raw_line[1]) == 0xbb
@@ -2902,16 +2973,17 @@ std::string peta_unsolved(
             }
             const auto prefix_sfen_with_ply = board.sfen_with_ply();
             ++processed_prefixes;
-            if (processed_prefixes % PetaUnsolvedProgressInterval == 0)
-            {
-                log_line("unsolved progress prefixes = " + std::to_string(processed_prefixes)
-                    + " , think_sfens = " + std::to_string(think_sfens.size())
-                    + " , stopped_by_eval_limit = " + std::to_string(stopped_by_eval_limit)
-                    + " , skipped_by_ply = " + std::to_string(skipped_by_ply)
-                    + " , missing_peta = " + std::to_string(missing_peta));
-            }
+            if (prefix_index > 0) ++game_positions;
+            current_pv_step = 0;
+            progress(-1);
 
             const auto [prefix_sfen, prefix_ply] = bookminer::trim_sfen_ply(prefix_sfen_with_ply);
+            // 棋譜上の局面はpetaのdepthに関係なく通常DBの評価値で打ち切る。
+            if (unsolved_normal_eval_exceeds(prefix_sfen, eval_limit, normal_book, cancelled, progress))
+            {
+                ++stopped_by_eval_limit;
+                break;
+            }
             if (prefix_ply >= max_book_ply)
             {
                 ++skipped_by_ply;
@@ -2919,59 +2991,56 @@ std::string peta_unsolved(
             }
 
             const auto hit = find_peta_position_with_flip(peta_book, prefix_sfen);
-            std::unordered_set<std::uint16_t> candidate_moves;
-            if (unsolved_normal_cut_by_eval_limit(prefix_sfen, hit.position, eval_limit, normal_book))
-            {
-                ++stopped_by_eval_limit;
-                break;
-            }
             if (hit.position == nullptr || hit.position->moves.empty())
             {
                 ++missing_peta;
-                append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(prefix_command));
+                append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(prefix_command, cancelled, progress));
             }
             else
             {
-                const auto& moves = hit.position->moves;
+                std::vector<const bookminer::MoveInfo*> moves;
+                moves.reserve(hit.position->moves.size());
+                for (const auto& move : hit.position->moves) moves.push_back(&move);
+                std::stable_sort(moves.begin(), moves.end(), [](const auto* lhs, const auto* rhs) {
+                    if (lhs->eval != rhs->eval) return lhs->eval > rhs->eval;
+                    return lhs->depth < rhs->depth;
+                });
                 for (std::size_t i = 0; i < std::min(moves.size(), min_depths.size()); ++i)
                 {
-                    if (static_cast<int>(moves[i].depth) >= min_depths[i])
+                    progress(-1);
+                    const auto move = hit.flipped ? bookminer::flipped_move16(moves[i]->move16) : moves[i]->move16;
+                    if (static_cast<int>(moves[i]->depth) >= min_depths[i])
                         continue;
                     ++candidates;
-                    const auto move = hit.flipped ? bookminer::flipped_move16(moves[i].move16) : moves[i].move16;
-                    candidate_moves.insert(move);
+                    ++pv_walks;
                     const auto leaf = peta_pv_leaf_position_command(
-                        peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
+                        peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book, cancelled, progress, [&] { ++cycles; });
                     if (!leaf)
                         ++skipped_no_leaf;
                     else
-                        append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(*leaf));
+                        append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(*leaf, cancelled, progress));
                 }
             }
-            if (prefix_index < game_moves.size())
-            {
-                const auto move = bookminer::move16_from_usi(game_moves[prefix_index]);
-                if (candidate_moves.contains(move))
-                    continue;
-                ++game_candidates;
-                const auto leaf = peta_pv_leaf_position_command(
-                    peta_book, prefix_command, prefix_sfen_with_ply, move, max_book_ply, max_step, eval_limit, normal_book);
-                if (!leaf)
-                    ++skipped_no_leaf;
-                else
-                    append_unique_position_command(think_sfens, think_seen, unsolved_rebase_repeated_path(*leaf));
-            }
+
         }
     }
 
+    check_peta_next_cancel(cancelled);
     if (input.bad())
         throw std::runtime_error("failed to read think_unsolved_sfens file: " + input_path.string());
 
     const fs::path output_path = fs::path(BookDir) / ThinkSfensName;
     log_line("write book path = " + output_path.string() + ", len(think_sfens) = " + std::to_string(think_sfens.size()) + ".");
-    write_position_command_entries_file(
-        output_path,
-        make_position_command_entries(think_sfens, book_extend_ply, eval_limit, max_book_ply));
+    phase = "write";
+    write_position_file(output_path, [&](std::ostream& output) {
+        for (const auto& command : think_sfens)
+        {
+            progress(-1);
+            output << format_position_command_entry(PositionCommandEntry{command, book_extend_ply, eval_limit, max_book_ply}) << '\n';
+            ++written;
+        }
+        check_peta_next_cancel(cancelled);
+    });
 
     log_line("peta_unsolved done.");
     return "[PetaUnsolvedDone] path=" + output_path.string()
@@ -2979,7 +3048,9 @@ std::string peta_unsolved(
         + " input_games=" + std::to_string(input_games)
         + " processed_prefixes=" + std::to_string(processed_prefixes)
         + " candidates=" + std::to_string(candidates)
-        + " game_candidates=" + std::to_string(game_candidates)
+        + " game_positions=" + std::to_string(game_positions)
+        + " pv_walks=" + std::to_string(pv_walks)
+        + " cycles=" + std::to_string(cycles)
         + " stopped_by_eval_limit=" + std::to_string(stopped_by_eval_limit)
         + " skipped_by_ply=" + std::to_string(skipped_by_ply)
         + " missing_peta=" + std::to_string(missing_peta)
@@ -4532,7 +4603,7 @@ public:
         return running_.load();
     }
 
-    bool start(std::function<std::string()> command, bool cancellable_next = false)
+    bool start(std::function<std::string()> command, bool cancellable_next = false, bool cancellable_unsolved = false)
     {
         if (running_.load())
             return false;
@@ -4541,8 +4612,9 @@ public:
 
         cancelled_ = false;
         cancellable_next_ = cancellable_next;
+        cancellable_unsolved_ = cancellable_unsolved;
         running_ = true;
-        thread_ = std::thread([this, command = std::move(command)] {
+        thread_ = std::thread([this, command = std::move(command), cancellable_unsolved] {
             std::string completion;
             try
             {
@@ -4550,13 +4622,14 @@ public:
             }
             catch (const PetaNextCancelled&)
             {
-                completion = "[PetaNextCancelled]";
+                completion = cancellable_unsolved ? "[PetaUnsolvedCancelled]" : "[PetaNextCancelled]";
             }
             catch (const std::exception& ex)
             {
                 completion = std::string("Exception : peta command failed: ") + ex.what();
             }
             cancellable_next_ = false;
+            cancellable_unsolved_ = false;
             running_ = false;
             completion_logger_(completion);
         });
@@ -4577,12 +4650,22 @@ public:
         return true;
     }
 
+    bool cancel_unsolved()
+    {
+        if (!running_.load() || !cancellable_unsolved_.load()) return false;
+        cancelled_ = true;
+        return true;
+    }
+
+    bool cancel_any() { return cancel_next() || cancel_unsolved(); }
+
     const std::atomic<bool>* cancellation_flag() const { return &cancelled_; }
 
 private:
     std::function<void(const std::string&)> completion_logger_;
     std::atomic<bool> running_{false};
     std::atomic<bool> cancellable_next_{false};
+    std::atomic<bool> cancellable_unsolved_{false};
     std::atomic<bool> cancelled_{false};
     std::thread thread_;
 };
@@ -4645,6 +4728,7 @@ void print_help()
     log_line("  ! : quit without saving");
     log_line("  W : write book backup        , w (ply_limit)");
     log_line("  cancel-manual-backup : cancel the running manual backup");
+    log_line("  cancel-peta-unsolved : cancel the running peta unsolved");
     log_line("  E : enqueue positions        , e");
     log_line("  EB: enqueue branch positions , eb branch_width branch_depth");
     log_line("  T : think positions          , t (eval_limit) (max_book_ply) (think_command_ply)");
@@ -4790,7 +4874,7 @@ int main(int argc, char* argv[])
             if (!std::getline(std::cin, line))
             {
                 peta_book_read_job.cancel_shock();
-                peta_command_job.cancel_next();
+                peta_command_job.cancel_any();
                 // The backup worker can still access the autosave service.  Join it
                 // before local objects are destroyed on EOF, as in q/! handling.
                 concurrent_manual_backup.join();
@@ -4824,6 +4908,11 @@ int main(int argc, char* argv[])
                 if (!peta_command_job.cancel_next())
                     log_line("[PetaNextCancelIgnored] no peta next is running");
             }
+            else if (command == "cancel-peta-unsolved")
+            {
+                if (!peta_command_job.cancel_unsolved())
+                    log_line("[PetaUnsolvedCancelIgnored] no peta unsolved is running");
+            }
             else if (command == "cancel-peta-shock")
             {
                 if (!peta_book_read_job.cancel_shock())
@@ -4833,7 +4922,7 @@ int main(int argc, char* argv[])
             {
                 log_line("quit");
                 peta_book_read_job.cancel_shock();
-                if (peta_command_job.cancel_next())
+                if (peta_command_job.cancel_any())
                     peta_command_job.join();
                 concurrent_manual_backup.join();
                 const auto before_revision = book.revision();
@@ -4855,7 +4944,7 @@ int main(int argc, char* argv[])
             {
                 log_line("quit without saving");
                 peta_book_read_job.cancel_shock();
-                if (peta_command_job.cancel_next())
+                if (peta_command_job.cancel_any())
                     peta_command_job.join();
                 concurrent_manual_backup.join();
                 if (auto_save_service)
@@ -5380,6 +5469,7 @@ int main(int argc, char* argv[])
                 if (!peta_command_job.start([
                         &peta_book,
                         &book,
+                        &peta_command_job,
                         min_depths,
                         command_max_book_ply,
                         max_step,
@@ -5393,8 +5483,9 @@ int main(int argc, char* argv[])
                             max_step,
                             book_extend_ply,
                             eval_limit,
-                            &book);
-                    }))
+                            &book,
+                            peta_command_job.cancellation_flag());
+                    }, false, true))
                 {
                     log_line("Error : peta command is running. wait for peta command completion.");
                 }
@@ -5480,7 +5571,7 @@ int main(int argc, char* argv[])
     {
         log_line(std::string("Exception : ") + ex.what());
         peta_book_read_job.cancel_shock();
-        peta_command_job.cancel_next();
+        peta_command_job.cancel_any();
         concurrent_manual_backup.join();
         peta_book_read_job.join();
         peta_command_job.join();

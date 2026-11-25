@@ -42,6 +42,20 @@ int main(int argc, char** argv)
         job.join();
         if (running_when_notified || completion.find("Exception : peta command failed") != 0)
             throw std::runtime_error("peta failure reported before command became idle");
+        if (!job.start([&job] {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                while (!job.cancellation_flag()->load() && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::yield();
+                check_peta_next_cancel(job.cancellation_flag());
+                throw std::runtime_error("unsolved cancellation was not delivered");
+                return std::string();
+            }, false, true))
+            throw std::runtime_error("could not start unsolved cancellation test");
+        if (job.cancel_next() || !job.cancel_unsolved())
+            throw std::runtime_error("peta next and unsolved cancellations are not independent");
+        job.join();
+        if (running_when_notified || completion != "[PetaUnsolvedCancelled]")
+            throw std::runtime_error("unsolved cancellation did not report completion");
     }
     {
         TaskQueue queue;
@@ -200,9 +214,11 @@ int main(int argc, char** argv)
         (void)peta_unsolved(second, {2, 1}, 200, 9999, std::nullopt, 400, &second);
         std::ifstream second_result("book/think_sfens.txt");
         const std::string second_text((std::istreambuf_iterator<char>(second_result)), {});
-        if (second_text.find("startpos moves 2g2f") == std::string::npos
-            || second_text.find("startpos moves 7g7f") != std::string::npos)
-            throw std::runtime_error("unsolved eval cutoff did not respect best move depth");
+        if (!second_text.empty())
+            throw std::runtime_error("unsolved game cutoff ignored normal eval at positive peta depth");
+        const auto second_root = second.find_position_copy(bookminer::StartSfenPly1);
+        if (!second_root || unsolved_normal_cut_by_eval_limit(bookminer::StartSfen, &*second_root, 400, &second))
+            throw std::runtime_error("unsolved PV cutoff ignored positive peta depth");
         second_result.close();
         bookminer::BookStore seventh;
         seventh.merge_position(bookminer::StartSfenPly1, 1, {
@@ -245,6 +261,178 @@ int main(int argc, char** argv)
         if (repeated_text.find(reachable) == std::string::npos)
             throw std::runtime_error("unsolved emitted an unreachable path after repetition");
         repeated_result.close();
+        // Ranked PVs reach their leaves at the depths recorded by peta shock.
+        bookminer::BookStore bounded;
+        const std::vector<std::string> roots = {"7g7f", "2g2f", "6g6f", "1g1f"};
+        std::vector<bookminer::MoveInfo> root_moves;
+        const std::vector<int> bounds = {10, 8, 6, 4};
+        for (std::size_t j = 0; j < roots.size(); ++j)
+            root_moves.push_back({bookminer::move16_from_usi(roots[j]), static_cast<std::int16_t>(100 - j),
+                                  static_cast<std::uint16_t>(bounds[j] - 1)});
+        bounded.merge_position(bookminer::StartSfenPly1, 1, root_moves);
+        for (std::size_t root_index = 0; root_index < roots.size(); ++root_index)
+        {
+            const auto& root_move = roots[root_index];
+            auto b = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+            b.push_usi(root_move);
+            int remaining = bounds[root_index] - 1;
+            for (const auto* move : {"3c3d", "3g3f", "8c8d", "4g4f", "8d8e", "5g5f", "9c9d", "9g9f", "1c1d", "4i3h", "7c7d"})
+            {
+                if (remaining-- == 0) break;
+                bounded.merge_position(b.sfen_with_ply(), static_cast<std::uint16_t>(b.ply()),
+                                       {{bookminer::move16_from_usi(move), 0, 0}});
+                b.push_usi(move);
+            }
+        }
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos\n"; }
+        (void)peta_unsolved(bounded, {10, 8, 6, 4}, 200, 99999, 1, 400);
+        std::ifstream bounded_result("book/think_sfens.txt");
+        std::string bounded_line;
+        const std::vector<std::size_t> expected_lengths = {10, 8, 6, 4};
+        std::size_t bounded_index = 0;
+        while (std::getline(bounded_result, bounded_line))
+        {
+            const auto entry = parse_position_command_entry(bounded_line);
+            const auto parsed = bookminer::parse_position_command(entry.position_command);
+            if (bounded_index >= expected_lengths.size() || parsed.moves.size() != expected_lengths[bounded_index++])
+                throw std::runtime_error("unsolved did not reach the expected ranked PV leaf");
+        }
+        if (bounded_index != expected_lengths.size())
+            throw std::runtime_error("unsolved lost a ranked depth-limited PV");
+        bounded_result.close();
+
+        bookminer::BookStore enough_depth;
+        enough_depth.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 0, 11}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f\n"; }
+        const auto enough_summary = peta_unsolved(enough_depth, {10}, 200, 99999, 1, 400);
+        if (enough_summary.find("pv_walks=0") == std::string::npos)
+            throw std::runtime_error("unsolved followed a game move whose peta depth was already sufficient");
+
+        // A long normal-DB operation may hold its mutex. Cancellation must not wait for it.
+        bookminer::BookStore busy_normal;
+        std::mt19937 lock_rng(127);
+        auto lock_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        int lock_ply = 0;
+        while (busy_normal.size() < bookminer::BookWriteProgressInterval + 1)
+        {
+            auto moves = lock_board.legal_moves();
+            if (moves.empty() || lock_ply >= 140)
+            {
+                lock_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+                lock_ply = 0;
+                continue;
+            }
+            const auto& move = moves[lock_rng() % moves.size()];
+            busy_normal.merge_position(lock_board.sfen_with_ply(), static_cast<std::uint16_t>(lock_board.ply()),
+                                       {{bookminer::move16_from_usi(move), 0, 0}});
+            lock_board.push_usi(move);
+            ++lock_ply;
+        }
+        struct LockTestState { std::atomic<bool> locked{false}, release{false}; } lock_state;
+        std::atomic<bool> save_failed{false};
+        const auto lock_file = directory / "normal-lock-test.db";
+        auto save_progress = +[](bookminer::BookProgressKind kind, std::size_t, std::optional<std::size_t>,
+                                 const fs::path&, void* user) {
+            auto& state = *static_cast<LockTestState*>(user);
+            if (kind == bookminer::BookProgressKind::Progress && !state.locked.exchange(true))
+                while (!state.release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        };
+        std::thread saver([&] {
+            try { busy_normal.save_yaneuraou_book(lock_file, std::nullopt, save_progress, &lock_state); }
+            catch (...) { save_failed = true; }
+        });
+        auto wait_flag = [](const std::atomic<bool>& flag) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!flag.load() && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return flag.load();
+        };
+        const bool save_locked = wait_flag(lock_state.locked);
+        std::atomic<bool> normal_cancel{false}, lookup_waiting{false}, lookup_done{false}, lookup_cancelled{false};
+        std::thread lookup([&] {
+            try {
+                (void)unsolved_normal_cut_by_eval_limit(bookminer::StartSfen, nullptr, 400, &busy_normal,
+                                                        &normal_cancel, [&](int) { lookup_waiting = true; });
+            } catch (const PetaNextCancelled&) { lookup_cancelled = true; }
+            lookup_done = true;
+        });
+        const bool observed_wait = wait_flag(lookup_waiting);
+        normal_cancel = true;
+        const bool cancelled_before_unlock = wait_flag(lookup_done);
+        lock_state.release = true;
+        lookup.join();
+        saver.join();
+        std::filesystem::remove(lock_file);
+        if (!save_locked || save_failed || !observed_wait || !cancelled_before_unlock || !lookup_cancelled)
+            throw std::runtime_error("unsolved could not cancel while normal book was locked");
+
+        bookminer::BookStore tied;
+        auto tied_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        tied.merge_position(tied_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 0, 1}});
+        tied_board.push_usi("7g7f");
+        tied.merge_position(tied_board.sfen_with_ply(), 2, {
+            {bookminer::move16_from_usi("3c3d"), -10, 5},
+            {bookminer::move16_from_usi("8c8d"), -10, 0}});
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos\n"; }
+        (void)peta_unsolved(tied, {10}, 200, 99999, 1, 400);
+        std::ifstream tied_result("book/think_sfens.txt");
+        const std::string tied_text((std::istreambuf_iterator<char>(tied_result)), {});
+        if (tied_text.find("startpos moves 7g7f 8c8d,") == std::string::npos
+            || tied_text.find("startpos moves 7g7f 3c3d,") != std::string::npos)
+            throw std::runtime_error("unsolved did not choose the shortest equal-score best PV");
+        tied_result.close();
+        bookminer::BookStore tied_root;
+        tied_root.merge_position(bookminer::StartSfenPly1, 1, {
+            {bookminer::move16_from_usi("7g7f"), 100, 11},
+            {bookminer::move16_from_usi("2g2f"), 100, 0}});
+        (void)peta_unsolved(tied_root, {10}, 200, 99999, 1, 400);
+        std::ifstream tied_root_result("book/think_sfens.txt");
+        const std::string tied_root_text((std::istreambuf_iterator<char>(tied_root_result)), {});
+        if (tied_root_text.find("startpos moves 2g2f,") == std::string::npos
+            || tied_root_text.find("startpos moves 7g7f,") != std::string::npos)
+            throw std::runtime_error("unsolved ranked equal-score moves by the wrong depth");
+        tied_root_result.close();
+
+        bookminer::BookStore tied_normal;
+        tied_normal.merge_position(bookminer::StartSfenPly1, 1, {{bookminer::move16_from_usi("7g7f"), 401, 20}});
+        const bookminer::PositionInfo tied_cutoff{1, {
+            {bookminer::move16_from_usi("7g7f"), 100, 11},
+            {bookminer::move16_from_usi("2g2f"), 100, 0}}};
+        if (!unsolved_normal_cut_by_eval_limit(bookminer::StartSfen, &tied_cutoff, 400, &tied_normal))
+            throw std::runtime_error("unsolved eval cutoff ignored the shortest equal-score best move");
+
+        bookminer::BookStore sufficient_line;
+        auto sufficient_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"7g7f", "3c3d", "2g2f", "8c8d", "2f2e"})
+        {
+            sufficient_line.merge_position(sufficient_board.sfen_with_ply(), static_cast<std::uint16_t>(sufficient_board.ply()),
+                                           {{bookminer::move16_from_usi(move), 0, 11}});
+            sufficient_board.push_usi(move);
+        }
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos moves 7g7f 3c3d 2g2f 8c8d\n"; }
+        const auto sufficient_summary = peta_unsolved(sufficient_line, {10}, 200, 99999, 1, 400);
+        if (sufficient_summary.find("processed_prefixes=5") == std::string::npos
+            || sufficient_summary.find("pv_walks=0") == std::string::npos)
+            throw std::runtime_error("unsolved failed to visit a game line without redundant PV walks");
+
+        bookminer::BookStore game_peta, game_normal;
+        auto game_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        game_peta.merge_position(game_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 0, 11}});
+        game_normal.merge_position(game_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 0, 20}});
+        game_board.push_usi("7g7f");
+        game_peta.merge_position(game_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), 0, 11}});
+        game_normal.merge_position(game_board.sfen_with_ply(), 2, {{bookminer::move16_from_usi("3c3d"), -401, 20}});
+        { std::ofstream out("book/think_unsolved_sfens.txt");
+          out << "startpos moves 7g7f 7g7f\nstartpos moves 2g2f\n"; }
+        const auto game_cutoff = peta_unsolved(game_peta, {10}, 200, 99999, 1, 400, &game_normal);
+        std::ifstream game_cutoff_result("book/think_sfens.txt");
+        const std::string game_cutoff_text((std::istreambuf_iterator<char>(game_cutoff_result)), {});
+        if (game_cutoff.find("input_games=2 processed_prefixes=4") == std::string::npos
+            || game_cutoff_text.find("startpos moves 2g2f,") == std::string::npos
+            || game_cutoff_text.find("startpos moves 7g7f") != std::string::npos)
+            throw std::runtime_error("unsolved did not stop the current game at eval limit");
+        game_cutoff_result.close();
+
         bookminer::BookStore early_cutoff;
         early_cutoff.merge_position(bookminer::StartSfenPly1, 1, {
             {bookminer::move16_from_usi("7g7f"), 500, 0}});
@@ -262,6 +450,49 @@ int main(int argc, char** argv)
         if (ply_text.rfind("startpos,", 0) != 0)
             throw std::runtime_error("unsolved did not stop before invalid moves after max book ply");
         ply_result.close();
+        bookminer::BookStore cycle;
+        auto cycle_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
+        for (const auto* move : {"5i5h", "5a5b", "5h5i", "5b5a"})
+        {
+            cycle.merge_position(cycle_board.sfen_with_ply(), static_cast<std::uint16_t>(cycle_board.ply()),
+                                 {{bookminer::move16_from_usi(move), 0, 1}});
+            cycle_board.push_usi(move);
+        }
+        int cycle_steps = 0;
+        if (peta_pv_leaf_position_command(cycle, "startpos", bookminer::StartSfenPly1,
+                                         bookminer::move16_from_usi("5i5h"), 200, 99999,
+                                         std::nullopt, nullptr, nullptr, [&](int) { ++cycle_steps; })
+            || cycle_steps > 5)
+            throw std::runtime_error("unsolved PV cycle did not terminate");
+        std::atomic<bool> cancel_pv{false};
+        bool pv_interrupted = false;
+        try {
+            (void)peta_pv_leaf_position_command(cycle, "startpos", bookminer::StartSfenPly1,
+                bookminer::move16_from_usi("5i5h"), 200, 99999, std::nullopt, nullptr, &cancel_pv,
+                [&](int step) { if (step >= 2) cancel_pv = true; });
+        } catch (const PetaNextCancelled&) { pv_interrupted = true; }
+        if (!pv_interrupted) throw std::runtime_error("unsolved did not cancel inside a PV");
+        { std::ofstream out("book/think_unsolved_sfens.txt"); out << "startpos\n"; }
+        const auto cycle_summary = peta_unsolved(cycle, {10}, 200, 99999, 1, 400);
+        if (cycle_summary.find("cycles=1") == std::string::npos)
+            throw std::runtime_error("unsolved did not report the cyclic PV");
+        std::atomic<bool> cancel_rebase{false};
+        bool rebase_interrupted = false;
+        try {
+            (void)unsolved_rebase_repeated_path("startpos moves 5i5h 5a5b 5h5i 5b5a", &cancel_rebase,
+                                                [&](int) { cancel_rebase = true; });
+        } catch (const PetaNextCancelled&) { rebase_interrupted = true; }
+        if (!rebase_interrupted) throw std::runtime_error("unsolved did not cancel while processing a game path");
+        { std::ofstream out("book/think_sfens.txt"); out << "previous\n"; }
+        std::atomic<bool> cancel_unsolved{true};
+        bool unsolved_interrupted = false;
+        try { (void)peta_unsolved(cycle, {10}, 200, 9999, 1, 400, nullptr, &cancel_unsolved); }
+        catch (const PetaNextCancelled&) { unsolved_interrupted = true; }
+        std::ifstream interrupted_result("book/think_sfens.txt");
+        const std::string interrupted_text((std::istreambuf_iterator<char>(interrupted_result)), {});
+        if (!unsolved_interrupted || interrupted_text != "previous\n")
+            throw std::runtime_error("unsolved cancellation damaged existing output");
+        interrupted_result.close();
         bookminer::BookStore pv;
         auto pv_board = bookminer::SfenPosition::from_sfen(bookminer::StartSfenPly1);
         pv.merge_position(pv_board.sfen_with_ply(), 1, {{bookminer::move16_from_usi("7g7f"), 20, 2}});

@@ -313,6 +313,14 @@ class CppIntegrationTest(unittest.TestCase):
         subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(test_dir), '-p', 'test_peta_next_cancel.py'],
                        env=env, check=True, capture_output=True, text=True, timeout=60)
 
+    def test_cpp_peta_unsolved_cancel_and_restart(self):
+        env = os.environ.copy()
+        env['BOOKMINER_TEST_BINARY'] = str(self.binary)
+        test_dir = ROOT.parents[0] / 'BookMiner' / 'tests'
+        subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(test_dir),
+                        '-p', 'test_peta_unsolved_cancel.py'], env=env, check=True,
+                       capture_output=True, text=True, timeout=70)
+
     def test_job_pause_resume_and_delete_with_running_engine(self):
         import json
         try:

@@ -77,7 +77,7 @@ PETA_DEFAULT_INF_EVAL_DIFF = 99999
 PETA_DEFAULT_MAX_STEP = 9999
 DEFAULT_STEP2_EVAL_DIFF = 30
 DEFAULT_STEP2_MAX_STEP = 99999
-PETA_UNSOLVED_PROGRESS_INTERVAL = 100000
+PETA_UNSOLVED_PROGRESS_INTERVAL = 2.0
 PETA_OPPONENT_PROGRESS_INTERVAL = 100000
 PETA_OPPONENT_DEFAULT_EVAL_DIFF = 0
 PETA_REJOIN_EVAL_DROP_DISABLED = -9999
@@ -1033,11 +1033,14 @@ def check_peta_next_cancel(cancel:Event|None):
     if cancel is not None and cancel.is_set():
         raise PetaNextCancelled()
 
-def write_position_command_entries(path:str, entries:dict[PositionStr, PositionCommandEntry], cancel:Event|None = None):
+def write_position_command_entries(path:str, entries:dict[PositionStr, PositionCommandEntry], cancel:Event|None = None,
+                                   on_written:Callable[[], None]|None = None):
     with atomic_position_output(path) as w:
         for entry in entries.values():
             check_peta_next_cancel(cancel)
             w.write(format_position_command_entry(entry) + '\n')
+            if on_written is not None:
+                on_written()
         check_peta_next_cancel(cancel)
 
 
@@ -3804,19 +3807,47 @@ def peta_rejoin(
     )
 
 
-def unsolved_normal_cut_by_eval_limit(sfen:Sfen, peta_position:PositionInfo|None,
-                                      eval_limit:int|None, normal_book:Book|None)->bool:
-    # peta unsolvedはPV・depthをpeta DBだけで決める。通常DBはeval_limit判定だけに使う。
+def unsolved_ranked_moves(position:PositionInfo)->list[MoveInfo]:
+    # 同評価ならdepthの短い手を優先し、同depthなら元の順序を保つ。
+    return sorted(position.moveinfos,
+                  key=lambda move: (-(move.eval if isinstance(move.eval, int) else float('-inf')), move.depth))
+
+
+def unsolved_best_move(position:PositionInfo)->MoveInfo:
+    return max(position.moveinfos,
+               key=lambda move: (move.eval if isinstance(move.eval, int) else float('-inf'), -move.depth))
+
+
+def unsolved_normal_eval_exceeds(sfen:Sfen, eval_limit:int|None, normal_book:Book|None,
+                                 cancel:Event|None = None, progress:Callable[[int], None]|None = None)->bool:
     if eval_limit is None or normal_book is None:
         return False
-    if peta_position is not None and peta_position.moveinfos and peta_position.moveinfos[0].depth != 0:
-        return False
-    with normal_book.lock:
+    waited = False
+    while not normal_book.lock.acquire(timeout=0.01):
+        check_peta_next_cancel(cancel)
+        waited = True
+        if progress is not None:
+            progress(-2)
+    try:
+        check_peta_next_cancel(cancel)
+        if waited and progress is not None:
+            progress(-3)
         position, _ = find_considered_book_position_with_flip(normal_book, sfen)
         if position is None:
             return False
         values = [move.eval for move in position.moveinfos if isinstance(move.eval, int)]
         return bool(values) and abs(max(values)) > eval_limit
+    finally:
+        normal_book.lock.release()
+
+
+def unsolved_normal_cut_by_eval_limit(sfen:Sfen, peta_position:PositionInfo|None,
+                                      eval_limit:int|None, normal_book:Book|None, cancel:Event|None = None,
+                                      progress:Callable[[int], None]|None = None)->bool:
+    # PV上ではpetaの最善手がdepth 0のときだけ通常DBの評価値を判定する。
+    if peta_position is not None and peta_position.moveinfos and unsolved_best_move(peta_position).depth != 0:
+        return False
+    return unsolved_normal_eval_exceeds(sfen, eval_limit, normal_book, cancel, progress)
 
 
 def peta_pv_leaf_position_cmd(
@@ -3827,6 +3858,9 @@ def peta_pv_leaf_position_cmd(
     max_step:int = PETA_DEFAULT_MAX_STEP,
     eval_limit:int|None = None,
     normal_book:Book|None = None,
+    cancel:Event|None = None,
+    progress:Callable[[int], None]|None = None,
+    on_cycle:Callable[[], None]|None = None,
 )->PositionStr|None:
     """
     peta DBだけでbest PVを辿る。通常DBはeval_limit判定にだけ使う。
@@ -3851,25 +3885,29 @@ def peta_pv_leaf_position_cmd(
     step = 1 if first_move is not None else 0
 
     while True:
+        check_peta_next_cancel(cancel)
+        if progress is not None:
+            progress(step)
         current_sfen, current_ply = trim_sfen_ply(next_sfen_with_ply)
         if current_ply >= max_book_ply:
             return None
 
         current_sfen_f = flipped_sfen(current_sfen)
         if current_sfen in visited or current_sfen_f in visited:
+            if on_cycle is not None:
+                on_cycle()
             return None
         visited.add(current_sfen)
 
         position_info, flipped_bookhit = find_peta_position_with_flip(peta_book, current_sfen)
-        if unsolved_normal_cut_by_eval_limit(current_sfen, position_info, eval_limit, normal_book):
+        if unsolved_normal_cut_by_eval_limit(current_sfen, position_info, eval_limit, normal_book, cancel, progress):
             return None
         if position_info is None or not position_info.moveinfos:
             return leaf_position_cmd
 
-        best = position_info.moveinfos[0]
+        best = unsolved_best_move(position_info)
         if step >= max_step:
             return None
-
         move = moveinfo_move_in_sfen_orientation(best, flipped_bookhit)
         board = cshogi.Board(next_sfen_with_ply)
         checked_push_usi(board, move, context=leaf_position_cmd)
@@ -3882,13 +3920,17 @@ def peta_pv_leaf_position_cmd(
         step += 1
 
 
-def unsolved_rebase_repeated_path(position_cmd:PositionStr)->PositionStr:
+def unsolved_rebase_repeated_path(position_cmd:PositionStr, cancel:Event|None = None,
+                                  progress:Callable[[int], None]|None = None)->PositionStr:
     """重複局面より後の候補は、その局面を開始点にして到達可能にする。"""
     sfen, moves = parse_position_string(position_cmd)
     board = cshogi.Board(sfen)
     seen = {trim_sfen(board.sfen())}
     rebased : PositionStr | None = None
     for move in moves:
+        check_peta_next_cancel(cancel)
+        if progress is not None:
+            progress(-1)
         # この手順は棋譜・PVを生成する際に合法性を検証済み。
         board.push_usi(move)
         key = trim_sfen(board.sfen())
@@ -3910,6 +3952,8 @@ def peta_unsolved(
     unsolved_sfens_path:str|None = None,
     eval_limit:int|None = None,
     normal_book:Book|None = None,
+    cancel:Event|None = None,
+    before_done:Callable[[], None]|None = None,
 ):
     """棋譜の各局面で最低depthに満たない指し手のPV leafを列挙する。"""
     if not min_depths or any(depth < 0 for depth in min_depths):
@@ -3934,82 +3978,102 @@ def peta_unsolved(
     processed_prefixes = 0
     input_games = 0
     candidates = 0
-    game_candidates = 0
+    game_positions = 0
+    pv_walks = 0
+    cycles = 0
     stopped_by_eval_limit = 0
     skipped_by_ply = 0
     missing_peta = 0
     skipped_no_leaf = 0
+    input_lines = 0
+    current_pv_step = 0
+    written = 0
+    phase = "scan"
+    started = last_progress = time.monotonic()
+    def progress(pv_step:int = -1):
+        nonlocal last_progress, current_pv_step, phase
+        check_peta_next_cancel(cancel)
+        if pv_step >= 0:
+            current_pv_step = pv_step
+        elif pv_step == -2:
+            phase = "normal_db_wait"
+        elif pv_step == -3:
+            phase = "scan"
+        now = time.monotonic()
+        if now - last_progress < PETA_UNSOLVED_PROGRESS_INTERVAL:
+            return
+        last_progress = now
+        print(f"[PetaUnsolvedProgress] phase={phase} lines={input_lines} games={input_games} "
+              f"prefixes={processed_prefixes} ranked_candidates={candidates} game_positions={game_positions} "
+              f"pv_walks={pv_walks} cycles={cycles} output={len(think_sfens)} written={written} pv_step={current_pv_step} elapsed_seconds={int(now - started)}")
+    print("[PetaUnsolvedProgress] phase=scan lines=0 games=0 prefixes=0 ranked_candidates=0 game_positions=0 pv_walks=0 cycles=0 output=0 written=0 pv_step=0 elapsed_seconds=0")
+    def on_cycle():
+        nonlocal cycles
+        cycles += 1
 
     with open(unsolved_sfens_path, 'r', encoding='utf-8-sig') as f:
         for line_no, line in enumerate(f, start=1):
+            input_lines = line_no
+            progress()
             position_line = line.strip()
             if not position_line or position_line.startswith('#'):
                 continue
 
             input_games += 1
-            _, game_moves = parse_position_string(position_line)
             for prefix_index, (prefix_position_cmd, prefix_sfen_with_ply) in enumerate(iter_position_prefixes(position_line)):
                 processed_prefixes += 1
-                if processed_prefixes % PETA_UNSOLVED_PROGRESS_INTERVAL == 0:
-                    print(
-                        f"unsolved progress prefixes = {processed_prefixes} , "
-                        f"think_sfens = {len(think_sfens)} , "
-                        f"stopped_by_eval_limit = {stopped_by_eval_limit} , "
-                        f"skipped_by_ply = {skipped_by_ply} , "
-                        f"missing_peta = {missing_peta}"
-                    )
+                if prefix_index > 0:
+                    game_positions += 1
+                current_pv_step = 0
+                progress()
 
                 prefix_sfen, prefix_ply = trim_sfen_ply(prefix_sfen_with_ply)
+                # 棋譜上の局面はpetaのdepthに関係なく通常DBの評価値で打ち切る。
+                if unsolved_normal_eval_exceeds(prefix_sfen, eval_limit, normal_book, cancel, progress):
+                    stopped_by_eval_limit += 1
+                    break
                 if prefix_ply >= max_book_ply:
                     skipped_by_ply += 1
                     break
 
                 position, flipped = find_peta_position_with_flip(peta_book, prefix_sfen)
-                candidate_moves : set[str] = set()
-                if unsolved_normal_cut_by_eval_limit(prefix_sfen, position, eval_limit, normal_book):
-                    stopped_by_eval_limit += 1
-                    break
                 if position is None or not position.moveinfos:
                     missing_peta += 1
-                    add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(prefix_position_cmd), book_extend_ply, eval_limit, max_book_ply)
+                    add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(prefix_position_cmd, cancel, progress), book_extend_ply, eval_limit, max_book_ply)
                 else:
-                    for moveinfo, minimum in zip(position.moveinfos, min_depths):
+                    for moveinfo, minimum in zip(unsolved_ranked_moves(position), min_depths):
+                        progress()
+                        move = moveinfo_move_in_sfen_orientation(moveinfo, flipped)
                         if moveinfo.depth >= minimum:
                             continue
                         candidates += 1
-                        move = moveinfo_move_in_sfen_orientation(moveinfo, flipped)
-                        candidate_moves.add(move)
+                        pv_walks += 1
                         leaf = peta_pv_leaf_position_cmd(
                             prefix_position_cmd, prefix_sfen_with_ply, move,
-                            max_book_ply, max_step, eval_limit, normal_book,
+                            max_book_ply, max_step, eval_limit, normal_book, cancel, progress, on_cycle,
                         )
                         if leaf is None:
                             skipped_no_leaf += 1
                         else:
-                            add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf), book_extend_ply, eval_limit, max_book_ply)
-                if prefix_index < len(game_moves):
-                    move = game_moves[prefix_index]
-                    if move in candidate_moves:
-                        continue
-                    game_candidates += 1
-                    leaf = peta_pv_leaf_position_cmd(
-                        prefix_position_cmd, prefix_sfen_with_ply, move,
-                        max_book_ply, max_step, eval_limit, normal_book,
-                    )
-                    if leaf is None:
-                        skipped_no_leaf += 1
-                    else:
-                        add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf), book_extend_ply, eval_limit, max_book_ply)
+                            add_position_command_entry(think_sfens, unsolved_rebase_repeated_path(leaf, cancel, progress), book_extend_ply, eval_limit, max_book_ply)
 
+    check_peta_next_cancel(cancel)
     path = os.path.join(BOOK_DIR, THINK_SFENS_NAME)
     print(f"write book path = {path}, len(think_sfens) = {len(think_sfens)}.")
-    write_position_command_entries(path, think_sfens)
+    phase = "write"
+    def on_written():
+        nonlocal written
+        written += 1
+        progress()
+    write_position_command_entries(path, think_sfens, cancel, on_written)
 
+    if before_done is not None:
+        before_done()
     print("peta_unsolved done.")
     print(
         f"[PetaUnsolvedDone] path={path} count={len(think_sfens)} "
         f"input_games={input_games} processed_prefixes={processed_prefixes} "
-        f"candidates={candidates} game_candidates={game_candidates} stopped_by_eval_limit={stopped_by_eval_limit} "
+        f"candidates={candidates} game_positions={game_positions} pv_walks={pv_walks} cycles={cycles} stopped_by_eval_limit={stopped_by_eval_limit} "
         f"skipped_by_ply={skipped_by_ply} missing_peta={missing_peta} "
         f"skipped_no_leaf={skipped_no_leaf}"
     )
@@ -4603,6 +4667,9 @@ def user_input(from_gui:bool = False):
     peta_next_cancel = Event()
     peta_next_active = Event()
     peta_next_thread : Thread|None = None
+    peta_unsolved_cancel = Event()
+    peta_unsolved_active = Event()
+    peta_unsolved_thread : Thread|None = None
     peta_shock_cancel = Event()
     peta_shock_active = Event()
     peta_shock_thread : Thread|None = None
@@ -4629,13 +4696,19 @@ def user_input(from_gui:bool = False):
                 else:
                     print('[PetaShockCancelIgnored] no peta shock is running')
                 continue
+            if i == 'cancel-peta-unsolved':
+                if peta_unsolved_active.is_set():
+                    peta_unsolved_cancel.set()
+                else:
+                    print('[PetaUnsolvedCancelIgnored] no peta unsolved is running')
+                continue
             if i == 'cancel-peta-next':
                 if peta_next_active.is_set():
                     peta_next_cancel.set()
                 else:
                     print('[PetaNextCancelIgnored] no peta next is running')
                 continue
-            if (peta_next_active.is_set()
+            if ((peta_next_active.is_set() or peta_unsolved_active.is_set())
                     and i in {'p', 'pl', 'peta_shock_latest', 'r', 'pn', 'pr', 'pj', 'peta_rejoin',
                               'peta-rejoin', 'pu', 'peta_unsolved', 'po', 'peta_opponent'}):
                 print('Error : peta command is running. wait for peta command completion.')
@@ -4651,6 +4724,7 @@ def user_input(from_gui:bool = False):
                 print("  ! : quit without saving")
                 print("  W : write book backup        , w (ply_limit)")
                 print("  cancel-manual-backup : cancel the running manual backup")
+                print("  cancel-peta-unsolved : cancel the running peta unsolved")
                 print("  E : enqueue positions        , e")
                 print("  EB : enqueue branch positions , eb branch_width branch_depth")
                 print("  SD  : set defaults           , sd eval_diff max_step game_ply_limit book_extend_ply eval_limit")
@@ -4677,8 +4751,11 @@ def user_input(from_gui:bool = False):
                 print("quit")
                 engine_manager.global_settings.quit = True
                 peta_next_cancel.set()
+                peta_unsolved_cancel.set()
                 if peta_next_thread is not None:
                     peta_next_thread.join()
+                if peta_unsolved_thread is not None:
+                    peta_unsolved_thread.join()
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
@@ -4691,8 +4768,11 @@ def user_input(from_gui:bool = False):
                 print("quit without saving")
                 engine_manager.global_settings.quit = True
                 peta_next_cancel.set()
+                peta_unsolved_cancel.set()
                 if peta_next_thread is not None:
                     peta_next_thread.join()
+                if peta_unsolved_thread is not None:
+                    peta_unsolved_thread.join()
                 if peta_shock_thread is not None and peta_shock_thread.is_alive():
                     peta_shock_cancel.set()
                     peta_shock_thread.join()
@@ -5025,14 +5105,27 @@ def user_input(from_gui:bool = False):
                 elif eval_limit < 0:
                     print("Error : eval_limit must be non-negative integer.")
                 else:
-                    peta_unsolved(
-                        min_depths,
-                        max_book_ply,
-                        max_step,
-                        book_extend_ply,
-                        eval_limit=eval_limit,
-                        normal_book=book,
-                    )
+                    peta_unsolved_cancel = Event()
+                    peta_unsolved_active = Event()
+                    peta_unsolved_active.set()
+                    def run_peta_unsolved(depths=min_depths, ply=max_book_ply, steps=max_step,
+                                          extend=book_extend_ply, limit=eval_limit,
+                                          cancel=peta_unsolved_cancel, active=peta_unsolved_active):
+                        try:
+                            peta_unsolved(depths, ply, steps, extend, eval_limit=limit, normal_book=book,
+                                          cancel=cancel, before_done=active.clear)
+                        except PetaNextCancelled:
+                            active.clear()
+                            print('[PetaUnsolvedCancelled]')
+                        except Exception as exc:
+                            active.clear()
+                            print(f'Exception : peta command failed: {exc}')
+                    peta_unsolved_thread = Thread(target=run_peta_unsolved, daemon=True)
+                    try:
+                        peta_unsolved_thread.start()
+                    except Exception:
+                        peta_unsolved_active.clear()
+                        raise
 
             elif i == 'po':
                 # peta_opponent
@@ -5063,8 +5156,11 @@ def user_input(from_gui:bool = False):
         except EOFError:
             engine_manager.global_settings.quit = True
             peta_next_cancel.set()
+            peta_unsolved_cancel.set()
             if peta_next_thread is not None:
                 peta_next_thread.join()
+            if peta_unsolved_thread is not None:
+                peta_unsolved_thread.join()
             if peta_shock_thread is not None and peta_shock_thread.is_alive():
                 peta_shock_cancel.set()
                 peta_shock_thread.join()

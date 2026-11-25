@@ -577,6 +577,7 @@ class BookMinerGui(ttk.Frame):
         self.auto_tmp_seen: dict[tuple[str, bool, bool, bool], str] = {}
         self.busy_action: str | None = None
         self.peta_next_cancel_pending = False
+        self.peta_unsolved_cancel_pending = False
         self.peta_shock_cancel_pending = False
         self.enqueue_pending = False
         self.manual_backup_pending = False
@@ -1083,7 +1084,7 @@ class BookMinerGui(ttk.Frame):
             text=" peta unsolved",
             width=PETA_STEP_BUTTON_WIDTH,
             style=PETA_BUTTON_STYLE,
-            command=self.send_peta_unsolved,
+            command=self.on_peta_unsolved_button,
         )
         self.unsolved_button.grid(row=7, column=1, sticky="w", padx=(8, 0), pady=3)
         Tooltip(
@@ -1091,7 +1092,7 @@ class BookMinerGui(ttk.Frame):
             "入力: book/think_unsolved_sfens.txt（棋譜）\n"
             "出力: book/think_sfens.txt（掘る局面）\n"
             "min_depths は指し手の順位ごとの最低depthです（例: 10,8,6,4）。\n"
-            "`pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。",
+            "`pu min_depths max_step game_ply_limit book_extend_ply eval_limit` を送信します。実行中は cancel で中止できます。",
         )
         ttk.Label(commands, text="min_depths").grid(row=7, column=2, sticky="w", padx=(12, 6), pady=3)
         ttk.Entry(commands, textvariable=self.peta_unsolved_min_depths, width=12).grid(row=7, column=3, sticky="w", pady=3)
@@ -1249,6 +1250,7 @@ class BookMinerGui(ttk.Frame):
 
     def _reset_progress(self) -> None:
         self.peta_next_cancel_pending = False
+        self.peta_unsolved_cancel_pending = False
         self.peta_shock_cancel_pending = False
         self.backup_status.set("次回自動保存 -")
         self.auto_peta_status.set("次回自動peta shock -")
@@ -2167,9 +2169,23 @@ class BookMinerGui(ttk.Frame):
         if 'exception : peta shock failed' in lower:
             self.peta_shock_cancel_pending = False
             self.peta_makebook_active = False
+        if 'peta command failed' in lower:
+            self.peta_unsolved_cancel_pending = False
         if ('peta command failed' in lower or
                 re.search(r'command=(?:pn|peta_next)\s*:', lower) is not None):
             self.peta_next_cancel_pending = False
+        if '[PetaUnsolvedCancelIgnored]' in line:
+            self.peta_unsolved_cancel_pending = False
+            self._update_buttons()
+            return
+        if '[PetaUnsolvedCancelled]' in line:
+            self.peta_unsolved_cancel_pending = False
+            if self.auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_UNSOLVED:
+                self._abort_auto_enqueue('auto enqueue stopped: peta unsolved was cancelled.')
+            elif self.busy_action == 'manual_peta_unsolved':
+                self.busy_action = None
+                self._update_buttons()
+            return
         if '[PetaNextCancelIgnored]' in line:
             self.peta_next_cancel_pending = False
             self._update_buttons()
@@ -2341,6 +2357,7 @@ class BookMinerGui(ttk.Frame):
                 return
 
         if PETA_UNSOLVED_DONE_RE.search(line):
+            self.peta_unsolved_cancel_pending = False
             if self.busy_action == "manual_peta_unsolved":
                 self.busy_action = None
                 self._update_buttons()
@@ -2635,6 +2652,8 @@ class BookMinerGui(ttk.Frame):
             or "[petanextrefutationdone]" in lower
             or "[petarejoindone]" in lower
             or "[petaunsolveddone]" in lower
+            or "[petaunsolvedprogress]" in lower
+            or "[petaunsolvedcancelled]" in lower
             or "[petaopponentdone]" in lower
             or PETA_MAKEBOOK_CONTEXT_RE.search(line)
             or PETA_MAKEBOOK_LINE_RE.search(line)
@@ -3266,6 +3285,15 @@ class BookMinerGui(ttk.Frame):
             return None
         return str(parsed)
 
+    def on_peta_unsolved_button(self) -> None:
+        if self.busy_action == 'manual_peta_unsolved' or (
+                self.auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_UNSOLVED):
+            if not self.peta_unsolved_cancel_pending and self.send_command('cancel-peta-unsolved'):
+                self.peta_unsolved_cancel_pending = True
+                self._update_buttons()
+        else:
+            self.send_peta_unsolved()
+
     def send_peta_unsolved(self, auto: bool = False) -> bool:
         min_depths = self.peta_unsolved_min_depths.get().strip()
         parts = min_depths.split(',')
@@ -3470,7 +3498,12 @@ class BookMinerGui(ttk.Frame):
             (next_running and not self.peta_next_cancel_pending) or (not next_running and not peta_book_busy)) else "disabled")
         configure_state("refutation_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state("rejoin_button", "normal" if command_enabled and not peta_book_busy else "disabled")
-        configure_state("unsolved_button", "normal" if command_enabled and not peta_book_busy else "disabled")
+        unsolved_running = self.busy_action == "manual_peta_unsolved" or (
+            auto_enqueue_state == AUTO_ENQUEUE_NEXT and self.auto_current_step2 == AUTO_STEP2_PETA_UNSOLVED)
+        self.unsolved_button.configure(text="cancel" if unsolved_running else " peta unsolved")
+        configure_state("unsolved_button", "normal" if command_enabled and (
+            (unsolved_running and not self.peta_unsolved_cancel_pending) or
+            (not unsolved_running and not peta_book_busy)) else "disabled")
         configure_state("opponent_button", "normal" if command_enabled and not peta_book_busy else "disabled")
         configure_state(
             "enqueue_button",

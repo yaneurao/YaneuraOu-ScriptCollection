@@ -1265,6 +1265,22 @@ std::optional<PositionInfo> BookStore::find_position_copy(const PackedSfen& key)
     return *position;
 }
 
+bool BookStore::try_find_considered_position(const PackedSfen& key, std::optional<PositionInfo>& result) const
+{
+    std::unique_lock lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return false;
+    const auto* direct = find_position_locked(key);
+    if (direct && !direct->moves.empty())
+        result = *direct;
+    else
+    {
+        const auto* flipped = find_position_locked(key.flipped());
+        if (flipped && !flipped->moves.empty()) result = *flipped;
+        else result.reset();
+    }
+    return true;
+}
+
 bool BookStore::is_searching(const std::string& sfen, const std::string& flipped_sfen) const
 {
     const PackedSfen key = PackedSfen::from_sfen(sfen);
