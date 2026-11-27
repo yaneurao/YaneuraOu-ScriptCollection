@@ -1,4 +1,3 @@
-// doubleMargin/tripleMarginの計10係数はSPSA対象外。探索部の現行Stockfish値を使う。
 // Q8係数は256倍の整数。名前末尾Q8の項目には旧単位のparamsを使用しない。
 
 // #param FV_SCALE int 24 16 64 1 0.002
@@ -167,6 +166,17 @@
 #context Search_Extensions2
 
                 int corrValAdj   = std::abs(correctionValue) / 198368@{1,421180};
+
+#context Search_Extensions3
+
+                int doubleMargin = -2@ + 204@ * PvNode - 152@{0,372} * !ttCapture - corrValAdj
+                                 - 1175@ * ttMoveHistory / 114178 - (ss->ply > rootDepth) * 38@;
+
+#context Search_Extensions4
+
+                int tripleMargin = 70@ + 279@ * PvNode - 188@ * !ttCapture + 81@ * ss->ttPv - corrValAdj
+                                 - (ss->ply > rootDepth) * 43@;
+
 
 #context Search_Decrease_reduction_for_PvNodes_1 // search() Step 16.
 
@@ -421,6 +431,10 @@ int Search::YaneuraOuWorker::reduction(bool i, Depth d, int mn) const {
 
  #include "position.h"
 
+ #if !STOCKFISH
+ #include "evaluate.h"
+ #endif
+
 namespace YaneuraOu {
  #if !STOCKFISH
 using Eval::PieceValue;
@@ -429,6 +443,10 @@ using Eval::PieceValue;
 #add
 
  #include "position.h"
+
+ #if !STOCKFISH
+ #include "evaluate.h"
+ #endif
  #include "tune.h"
 
 namespace YaneuraOu {
