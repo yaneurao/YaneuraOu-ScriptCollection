@@ -41,7 +41,6 @@
 
 #context update_correction_history1 // update_correction_history()
 
-    shared.pawn_correction_entry(pos).pawn << bonus;
     shared.minor_piece_correction_entry(pos).minor << bonus * 150@ / 128;
     shared.nonpawn_correction_entry<WHITE>(pos).nonPawnWhite << bonus * nonPawnWeight / 128;
     shared.nonpawn_correction_entry<BLACK>(pos).nonPawnBlack << bonus * nonPawnWeight / 128;
