@@ -1,3 +1,6 @@
+// singularのdouble/tripleMargin係数はStockfish値と2026-11-28のparams値を含む範囲に制限する。
+// 大きく離れた側は、そのparams値を含む最小限の整数を端にする。
+// Search_Extensions3_1は整数評価値との比較に使う加算項なので、単独ではQ8化しない。
 // Q8係数は256倍の整数。名前末尾Q8の項目には旧単位のparamsを使用しない。
 
 // #param FV_SCALE int 24 16 64 1 0.002
@@ -169,13 +172,13 @@
 
 #context Search_Extensions3
 
-                int doubleMargin = -2@ + 204@ * PvNode - 152@{0,372} * !ttCapture - corrValAdj
-                                 - 1175@ * ttMoveHistory / 114178 - (ss->ply > rootDepth) * 38@;
+                int doubleMargin = -2@{-3,-1} + 204@{194,214} * PvNode - 152@{144,365} * !ttCapture - corrValAdj
+                                 - 1175@{632,1234} * ttMoveHistory / 114178 - (ss->ply > rootDepth) * 38@{36,62};
 
 #context Search_Extensions4
 
-                int tripleMargin = 70@ + 279@ * PvNode - 188@ * !ttCapture + 81@ * ss->ttPv - corrValAdj
-                                 - (ss->ply > rootDepth) * 43@;
+                int tripleMargin = 70@{66,95} + 279@{265,354} * PvNode - 188@{179,202} * !ttCapture + 81@{77,117} * ss->ttPv - corrValAdj
+                                 - (ss->ply > rootDepth) * 43@{41,48};
 
 
 #context Search_Decrease_reduction_for_PvNodes_1 // search() Step 16.
